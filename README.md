@@ -140,3 +140,7 @@ déposés dans `~/.config/florm/themes/` sont chargés au démarrage.
 - Pas de retour à la ligne automatique (soft wrap) ni de LSP (autocomplétion, aller à la définition).
 - Les caractères larges (CJK) peuvent être mal alignés.
 - Pas de sélecteur de fichiers natif : ouverture via un chemin (pré-rempli) ou l'arborescence.
+
+## Licence
+
+MIT — voir [LICENSE](LICENSE).

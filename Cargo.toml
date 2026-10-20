@@ -3,6 +3,8 @@ name = "florm"
 version = "0.1.0"
 edition = "2021"
 description = "Éditeur de texte léger et rapide inspiré de Sublime Text"
+license = "MIT"
+repository = "https://github.com/mva-odoo/florm"
 
 [dependencies]
 eframe = "0.29"
