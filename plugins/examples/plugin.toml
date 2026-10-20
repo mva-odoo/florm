@@ -1,0 +1,35 @@
+# Plugin d'exemple Florm — voir ../README.md pour l'API complète.
+name = "Exemples"
+
+[[commands]]
+title = "JSON : formater"
+run = "python3 -m json.tool --indent 2"
+input = "selection"          # selection | buffer | none (sélection vide => tout le fichier)
+output = "replace_selection" # replace_selection | replace_buffer | insert | panel | new_tab | none
+keys = "ctrl+alt+j"
+
+[[commands]]
+title = "Texte : inverser l'ordre des lignes"
+run = "python3 reverse_lines.py"
+input = "selection"
+output = "replace_selection"
+
+[[commands]]
+title = "Insérer la date"
+run = "date '+%Y-%m-%d'"
+input = "none"
+output = "insert"
+
+[[commands]]
+title = "Python : exécuter le fichier courant"
+run = "python3 \"$FLORM_FILE\""
+input = "none"
+output = "panel"
+keys = "f5"
+
+# Hook : formater automatiquement les fichiers Python à l'enregistrement (nécessite ruff).
+# [[hooks]]
+# event = "on_save"
+# extensions = ["py"]
+# run = "ruff format \"$FLORM_FILE\""
+# reload = true
