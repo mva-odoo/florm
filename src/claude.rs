@@ -33,8 +33,14 @@ pub enum Event {
     Tool { id: String, name: String, summary: String },
     /// The result of a tool.
     ToolResult { id: String, text: String, error: bool },
-    /// End of the answer: error or not, its cost in dollars.
-    Done { error: bool, text: String, cost: f64 },
+    /// End of the answer: error or not, its cost in dollars, the size of the model's context
+    /// window (tokens, 0: unknown).
+    Done { error: bool, text: String, cost: f64, window: u64 },
+    /// Tokens of the conversation the model read for its last message (its context).
+    Context(u64),
+    /// Use of the plan's quotas: (window "five_hour" / "seven_day", fraction used, reset time in
+    /// unix seconds).
+    Limits(Vec<(String, f32, i64)>),
     /// The process ended (its error output, if any).
     Exited(String),
 }
@@ -54,18 +60,44 @@ pub fn parse_line(line: &str) -> Vec<Event> {
             }
         }
         // what subagents write is left out (only their tool calls count)
-        Some("assistant") if v["parent_tool_use_id"].is_null() => v["message"]["content"]
-            .as_array()
-            .map(|a| {
-                a.iter()
-                    .filter_map(|c| match c["type"].as_str() {
-                        Some("text") => Some(Event::Text(s(&c["text"]))),
-                        Some("tool_use") => Some(Event::Tool { id: s(&c["id"]), name: s(&c["name"]), summary: tool_summary(&s(&c["name"]), &c["input"]) }),
-                        _ => None,
-                    })
-                    .collect()
-            })
-            .unwrap_or_default(),
+        Some("assistant") if v["parent_tool_use_id"].is_null() => {
+            let mut events: Vec<Event> = v["message"]["content"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|c| match c["type"].as_str() {
+                            Some("text") => Some(Event::Text(s(&c["text"]))),
+                            Some("tool_use") => Some(Event::Tool { id: s(&c["id"]), name: s(&c["name"]), summary: tool_summary(&s(&c["name"]), &c["input"]) }),
+                            _ => None,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let u = &v["message"]["usage"];
+            let tokens: u64 = ["input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens", "output_tokens"].iter().filter_map(|k| u[*k].as_u64()).sum();
+            if tokens > 0 {
+                events.push(Event::Context(tokens));
+            }
+            events
+        }
+        Some("rate_limit_event") => {
+            let windows = &v["rate_limit_info"]["unifiedWindows"];
+            let limits: Vec<(String, f32, i64)> = ["five_hour", "seven_day"]
+                .iter()
+                .filter_map(|k| {
+                    let w = &windows[*k];
+                    let used = w["utilization"].as_f64()?;
+                    // a fraction; a percentage in case the format changes
+                    let used = if used > 1.0 { used / 100.0 } else { used };
+                    Some((k.to_string(), used.clamp(0.0, 1.0) as f32, w["resetsAt"].as_i64().unwrap_or(0)))
+                })
+                .collect();
+            if limits.is_empty() {
+                Vec::new()
+            } else {
+                vec![Event::Limits(limits)]
+            }
+        }
         Some("user") => v["message"]["content"]
             .as_array()
             .map(|a| {
@@ -86,6 +118,7 @@ pub fn parse_line(line: &str) -> Vec<Event> {
             error: v["is_error"].as_bool().unwrap_or(false),
             text: s(&v["result"]),
             cost: v["total_cost_usd"].as_f64().unwrap_or(0.0),
+            window: v["modelUsage"].as_object().map_or(0, |m| m.values().filter_map(|u| u["contextWindow"].as_u64()).max().unwrap_or(0)),
         }],
         _ => Vec::new(),
     }
@@ -264,9 +297,16 @@ mod tests {
         assert_eq!(parse_line(u), vec![Event::ToolResult { id: "t1".into(), text: "ok".into(), error: true }]);
         assert_eq!(
             parse_line(r#"{"type":"result","subtype":"success","is_error":false,"result":"fini","total_cost_usd":0.012}"#),
-            vec![Event::Done { error: false, text: "fini".into(), cost: 0.012 }]
+            vec![Event::Done { error: false, text: "fini".into(), cost: 0.012, window: 0 }]
         );
         assert!(parse_line("pas du json").is_empty());
+        // usage: the context of the last message, the window of the model, the plan's quotas
+        let a = r#"{"type":"assistant","parent_tool_use_id":null,"message":{"content":[],"usage":{"input_tokens":2,"cache_creation_input_tokens":4005,"cache_read_input_tokens":3262,"output_tokens":4}}}"#;
+        assert_eq!(parse_line(a), vec![Event::Context(7273)]);
+        let r = r#"{"type":"result","is_error":false,"result":"ok","total_cost_usd":0.001,"modelUsage":{"claude-haiku":{"contextWindow":1000000}}}"#;
+        assert_eq!(parse_line(r), vec![Event::Done { error: false, text: "ok".into(), cost: 0.001, window: 1_000_000 }]);
+        let l = r#"{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","unifiedWindows":{"five_hour":{"utilization":0.8,"resetsAt":1792619400},"seven_day":{"utilization":0.5,"resetsAt":1792688400}}}}"#;
+        assert_eq!(parse_line(l), vec![Event::Limits(vec![("five_hour".into(), 0.8, 1792619400), ("seven_day".into(), 0.5, 1792688400)])]);
     }
 
     #[test]

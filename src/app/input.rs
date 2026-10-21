@@ -304,6 +304,22 @@ impl App {
                 }
             }
             NewTerminalTab => self.open_terminal_tab(),
+            TogglePanel => match self.bottom {
+                Some(_) => {
+                    self.bottom = None;
+                    self.focus_editor(ctx);
+                }
+                None => {
+                    let tab = self.last_bottom;
+                    self.bottom = Some(tab);
+                    match tab {
+                        BottomTab::Search => self.search.focus = true,
+                        BottomTab::Terminal => self.term.want_focus = true,
+                        BottomTab::Claude => self.claude.focus = true,
+                        _ => {}
+                    }
+                }
+            },
             ToggleTerminal => {
                 if self.bottom == Some(BottomTab::Terminal) {
                     self.bottom = None;
@@ -555,7 +571,7 @@ impl App {
                 self.set_status(format!("{} plugin(s) chargé(s)", self.plugins.len()));
             }
             CheckUpdate => self.check_update(true),
-            ShowGuide => self.open_view_tab(document::View::Help, "❓ Guide de Florm".into()),
+            ShowGuide => self.open_view_tab(document::View::Help, "Guide de Florm".into()),
             ShowWelcome => self.open_view_tab(document::View::Welcome, "Accueil".into()),
             InsertTemplate => self.open_overlay(Mode::Templates),
             OpenTemplatesFolder => {

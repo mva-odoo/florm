@@ -62,7 +62,8 @@ impl App {
         self.repos.clear();
         self.history = HistoryUi::default();
         self.tree = None;
-        self.index.files.clear();
+        self.index.files = Default::default();
+        self.index.file_items = None;
         self.git = GitUi::default();
         self.search.gen.store(u64::MAX, Ordering::SeqCst);
         self.search = self.fresh_search();
@@ -175,6 +176,30 @@ impl App {
         }
     }
 
+    /// A folder of the tree left out of the index (go to file, F12, find in files) or taken back:
+    /// an anchored pattern ("/odoo/16.0/") in the exclusions of the preferences.
+    pub(super) fn exclude_folder(&mut self, path: &Path, on: bool) {
+        let Some(root) = self.root.clone() else { return };
+        let Ok(rel) = path.strip_prefix(&root) else { return };
+        let pattern = format!("/{}/", rel.to_string_lossy().replace('\\', "/"));
+        let before = self.settings.clone();
+        if on {
+            if !self.settings.exclude.contains(&pattern) {
+                self.settings.exclude.push(pattern.clone());
+            }
+        } else {
+            self.settings.exclude.retain(|p| *p != pattern);
+        }
+        self.apply_settings_change(&before);
+        self.prefs.exclude = self.settings.exclude.join(", ");
+        let still = crate::walk::Exclusions::new(&root, &self.settings.exclude).excludes_here_or_above(path, true);
+        self.set_status(match (on, still) {
+            (true, _) => format!("{} exclu de l'index ({pattern})", rel.display()),
+            (false, false) => format!("{} remis dans l'index", rel.display()),
+            (false, true) => "Toujours exclu par une autre règle : Préférences → Avancé → Fichiers exclus".to_string(),
+        });
+    }
+
     pub(super) fn relocate_docs(&mut self, old: &Path, new: &Path) {
         for d in self.docs.iter_mut() {
             if let Some(p) = d.path.clone() {
@@ -207,6 +232,7 @@ impl App {
         let Some(root) = self.root.clone() else { return };
         self.index.files_at = Some(Instant::now());
         let ex = crate::walk::Exclusions::new(&root, &self.settings.exclude);
+        let current = self.index.files.clone();
         self.jobs.spawn(move || {
             let mut v = Vec::new();
             let walker = crate::walk::walker(&root, &ex, Vec::new()).build();
@@ -220,7 +246,16 @@ impl App {
                     }
                 }
             }
-            JobResult::FileIndex(root, v)
+            // sorted here: the same list compares equal (nothing to redo), and recent files are
+            // found by binary search
+            v.sort_unstable();
+            // a big project has close to a million files: compared, written for go to file and
+            // freed here rather than in the interface
+            if *current == v {
+                return JobResult::FileIndex(root, None);
+            }
+            let labels = v.iter().map(|p| p.to_string_lossy().into_owned()).collect();
+            JobResult::FileIndex(root, Some((v, labels)))
         });
     }
 }

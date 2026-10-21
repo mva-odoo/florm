@@ -194,12 +194,8 @@ impl App {
                             };
                             let active = shown && !special;
                             let error = d.diagnostics.iter().any(|g| g.severity == Severity::Error);
-                            let icon_name = match &d.path {
-                                Some(p) => p.file_name().map(|n| n.to_string_lossy().into_owned()),
-                                None if d.syntax == "Diff" => Some("x.diff".to_string()),
-                                None => Some(String::new()),
-                            };
-                            let (body, closed) = tab_widget(ui, &d.title(), icon_name.as_deref(), d.is_dirty(), active, error, &tc);
+                            let (icon, title) = doc_tab(d);
+                            let (body, closed) = tab_widget(ui, &title, icon, d.is_dirty(), active, error, &tc);
                             strip.1.push((body.rect, i));
                             if body.drag_started() {
                                 drag_start = Some(i);
@@ -222,7 +218,7 @@ impl App {
                         // the Git tab stays like a file tab (in the first panel when split)
                         if self.history.tab && pane.unwrap_or(0) == 0 {
                             let on = self.history.open && !split_on && !self.prefs.open;
-                            let (body, closed) = tab_widget(ui, "🔀 Historique Git", None, false, on, false, &tc);
+                            let (body, closed) = tab_widget(ui, "Historique Git", TabIcon::View(icons::ViewIcon::Git), false, on, false, &tc);
                             close_history = closed || body.middle_clicked();
                             show_history = body.clicked() && !closed;
                         }
@@ -230,8 +226,8 @@ impl App {
                             return;
                         }
                         if let Some(sp) = &self.split {
-                            let title = format!("✂ Découpage {}", sp.info.short);
-                            let (body, closed) = tab_widget(ui, &title, None, false, split_on, false, &tc);
+                            let title = format!("Découpage {}", sp.info.short);
+                            let (body, closed) = tab_widget(ui, &title, TabIcon::View(icons::ViewIcon::Split), false, split_on, false, &tc);
                             // the split stays in progress: × only switches away from it
                             if closed {
                                 activate = activate.or(Some(self.active));
@@ -241,7 +237,7 @@ impl App {
                             body.on_hover_text("Découpage en cours — « Terminer » ou « Annuler le découpage » dans l'onglet");
                         }
                         if self.prefs.open {
-                            let (_, closed) = tab_widget(ui, "⚙ Préférences", None, false, true, false, &tc);
+                            let (_, closed) = tab_widget(ui, "Préférences", TabIcon::View(icons::ViewIcon::Settings), false, true, false, &tc);
                             close_prefs = closed;
                         }
                     });
@@ -654,23 +650,24 @@ impl App {
             .width_range(150.0..=700.0)
             .frame(egui::Frame::none().fill(panel).inner_margin(egui::Margin { left: 10.0, right: 8.0, top: 4.0, bottom: 6.0 }))
             .show(ctx, |ui| {
-            // search and terminal at the bottom; projects are under Ctrl+Alt+P, git in its own view
+            // the views of the bottom panel, icons only: left click there, right click in the
+            // editor area; projects are under the folder name (Ctrl+Alt+P)
             egui::TopBottomPanel::bottom("sidebar_tools").frame(egui::Frame::none().inner_margin(egui::Margin { left: 0.0, right: 0.0, top: 6.0, bottom: 0.0 })).show_inside(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 2.0;
-                    let tools: [(Cmd, fn(&egui::Painter, egui::Pos2, Color32), &str); 2] = [
-                        (Cmd::FindInFiles, crate::icons::paint_search, "Rechercher dans le dossier"),
-                        (Cmd::ToggleTerminal, crate::icons::paint_terminal, "Terminal"),
-                    ];
-                    for (cmd, paint, tip) in tools {
-                        let (rect, r) = ui.allocate_exact_size(egui::vec2(28.0, 24.0), Sense::click());
-                        if r.hovered() {
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing.x = 0.0;
+                    for (tab, icon, label) in BottomTab::ALL {
+                        let (rect, r) = ui.allocate_exact_size(egui::vec2(26.0, 24.0), Sense::click());
+                        let on = self.bottom == Some(tab);
+                        if r.hovered() || on {
                             ui.painter().rect_filled(rect, 4.0, ui.visuals().widgets.hovered.weak_bg_fill);
                         }
-                        let c = if r.hovered() { ui.visuals().strong_text_color() } else { ui.visuals().weak_text_color() };
-                        paint(ui.painter(), rect.center(), c);
-                        if r.on_hover_text(format!("{tip}    {}", self.keymap.label(cmd))).clicked() {
-                            self.pending.push(cmd);
+                        let c = if r.hovered() || on { ui.visuals().strong_text_color() } else { ui.visuals().weak_text_color() };
+                        icons::paint_view(ui.painter(), rect.center(), icon, c);
+                        let r = r.on_hover_text(format!("{label}\n{}", BottomTab::hint(tab)));
+                        if r.clicked() {
+                            self.show_bottom(tab, true);
+                        } else if r.secondary_clicked() {
+                            self.show_big(tab);
                         }
                     }
                 });
@@ -680,7 +677,13 @@ impl App {
                     let active = self.docs.get(self.active).and_then(|d| d.path.clone());
                     let empty = HashMap::new();
                     let info = if self.settings.tree_git_info { &self.repo_info } else { &empty };
-                    tree_action = sidebar::show(ui, tree, active.as_deref(), &self.git.map, info, &mut self.tree_scroll, &mut self.tree_nav);
+                    let projects: Vec<(String, PathBuf)> = self.projects.iter().filter(|p| p.path.is_dir()).map(|p| (p.name.clone(), p.path.clone())).collect();
+                    if !self.tree_ex.as_ref().is_some_and(|(r, pats, _)| *r == tree.path && *pats == self.settings.exclude) {
+                        let ex = crate::walk::Exclusions::new(&tree.path, &self.settings.exclude);
+                        self.tree_ex = Some((tree.path.clone(), self.settings.exclude.clone(), ex));
+                    }
+                    let ex = &self.tree_ex.as_ref().expect("just set").2;
+                    tree_action = sidebar::show(ui, tree, &projects, ex, active.as_deref(), &self.git.map, info, &mut self.tree_scroll, &mut self.tree_nav);
                 }
                 None => {
                     ui.label("Aucun dossier ouvert.");
@@ -725,6 +728,9 @@ impl App {
             }
             TreeAction::Refresh => self.exec_refresh_tree(),
             TreeAction::Claude(p) => self.claude_attach_path(p),
+            TreeAction::SwitchProject(p) => self.switch_project(p),
+            TreeAction::Exclude(p, on) => self.exclude_folder(&p, on),
+            TreeAction::OpenFolder => self.pending.push(Cmd::OpenFolder),
         }
     }
 
@@ -763,6 +769,8 @@ impl App {
             Some(b) == default.as_deref() || b == "master" || b == "main" || b.trim_start_matches("saas-").split('.').all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
         });
 
+        // ⇱ / ⇲: the view moves between the editor area and the bottom panel
+        let (big, mut move_to) = (self.history.open, None);
         // --- branch, its upstream and the remote actions
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
@@ -815,6 +823,13 @@ impl App {
             }
             // the graph: repository, filter, branches shown
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if big {
+                    if ui.small_button("⇲ Panneau du bas").on_hover_text("Afficher Git dans le panneau du bas").clicked() {
+                        move_to = Some(false);
+                    }
+                } else if ui.small_button("⇱ Onglet").on_hover_text("Afficher Git en grand dans l'éditeur").clicked() {
+                    move_to = Some(true);
+                }
                 let h = &mut self.history;
                 if h.loading {
                     ui.spinner();
@@ -839,6 +854,11 @@ impl App {
             });
         });
 
+        match move_to {
+            Some(true) => self.show_big(BottomTab::Git),
+            Some(false) => self.show_bottom(BottomTab::Git, false),
+            None => {}
+        }
         // --- errors stay until dismissed (or until a later git command succeeds)
         if let Some((label, e)) = self.git.op_error.clone().or_else(|| self.git.error.clone().map(|e| ("status".into(), e))) {
             egui::Frame::none()
@@ -890,28 +910,78 @@ impl App {
         }
     }
 
+    /// Left click on a view (button of the sidebar, tab of the bottom panel): in the bottom panel,
+    /// taken out of the editor area if it was there; `toggle`: a click on the one shown hides it.
+    pub(super) fn show_bottom(&mut self, tab: BottomTab, toggle: bool) {
+        if toggle && self.bottom == Some(tab) {
+            self.bottom = None;
+            return;
+        }
+        let in_editor = |v: document::View| move |d: &Document| d.view == v;
+        let tab_of = match tab {
+            BottomTab::Search => self.docs.iter().position(in_editor(document::View::Search)),
+            BottomTab::Claude => self.docs.iter().position(in_editor(document::View::Claude)),
+            BottomTab::Pulls => self.docs.iter().position(in_editor(document::View::PullRequests)),
+            _ => None,
+        };
+        if let Some(i) = tab_of {
+            self.close_tab(i, true);
+        }
+        self.bottom = Some(tab);
+        match tab {
+            BottomTab::Search => self.search.focus = true,
+            BottomTab::Terminal => self.term.want_focus = true,
+            BottomTab::Claude => self.claude_prepare(),
+            BottomTab::Git => {
+                self.history.open = false;
+                self.git_view_load();
+            }
+            BottomTab::Pulls => self.pulls_load(),
+            BottomTab::Problems | BottomTab::Output => {}
+        }
+    }
+
+    /// Right click on a view: in the editor area, with all the room (problems and output only
+    /// exist in the bottom panel).
+    pub(super) fn show_big(&mut self, tab: BottomTab) {
+        match tab {
+            BottomTab::Search => self.open_search_tab(),
+            BottomTab::Terminal => self.open_terminal_tab(),
+            BottomTab::Claude => {
+                if self.bottom == Some(BottomTab::Claude) {
+                    self.bottom = None;
+                }
+                self.open_view_tab(document::View::Claude, "Claude".into());
+                self.claude_prepare();
+            }
+            BottomTab::Git => self.open_git_view(),
+            BottomTab::Pulls => self.open_pulls(),
+            BottomTab::Problems | BottomTab::Output => self.show_bottom(tab, false),
+        }
+    }
+
     pub(super) fn bottom_panel(&mut self, ctx: &egui::Context) {
-        egui::TopBottomPanel::bottom("bottom").resizable(true).default_height(230.0).height_range(80.0..=900.0).show(
+        if let Some(t) = self.bottom {
+            self.last_bottom = t;
+        }
+        // Claude, git and the pull requests need room for their bars and content
+        let min_h = if matches!(self.bottom, Some(BottomTab::Claude | BottomTab::Git | BottomTab::Pulls)) { 360.0 } else { 80.0 };
+        egui::TopBottomPanel::bottom("bottom").resizable(true).default_height(230.0).height_range(min_h..=900.0).show(
             ctx,
             |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 2.0;
                     let nd: usize = self.docs.iter().map(|d| d.diagnostics.len()).sum();
                     let problems = if nd > 0 { format!("Problèmes {nd}") } else { "Problèmes".to_string() };
-                    for (tab, label) in [
-                        (BottomTab::Search, "Recherche".to_string()),
-                        (BottomTab::Problems, problems),
-                        (BottomTab::Terminal, "Terminal".to_string()),
-                        (BottomTab::Output, "Sortie".to_string()),
-                    ] {
-                        if nav_tab(ui, &label, self.bottom == Some(tab)).clicked() {
-                            self.bottom = Some(tab);
-                            match tab {
-                                BottomTab::Search => self.search.focus = true,
-                                BottomTab::Terminal => self.term.want_focus = true,
-                                _ => {}
-                            }
+                    for (tab, icon, label) in BottomTab::ALL {
+                        let label = if tab == BottomTab::Problems { problems.clone() } else { label.to_string() };
+                        let r = nav_tab(ui, icon, &label, self.bottom == Some(tab));
+                        if r.clicked() {
+                            self.show_bottom(tab, false);
+                        } else if r.secondary_clicked() {
+                            self.show_big(tab);
                         }
+                        r.on_hover_text(BottomTab::hint(tab));
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.small_button("×").clicked() {
@@ -933,6 +1003,41 @@ impl App {
                                 self.persist("search_in_tab", "false".into());
                             }
                         });
+                    }
+                    Some(BottomTab::Claude) if self.docs.iter().any(|d| d.view == document::View::Claude) => {
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new("Claude est dans un onglet de l'éditeur.").weak());
+                            if ui.button("Le remettre ici").clicked() {
+                                self.move_claude(false);
+                            }
+                        });
+                    }
+                    Some(BottomTab::Claude) => self.claude_ui(ui, false),
+                    Some(BottomTab::Git) if self.history.open => {
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new("Git est ouvert en grand dans l'éditeur.").weak());
+                            if ui.button("Le mettre ici").clicked() {
+                                self.history.open = false;
+                            }
+                        });
+                    }
+                    Some(BottomTab::Git) => {
+                        let fill = ui.visuals().panel_fill;
+                        egui::TopBottomPanel::top("git_bar_bottom")
+                            .frame(egui::Frame::none().fill(fill).inner_margin(egui::Margin { left: 4.0, right: 4.0, top: 2.0, bottom: 4.0 }))
+                            .show_inside(ui, |ui| self.git_bar(ui));
+                        egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.history_ui(ui));
+                    }
+                    Some(BottomTab::Pulls) if self.docs.iter().any(|d| d.view == document::View::PullRequests) => {
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new("Les pull requests sont dans un onglet de l'éditeur.").weak());
+                            if ui.button("Les mettre ici").clicked() {
+                                self.show_bottom(BottomTab::Pulls, false);
+                            }
+                        });
+                    }
+                    Some(BottomTab::Pulls) => {
+                        egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.pulls_ui(ui));
                     }
                     Some(BottomTab::Search) => self.search_ui(ui, false),
                     Some(BottomTab::Problems) => self.problems_ui(ui),

@@ -38,7 +38,17 @@ impl Index {
     /// Indexes the source files of `root` (several threads), the folders of `first` before the
     /// rest (the repositories being worked on), at most `max_files` files: in a folder holding
     /// many repositories, only the ones far from the work are left out.
+    #[cfg(test)]
     pub fn build(root: &Path, first: &[PathBuf], ex: &Exclusions, max_files: usize) -> Index {
+        Index::build_in_steps(root, first, ex, max_files, |_| {})
+    }
+
+    /// Like `build`, and `first_done` gets the index of the `first` folders as soon as they are
+    /// walked: go to definition works there long before a big folder is done. Half the processor
+    /// cores at most, the interface keeps the others.
+    pub fn build_in_steps(root: &Path, first: &[PathBuf], ex: &Exclusions, max_files: usize, first_done: impl FnOnce(Index)) -> Index {
+        let threads = std::thread::available_parallelism().map_or(2, |n| n.get()).div_ceil(2);
+        let mut first_done = Some(first_done);
         let files = Mutex::new(HashMap::new());
         let count = AtomicUsize::new(0);
         let mut first: Vec<PathBuf> = first.iter().filter(|d| d.starts_with(root) && d.as_path() != root).cloned().collect();
@@ -51,7 +61,14 @@ impl Index {
             if count.load(Ordering::Relaxed) >= max_files {
                 break;
             }
-            walk::walker(&dir, ex, skip).build_parallel().run(|| {
+            if dir.as_path() == root && !outer.is_empty() {
+                if let Some(f) = first_done.take() {
+                    let mut idx = Index { files: files.lock().unwrap().clone(), ..Default::default() };
+                    idx.rebuild_names();
+                    f(idx);
+                }
+            }
+            walk::walker(&dir, ex, skip).threads(threads).build_parallel().run(|| {
                 let (files, count) = (&files, &count);
                 Box::new(move |e| {
                     let Ok(e) = e else { return ignore::WalkState::Continue };

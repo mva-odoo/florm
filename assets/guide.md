@@ -148,8 +148,8 @@ la commande `gh` : pas de token à créer, il suffit de s'être connecté une fo
 
 ## Claude
 
-**Ctrl+Alt+C** (ou Outils → ✳ Claude, la palette) : une conversation avec Claude Code, dans un
-onglet. Florm utilise la commande `claude` et ta connexion : pas de clé à configurer.
+**Ctrl+Alt+C** (ou Outils → ✳ Claude, la palette) : une conversation avec Claude Code, dans le
+panneau du bas (⇱ Onglet pour lui donner tout un onglet de l'éditeur, ⇲ pour l'y remettre). Florm utilise la commande `claude` et ta connexion : pas de clé à configurer.
 
 - En haut : le dépôt, le modèle, et ce que Claude a le droit de faire (**Modifie les fichiers**,
   **Plan seulement**, **Tout autoriser** pour qu'il lance aussi des commandes).

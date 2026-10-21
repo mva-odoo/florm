@@ -147,6 +147,123 @@ pub fn paint_terminal(painter: &Painter, center: Pos2, color: Color32) {
     painter.line_segment([Pos2::new(x + 4.5, y + 2.5), Pos2::new(x + 8.0, y + 2.5)], Stroke::new(1.3_f32, color));
 }
 
+/// Crossed out eye: left out of the index (tree of the folder).
+pub fn paint_eye_off(painter: &Painter, center: Pos2, color: Color32) {
+    let st = Stroke::new(1.2_f32, color);
+    let (w, h) = (6.0, 3.6);
+    let arc = |sign: f32| -> Vec<Pos2> {
+        (0..=10).map(|k| {
+            let t = k as f32 / 10.0 * 2.0 - 1.0;
+            Pos2::new(center.x + t * w, center.y + sign * h * (1.0 - t * t))
+        }).collect()
+    };
+    painter.add(Shape::line(arc(-1.0), st));
+    painter.add(Shape::line(arc(1.0), st));
+    painter.circle_filled(center, 1.6, color);
+    painter.line_segment([center + Vec2::new(-5.5, 5.0), center + Vec2::new(5.5, -5.0)], Stroke::new(1.4_f32, color));
+}
+
+/// Views that open in an editor tab or from the buttons of the sidebar, drawn like the file badges.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ViewIcon {
+    Search,
+    Terminal,
+    Claude,
+    Git,
+    PullRequests,
+    Help,
+    Welcome,
+    Settings,
+    Split,
+    Problems,
+    Output,
+}
+
+/// Claude's color (its asterisk), whatever the theme.
+pub const CLAUDE: Color32 = Color32::from_rgb(0xd9, 0x77, 0x57);
+
+/// `icon` about 15 px wide around `center`.
+pub fn paint_view(painter: &Painter, center: Pos2, icon: ViewIcon, color: Color32) {
+    let st = Stroke::new(1.4_f32, color);
+    match icon {
+        ViewIcon::Search => paint_search(painter, center, color),
+        ViewIcon::Terminal => paint_terminal(painter, center, color),
+        ViewIcon::Claude => {
+            // asterisk of 8 rounded rays
+            for k in 0..8 {
+                let a = k as f32 * std::f32::consts::FRAC_PI_4 + 0.2;
+                let d = Vec2::new(a.cos(), a.sin());
+                painter.line_segment([center + d * 1.5, center + d * 6.5], Stroke::new(1.9_f32, CLAUDE));
+            }
+        }
+        ViewIcon::Git => {
+            // branch: a trunk and a branch leaving it
+            let (a, b, c) = (center + Vec2::new(-3.5, -5.0), center + Vec2::new(-3.5, 5.0), center + Vec2::new(4.0, -3.0));
+            painter.line_segment([a, b], st);
+            painter.add(Shape::line(vec![c + Vec2::new(0.0, 2.0), c + Vec2::new(0.0, 4.0), center + Vec2::new(-3.0, 2.5)], st));
+            for p in [a, b, c] {
+                painter.circle_filled(p, 2.0, color);
+            }
+        }
+        ViewIcon::PullRequests => {
+            let (a, b) = (center + Vec2::new(-4.0, -5.0), center + Vec2::new(-4.0, 5.0));
+            let (c, top) = (center + Vec2::new(4.0, 5.0), center + Vec2::new(4.0, -4.0));
+            painter.line_segment([a, b], st);
+            painter.line_segment([c, top], st);
+            painter.add(Shape::line(vec![top + Vec2::new(-2.5, -1.0), top + Vec2::new(0.0, 0.0), top + Vec2::new(-2.5, 1.5)], st));
+            for p in [a, b, c] {
+                painter.circle_filled(p, 2.0, color);
+            }
+        }
+        ViewIcon::Help => {
+            painter.circle_stroke(center, 6.5, st);
+            painter.text(center + Vec2::new(0.0, 0.5), Align2::CENTER_CENTER, "?", FontId::proportional(10.0), color);
+        }
+        ViewIcon::Welcome => {
+            // house
+            let (l, r, t) = (center.x - 6.0, center.x + 6.0, center.y - 6.0);
+            painter.add(Shape::line(vec![Pos2::new(l, center.y), Pos2::new(center.x, t), Pos2::new(r, center.y)], st));
+            painter.add(Shape::line(
+                vec![Pos2::new(l + 2.0, center.y - 1.5), Pos2::new(l + 2.0, center.y + 5.5), Pos2::new(r - 2.0, center.y + 5.5), Pos2::new(r - 2.0, center.y - 1.5)],
+                st,
+            ));
+        }
+        ViewIcon::Settings => {
+            // gear: ring and 8 teeth
+            for k in 0..8 {
+                let a = k as f32 * std::f32::consts::FRAC_PI_4;
+                let d = Vec2::new(a.cos(), a.sin());
+                painter.line_segment([center + d * 4.5, center + d * 6.8], Stroke::new(2.2_f32, color));
+            }
+            painter.circle_stroke(center, 4.3, st);
+            painter.circle_filled(center, 1.6, color);
+        }
+        ViewIcon::Problems => {
+            // warning triangle
+            let (t, l, r) = (center + Vec2::new(0.0, -6.0), center + Vec2::new(-6.5, 5.5), center + Vec2::new(6.5, 5.5));
+            painter.add(Shape::closed_line(vec![t, r, l], st));
+            painter.line_segment([center + Vec2::new(0.0, -2.0), center + Vec2::new(0.0, 1.5)], st);
+            painter.circle_filled(center + Vec2::new(0.0, 3.6), 0.9, color);
+        }
+        ViewIcon::Output => {
+            // page of text lines
+            let r = Rect::from_center_size(center, Vec2::new(11.0, 13.0));
+            painter.rect_stroke(r, 1.5, st);
+            for (k, w) in [7.0_f32, 5.0, 6.0].into_iter().enumerate() {
+                let y = r.top() + 3.5 + k as f32 * 3.0;
+                painter.line_segment([Pos2::new(r.left() + 2.5, y), Pos2::new(r.left() + 2.5 + w * 0.85, y)], Stroke::new(1.1_f32, color));
+            }
+        }
+        ViewIcon::Split => {
+            // scissors
+            painter.circle_stroke(center + Vec2::new(-3.5, 4.0), 2.2, st);
+            painter.circle_stroke(center + Vec2::new(3.5, 4.0), 2.2, st);
+            painter.line_segment([center + Vec2::new(-2.0, 2.2), center + Vec2::new(4.0, -6.0)], st);
+            painter.line_segment([center + Vec2::new(2.0, 2.2), center + Vec2::new(-4.0, -6.0)], st);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

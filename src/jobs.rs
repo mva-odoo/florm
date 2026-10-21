@@ -41,7 +41,8 @@ pub enum JobResult {
         base: Option<String>,
         log: Vec<String>,
     },
-    FileIndex(PathBuf, Vec<PathBuf>),
+    /// The files of the project (sorted) and their go to file labels; `None`: unchanged.
+    FileIndex(PathBuf, Option<(Vec<PathBuf>, Vec<String>)>),
     /// Live lint of the buffer while typing.
     Lint { uid: u64, version: u64, diags: Vec<Diagnostic>, linter: String },
     ToolInstalled(Result<String, String>),
@@ -69,7 +70,8 @@ pub enum JobResult {
     /// Git repositories found in the opened folder.
     Repos(PathBuf, Vec<PathBuf>),
     /// Symbols of the whole project (go to definition, completion).
-    SymbolIndex(PathBuf, crate::index::Index),
+    /// `bool`: only the repositories being worked on so far, the whole index follows.
+    SymbolIndex(PathBuf, crate::index::Index, bool),
     /// Commit split started (or resumed): the commit and its changes.
     SplitStarted(PathBuf, Result<(split::Info, Vec<split::FileChange>), String>),
     /// Changes left after a refresh or a partial commit (with its short hash and subject).
@@ -90,6 +92,15 @@ impl Jobs {
     pub fn new(ctx: egui::Context) -> Self {
         let (tx, rx) = channel();
         Jobs { tx, rx, ctx }
+    }
+
+    /// Sends a result before the end of a job (a first part of the work).
+    pub fn sender(&self) -> impl Fn(JobResult) + Send + 'static {
+        let (tx, ctx) = (self.tx.clone(), self.ctx.clone());
+        move |r| {
+            let _ = tx.send(r);
+            ctx.request_repaint();
+        }
     }
 
     pub fn spawn(&self, f: impl FnOnce() -> JobResult + Send + 'static) {

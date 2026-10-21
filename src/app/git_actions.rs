@@ -52,12 +52,25 @@ impl App {
         if let Some(sp) = self.split.as_mut() {
             sp.shown = false;
         }
+        if self.bottom == Some(BottomTab::Git) {
+            self.bottom = None;
+        }
         self.history.open = true;
         self.prefs.open = false;
+        self.git_view_load();
+    }
+
+    /// The graph read (again if the repository changed) and the status, wherever the view is shown.
+    pub(super) fn git_view_load(&mut self) {
         if self.history.graph.is_none() || self.history.repo != self.repo {
             self.load_history();
         }
         self.git_refresh();
+    }
+
+    /// The git view is shown, in the editor area or in the bottom panel.
+    pub(super) fn git_shown(&self) -> bool {
+        self.history.open || self.bottom == Some(BottomTab::Git)
     }
 
     pub(super) fn show_diff(&mut self, rel: String, untracked: bool) {
@@ -90,7 +103,7 @@ impl App {
             return;
         }
         self.git_refresh();
-        if self.history.open && self.history.repo.as_ref().is_some_and(|r| changed.contains(r)) && self.history.rebase.is_none() {
+        if self.git_shown() && self.history.repo.as_ref().is_some_and(|r| changed.contains(r)) && self.history.rebase.is_none() {
             self.load_history();
             if let Some(staged) = self.history.wip_sel {
                 self.load_wip_all(staged);

@@ -63,6 +63,10 @@ pub(super) struct ClaudeUi {
     model: usize,
     mode: usize,
     cost: f64,
+    /// Tokens of the conversation read by the model for its last message, and its window.
+    context: (u64, u64),
+    /// Use of the plan's quotas (5 hours, 7 days): kept between conversations.
+    limits: Vec<(String, f32, i64)>,
     /// The file being edited and its selection are given with the message.
     with_context: bool,
     /// Lines and files given with the next message.
@@ -77,7 +81,7 @@ pub(super) struct ClaudeUi {
     jump: Option<history::FileJump>,
     /// "Tout rejeter" clicked once: a second click does it.
     confirm_reject: bool,
-    focus: bool,
+    pub(super) focus: bool,
 }
 
 /// Review index of a repository (inside .git: not seen by git status, not committed).
@@ -118,8 +122,21 @@ fn review_diff(repo: &Path, index: &Path) -> Result<String, String> {
 }
 
 impl App {
+    /// Shows Claude in the bottom panel, or in an editor tab (`claude_in_tab`).
     pub(super) fn open_claude(&mut self) {
-        self.open_view_tab(document::View::Claude, "✳ Claude".into());
+        if self.settings.claude_in_tab {
+            if self.bottom == Some(BottomTab::Claude) {
+                self.bottom = None;
+            }
+            self.open_view_tab(document::View::Claude, "Claude".into());
+        } else {
+            self.bottom = Some(BottomTab::Claude);
+        }
+        self.claude_prepare();
+    }
+
+    /// Its folder, the keyboard and the review, wherever Claude is shown.
+    pub(super) fn claude_prepare(&mut self) {
         if self.claude.dir.is_none() {
             self.claude.dir = self.repo.clone().or_else(|| self.root.clone());
         }
@@ -165,9 +182,14 @@ impl App {
                         }
                     }
                 }
-                Event::Done { error, text, cost } => {
+                Event::Context(tokens) => self.claude.context.0 = tokens,
+                Event::Limits(l) => self.claude.limits = l,
+                Event::Done { error, text, cost, window } => {
                     self.claude.busy = false;
                     self.claude.cost += cost;
+                    if window > 0 {
+                        self.claude.context.1 = window;
+                    }
                     if let Some(Item::Streaming(s)) = items.last() {
                         let s = s.clone();
                         *items.last_mut().unwrap() = Item::Text(s);
@@ -415,13 +437,25 @@ impl App {
         }
     }
 
-    pub(super) fn claude_ui(&mut self, ui: &mut egui::Ui) {
+    /// Claude into an editor tab (⇱, more room) or back into the bottom panel (⇲), remembered.
+    pub(super) fn move_claude(&mut self, to_tab: bool) {
+        if !to_tab {
+            if let Some(i) = self.docs.iter().position(|d| d.view == document::View::Claude) {
+                self.close_tab(i, true);
+            }
+        }
+        self.settings.claude_in_tab = to_tab;
+        self.persist("claude_in_tab", to_tab.to_string());
+        self.open_claude();
+    }
+
+    pub(super) fn claude_ui(&mut self, ui: &mut egui::Ui, in_tab: bool) {
         let accent = self.hl.colors.accent;
         let fill = ui.visuals().panel_fill;
         let dir_name = self.claude.dir.as_deref().map(|d| self.repo_label(d)).unwrap_or_default();
         let dirs: Vec<(PathBuf, String)> = self.repos.iter().map(|r| (r.clone(), self.repo_label(r))).collect();
         let (mut send, mut stop, mut new_conv, mut review_click, mut all) = (false, false, false, None, None);
-        let mut chosen_dir = None;
+        let (mut chosen_dir, mut move_to) = (None, None);
         let c = &mut self.claude;
         let cache = &mut self.md_cache;
 
@@ -463,6 +497,35 @@ impl App {
                     if c.cost > 0.0 {
                         ui.label(RichText::new(format!("{:.2} $", c.cost)).weak().small()).on_hover_text("Coût estimé de la conversation");
                     }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if in_tab {
+                            if ui.small_button("⇲ Panneau du bas").on_hover_text("Afficher Claude dans le panneau du bas").clicked() {
+                                move_to = Some(false);
+                            }
+                        } else if ui.small_button("⇱ Onglet").on_hover_text("Afficher Claude dans un onglet de l'éditeur (plus de place)").clicked() {
+                            move_to = Some(true);
+                        }
+                        ui.add_space(8.0);
+                        // right to left: the plan's quotas, then the context
+                        for (window, used, reset) in c.limits.iter().rev() {
+                            let (label, what) = match window.as_str() {
+                                "five_hour" => ("5 h", "sur 5 heures"),
+                                _ => ("7 j", "sur 7 jours"),
+                            };
+                            let tip = format!("Quota de ton abonnement {what} : {:.0} % utilisé, remis à zéro {}", used * 100.0, until(*reset));
+                            gauge(ui, label, *used, accent, tip);
+                        }
+                        let (tokens, window) = c.context;
+                        if tokens > 0 && window > 0 {
+                            let used = (tokens as f32 / window as f32).min(1.0);
+                            let tip = format!(
+                                "Contexte de la conversation : {} / {} tokens.\nPlein, Claude résume le début de la conversation ; « Nouvelle conversation » repart de zéro.",
+                                thousands(tokens),
+                                thousands(window)
+                            );
+                            gauge(ui, "Contexte", used, accent, tip);
+                        }
+                    });
                 });
             });
 
@@ -543,7 +606,12 @@ impl App {
                         c.attach.remove(k);
                     }
                 }
-                let rows = if c.input.lines().count() > 2 { 6 } else { 3 };
+                let rows = match (c.input.lines().count() > 2, in_tab) {
+                    (true, true) => 6,
+                    (true, false) => 4,
+                    (false, true) => 3,
+                    (false, false) => 2,
+                };
                 let resp = ui.add(
                     egui::TextEdit::multiline(&mut c.input)
                         .hint_text("Demande à Claude… (Ctrl+Entrée pour envoyer)")
@@ -638,6 +706,9 @@ impl App {
             });
         });
 
+        if let Some(t) = move_to {
+            self.move_claude(t);
+        }
         if let Some(d) = chosen_dir {
             self.claude.dir = Some(d);
             self.claude.review_index = None;
@@ -648,6 +719,7 @@ impl App {
             self.claude.busy = false;
             self.claude.wish = None;
             self.claude.cost = 0.0;
+            self.claude.context.0 = 0;
             self.claude.items.push(Item::Info("— nouvelle conversation —".into()));
         }
         if stop {
@@ -743,4 +815,41 @@ mod tests {
         assert_eq!(git::run(&dir, &["diff", "--cached", "--name-only"]).unwrap(), "");
         let _ = std::fs::remove_dir_all(&dir);
     }
+}
+
+/// A small gauge (right to left: the bar, then its label), red when nearly full.
+fn gauge(ui: &mut egui::Ui, label: &str, used: f32, accent: Color32, tip: String) {
+    let color = if used >= 0.9 { err() } else if used >= 0.7 { warn() } else { accent };
+    let (rect, r) = ui.allocate_exact_size(egui::vec2(46.0, 14.0), Sense::hover());
+    let bar = egui::Rect::from_center_size(rect.center(), egui::vec2(46.0, 6.0));
+    ui.painter().rect_filled(bar, 3.0, ui.visuals().widgets.inactive.bg_fill);
+    ui.painter().rect_filled(egui::Rect::from_min_size(bar.min, egui::vec2(bar.width() * used, bar.height())), 3.0, color);
+    let text = ui.label(RichText::new(format!("{label} {:.0} %", used * 100.0)).small().weak());
+    r.union(text).on_hover_text(tip);
+    ui.add_space(6.0);
+}
+
+/// "dans 2 h 05", "dans 3 j" until a unix time.
+fn until(ts: i64) -> String {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
+    let s = (ts - now).max(0);
+    match s {
+        0..=59 => "maintenant".into(),
+        60..=3599 => format!("dans {} min", s / 60),
+        3600..=86_399 => format!("dans {} h {:02}", s / 3600, s % 3600 / 60),
+        _ => format!("dans {} j {} h", s / 86_400, s % 86_400 / 3600),
+    }
+}
+
+/// 1234567 → "1 234 567".
+fn thousands(n: u64) -> String {
+    let s = n.to_string();
+    let mut out = String::new();
+    for (i, ch) in s.chars().enumerate() {
+        if i > 0 && (s.len() - i) % 3 == 0 {
+            out.push(' ');
+        }
+        out.push(ch);
+    }
+    out
 }

@@ -112,7 +112,7 @@ impl App {
                 None
             }
             document::View::Claude => {
-                egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.claude_ui(ui));
+                egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.claude_ui(ui, true));
                 None
             }
             document::View::PullRequests => {
@@ -161,7 +161,7 @@ impl App {
         if self.bottom == Some(BottomTab::Search) {
             self.bottom = None;
         }
-        self.open_view_tab(document::View::Search, "🔍 Recherche".into());
+        self.open_view_tab(document::View::Search, "Recherche".into());
         self.search.focus = true;
     }
 
@@ -173,7 +173,7 @@ impl App {
         let shell = self.term_shell();
         let ctx = self.egui_ctx.clone();
         match self.term.open_tab(&ctx, shell.as_deref(), None) {
-            Ok((id, title)) => self.open_view_tab(document::View::Terminal(id), format!(">_ {title}")),
+            Ok((id, title)) => self.open_view_tab(document::View::Terminal(id), title),
             Err(e) => self.set_status(e),
         }
     }
@@ -198,13 +198,12 @@ impl App {
         for id in docked {
             if !self.docs.iter().any(|d| d.view == document::View::Terminal(id)) {
                 let title = self.term.title_of(id).unwrap_or_default();
-                self.open_view_tab(document::View::Terminal(id), format!(">_ {title}"));
+                self.open_view_tab(document::View::Terminal(id), title);
             }
         }
         for d in self.docs.iter_mut() {
             if let document::View::Terminal(id) = d.view {
                 if let Some(t) = self.term.title_of(id) {
-                    let t = format!(">_ {t}");
                     if d.title_override.as_ref() != Some(&t) {
                         d.title_override = Some(t);
                     }

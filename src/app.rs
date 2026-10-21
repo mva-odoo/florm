@@ -89,12 +89,35 @@ fn filled_button(text: impl Into<String>, fill: Color32) -> egui::Button<'static
 
 const TAB_STRIP_H: f32 = 32.0;
 
-#[derive(PartialEq, Clone, Copy)]
+#[derive(PartialEq, Clone, Copy, Debug)]
 enum BottomTab {
     Search,
     Problems,
     Terminal,
     Output,
+    Claude,
+    Git,
+    Pulls,
+}
+
+impl BottomTab {
+    /// The views of the bottom panel: its tabs, and the buttons at the bottom of the sidebar.
+    const ALL: [(BottomTab, icons::ViewIcon, &'static str); 7] = [
+        (BottomTab::Search, icons::ViewIcon::Search, "Recherche"),
+        (BottomTab::Problems, icons::ViewIcon::Problems, "Problèmes"),
+        (BottomTab::Terminal, icons::ViewIcon::Terminal, "Terminal"),
+        (BottomTab::Output, icons::ViewIcon::Output, "Sortie"),
+        (BottomTab::Claude, icons::ViewIcon::Claude, "Claude"),
+        (BottomTab::Git, icons::ViewIcon::Git, "Git"),
+        (BottomTab::Pulls, icons::ViewIcon::PullRequests, "GitHub"),
+    ];
+
+    fn hint(tab: BottomTab) -> &'static str {
+        match tab {
+            BottomTab::Problems | BottomTab::Output => "Clic : dans le panneau du bas",
+            _ => "Clic : dans le panneau du bas · clic droit : en grand dans l'éditeur",
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -162,11 +185,12 @@ struct Overlay {
     query: String,
     selected: usize,
     focus: bool,
-    items: Vec<Item>,
+    /// Shared: go to file reuses the list of the whole project (up to a million files).
+    items: std::rc::Rc<[Item]>,
     filtered: Vec<usize>,
     last_query: Option<String>,
-    /// Added to the score of each item (go to file: the recent files), empty for the other lists.
-    boost: Vec<i32>,
+    /// Added to the score of some items (go to file: the recent files), empty for the other lists.
+    boost: HashMap<usize, i32>,
     /// Every item matching `.0` (not only the shown ones): a longer query only filters these.
     matched: Option<(String, Vec<usize>)>,
     /// Path prompts: entries of the folder being typed, for the query they were listed for.
@@ -536,7 +560,11 @@ struct NavState {
 /// Indexes of the project: its files (go to file) and its symbols.
 #[derive(Default)]
 struct Indexes {
-    files: Vec<PathBuf>,
+    /// Files of the project, relative and sorted (recent files are found by binary search);
+    /// shared with the job that lists them again, which compares without the interface.
+    files: Arc<Vec<PathBuf>>,
+    /// Go to file entries made from `files`, built once for each new list.
+    file_items: Option<std::rc::Rc<[Item]>>,
     /// When the file list was last asked for (Ctrl+P rebuilds it, at most every few seconds).
     files_at: Option<Instant>,
     /// Project symbols (go to definition / completion without a language server).
@@ -578,6 +606,10 @@ pub struct App {
     tree: Option<Node>,
     show_sidebar: bool,
     bottom: Option<BottomTab>,
+    /// The exclusions of the settings for the open folder (excluded folders are dimmed in the tree).
+    tree_ex: Option<(PathBuf, Vec<String>, crate::walk::Exclusions)>,
+    /// Tab of the bottom panel shown last: the panel button reopens it.
+    last_bottom: BottomTab,
     overlay: Option<Overlay>,
     find: FindState,
     search: SearchUi,
@@ -764,6 +796,8 @@ impl App {
             tree: None,
             show_sidebar: true,
             bottom: None,
+            tree_ex: None,
+            last_bottom: BottomTab::Terminal,
             overlay: None,
             find: FindState::default(),
             search: SearchUi::default(),
@@ -958,7 +992,8 @@ impl App {
             let repos = git::find_repos(&r, 3);
             JobResult::Repos(r, repos)
         });
-        self.index.files.clear();
+        self.index.files = Default::default();
+        self.index.file_items = None;
         self.refresh_index();
         // the symbol index starts once the file list is done (they would compete for the disk)
         self.index.symbols = None;
@@ -1074,12 +1109,52 @@ impl eframe::App for App {
     }
 }
 
+/// What is drawn before the title of a tab.
+#[derive(Clone, Copy)]
+enum TabIcon<'a> {
+    /// The badge of this file name.
+    File(&'a str),
+    View(icons::ViewIcon),
+}
+
+/// The icon of a document tab, and its title without the symbol older sessions put in front
+/// of the views ("🔍 Recherche", ">_ bash").
+fn doc_tab(d: &Document) -> (TabIcon<'_>, String) {
+    use document::View;
+    use icons::ViewIcon;
+    let view = match d.view {
+        View::Search => Some(ViewIcon::Search),
+        View::Terminal(_) => Some(ViewIcon::Terminal),
+        View::Help => Some(ViewIcon::Help),
+        View::Welcome => Some(ViewIcon::Welcome),
+        View::PullRequests => Some(ViewIcon::PullRequests),
+        View::Claude => Some(ViewIcon::Claude),
+        View::Text | View::Image | View::Preview(_) => None,
+    };
+    let title = d.title();
+    match view {
+        Some(v) => {
+            let bare = ["🔍 ", ">_ ", "✳ ", "⇄ ", "❓ "].iter().find_map(|s| title.strip_prefix(s)).map(str::to_string);
+            (TabIcon::View(v), bare.unwrap_or(title))
+        }
+        None => {
+            let name = match (&d.path, d.view) {
+                (_, View::Preview(_)) => "x.md",
+                (Some(p), _) => p.file_name().and_then(|n| n.to_str()).unwrap_or(""),
+                (None, _) if d.syntax == "Diff" => "x.diff",
+                (None, _) => "",
+            };
+            (TabIcon::File(name), title)
+        }
+    }
+}
+
 /// One editor tab: rounded top, active tab merged with the editor and underlined with
 /// the theme accent gradient, close button (or "modified" dot).
 fn tab_widget(
     ui: &mut egui::Ui,
     title: &str,
-    icon: Option<&str>,
+    icon: TabIcon,
     dirty: bool,
     active: bool,
     error: bool,
@@ -1088,7 +1163,7 @@ fn tab_widget(
     let font = egui::FontId::proportional(13.5);
     let text_color = if error { err() } else if active { tc.text_active } else { tc.text_inactive };
     let galley = ui.painter().layout_no_wrap(title.to_string(), font, text_color);
-    let icon_w = if icon.is_some() { 22.0 } else { 0.0 };
+    let icon_w = 22.0;
     let w = galley.size().x + 52.0 + icon_w;
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, TAB_STRIP_H), Sense::click_and_drag());
     let tab = egui::Rect::from_min_max(egui::pos2(rect.left(), rect.top() + 4.0), rect.right_bottom());
@@ -1112,11 +1187,14 @@ fn tab_widget(
     } else if hovered {
         p.rect_filled(tab, rounding, tc.hover);
     }
-    if let Some(name) = icon {
-        let bg = if active { tc.active } else { tc.bar };
-        let light = bg.r() as u32 + bg.g() as u32 + bg.b() as u32 > 384;
-        let r = egui::Rect::from_center_size(egui::pos2(tab.left() + 20.0, tab.center().y), egui::vec2(15.0, 15.0));
-        icons::paint_file(p, r, name, bg, light);
+    let icon_at = egui::pos2(tab.left() + 20.0, tab.center().y);
+    match icon {
+        TabIcon::File(name) => {
+            let bg = if active { tc.active } else { tc.bar };
+            let light = bg.r() as u32 + bg.g() as u32 + bg.b() as u32 > 384;
+            icons::paint_file(p, egui::Rect::from_center_size(icon_at, egui::vec2(15.0, 15.0)), name, bg, light);
+        }
+        TabIcon::View(v) => icons::paint_view(p, icon_at, v, text_color),
     }
     p.galley(egui::pos2(tab.left() + 13.0 + icon_w, tab.center().y - galley.size().y / 2.0), galley, text_color);
     if close.hovered() {
@@ -1408,10 +1486,10 @@ fn history_arrows(ui: &egui::Ui, list: &[String], pos: &mut Option<usize>) -> Op
 }
 
 /// Minimal text tab with an accent underline when selected (sidebar / bottom panel headers).
-fn nav_tab(ui: &mut egui::Ui, label: &str, active: bool) -> egui::Response {
+fn nav_tab(ui: &mut egui::Ui, icon: icons::ViewIcon, label: &str, active: bool) -> egui::Response {
     let font = egui::FontId::proportional(13.0);
     let size = ui.painter().layout_no_wrap(label.to_string(), font.clone(), Color32::WHITE).size();
-    let (rect, resp) = ui.allocate_exact_size(size + egui::vec2(16.0, 14.0), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(size + egui::vec2(38.0, 14.0), Sense::click());
     let v = ui.visuals();
     let color = if active {
         v.strong_text_color()
@@ -1420,7 +1498,8 @@ fn nav_tab(ui: &mut egui::Ui, label: &str, active: bool) -> egui::Response {
     } else {
         v.weak_text_color()
     };
-    ui.painter().text(rect.center() - egui::vec2(0.0, 1.0), Align2::CENTER_CENTER, label, font, color);
+    icons::paint_view(ui.painter(), egui::pos2(rect.left() + 17.0, rect.center().y - 1.0), icon, color);
+    ui.painter().text(egui::pos2(rect.left() + 30.0, rect.center().y - 1.0), Align2::LEFT_CENTER, label, font, color);
     if active {
         let y = rect.bottom() - 1.5;
         ui.painter().line_segment(

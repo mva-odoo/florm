@@ -27,6 +27,11 @@ impl Exclusions {
     pub fn excludes(&self, path: &Path, is_dir: bool) -> bool {
         self.0.matched(path, is_dir).is_ignore()
     }
+
+    /// `path` (under the root) or one of its folders is excluded.
+    pub fn excludes_here_or_above(&self, path: &Path, is_dir: bool) -> bool {
+        self.0.matched_path_or_any_parents(path, is_dir).is_ignore()
+    }
 }
 
 /// Walker of `root` without `.git`, the exclusions and the folders of `skip` (already walked).

@@ -1,7 +1,7 @@
 //! Folder tree, loaded lazily (a directory is read only when expanded).
 
 use crate::icons;
-use eframe::egui::{self, Align2, Color32, CursorIcon, DragAndDrop, FontId, Id, Pos2, Rect, RichText, Sense, Stroke, Ui};
+use eframe::egui::{self, Color32, CursorIcon, DragAndDrop, FontId, Id, Pos2, Rect, RichText, Sense, Stroke, Ui};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -20,6 +20,12 @@ pub enum TreeAction {
     /// Give the file or folder to Claude with the next message.
     Claude(PathBuf),
     Refresh,
+    /// Leave the folder out of go to file, the symbol index and find in files (`true`), or
+    /// take it back.
+    Exclude(PathBuf, bool),
+    /// Chosen in the menu of the folder name at the top.
+    SwitchProject(PathBuf),
+    OpenFolder,
 }
 
 /// Keyboard navigation in the tree: the entry under the keyboard cursor, and a focus request.
@@ -163,10 +169,14 @@ fn git_color(c: char) -> Option<Color32> {
     }
 }
 
-/// `scroll_to`: entry to bring into view (cleared once shown).
+/// `scroll_to`: entry to bring into view (cleared once shown); `projects`: (name, folder) offered
+/// by a click on the folder name.
+#[allow(clippy::too_many_arguments)]
 pub fn show(
     ui: &mut Ui,
     root: &mut Node,
+    projects: &[(String, PathBuf)],
+    ex: &crate::walk::Exclusions,
     active: Option<&Path>,
     git: &HashMap<PathBuf, char>,
     repos: &HashMap<PathBuf, (String, String)>,
@@ -199,19 +209,46 @@ pub fn show(
     let mut clicked = None;
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 0.0;
-        let r = ui.add(egui::Label::new(RichText::new(root.name.to_uppercase()).small().strong()).sense(Sense::click()));
+        // the folder name, centered: a click shows the projects to switch to
+        ui.add_space(4.0);
+        let r = ui
+            .vertical_centered(|ui| {
+                let name = RichText::new(format!("{}   ", root.name.to_uppercase())).size(11.5).strong().extra_letter_spacing(1.6);
+                ui.add(egui::Label::new(name).sense(Sense::click()))
+            })
+            .inner;
+        let hovered = r.hovered();
+        let color = if hovered { ui.visuals().strong_text_color() } else { ui.visuals().weak_text_color() };
+        icons::paint_chevron(ui.painter(), egui::pos2(r.rect.right() - 6.0, r.rect.center().y), true, color);
+        let r = r.on_hover_cursor(CursorIcon::PointingHand).on_hover_text("Changer de projet (Ctrl+Alt+P)");
+        let popup = Id::new("project_menu");
+        if r.clicked() {
+            ui.memory_mut(|m| m.toggle_popup(popup));
+        }
+        egui::popup_below_widget(ui, popup, &r, egui::PopupCloseBehavior::CloseOnClick, |ui| {
+            ui.set_min_width(220.0);
+            ui.label(RichText::new("Projets").small().weak());
+            for (name, path) in projects {
+                let current = *path == root.path;
+                if ui.selectable_label(current, name.as_str()).on_hover_text(path.display().to_string()).clicked() && !current {
+                    act = Some(TreeAction::SwitchProject(path.clone()));
+                }
+            }
+            ui.separator();
+            if ui.button("Ouvrir un dossier…").clicked() {
+                act = Some(TreeAction::OpenFolder);
+            }
+        });
         if let Some((label, tip)) = repos.get(&root.path) {
             let color = mix(ui.visuals().hyperlink_color, ui.visuals().weak_text_color(), 0.35);
-            let pos = egui::pos2(ui.max_rect().right() - 4.0, r.rect.center().y);
-            ui.painter().with_clip_rect(ui.clip_rect()).text(pos, Align2::RIGHT_CENTER, label, FontId::proportional(11.0), color);
-            ui.interact(Rect::from_min_max(egui::pos2(r.rect.right() + 4.0, r.rect.top()), egui::pos2(ui.max_rect().right(), r.rect.bottom())), Id::new("root_repo_tip"), Sense::hover())
-                .on_hover_text(tip.as_str());
+            ui.vertical_centered(|ui| ui.label(RichText::new(label.as_str()).size(11.0).color(color)).on_hover_text(tip.as_str()));
         }
+        ui.add_space(6.0);
         drop_target(ui, &r, &root.path, &mut act);
-        r.context_menu(|ui| menu(ui, &root.path, true, &mut act));
+        r.context_menu(|ui| menu(ui, &root.path, true, None, &mut act));
         if let Some(children) = root.children.as_mut() {
             for c in children {
-                node_ui(ui, c, 0, active, git, repos, &mut act, scroll_to, cursor.as_deref(), &mut clicked);
+                node_ui(ui, c, 0, active, git, repos, ex, false, &mut act, scroll_to, cursor.as_deref(), &mut clicked);
             }
         }
     });
@@ -252,11 +289,17 @@ fn node_ui(
     active: Option<&Path>,
     git: &HashMap<PathBuf, char>,
     repos: &HashMap<PathBuf, (String, String)>,
+    ex: &crate::walk::Exclusions,
+    parent_excluded: bool,
     act: &mut Option<TreeAction>,
     scroll_to: &mut Option<PathBuf>,
     cursor: Option<&Path>,
     clicked: &mut Option<(PathBuf, bool)>,
 ) {
+    // left out of the index (exclusions of the preferences): a crossed out eye after the name of
+    // what a rule excludes (the content of an excluded folder is excluded with it)
+    let own_rule = ex.excludes(&node.path, node.is_dir);
+    let excluded = parent_excluded || own_rule;
     let selected = !node.is_dir && active == Some(node.path.as_path());
     let (rect, r) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 23.0), Sense::click_and_drag());
     if scroll_to.as_deref() == Some(node.path.as_path()) {
@@ -296,8 +339,12 @@ fn node_ui(
     // the name first; a git repository's branch at the right of the row, in the room left
     // (shortened with "…", or not shown when there is too little)
     let name = painter.layout_no_wrap(node.name.clone(), FontId::proportional(13.5), color);
-    let name_end = x + name.size().x;
+    let mut name_end = x + name.size().x;
     painter.galley(Pos2::new(x, cy - name.size().y / 2.0), name, color);
+    if own_rule && !parent_excluded {
+        icons::paint_eye_off(&painter, Pos2::new(name_end + 12.0, cy), v.weak_text_color());
+        name_end += 20.0;
+    }
     if let Some((full, _)) = node.is_dir.then(|| repos.get(&node.path)).flatten() {
         // at rest only what needs attention (↑ to push, ↓ to pull, changed files); the branch
         // when the row is hovered
@@ -338,15 +385,16 @@ fn node_ui(
             *act = Some(TreeAction::Open(node.path.clone()));
         }
     }
+    let note = if excluded { "\n\nExclu de l'index : ni dans Ctrl+P, ni dans F12, ni dans la recherche" } else { "" };
     let r = match repo {
-        Some((_, tip)) => r.on_hover_text_at_pointer(format!("{}\n\n{tip}", node.path.display())),
-        None => r.on_hover_text_at_pointer(node.path.display().to_string()),
+        Some((_, tip)) => r.on_hover_text_at_pointer(format!("{}{note}\n\n{tip}", node.path.display())),
+        None => r.on_hover_text_at_pointer(format!("{}{note}", node.path.display())),
     };
-    r.context_menu(|ui| menu(ui, &node.path, node.is_dir, act));
+    r.context_menu(|ui| menu(ui, &node.path, node.is_dir, node.is_dir.then_some(excluded), act));
     if node.is_dir && node.expanded {
         if let Some(children) = node.children.as_mut() {
             for c in children {
-                node_ui(ui, c, depth + 1, active, git, repos, act, scroll_to, cursor, clicked);
+                node_ui(ui, c, depth + 1, active, git, repos, ex, excluded, act, scroll_to, cursor, clicked);
             }
         }
     }
@@ -435,7 +483,8 @@ fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
     Color32::from_rgb(f(a.r(), b.r()), f(a.g(), b.g()), f(a.b(), b.b()))
 }
 
-fn menu(ui: &mut Ui, path: &Path, is_dir: bool, act: &mut Option<TreeAction>) {
+/// `excluded`: for a folder other than the root, whether it is left out of the index.
+fn menu(ui: &mut Ui, path: &Path, is_dir: bool, excluded: Option<bool>, act: &mut Option<TreeAction>) {
     let dir = if is_dir { path.to_path_buf() } else { path.parent().map(Path::to_path_buf).unwrap_or_default() };
     let mut pick = |a: TreeAction, ui: &mut Ui| {
         *act = Some(a);
@@ -469,6 +518,21 @@ fn menu(ui: &mut Ui, path: &Path, is_dir: bool, act: &mut Option<TreeAction>) {
     }
     if ui.button("Rafraîchir").clicked() {
         pick(TreeAction::Refresh, ui);
+    }
+    match excluded {
+        Some(false) => {
+            ui.separator();
+            if ui.button("Exclure de l'index").on_hover_text("Plus dans Ctrl+P, F12 et la complétion, ni dans la recherche (Préférences → Avancé → Fichiers exclus)").clicked() {
+                pick(TreeAction::Exclude(path.to_path_buf(), true), ui);
+            }
+        }
+        Some(true) => {
+            ui.separator();
+            if ui.button("Remettre dans l'index").clicked() {
+                pick(TreeAction::Exclude(path.to_path_buf(), false), ui);
+            }
+        }
+        None => {}
     }
 }
 

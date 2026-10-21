@@ -54,7 +54,7 @@ impl App {
                         d.lint_version = u64::MAX; // re-lint with the new tool
                     }
                 }
-                JobResult::FileIndex(root, v) => {
+                JobResult::FileIndex(root, list) => {
                     if self.root.as_ref() == Some(&root) && self.index.symbols_for.as_ref() != Some(&root) {
                         self.index.symbols_for = Some(root.clone());
                         let r = root.clone();
@@ -63,13 +63,18 @@ impl App {
                         first.extend(self.repo.clone());
                         let ex = crate::walk::Exclusions::new(&root, &self.settings.exclude);
                         let max = self.settings.index_max_files;
+                        let send = self.jobs.sender();
                         self.jobs.spawn(move || {
-                            let idx = crate::index::Index::build(&r, &first, &ex, max);
-                            JobResult::SymbolIndex(r, idx)
+                            let r2 = r.clone();
+                            let idx = crate::index::Index::build_in_steps(&r, &first, &ex, max, move |part| send(JobResult::SymbolIndex(r2, part, true)));
+                            JobResult::SymbolIndex(r, idx, false)
                         });
                     }
-                    if self.root.as_ref() == Some(&root) && self.index.files != v {
-                        self.index.files = v;
+                    if let Some((files, labels)) = list.filter(|_| self.root.as_ref() == Some(&root)) {
+                        self.index.files = Arc::new(files);
+                        let items: std::rc::Rc<[Item]> =
+                            labels.into_iter().enumerate().map(|(i, label)| Item { label, detail: String::new(), action: Action::OpenIndexed(i) }).collect();
+                        self.index.file_items = Some(items);
                         // "go to file" opened while the list was being made: show the new list
                         if self.overlay.as_ref().is_some_and(|o| matches!(o.mode, Mode::Files)) {
                             let (items, boost) = (self.file_items(), self.recent_boost());
@@ -254,7 +259,7 @@ impl App {
                     }
                 }
                 JobResult::GitBranches(list) => {
-                    let items =
+                    let items: Vec<Item> =
                         list.into_iter().map(|b| Item { label: b.clone(), detail: String::new(), action: Action::Branch(b) }).collect();
                     self.open_overlay_with(Mode::Branches, items, String::new());
                 }
@@ -273,7 +278,7 @@ impl App {
                         }
                         Err(e) => {
                             self.log(e.clone());
-                            if self.history.open {
+                            if self.git_shown() {
                                 let first = e.lines().find(|l| !l.trim().is_empty()).unwrap_or("").to_string();
                                 self.history.notice = Some((format!("git {label} a échoué : {first}"), err()));
                             }
@@ -288,10 +293,10 @@ impl App {
                     self.git_refresh();
                     // staging, unstaging or discarding does not move branches: keep the selection
                     let refs = !matches!(label.as_str(), "add" | "restore" | "apply" | "rm");
-                    if self.history.open && refs {
+                    if self.git_shown() && refs {
                         self.load_history();
                     }
-                    if let (true, Some(staged)) = (self.history.open, self.history.wip_sel) {
+                    if let (true, Some(staged)) = (self.git_shown(), self.history.wip_sel) {
                         self.load_wip_all(staged);
                     }
                     if let Some(t) = self.tree.as_mut() {
@@ -426,9 +431,10 @@ impl App {
                     self.prefs.font_list = Some(list);
                     self.prefs.font_list_loading = false;
                 }
-                JobResult::SymbolIndex(root, idx) => {
+                JobResult::SymbolIndex(root, idx, partial) => {
                     if self.root.as_ref() == Some(&root) {
-                        self.log(format!("Projet indexé : {} symboles dans {} fichiers", idx.len(), idx.files.len()));
+                        let what = if partial { "Dépôts en cours indexés" } else { "Projet indexé" };
+                        self.log(format!("{what} : {} symboles dans {} fichiers", idx.len(), idx.files.len()));
                         self.index.symbols = Some(idx);
                     }
                 }

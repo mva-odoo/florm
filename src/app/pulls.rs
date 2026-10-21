@@ -95,7 +95,15 @@ enum PrAct {
 impl App {
     /// The "Pull requests" tab, loaded for the selected repository.
     pub(super) fn open_pulls(&mut self) {
-        self.open_view_tab(document::View::PullRequests, "⇄ Pull requests".into());
+        if self.bottom == Some(BottomTab::Pulls) {
+            self.bottom = None;
+        }
+        self.open_view_tab(document::View::PullRequests, "Pull requests".into());
+        self.pulls_load();
+    }
+
+    /// The pull requests read, wherever the view is shown.
+    pub(super) fn pulls_load(&mut self) {
         // the current repository at first; the one chosen in the view stays
         let repo = self.pr.repo.clone().filter(|r| self.repos.contains(r)).or_else(|| self.repo.clone());
         if self.pr.list.is_none() || self.pr.repo != repo {
@@ -222,6 +230,8 @@ impl App {
         let repo_name = self.pr.repo.as_deref().map(|r| self.repo_label(r)).unwrap_or_default();
         let repo_choices: Vec<(PathBuf, String)> = self.repos.iter().map(|r| (r.clone(), self.repo_label(r))).collect();
         let fill = ui.visuals().panel_fill;
+        // in the editor area when its tab exists (else in the bottom panel): ⇲ / ⇱ to move it
+        let (big, mut move_to) = (self.docs.iter().any(|d| d.view == document::View::PullRequests), None);
         let p = &mut self.pr;
         let cache = &mut self.md_cache;
 
@@ -264,6 +274,15 @@ impl App {
                     if p.loading || p.busy {
                         ui.spinner();
                     }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if big {
+                            if ui.small_button("⇲ Panneau du bas").on_hover_text("Afficher les pull requests dans le panneau du bas").clicked() {
+                                move_to = Some(false);
+                            }
+                        } else if ui.small_button("⇱ Onglet").on_hover_text("Afficher les pull requests en grand dans l'éditeur").clicked() {
+                            move_to = Some(true);
+                        }
+                    });
                 });
             });
 
@@ -545,6 +564,11 @@ impl App {
 
         let Some(repo) = self.pr.repo.clone() else { return };
         let n = self.pr.selected.unwrap_or(0);
+        match move_to {
+            Some(true) => self.show_big(BottomTab::Pulls),
+            Some(false) => self.show_bottom(BottomTab::Pulls, false),
+            None => {}
+        }
         match act {
             Some(PrAct::Reload) => self.load_prs(Some(repo)),
             Some(PrAct::Repo(r)) => self.load_prs(Some(r)),

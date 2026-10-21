@@ -28,6 +28,8 @@ pub struct Settings {
     pub show_menu_bar: bool,
     /// "Find in files" in an editor tab instead of the bottom panel.
     pub search_in_tab: bool,
+    /// Claude in an editor tab instead of the bottom panel.
+    pub claude_in_tab: bool,
     /// Branch and upstream of git repositories on their folder in the tree.
     pub tree_git_info: bool,
     /// Show git changes inside the editor (deleted lines in red, added in green).
@@ -78,6 +80,7 @@ impl Default for Settings {
             breadcrumbs: true,
             show_menu_bar: true,
             search_in_tab: false,
+            claude_in_tab: false,
             tree_git_info: true,
             inline_diff: false,
             auto_pair: true,
@@ -125,6 +128,8 @@ breadcrumbs = true
 show_menu_bar = true
 # recherche dans le dossier (Ctrl+Shift+F) dans un onglet plutôt que dans le panneau du bas
 search_in_tab = false
+# Claude (Ctrl+Alt+C) dans un onglet plutôt que dans le panneau du bas
+claude_in_tab = false
 # branche et branche distante des dépôts git sur leur dossier dans l'arborescence
 tree_git_info = true
 # diff git dans l'éditeur : lignes supprimées en rouge, ajoutées en vert (Ctrl+Alt+D)

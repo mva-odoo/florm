@@ -229,7 +229,7 @@ impl App {
             }
             _ => {
                 let root = self.root.clone();
-                let items = found
+                let items: Vec<Item> = found
                     .into_iter()
                     .map(|(p, e)| {
                         let rel = root.as_ref().and_then(|r| p.strip_prefix(r).ok()).unwrap_or(&p).display().to_string();
@@ -359,7 +359,7 @@ impl App {
                 let root = self.root.clone();
                 // each file read once, for the text of its lines
                 let mut texts: HashMap<PathBuf, Vec<String>> = HashMap::new();
-                let items = found
+                let items: Vec<Item> = found
                     .into_iter()
                     .map(|(p, pos)| {
                         let line = pos["line"].as_u64().unwrap_or(0) as usize;

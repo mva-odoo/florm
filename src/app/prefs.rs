@@ -291,6 +291,9 @@ impl App {
                 pref_row(ui, rc, "Recherche dans le dossier en onglet", "Ctrl+Shift+F ouvre la recherche dans un onglet de l'éditeur plutôt que dans le panneau du bas (boutons ⇱ / ⇲ pour changer).", |ui| {
                     toggle_switch(ui, &mut s.search_in_tab);
                 });
+                pref_row(ui, rc, "Claude en onglet", "Ctrl+Alt+C ouvre Claude dans un onglet de l'éditeur plutôt que dans le panneau du bas (boutons ⇱ / ⇲ pour changer).", |ui| {
+                    toggle_switch(ui, &mut s.claude_in_tab);
+                });
                 pref_row(ui, rc, "Garder le travail non enregistré", "À la fermeture (ou en changeant de projet), les modifications non enregistrées sont gardées et rouvertes ensuite, sans question.", |ui| {
                     toggle_switch(ui, &mut s.hot_exit);
                 });
@@ -615,7 +618,7 @@ impl App {
     }
 
     /// Saves changed settings to settings.toml and applies their effects right away.
-    fn apply_settings_change(&mut self, before: &Settings) {
+    pub(super) fn apply_settings_change(&mut self, before: &Settings) {
         let s = self.settings.clone();
         if s.theme != before.theme {
             if self.hl.set_theme(&s.theme) {
@@ -650,6 +653,7 @@ impl App {
             ("breadcrumbs", s.breadcrumbs, before.breadcrumbs),
             ("show_menu_bar", s.show_menu_bar, before.show_menu_bar),
             ("search_in_tab", s.search_in_tab, before.search_in_tab),
+            ("claude_in_tab", s.claude_in_tab, before.claude_in_tab),
             ("tree_git_info", s.tree_git_info, before.tree_git_info),
             ("auto_pair", s.auto_pair, before.auto_pair),
             ("trim_trailing_whitespace_on_save", s.trim_trailing_whitespace_on_save, before.trim_trailing_whitespace_on_save),
