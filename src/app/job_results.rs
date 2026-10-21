@@ -54,6 +54,14 @@ impl App {
                         d.lint_version = u64::MAX; // re-lint with the new tool
                     }
                 }
+                JobResult::FileMatches { gen, query, matched, top } => {
+                    if let Some(o) = self.overlay.as_mut().filter(|o| o.gen.load(Ordering::SeqCst) == gen) {
+                        o.matched = Some((query, Arc::new(matched)));
+                        o.filtered = top;
+                        o.selected = 0;
+                        o.pending = false;
+                    }
+                }
                 JobResult::FileIndex(root, list) => {
                     if self.root.as_ref() == Some(&root) && self.index.symbols_for.as_ref() != Some(&root) {
                         self.index.symbols_for = Some(root.clone());
@@ -72,7 +80,7 @@ impl App {
                     }
                     if let Some((files, labels)) = list.filter(|_| self.root.as_ref() == Some(&root)) {
                         self.index.files = Arc::new(files);
-                        let items: std::rc::Rc<[Item]> =
+                        let items: Arc<[Item]> =
                             labels.into_iter().enumerate().map(|(i, label)| Item { label, detail: String::new(), action: Action::OpenIndexed(i) }).collect();
                         self.index.file_items = Some(items);
                         // "go to file" opened while the list was being made: show the new list

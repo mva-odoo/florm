@@ -5,7 +5,7 @@ use crate::os::Pick;
 
 impl App {
     pub(super) fn open_overlay(&mut self, mode: Mode) {
-        let items: std::rc::Rc<[Item]> = match &mode {
+        let items: Arc<[Item]> = match &mode {
             Mode::Commands => {
                 let mut v: Vec<Item> = commands::ALL
                     .iter()
@@ -96,7 +96,7 @@ impl App {
         }
     }
 
-    pub(super) fn file_items(&mut self) -> std::rc::Rc<[Item]> {
+    pub(super) fn file_items(&mut self) -> Arc<[Item]> {
         if self.root.is_none() {
             return Vec::new().into();
         }
@@ -124,9 +124,9 @@ impl App {
             .collect()
     }
 
-    pub(super) fn open_overlay_with(&mut self, mode: Mode, items: impl Into<std::rc::Rc<[Item]>>, query: String) {
+    pub(super) fn open_overlay_with(&mut self, mode: Mode, items: impl Into<Arc<[Item]>>, query: String) {
         let items = items.into();
-        self.overlay = Some(Overlay { mode, query, selected: 0, focus: true, items, filtered: Vec::new(), last_query: None, boost: HashMap::new(), matched: None, paths: None });
+        self.overlay = Some(Overlay { mode, query, selected: 0, focus: true, items, filtered: Vec::new(), last_query: None, boost: HashMap::new(), matched: None, paths: None, gen: Default::default(), pending: false });
     }
 
     pub(super) fn open_prompt(&mut self, p: Prompt) {
@@ -212,6 +212,8 @@ impl App {
         let mut submit = false;
         let mut goto_only: Option<String> = None;
         let indexing = files_mode && self.index.files.is_empty() && self.root.is_some();
+        // at most one background scoring started per frame
+        let mut send = files_mode.then(|| self.jobs.sender());
         let area = egui::Area::new(egui::Id::new("overlay"))
             .anchor(Align2::CENTER_TOP, egui::vec2(0.0, 40.0))
             .order(egui::Order::Foreground)
@@ -220,6 +222,9 @@ impl App {
                     ui.set_width(640.0);
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(&title).small().weak());
+                        if ov.pending {
+                            ui.add(egui::Spinner::new().size(10.0));
+                        }
                         if dialog_kind.is_some() {
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                 browse = ui.small_button("📂 Parcourir…").on_hover_text("Choisir dans le gestionnaire de fichiers").clicked();
@@ -314,11 +319,10 @@ impl App {
                         let q = ov.query.split(':').next().unwrap_or("").to_string();
                         // typing one more letter: only the items that matched before can match
                         let narrowing = ov.matched.as_ref().filter(|(prev, _)| !prev.is_empty() && q.starts_with(prev.as_str()));
-                        let pool: Box<dyn Iterator<Item = usize>> = match narrowing {
-                            Some((_, m)) => Box::new(m.clone().into_iter()),
-                            None => Box::new(0..ov.items.len()),
-                        };
+                        let pool = narrowing.map(|(_, m)| m.clone());
                         let boost = &ov.boost;
+                        let gen = ov.gen.fetch_add(1, Ordering::SeqCst) + 1;
+                        ov.pending = false;
                         if q.is_empty() {
                             // nothing typed: the boosted items (recent files), then the first ones,
                             // without scoring a whole project
@@ -327,16 +331,25 @@ impl App {
                             let rest = (0..ov.items.len()).filter(|i| !boost.contains_key(i)).take(300);
                             ov.filtered = first.into_iter().map(|(_, i)| i).chain(rest).take(300).collect();
                             ov.matched = None;
-                        } else {
-                            let mut scored = score_items(&q, &ov.items, pool.collect(), boost);
-                            ov.matched = Some((q.clone(), scored.iter().map(|(_, i)| *i).collect()));
-                            if scored.len() > 300 {
-                                // only the best 300 are shown: no need to sort everything
-                                scored.select_nth_unstable_by(300, |a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
-                                scored.truncate(300);
+                        } else if pool.as_ref().map_or(ov.items.len(), |p| p.len()) > 50_000 {
+                            // go to file in a big project: scored in the background, typing stays
+                            // fluid; the next letter stops this job
+                            ov.pending = true;
+                            let (items, boost, cancel, send) = (ov.items.clone(), boost.clone(), ov.gen.clone(), send.take());
+                            if let Some(send) = send {
+                                std::thread::spawn(move || {
+                                    let pool = pool.map_or_else(|| (0..items.len()).collect(), |p| p.as_ref().clone());
+                                    if let Some(scored) = score_items(&q, &items, pool, &boost, Some((&cancel, gen))) {
+                                        let matched = scored.iter().map(|(_, i)| *i).collect();
+                                        send(JobResult::FileMatches { gen, query: q, matched, top: best(scored) });
+                                    }
+                                });
                             }
-                            scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
-                            ov.filtered = scored.into_iter().map(|(_, i)| i).collect();
+                        } else {
+                            let pool = pool.map_or_else(|| (0..ov.items.len()).collect(), |p| p.as_ref().clone());
+                            let scored = score_items(&q, &ov.items, pool, boost, None).unwrap_or_default();
+                            ov.matched = Some((q.clone(), Arc::new(scored.iter().map(|(_, i)| *i).collect())));
+                            ov.filtered = best(scored);
                         }
                     }
                     let n = ov.filtered.len();
@@ -797,9 +810,18 @@ impl App {
 
 /// Fuzzy score of the items at `pool` (with their boost), the matching ones in `pool` order.
 /// Go to file scores up to a million paths: big lists are split over the processor cores.
-fn score_items(q: &str, items: &[Item], pool: Vec<usize>, boost: &HashMap<usize, i32>) -> Vec<(i32, usize)> {
-    let score = |chunk: &[usize]| -> Vec<(i32, usize)> {
-        chunk.iter().filter_map(|&i| fuzzy::score(q, &items[i].label).map(|s| (s + boost.get(&i).copied().unwrap_or(0), i))).collect()
+/// `cancel`: (query number, number of this one): `None` once a newer query is typed.
+fn score_items(q: &str, items: &[Item], pool: Vec<usize>, boost: &HashMap<usize, i32>, cancel: Option<(&AtomicU64, u64)>) -> Option<Vec<(i32, usize)>> {
+    let stale = || cancel.is_some_and(|(c, gen)| c.load(Ordering::Relaxed) != gen);
+    let score = |chunk: &[usize]| -> Option<Vec<(i32, usize)>> {
+        let mut out = Vec::new();
+        for part in chunk.chunks(16_384) {
+            if stale() {
+                return None;
+            }
+            out.extend(part.iter().filter_map(|&i| fuzzy::score(q, &items[i].label).map(|s| (s + boost.get(&i).copied().unwrap_or(0), i))));
+        }
+        Some(out)
     };
     let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(16);
     if pool.len() < 50_000 || threads == 1 {
@@ -808,6 +830,20 @@ fn score_items(q: &str, items: &[Item], pool: Vec<usize>, boost: &HashMap<usize,
     let size = pool.len().div_ceil(threads);
     std::thread::scope(|s| {
         let parts: Vec<_> = pool.chunks(size).map(|c| s.spawn(move || score(c))).collect();
-        parts.into_iter().flat_map(|h| h.join().unwrap_or_default()).collect()
+        let mut all = Vec::new();
+        for h in parts {
+            all.extend(h.join().ok().flatten()?);
+        }
+        Some(all)
     })
+}
+
+/// The 300 best of `scored` (score, index), best first: only those are shown.
+fn best(mut scored: Vec<(i32, usize)>) -> Vec<usize> {
+    if scored.len() > 300 {
+        scored.select_nth_unstable_by(300, |a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+        scored.truncate(300);
+    }
+    scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+    scored.into_iter().map(|(_, i)| i).collect()
 }

@@ -41,6 +41,9 @@ pub enum JobResult {
         base: Option<String>,
         log: Vec<String>,
     },
+    /// Go to file scored in the background: the query and its number, every match (to narrow
+    /// the next letter) and the best ones, in order.
+    FileMatches { gen: u64, query: String, matched: Vec<usize>, top: Vec<usize> },
     /// The files of the project (sorted) and their go to file labels; `None`: unchanged.
     FileIndex(PathBuf, Option<(Vec<PathBuf>, Vec<String>)>),
     /// Live lint of the buffer while typing.

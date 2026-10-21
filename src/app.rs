@@ -186,13 +186,18 @@ struct Overlay {
     selected: usize,
     focus: bool,
     /// Shared: go to file reuses the list of the whole project (up to a million files).
-    items: std::rc::Rc<[Item]>,
+    items: Arc<[Item]>,
     filtered: Vec<usize>,
     last_query: Option<String>,
     /// Added to the score of some items (go to file: the recent files), empty for the other lists.
     boost: HashMap<usize, i32>,
     /// Every item matching `.0` (not only the shown ones): a longer query only filters these.
-    matched: Option<(String, Vec<usize>)>,
+    matched: Option<(String, Arc<Vec<usize>>)>,
+    /// Number of the last query scored in the background (big lists): an older job stops, an
+    /// older result is ignored.
+    gen: Arc<AtomicU64>,
+    /// A query is being scored in the background: the results shown are the previous ones.
+    pending: bool,
     /// Path prompts: entries of the folder being typed, for the query they were listed for.
     paths: Option<(String, Vec<(String, bool)>)>,
 }
@@ -564,7 +569,7 @@ struct Indexes {
     /// shared with the job that lists them again, which compares without the interface.
     files: Arc<Vec<PathBuf>>,
     /// Go to file entries made from `files`, built once for each new list.
-    file_items: Option<std::rc::Rc<[Item]>>,
+    file_items: Option<Arc<[Item]>>,
     /// When the file list was last asked for (Ctrl+P rebuilds it, at most every few seconds).
     files_at: Option<Instant>,
     /// Project symbols (go to definition / completion without a language server).
