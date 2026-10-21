@@ -119,7 +119,8 @@ enum Mode {
 #[derive(Clone)]
 enum Action {
     Cmd(Cmd),
-    Open(PathBuf),
+    /// Open entry n of `App::file_index` (go to file: no full path kept per entry, there may be a million).
+    OpenIndexed(usize),
     Syntax(String),
     Theme(String),
     Branch(String),
@@ -146,6 +147,8 @@ struct Overlay {
     items: Vec<Item>,
     filtered: Vec<usize>,
     last_query: Option<String>,
+    /// Every item matching `.0` (not only the shown ones): a longer query only filters these.
+    matched: Option<(String, Vec<usize>)>,
     /// Path prompts: entries of the folder being typed, for the query they were listed for.
     paths: Option<(String, Vec<(String, bool)>)>,
 }
@@ -4266,7 +4269,7 @@ impl App {
                     if let Ok(rel) = e.path().strip_prefix(&root) {
                         v.push(rel.to_path_buf());
                     }
-                    if v.len() >= 300_000 {
+                    if v.len() >= 1_500_000 {
                         break;
                     }
                 }
@@ -4662,6 +4665,7 @@ impl App {
                             if let Some(o) = self.overlay.as_mut() {
                                 o.items = items;
                                 o.last_query = None;
+                                o.matched = None;
                             }
                         }
                     }
@@ -5844,15 +5848,18 @@ impl App {
     }
 
     fn file_items(&self) -> Vec<Item> {
-        let Some(root) = &self.root else { return Vec::new() };
+        if self.root.is_none() {
+            return Vec::new();
+        }
         self.file_index
             .iter()
-            .map(|p| Item { label: p.to_string_lossy().into_owned(), detail: String::new(), action: Action::Open(root.join(p)) })
+            .enumerate()
+            .map(|(i, p)| Item { label: p.to_string_lossy().into_owned(), detail: String::new(), action: Action::OpenIndexed(i) })
             .collect()
     }
 
     fn open_overlay_with(&mut self, mode: Mode, items: Vec<Item>, query: String) {
-        self.overlay = Some(Overlay { mode, query, selected: 0, focus: true, items, filtered: Vec::new(), last_query: None, paths: None });
+        self.overlay = Some(Overlay { mode, query, selected: 0, focus: true, items, filtered: Vec::new(), last_query: None, matched: None, paths: None });
     }
 
     fn open_prompt(&mut self, p: Prompt) {
@@ -6000,14 +6007,22 @@ impl App {
                         ov.last_query = Some(ov.query.clone());
                         ov.selected = 0;
                         let q = ov.query.split(':').next().unwrap_or("").to_string();
-                        let mut scored: Vec<(i32, usize)> = ov
-                            .items
-                            .iter()
-                            .enumerate()
-                            .filter_map(|(i, it)| fuzzy::score(&q, &it.label).map(|s| (s, i)))
-                            .collect();
+                        // typing one more letter: only the items that matched before can match
+                        let narrowing = ov.matched.as_ref().filter(|(prev, _)| !prev.is_empty() && q.starts_with(prev.as_str()));
+                        let pool: Box<dyn Iterator<Item = usize>> = match narrowing {
+                            Some((_, m)) => Box::new(m.clone().into_iter()),
+                            None => Box::new(0..ov.items.len()),
+                        };
+                        let mut scored: Vec<(i32, usize)> =
+                            pool.filter_map(|i| fuzzy::score(&q, &ov.items[i].label).map(|s| (s, i))).collect();
+                        ov.matched = Some((q.clone(), scored.iter().map(|(_, i)| *i).collect()));
+                        if !q.is_empty() && scored.len() > 300 {
+                            // only the best 300 are shown: no need to sort everything
+                            scored.select_nth_unstable_by(300, |a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+                            scored.truncate(300);
+                        }
                         if !q.is_empty() {
-                            scored.sort_by(|a, b| b.0.cmp(&a.0));
+                            scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
                         }
                         ov.filtered = scored.into_iter().take(300).map(|(_, i)| i).collect();
                     }
@@ -6141,8 +6156,10 @@ impl App {
     fn choose(&mut self, ctx: &egui::Context, action: Action) {
         match action {
             Action::Cmd(c) => self.exec(ctx, c),
-            Action::Open(p) => {
-                self.open_path(p);
+            Action::OpenIndexed(i) => {
+                if let (Some(root), Some(p)) = (self.root.clone(), self.file_index.get(i)) {
+                    self.open_path(root.join(p));
+                }
             }
             Action::Location(p, l) => self.open_at(p, l),
             Action::Line(l) => {
