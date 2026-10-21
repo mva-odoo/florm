@@ -439,6 +439,8 @@ impl App {
                     self.start_search();
                 }
             }
+            FormatDocument => self.python_rewrite(lint::Rewrite::Format),
+            FixDocument => self.python_rewrite(lint::Rewrite::Fix),
             NoqaLine => {
                 if let Some(d) = self.docs.get_mut(self.active) {
                     let line = d.rope.char_to_line(d.primary_sel().head);

@@ -133,6 +133,7 @@ const DEFAULTS: &[(&str, &str)] = &[
     ("ctrl+shift+g", "show_git"),
     ("ctrl+alt+g", "git_history"),
     ("ctrl+alt+d", "toggle_inline_diff"),
+    ("ctrl+alt+f", "format_document"),
     ("ctrl+b", "git_blame"),
     ("ctrl+alt+b", "git_line_history"),
     ("ctrl+shift+e", "show_files"),

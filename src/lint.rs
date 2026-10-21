@@ -275,6 +275,58 @@ fn find_runner(name: &str) -> Option<Runner> {
     r
 }
 
+/// What ruff rewrites in a Python buffer.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Rewrite {
+    /// `ruff format` (whole file, or the lines of `lines`).
+    Format,
+    /// `ruff check --fix`: the safe fixes (unused imports, import order…).
+    Fix,
+}
+
+/// The buffer `text` rewritten by ruff as if it were `path` (the project's configuration
+/// applies). `lines`: first and last line (1-based) to format, None for the whole file.
+pub fn ruff_rewrite(path: &Path, text: &str, root: Option<&Path>, what: Rewrite, lines: Option<(usize, usize)>) -> Result<String, String> {
+    let Some(Runner::Bin(ruff)) = find_runner("ruff") else {
+        return Err("ruff n'est pas installé (paquet ruff de la distribution, ou pip install ruff)".into());
+    };
+    let cwd = root.or(path.parent()).unwrap_or(Path::new("."));
+    let display = path.strip_prefix(cwd).unwrap_or(path).to_string_lossy().into_owned();
+    let mut args: Vec<String> = match what {
+        Rewrite::Format => vec!["format".into(), "--quiet".into()],
+        Rewrite::Fix => vec!["check".into(), "--fix".into(), "--quiet".into(), "--no-cache".into()],
+    };
+    if let (Rewrite::Format, Some((a, b))) = (what, lines) {
+        // the end of a ruff range is excluded: up to the start of the next line
+        args.push(format!("--range={a}-{}", b + 1));
+    }
+    args.extend(["--stdin-filename".into(), display, "-".into()]);
+    let mut child = crate::os::command(&ruff)
+        .args(&args)
+        .current_dir(cwd)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("ruff : {e}"))?;
+    if let Some(mut stdin) = child.stdin.take() {
+        let input = text.to_string();
+        std::thread::spawn(move || {
+            let _ = stdin.write_all(input.as_bytes());
+        });
+    }
+    let o = child.wait_with_output().map_err(|e| format!("ruff : {e}"))?;
+    let out = String::from_utf8_lossy(&o.stdout).into_owned();
+    // check --fix exits with 1 when problems remain: the fixed code is still on stdout
+    let fine = o.status.success() || (what == Rewrite::Fix && o.status.code() == Some(1));
+    if fine && (!out.is_empty() || text.is_empty()) {
+        return Ok(out);
+    }
+    let err = String::from_utf8_lossy(&o.stderr);
+    let first = err.lines().find(|l| !l.trim().is_empty()).unwrap_or("échec");
+    Err(format!("ruff : {first}"))
+}
+
 /// Whether a Python linter ("flake8", "ruff", "pyflakes", "pylint") can run.
 pub fn is_installed(name: &str) -> bool {
     find_runner(name).is_some()
@@ -442,6 +494,24 @@ fn parse_node_check(out: &str) -> Vec<Diagnostic> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ruff_format_and_fix() {
+        if !is_installed("ruff") {
+            return;
+        }
+        let dir = std::env::temp_dir();
+        let path = dir.join("florm_fmt.py");
+        let text = "import os\nx=[1,2 ,3]\ny=[4,5 ,6]\n";
+        let all = ruff_rewrite(&path, text, Some(&dir), Rewrite::Format, None).unwrap();
+        assert_eq!(all, "import os\n\nx = [1, 2, 3]\ny = [4, 5, 6]\n");
+        // only line 3
+        let one = ruff_rewrite(&path, text, Some(&dir), Rewrite::Format, Some((3, 3))).unwrap();
+        assert!(one.contains("x=[1,2 ,3]") && one.contains("y = [4, 5, 6]"), "{one}");
+        let fixed = ruff_rewrite(&path, text, Some(&dir), Rewrite::Fix, None).unwrap();
+        assert!(!fixed.contains("import os"), "{fixed}");
+        assert!(ruff_rewrite(&path, "def (:\n", Some(&dir), Rewrite::Format, None).is_err());
+    }
 
     #[test]
     fn xml_errors() {

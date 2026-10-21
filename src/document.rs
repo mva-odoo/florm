@@ -508,6 +508,25 @@ impl Document {
         Ok(())
     }
 
+    /// Replaces the whole text (formatter): one undo step, the cursor stays on its line and
+    /// column. Returns false when nothing changed.
+    pub fn replace_all(&mut self, text: &str) -> bool {
+        if text == self.rope.to_string() {
+            return false;
+        }
+        let head = self.primary_sel().head;
+        let line = self.rope.char_to_line(head);
+        let col = head - self.rope.line_to_char(line);
+        self.checkpoint(EditKind::Other);
+        let len = self.rope.len_chars();
+        self.apply(&mut [(0, len, text.to_string())]);
+        self.normalize();
+        self.sels = vec![Sel::cursor(self.pos_of(line, col))];
+        self.primary = 0;
+        self.scroll_to_cursor = true;
+        true
+    }
+
     /// Saves in UTF-8 from now on (the document becomes modified).
     pub fn convert_to_utf8(&mut self) {
         if self.encoding != Encoding::Utf8 {
@@ -2098,6 +2117,17 @@ fn read_text(path: &Path) -> Result<(String, Encoding), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn replace_all_keeps_cursor_and_undoes_at_once() {
+        let mut d = Document::from_text(1, "a=1\nbb=2\n", 4, true);
+        d.goto_line(1, 2);
+        assert!(d.replace_all("a = 1\nbb = 2\n"));
+        assert_eq!(d.rope.char_to_line(d.primary_sel().head), 1);
+        assert!(!d.replace_all("a = 1\nbb = 2\n"));
+        d.undo();
+        assert_eq!(d.rope.to_string(), "a=1\nbb=2\n");
+    }
 
     #[test]
     fn windows_1252_round_trip() {

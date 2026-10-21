@@ -14,6 +14,18 @@ impl App {
             self.open_prompt(Prompt::SaveAs);
             return false;
         }
+        if self.settings.format_on_save && doc.path.as_deref().and_then(lint::lang_of) == Some("python") {
+            let path = doc.path.clone().unwrap();
+            let root = self.repo_for(&path).or_else(|| self.root.clone());
+            let doc = &mut self.docs[idx];
+            match lint::ruff_rewrite(&path, &doc.rope.to_string(), root.as_deref(), lint::Rewrite::Format, None) {
+                Ok(text) => {
+                    doc.replace_all(&text);
+                }
+                Err(e) => self.set_status(format!("Pas formaté : {e}")),
+            }
+        }
+        let doc = &mut self.docs[idx];
         match doc.save(trim) {
             Ok(()) => {
                 let path = doc.path.clone().unwrap();
@@ -25,6 +37,42 @@ impl App {
                 self.set_status(format!("Erreur : {e}"));
                 false
             }
+        }
+    }
+
+    /// Formats (or fixes) the active Python file with ruff; with a selection, `Format` only
+    /// formats its lines (useful where the project is not formatted with ruff, like Odoo).
+    pub(super) fn python_rewrite(&mut self, what: lint::Rewrite) {
+        let Some(d) = self.docs.get(self.active) else { return };
+        let Some(path) = d.path.clone().filter(|p| lint::lang_of(p) == Some("python")) else {
+            self.set_status("Formatage : fichiers Python seulement");
+            return;
+        };
+        if d.read_only {
+            return;
+        }
+        let s = d.primary_sel();
+        let lines = (what == lint::Rewrite::Format && !s.is_empty()).then(|| {
+            let a = d.rope.char_to_line(s.start());
+            let mut b = d.rope.char_to_line(s.end());
+            if b > a && s.end() == d.rope.line_to_char(b) {
+                b -= 1;
+            }
+            (a + 1, b + 1)
+        });
+        let root = self.repo_for(&path).or_else(|| self.root.clone());
+        let text = d.rope.to_string();
+        match lint::ruff_rewrite(&path, &text, root.as_deref(), what, lines) {
+            Ok(new) => {
+                let changed = self.docs[self.active].replace_all(&new);
+                self.set_status(match (changed, what, lines) {
+                    (false, _, _) => "Rien à changer".to_string(),
+                    (true, lint::Rewrite::Fix, _) => "Corrigé (ruff --fix)".to_string(),
+                    (true, _, Some((a, b))) => format!("Lignes {a} à {b} formatées (ruff format)"),
+                    (true, _, None) => "Fichier formaté (ruff format)".to_string(),
+                });
+            }
+            Err(e) => self.set_status(e),
         }
     }
 

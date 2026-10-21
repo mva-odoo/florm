@@ -1034,6 +1034,8 @@ impl App {
         let has_path = d.path.is_some();
         let has_folds = !d.folds.is_empty();
         let has_lsp = self.settings.lsp && d.path.as_deref().and_then(lsp::language_of).is_some();
+        let is_python = d.path.as_deref().and_then(lint::lang_of) == Some("python");
+        let has_selection = !d.primary_sel().is_empty();
         let in_repo = d.path.as_deref().and_then(|p| self.repo_for(p)).is_some();
         let (km, blame_on, has_root) = (&self.keymap, self.blame_mode, self.root.is_some());
         let mut chosen = None;
@@ -1071,6 +1073,11 @@ impl App {
         if !noqa.is_empty() {
             ui.separator();
             item(ui, &format!("Ignorer {} sur cette ligne (# noqa)", noqa.join(", ")), Cmd::NoqaLine, !ro);
+        }
+        if is_python {
+            ui.separator();
+            item(ui, if has_selection { "Formater les lignes sélectionnées (ruff)" } else { "Formater le fichier (ruff)" }, Cmd::FormatDocument, !ro);
+            item(ui, "Corriger automatiquement (ruff --fix)", Cmd::FixDocument, !ro);
         }
         ui.separator();
         item(ui, "Commenter / décommenter", Cmd::ToggleComment, !ro);

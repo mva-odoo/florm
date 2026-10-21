@@ -134,6 +134,8 @@ pub enum Cmd {
     FindWordInFiles,
     ShowChange,
     NoqaLine,
+    FormatDocument,
+    FixDocument,
     InstallFlake8,
     Plugin(usize),
 }
@@ -297,6 +299,8 @@ pub const ALL: &[(&str, &str, Cmd)] = &[
     ("copy_github_link", "Git : copier le lien GitHub de la ligne", CopyGithubLink),
     ("find_word_in_files", "Rechercher le mot sous le curseur dans le dossier", FindWordInFiles),
     ("noqa_line", "Lint : ignorer les erreurs de la ligne (# noqa)", NoqaLine),
+    ("format_document", "Python : formater le fichier, ou les lignes sélectionnées (ruff format)", FormatDocument),
+    ("fix_document", "Python : corriger automatiquement (ruff --fix : imports inutilisés, ordre des imports…)", FixDocument),
     ("install_flake8", "Lint : installer flake8 pour Florm", InstallFlake8),
     ("show_change", "Git : voir le changement de la ligne", ShowChange),
     ("clear_search_history", "Recherche : effacer l'historique", ClearSearchHistory),

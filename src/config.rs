@@ -37,6 +37,8 @@ pub struct Settings {
     /// Extra arguments for the Python linter, e.g. ["--max-line-length=120"].
     pub python_lint_args: Vec<String>,
     pub trim_trailing_whitespace_on_save: bool,
+    /// Python files formatted with ruff when saved.
+    pub format_on_save: bool,
     /// Keep unsaved changes when closing (restored at the next start), without asking.
     pub hot_exit: bool,
     /// Shell used by the terminal panel (plugins always use `sh` / `cmd`).
@@ -76,6 +78,7 @@ impl Default for Settings {
             python_linter: "auto".into(),
             python_lint_args: Vec::new(),
             trim_trailing_whitespace_on_save: false,
+            format_on_save: false,
             hot_exit: true,
             shell: None,
             keys: HashMap::new(),
@@ -122,6 +125,8 @@ python_linter = "auto"
 # Arguments en plus, ex. ["--max-line-length=120"] (la config du projet, setup.cfg / .flake8 / tox.ini, est lue aussi)
 python_lint_args = []
 trim_trailing_whitespace_on_save = false
+# formater les fichiers Python avec ruff à l'enregistrement (Ctrl+Alt+F pour le faire à la main)
+format_on_save = false
 # garder les modifications non enregistrées à la fermeture (rouvertes au démarrage suivant)
 hot_exit = true
 # shell = "/bin/bash"
