@@ -109,6 +109,8 @@ enum Mode {
     Branches,
     Projects,
     Symbols,
+    /// Templates to insert at the cursor.
+    Templates,
     /// Several definitions of a word: choose one.
     Definitions(String),
     Prompt(Prompt),
@@ -126,6 +128,8 @@ enum Action {
     Line(usize),
     /// Open a file at a line (definitions).
     Location(PathBuf, usize),
+    /// Insert template n (index in `App::templates`).
+    Template(usize),
 }
 
 struct Item {
@@ -578,6 +582,8 @@ pub struct App {
     /// Python linter actually used for the last lint ("flake8", "ruff"… or "syntaxe").
     python_linter: Option<String>,
     prefs: PrefsUi,
+    /// Templates (snippets) offered by "insérer un modèle", loaded when the list opens.
+    templates: Vec<crate::templates::Template>,
     /// Last `git::stamp` of each repository: a change made outside Florm (commit in a terminal…)
     /// refreshes the git panel and the gutter marks.
     git_stamps: HashMap<PathBuf, Vec<Option<std::time::SystemTime>>>,
@@ -743,6 +749,7 @@ impl App {
             lint_inflight: HashSet::new(),
             python_linter: None,
             prefs: PrefsUi::default(),
+            templates: Vec::new(),
             git_stamps: HashMap::new(),
             was_focused: true,
             settings,
@@ -2387,6 +2394,10 @@ impl App {
                 self.markdown_view(ui, src);
                 None
             }
+            document::View::Help => {
+                self.render_markdown(ui, "guide", include_str!("../assets/guide.md"), "file://".into());
+                None
+            }
             document::View::Search => {
                 let bg = ui.visuals().panel_fill;
                 egui::CentralPanel::default()
@@ -2523,10 +2534,14 @@ impl App {
         };
         let text = d.rope.to_string();
         let base = d.path.as_deref().and_then(Path::parent).map(|p| format!("file://{}/", p.display())).unwrap_or_else(|| "file://".into());
+        self.render_markdown(ui, ("md_preview", src), &text, base);
+    }
+
+    fn render_markdown(&mut self, ui: &mut egui::Ui, id: impl std::hash::Hash, text: &str, base: String) {
         let bg = self.hl.colors.bg;
         let cache = &mut self.md_cache;
         egui::CentralPanel::default().frame(egui::Frame::none().fill(bg)).show_inside(ui, |ui| {
-            egui::ScrollArea::vertical().id_salt(("md_preview", src)).auto_shrink([false, false]).show(ui, |ui| {
+            egui::ScrollArea::vertical().id_salt(id).auto_shrink([false, false]).show(ui, |ui| {
                 let w = ui.available_width().min(880.0);
                 let pad = ((ui.available_width() - w) / 2.0).max(16.0);
                 egui::Frame::none().inner_margin(egui::Margin { left: pad, right: pad, top: 16.0, bottom: 40.0 }).show(ui, |ui| {
@@ -2534,7 +2549,7 @@ impl App {
                     egui_commonmark::CommonMarkViewer::new()
                         .default_implicit_uri_scheme(base)
                         .max_image_width(Some(w as usize))
-                        .show(ui, cache, &text);
+                        .show(ui, cache, text);
                 });
             });
         });
@@ -5551,6 +5566,14 @@ impl App {
                 self.reload_plugins();
                 self.set_status(format!("{} plugin(s) chargé(s)", self.plugins.len()));
             }
+            ShowGuide => self.open_view_tab(document::View::Help, "❓ Guide de Florm".into()),
+            InsertTemplate => self.open_overlay(Mode::Templates),
+            OpenTemplatesFolder => {
+                let dir = crate::templates::dir();
+                crate::templates::install_readme(&dir);
+                self.open_path(dir.join("README.md"));
+                self.set_status(format!("Dossier des modèles : {} — un fichier par modèle", dir.display()));
+            }
             OpenPluginsFolder => {
                 let dir = config::plugins_dir();
                 let _ = std::fs::create_dir_all(&dir);
@@ -5784,6 +5807,31 @@ impl App {
                 }
                 None => Vec::new(),
             },
+            Mode::Templates => {
+                self.templates = crate::templates::load(&crate::templates::dir());
+                let ext = self
+                    .docs
+                    .get(self.active)
+                    .and_then(|d| d.path.as_deref())
+                    .and_then(|p| p.extension())
+                    .map(|e| e.to_string_lossy().to_lowercase())
+                    .unwrap_or_default();
+                // the templates for the current kind of file first
+                let mut order: Vec<usize> = (0..self.templates.len()).collect();
+                order.sort_by_key(|&i| self.templates[i].ext != ext);
+                order
+                    .into_iter()
+                    .map(|i| {
+                        let t = &self.templates[i];
+                        let detail = match (&t.path, t.ext.is_empty()) {
+                            (Some(_), _) => format!(".{} · perso", t.ext),
+                            (None, false) => format!(".{}", t.ext),
+                            (None, true) => String::new(),
+                        };
+                        Item { label: t.name.clone(), detail, action: Action::Template(i) }
+                    })
+                    .collect()
+            }
             Mode::Themes => self
                 .hl
                 .theme_names()
@@ -5834,6 +5882,7 @@ impl App {
             Mode::GotoLine => "Aller à la ligne   (ligne ou ligne:colonne)".into(),
             Mode::Syntax => "Syntaxe du fichier".into(),
             Mode::Themes => "Thème".into(),
+            Mode::Templates => "Insérer un modèle   (${model}, ${Model}, ${module} remplis d'après le fichier courant)".into(),
             Mode::Branches => "Changer de branche".into(),
             Mode::Projects => "Changer de projet".into(),
             Mode::Symbols => "Aller au symbole   (classe, fonction, méthode, record Odoo, titre…)".into(),
@@ -6119,7 +6168,38 @@ impl App {
                 self.git_job("checkout", &["checkout", &name]);
             }
             Action::Project(p) => self.switch_project(p),
+            Action::Template(k) => self.insert_template(k),
         }
+    }
+
+    /// Inserts template `k` at every cursor, indented like the line, with the cursor at its `$0`.
+    fn insert_template(&mut self, k: usize) {
+        let Some(t) = self.templates.get(k).cloned() else { return };
+        if self.docs.get(self.active).map_or(true, |d| d.read_only || d.view != document::View::Text) {
+            self.new_doc();
+            let first = t.body.lines().next().unwrap_or("").to_string();
+            let syntax = self.hl.detect(Some(Path::new(&format!("x.{}", t.ext))), &first);
+            if let Some(d) = self.docs.get_mut(self.active) {
+                d.syntax = syntax;
+            }
+        }
+        let Some(d) = self.docs.get_mut(self.active) else { return };
+        let vars = crate::templates::variables(d.path.as_deref());
+        let items: Vec<Edit> = d
+            .sels
+            .clone()
+            .iter()
+            .map(|s| {
+                let line = d.rope.char_to_line(s.start());
+                let line_start = d.rope.line_to_char(line);
+                let indent: String = d.line_text(line).chars().take(s.start() - line_start).take_while(|c| *c == ' ' || *c == '\t').collect();
+                let (text, cursor) = crate::templates::expand(&t.body, &vars, &indent);
+                Edit { start: s.start(), end: s.end(), text, anchor: cursor, head: cursor }
+            })
+            .collect();
+        d.edit(EditKind::Other, items);
+        d.scroll_to_cursor = true;
+        self.set_status(format!("Modèle « {} » inséré", t.name));
     }
 
     fn submit_prompt(&mut self, p: Prompt, text: String) {
@@ -6452,8 +6532,16 @@ impl App {
             if !plugin_cmds.is_empty() {
                 ui.separator();
             }
+            item(ui, "Insérer un modèle (vue Odoo, menu…)…", Cmd::InsertTemplate);
+            item(ui, "Dossier des modèles", Cmd::OpenTemplatesFolder);
+            ui.separator();
             item(ui, "Recharger les plugins", Cmd::ReloadPlugins);
             item(ui, "Dossier des plugins", Cmd::OpenPluginsFolder);
+        });
+        ui.menu_button("Aide", |ui| {
+            item(ui, "Guide de Florm (recherche, Git, terminal, modèles…)", Cmd::ShowGuide);
+            item(ui, "Palette de commandes", Cmd::CommandPalette);
+            item(ui, "Raccourcis et préférences", Cmd::OpenSettings);
         });
     }
 

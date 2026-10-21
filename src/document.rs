@@ -187,6 +187,8 @@ pub enum View {
     Search,
     /// An integrated terminal (its session id), in a tab.
     Terminal(u64),
+    /// The guide of Florm (assets/guide.md).
+    Help,
 }
 
 /// Files shown as images rather than text.

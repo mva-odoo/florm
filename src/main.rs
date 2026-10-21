@@ -27,6 +27,7 @@ mod search;
 mod sidebar;
 mod split;
 mod symbols;
+mod templates;
 mod terminal;
 
 use eframe::egui;
