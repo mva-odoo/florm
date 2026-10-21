@@ -1,0 +1,605 @@
+//! Find in files: panel and replace.
+
+use super::*;
+
+impl App {
+    pub(super) fn start_search(&mut self) {
+        let Some(root) = self.root.clone() else {
+            self.set_status("Ouvre d'abord un dossier");
+            return;
+        };
+        if self.search.q.pattern.is_empty() {
+            return;
+        }
+        let q = &self.search.q;
+        UiState::remember(&mut self.state.search_history, &q.pattern);
+        UiState::remember(&mut self.state.include_history, &q.include);
+        UiState::remember(&mut self.state.exclude_history, &q.exclude);
+        self.state.last_include = q.include.trim().to_string();
+        self.state.last_exclude = q.exclude.trim().to_string();
+        project::save_state(&self.state);
+        self.search.hist_pos = None;
+        let gen = self.search.gen.fetch_add(1, Ordering::SeqCst) + 1;
+        let (q, current) = (self.search.q.clone(), self.search.gen.clone());
+        self.search.done = q.clone();
+        self.search.running = true;
+        self.jobs.spawn(move || JobResult::Search(gen, search::run(&root, &q, gen, &current)));
+    }
+
+    fn open_hit(&mut self, fi: usize, hi: usize) {
+        let Some(f) = self.search.files.get(fi) else { return };
+        let Some(h) = f.hits.get(hi) else { return };
+        let (path, line, col, len) = (f.path.clone(), h.line, h.col, h.len);
+        self.search.cursor = Some((fi, hi));
+        if self.open_path(path) {
+            if let Some(d) = self.docs.get_mut(self.active) {
+                d.goto_line(line, col);
+                let p = d.primary_sel().head;
+                let end = (p + len).min(d.len());
+                d.sels = vec![Sel::range(p, end)];
+                d.primary = 0;
+                d.flash = Some((p, end, Instant::now()));
+            }
+        }
+        self.search.scroll_to_cursor = true;
+    }
+
+    pub(super) fn step_result(&mut self, forward: bool) {
+        let s = &self.search;
+        let hits: Vec<(usize, usize)> =
+            s.files.iter().enumerate().flat_map(|(fi, f)| (0..f.hits.len()).map(move |h| (fi, h))).collect();
+        let n = hits.len();
+        if n == 0 {
+            return;
+        }
+        let idx = match s.cursor.and_then(|c| hits.iter().position(|&x| x == c)) {
+            Some(i) if forward => (i + 1) % n,
+            Some(i) => (i + n - 1) % n,
+            None if forward => 0,
+            None => n - 1,
+        };
+        let (f, h) = hits[idx];
+        if self.search.collapsed.remove(&f) {
+            self.search.rebuild_rows();
+        }
+        self.open_hit(f, h);
+    }
+
+    /// Replaces every listed hit, those of one file (`Some((file, None))`) or a single one.
+    pub(super) fn replace_in_files(&mut self, only: Option<(usize, Option<usize>)>) {
+        let q = &self.search.done;
+        let Ok(re) = document::build_regex(&q.pattern, q.case, q.regex, q.whole) else { return };
+        let (rep, regex_mode, preserve) = (self.search.replacement.clone(), q.regex, self.search.q.preserve);
+        let keep_all = |f: &FileHits| f.partial.then(|| f.hits.iter().map(|h| (h.line, h.col)).collect::<HashSet<_>>());
+        let targets: Vec<(PathBuf, Option<HashSet<(usize, usize)>>)> = match only {
+            None => self.search.files.iter().map(|f| (f.path.clone(), keep_all(f))).collect(),
+            Some((fi, hit)) => {
+                let Some(f) = self.search.files.get(fi) else { return };
+                let keep = match hit.and_then(|h| f.hits.get(h)) {
+                    Some(h) => Some([(h.line, h.col)].into()),
+                    None => keep_all(f),
+                };
+                vec![(f.path.clone(), keep)]
+            }
+        };
+        let (mut files, mut count, mut in_editor) = (0, 0, 0);
+        let mut errors = Vec::new();
+        for (p, keep) in targets {
+            // Open files are changed in the editor (undoable, saved by the user).
+            if let Some(d) = self.docs.iter_mut().find(|d| d.path.as_ref() == Some(&p)) {
+                if let Some((new, n)) = search::replace_text(&re, &d.rope.to_string(), &rep, regex_mode, preserve, keep.as_ref()) {
+                    d.set_text(&new);
+                    (files, count, in_editor) = (files + 1, count + n, in_editor + 1);
+                }
+                continue;
+            }
+            match std::fs::read_to_string(&p) {
+                Ok(text) => {
+                    if let Some((new, n)) = search::replace_text(&re, &text, &rep, regex_mode, preserve, keep.as_ref()) {
+                        match std::fs::write(&p, new) {
+                            Ok(()) => (files, count) = (files + 1, count + n),
+                            Err(e) => errors.push(format!("{} : {e}", p.display())),
+                        }
+                    }
+                }
+                Err(e) => errors.push(format!("{} : {e}", p.display())),
+            }
+        }
+        for e in errors {
+            self.log(e);
+        }
+        let open = if in_editor > 0 { format!(" — {in_editor} fichier(s) ouvert(s) à enregistrer") } else { String::new() };
+        self.set_status(format!("{count} remplacement(s) dans {files} fichier(s){open}"));
+        self.start_search();
+        self.git_refresh();
+    }
+
+    /// Shell chosen in the preferences (None: $SHELL, or cmd on Windows).
+    pub(super) fn term_shell(&self) -> Option<String> {
+        self.settings.shell.clone().filter(|s| !s.trim().is_empty())
+    }
+
+    pub(super) fn reveal(&mut self, path: &Path) {
+        if let Err(e) = crate::os::reveal(path) {
+            self.set_status(e);
+        }
+    }
+
+    pub(super) fn search_ui(&mut self, ui: &mut egui::Ui, in_tab: bool) {
+        let (mut go, mut act) = (false, None);
+        let accent = self.hl.colors.accent;
+        let st = &self.state;
+        let hl = &self.hl;
+        let s = &mut self.search;
+        let enter = |r: &egui::Response, ui: &egui::Ui| r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+        let field_w = (ui.available_width() * 0.45).clamp(220.0, 520.0);
+
+        // --- search line: [▸ replace] [pattern] [Aa .* « »] [⏷] [Rechercher]
+        ui.horizontal(|ui| {
+            let arrow = if s.show_replace { "⏷" } else { "⏵" };
+            if ui
+                .add(egui::Button::new(RichText::new(arrow).color(accent)).frame(false).min_size(egui::vec2(18.0, 0.0)))
+                .on_hover_text("Afficher / masquer le remplacement")
+                .clicked()
+            {
+                s.show_replace = !s.show_replace;
+            }
+            let te = ui.add(
+                egui::TextEdit::singleline(&mut s.q.pattern)
+                    .desired_width(field_w)
+                    .hint_text("🔍  Rechercher dans le dossier… (Entrée)")
+                    .font(egui::TextStyle::Monospace),
+            );
+            if s.focus {
+                te.request_focus();
+                s.focus = false;
+            }
+            if enter(&te, ui) {
+                go = true;
+                te.request_focus();
+            }
+            if te.has_focus() {
+                if let Some(t) = history_arrows(ui, &st.search_history, &mut s.hist_pos) {
+                    s.q.pattern = t;
+                }
+            }
+            go |= history_menu(ui, &st.search_history, &mut s.q.pattern, "Recherches récentes");
+            ui.toggle_value(&mut s.q.case, "Aa").on_hover_text("Respecter la casse");
+            ui.toggle_value(&mut s.q.regex, ".*").on_hover_text("Expression régulière");
+            ui.toggle_value(&mut s.q.whole, "« »").on_hover_text("Mot entier");
+            let search_btn = filled_button("Rechercher", accent);
+            if ui.add(search_btn).clicked() {
+                go = true;
+            }
+            if s.running {
+                ui.spinner();
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if in_tab {
+                    if ui.small_button("⇲ Panneau du bas").on_hover_text("Afficher la recherche dans le panneau du bas").clicked() {
+                        act = Some(SearchAct::Move(false));
+                    }
+                } else if ui.small_button("⇱ Onglet").on_hover_text("Afficher la recherche dans un onglet de l'éditeur (plus de place pour les résultats)").clicked() {
+                    act = Some(SearchAct::Move(true));
+                }
+            });
+        });
+
+        // --- replace line
+        if s.show_replace {
+            ui.horizontal(|ui| {
+                ui.add_space(22.0);
+                ui.add(
+                    egui::TextEdit::singleline(&mut s.replacement)
+                        .desired_width(field_w)
+                        .hint_text(if s.q.regex { "Remplacer par… ($1, $2 = groupes)" } else { "Remplacer par… (vide = supprimer)" })
+                        .font(egui::TextStyle::Monospace),
+                );
+                let n = s.hit_count();
+                if ui.add_enabled(n > 0 && !s.running, filled_button(format!("Tout remplacer ({n})"), warn())).clicked() {
+                    act = Some(SearchAct::ReplaceAll);
+                }
+                ui.toggle_value(&mut s.q.preserve, "Garder la casse").on_hover_text("chat → chien, Chat → Chien, CHAT → CHIEN");
+            });
+            ui.horizontal(|ui| {
+                ui.add_space(22.0);
+                ui.spacing_mut().item_spacing.x = 4.0;
+                let small = |t: &str| RichText::new(t).small();
+                ui.label(small("Aperçu :").weak());
+                ui.label(small(" ancien ").strikethrough().background_color(icons::mix(ui.visuals().panel_fill, err(), 0.4)));
+                ui.label(small("→").weak());
+                ui.label(small(" nouveau ").background_color(icons::mix(ui.visuals().panel_fill, ok(), 0.4)));
+                ui.label(
+                    small("· survol ou clic droit sur un résultat pour le remplacer seul ou l'écarter (× = ne pas remplacer)")
+                        .weak(),
+                );
+            });
+        }
+
+        // --- filters line
+        ui.horizontal(|ui| {
+            ui.add_space(22.0);
+            ui.label(RichText::new("Fichiers").color(ok()));
+            let inc = ui
+                .add(egui::TextEdit::singleline(&mut s.q.include).desired_width(220.0).hint_text("*.py, models/*.py, tests"))
+                .on_hover_text(
+                    "Séparés par des virgules :\n\
+                     *.py — tous les fichiers Python\n\
+                     models/*.py — les fichiers Python des dossiers « models » (où qu'ils soient) et de leurs sous-dossiers\n\
+                     tests — tout dossier (ou fichier) nommé « tests »\n\
+                     ./src/*.rs ou /chemin/absolu/*.py — à partir de la racine du projet\n\
+                     Aide → Guide de Florm pour plus d'exemples",
+                );
+            go |= history_menu(ui, &st.include_history, &mut s.q.include, "Filtres récents");
+            ui.add_space(8.0);
+            ui.label(RichText::new("Exclure").color(err()));
+            let exc = ui.add(
+                egui::TextEdit::singleline(&mut s.q.exclude).desired_width(170.0).hint_text("node_modules, *.min.js"),
+            );
+            go |= history_menu(ui, &st.exclude_history, &mut s.q.exclude, "Exclusions récentes");
+            go |= enter(&inc, ui) || enter(&exc, ui);
+        });
+
+        // --- summary
+        ui.horizontal(|ui| {
+            ui.add_space(22.0);
+            ui.spacing_mut().item_spacing.x = 0.0;
+            if let Some(e) = &s.error {
+                ui.label(RichText::new(format!("⚠ {e}")).color(err()));
+            } else if let Some((scanned, millis, truncated)) = s.stats {
+                let n = s.hit_count();
+                if scanned == 0 && !s.done.include.trim().is_empty() {
+                    ui.label(
+                        RichText::new(format!("Aucun fichier ne correspond au filtre « {} »", s.done.include.trim()))
+                            .color(warn()),
+                    );
+                } else if n == 0 {
+                    ui.label(RichText::new(format!("Aucun résultat pour « {} »", s.done.pattern)).color(warn()));
+                } else {
+                    ui.label(RichText::new(n.to_string()).color(accent).strong());
+                    ui.label(" résultat(s) dans ");
+                    ui.label(RichText::new(s.files.len().to_string()).color(accent).strong());
+                    ui.label(" fichier(s)");
+                }
+                ui.label(RichText::new(format!("   ·   {scanned} fichiers parcourus en {millis} ms")).weak());
+                if truncated {
+                    ui.label(RichText::new("   ·   limite atteinte").color(warn()));
+                }
+                if n > 0 {
+                    ui.label(RichText::new("   ·   F4 / Maj+F4 pour naviguer   ").weak());
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    if ui.small_button("Tout replier").clicked() {
+                        s.collapsed = (0..s.files.len()).collect();
+                        s.rebuild_rows();
+                    }
+                    if ui.small_button("Tout déplier").clicked() {
+                        s.collapsed.clear();
+                        s.rebuild_rows();
+                    }
+                }
+            } else {
+                ui.label(
+                    RichText::new("Tape un texte puis Entrée. Filtre les fichiers avec « *.py », exclus des dossiers avec « tests ».")
+                        .weak(),
+                );
+            }
+        });
+        ui.add_space(2.0);
+
+        // --- results
+        let v = ui.visuals().clone();
+        let bg = v.panel_fill;
+        let light = bg.r() as u32 + bg.g() as u32 + bg.b() as u32 > 384;
+        let font = egui::TextStyle::Monospace.resolve(ui.style());
+        let fg = v.text_color();
+        let preview_re = if s.show_replace {
+            let q = &s.done;
+            document::build_regex(&q.pattern, q.case, q.regex, q.whole).ok()
+        } else {
+            None
+        };
+        let match_fmt = TextFormat {
+            font_id: font.clone(),
+            color: if light { Color32::BLACK } else { v.strong_text_color() },
+            background: icons::mix(bg, warn(), if light { 0.65 } else { 0.45 }),
+            ..Default::default()
+        };
+        let old_fmt = TextFormat {
+            font_id: font.clone(),
+            color: fg,
+            background: icons::mix(bg, err(), 0.4),
+            strikethrough: egui::Stroke::new(1.0_f32, if light { Color32::BLACK } else { fg }),
+            ..Default::default()
+        };
+        let new_fmt = TextFormat {
+            font_id: font.clone(),
+            color: if light { Color32::BLACK } else { v.strong_text_color() },
+            background: icons::mix(bg, ok(), 0.4),
+            ..Default::default()
+        };
+        let row_h = 22.0;
+        ui.spacing_mut().item_spacing.y = 0.0; // show_rows positions rows with this spacing
+        let mut area = egui::ScrollArea::both().id_salt("search_results").auto_shrink([false, false]);
+        if std::mem::take(&mut s.scroll_to_cursor) {
+            if let Some(i) = s.cursor.and_then(|(f, h)| s.rows.iter().position(|&r| r == (f, Some(h)))) {
+                let (y, view_h) = (i as f32 * row_h, ui.available_height());
+                let id = ui.make_persistent_id("search_results");
+                let top = egui::scroll_area::State::load(ui.ctx(), id).map_or(0.0, |st| st.offset.y);
+                if y < top || y + row_h > top + view_h {
+                    area = area.vertical_scroll_offset((y - view_h / 2.0).max(0.0));
+                }
+            }
+        }
+        area.show_rows(
+            ui,
+            row_h,
+            s.rows.len(),
+            |ui, range| {
+                ui.spacing_mut().item_spacing.y = 0.0;
+                let visible_right = ui.clip_rect().right();
+                for r in range {
+                    let (fi, hi) = s.rows[r];
+                    let f = &s.files[fi];
+                    let width = ui.available_width();
+                    match hi {
+                        None => {
+                            let (rect, resp) = ui.allocate_exact_size(egui::vec2(width, row_h), Sense::click());
+                            let hovered = ui.rect_contains_pointer(rect);
+                            let fill = if hovered { v.widgets.hovered.weak_bg_fill } else { v.faint_bg_color };
+                            ui.painter().rect_filled(rect.shrink2(egui::vec2(0.0, 1.0)), 4.0, fill);
+                            let p = ui.painter().with_clip_rect(rect);
+                            let cy = rect.center().y;
+                            let collapsed = s.collapsed.contains(&fi);
+                            icons::paint_chevron(&p, egui::pos2(rect.left() + 9.0, cy), !collapsed, v.weak_text_color());
+                            let name = f.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                            let icon = egui::Rect::from_center_size(egui::pos2(rect.left() + 28.0, cy), egui::vec2(16.0, 16.0));
+                            icons::paint_file(&p, icon, &name, fill, light);
+                            let mut x = rect.left() + 42.0;
+                            let name_r = p.text(
+                                egui::pos2(x, cy),
+                                Align2::LEFT_CENTER,
+                                &name,
+                                egui::FontId::proportional(13.5),
+                                v.strong_text_color(),
+                            );
+                            x = name_r.right() + 8.0;
+                            let dir = f.rel.strip_suffix(&name).unwrap_or("").trim_end_matches(['/', '\\']);
+                            if !dir.is_empty() {
+                                let r = p.text(
+                                    egui::pos2(x, cy),
+                                    Align2::LEFT_CENTER,
+                                    dir,
+                                    egui::FontId::proportional(12.0),
+                                    v.weak_text_color(),
+                                );
+                                x = r.right() + 8.0;
+                            }
+                            // hit count pill
+                            let count = f.hits.len().to_string();
+                            let galley = p.layout_no_wrap(count, egui::FontId::proportional(11.5), accent);
+                            let pill = egui::Rect::from_min_size(
+                                egui::pos2(x, cy - 8.0),
+                                egui::vec2(galley.size().x + 12.0, 16.0),
+                            );
+                            p.rect_filled(pill, 8.0, icons::mix(fill, accent, 0.22));
+                            p.galley(pill.center() - galley.size() / 2.0, galley, accent);
+                            let mut clicked_button = false;
+                            if hovered {
+                                let mut right = rect.right().min(visible_right) - 4.0;
+                                let mut btn = |ui: &mut egui::Ui, text: &str, tip: &str| {
+                                    let w = 10.0 + 7.5 * text.chars().count() as f32;
+                                    let r = egui::Rect::from_min_max(egui::pos2(right - w, cy - 9.0), egui::pos2(right, cy + 9.0));
+                                    right -= w + 4.0;
+                                    ui.put(r, egui::Button::new(RichText::new(text).small())).on_hover_text(tip).clicked()
+                                };
+                                if btn(ui, "×", "Écarter ce fichier des résultats (il ne sera pas modifié)") {
+                                    act = Some(SearchAct::Dismiss(fi, None));
+                                    clicked_button = true;
+                                }
+                                if s.show_replace && btn(ui, "Remplacer", "Remplacer dans ce fichier") {
+                                    act = Some(SearchAct::Replace(fi, None));
+                                    clicked_button = true;
+                                }
+                                if btn(ui, "📂", "Afficher dans le gestionnaire de fichiers") {
+                                    act = Some(SearchAct::Reveal(fi));
+                                    clicked_button = true;
+                                }
+                            }
+                            let resp = resp.on_hover_text_at_pointer(f.path.display().to_string());
+                            if resp.clicked() && !clicked_button {
+                                act = Some(SearchAct::Fold(fi));
+                            }
+                            if resp.double_clicked() {
+                                act = Some(SearchAct::Open(fi, 0));
+                            }
+                            resp.context_menu(|ui| {
+                                let mut item = |ui: &mut egui::Ui, label: &str, a: SearchAct| {
+                                    if ui.button(label).clicked() {
+                                        act = Some(a);
+                                        ui.close_menu();
+                                    }
+                                };
+                                item(ui, "Ouvrir le fichier", SearchAct::Open(fi, 0));
+                                item(ui, if collapsed { "Déplier" } else { "Replier" }, SearchAct::Fold(fi));
+                                ui.separator();
+                                if s.show_replace {
+                                    item(ui, "Remplacer dans ce fichier", SearchAct::Replace(fi, None));
+                                }
+                                item(ui, "Écarter ce fichier des résultats", SearchAct::Dismiss(fi, None));
+                                ui.separator();
+                                item(ui, "Afficher dans le gestionnaire de fichiers", SearchAct::Reveal(fi));
+                                item(ui, "Copier le chemin", SearchAct::Copy(f.path.display().to_string()));
+                                item(ui, "Copier le chemin relatif", SearchAct::Copy(f.rel.clone()));
+                            });
+                        }
+                        Some(h) => {
+                            let hit = &f.hits[h];
+                            let syntax = s.syntaxes.entry(fi).or_insert_with(|| hl.detect(Some(&f.path), ""));
+                            let spans = s.colors.entry((fi, h)).or_insert_with(|| hl.line_spans(syntax, &hit.preview));
+                            let mut job = LayoutJob::default();
+                            append_colored(&mut job, &hit.preview, 0, hit.start, spans, &font, fg);
+                            let matched = &hit.preview[hit.start..hit.end];
+                            match &preview_re {
+                                Some(re) => {
+                                    job.append(matched, 0.0, old_fmt.clone());
+                                    let new = search::replacement_preview(re, matched, &s.replacement, s.done.regex, s.q.preserve);
+                                    job.append(&new, 0.0, new_fmt.clone());
+                                }
+                                None => job.append(matched, 0.0, match_fmt.clone()),
+                            }
+                            append_colored(&mut job, &hit.preview, hit.end, hit.preview.len(), spans, &font, fg);
+                            let galley = ui.fonts(|fo| fo.layout_job(job));
+                            let text_x = 92.0;
+                            let (rect, resp) = ui.allocate_exact_size(
+                                egui::vec2(width.max(text_x + galley.size().x + 16.0), row_h),
+                                Sense::click(),
+                            );
+                            let hovered = ui.rect_contains_pointer(rect);
+                            let current = s.cursor == Some((fi, h));
+                            if current {
+                                ui.painter().rect_filled(rect, 4.0, v.selection.bg_fill);
+                            } else if hovered {
+                                ui.painter().rect_filled(rect, 4.0, v.widgets.hovered.weak_bg_fill);
+                            }
+                            let p = ui.painter().with_clip_rect(rect);
+                            let cy = rect.center().y;
+                            if current {
+                                p.rect_filled(
+                                    egui::Rect::from_min_size(egui::pos2(rect.left() + 2.0, rect.top() + 3.0), egui::vec2(3.0, row_h - 6.0)),
+                                    1.5,
+                                    accent,
+                                );
+                            }
+                            p.text(
+                                egui::pos2(rect.left() + text_x - 12.0, cy),
+                                Align2::RIGHT_CENTER,
+                                (hit.line + 1).to_string(),
+                                font.clone(),
+                                icons::mix(bg, accent, 0.75),
+                            );
+                            p.galley(egui::pos2(rect.left() + text_x, cy - galley.size().y / 2.0), galley, fg);
+                            let mut clicked_button = false;
+                            if hovered {
+                                let mut right = rect.right().min(visible_right) - 4.0;
+                                let mut btn = |ui: &mut egui::Ui, text: &str, tip: &str| {
+                                    let w = 10.0 + 7.5 * text.chars().count() as f32;
+                                    let r = egui::Rect::from_min_max(egui::pos2(right - w, cy - 9.0), egui::pos2(right, cy + 9.0));
+                                    right -= w + 4.0;
+                                    ui.put(r, egui::Button::new(RichText::new(text).small())).on_hover_text(tip).clicked()
+                                };
+                                if btn(ui, "×", "Écarter ce résultat (il ne sera pas remplacé)") {
+                                    act = Some(SearchAct::Dismiss(fi, Some(h)));
+                                    clicked_button = true;
+                                }
+                                if s.show_replace && btn(ui, "Remplacer", "Remplacer cette occurrence") {
+                                    act = Some(SearchAct::Replace(fi, Some(h)));
+                                    clicked_button = true;
+                                }
+                            }
+                            if resp.clicked() && !clicked_button {
+                                act = Some(SearchAct::Open(fi, h));
+                            }
+                            let ref_text = format!("{}:{}", f.rel, hit.line + 1);
+                            resp.context_menu(|ui| {
+                                let mut item = |ui: &mut egui::Ui, label: &str, a: SearchAct| {
+                                    if ui.button(label).clicked() {
+                                        act = Some(a);
+                                        ui.close_menu();
+                                    }
+                                };
+                                item(ui, "Ouvrir", SearchAct::Open(fi, h));
+                                if s.show_replace {
+                                    item(ui, "Remplacer cette occurrence", SearchAct::Replace(fi, Some(h)));
+                                }
+                                item(ui, "Écarter ce résultat", SearchAct::Dismiss(fi, Some(h)));
+                                ui.separator();
+                                item(ui, "Afficher dans le gestionnaire de fichiers", SearchAct::Reveal(fi));
+                                item(ui, "Copier la référence fichier:ligne", SearchAct::Copy(ref_text.clone()));
+                            });
+                        }
+                    }
+                }
+            },
+        );
+        if go {
+            self.start_search();
+        }
+        match act {
+            Some(SearchAct::Open(f, h)) => {
+                self.open_hit(f, h);
+                ui.ctx().memory_mut(|m| m.request_focus(editor_id()));
+            }
+            Some(SearchAct::Fold(f)) => {
+                let s = &mut self.search;
+                if !s.collapsed.remove(&f) {
+                    s.collapsed.insert(f);
+                }
+                s.rebuild_rows();
+            }
+            Some(SearchAct::Dismiss(f, h)) => self.search.dismiss(f, h),
+            Some(SearchAct::Replace(f, h)) => self.replace_in_files(Some((f, h))),
+            Some(SearchAct::ReplaceAll) => self.confirm = Some(Confirm::ReplaceInFiles),
+            Some(SearchAct::Reveal(f)) => {
+                if let Some(p) = self.search.files.get(f).map(|f| f.path.clone()) {
+                    self.reveal(&p);
+                }
+            }
+            Some(SearchAct::Copy(t)) => {
+                ui.ctx().output_mut(|o| o.copied_text = t.clone());
+                self.set_status(format!("Copié : {t}"));
+            }
+            Some(SearchAct::Move(true)) => {
+                self.open_search_tab();
+                self.settings.search_in_tab = true;
+                self.persist("search_in_tab", "true".into());
+            }
+            Some(SearchAct::Move(false)) => {
+                if let Some(i) = self.docs.iter().position(|d| d.view == document::View::Search) {
+                    self.close_tab(i, true);
+                }
+                self.bottom = Some(BottomTab::Search);
+                self.search.focus = true;
+                self.settings.search_in_tab = false;
+                self.persist("search_in_tab", "false".into());
+            }
+            None => {}
+        }
+    }
+
+    pub(super) fn refresh_index(&mut self) {
+        let Some(root) = self.root.clone() else { return };
+        self.file_index_at = Some(Instant::now());
+        self.jobs.spawn(move || {
+            let mut v = Vec::new();
+            let walker = ignore::WalkBuilder::new(&root).hidden(false).filter_entry(|e| e.file_name() != ".git").build();
+            for e in walker.flatten() {
+                if e.file_type().is_some_and(|t| t.is_file()) {
+                    if let Ok(rel) = e.path().strip_prefix(&root) {
+                        v.push(rel.to_path_buf());
+                    }
+                    if v.len() >= 1_500_000 {
+                        break;
+                    }
+                }
+            }
+            JobResult::FileIndex(root, v)
+        });
+    }
+
+    pub(super) fn plugin_env(&self, idx: usize) -> Vec<(String, String)> {
+        let mut env = Vec::new();
+        if let Some(r) = &self.root {
+            env.push(("FLORM_PROJECT".into(), r.display().to_string()));
+        }
+        if let Some(d) = self.docs.get(idx) {
+            if let Some(p) = &d.path {
+                env.push(("FLORM_FILE".into(), p.display().to_string()));
+            }
+            let (l, c) = d.line_col(d.primary_sel().head);
+            env.push(("FLORM_LINE".into(), (l + 1).to_string()));
+            env.push(("FLORM_COLUMN".into(), (c + 1).to_string()));
+            env.push(("FLORM_SYNTAX".into(), d.syntax.clone()));
+        }
+        env
+    }
+}
