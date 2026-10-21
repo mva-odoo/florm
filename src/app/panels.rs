@@ -373,6 +373,10 @@ impl App {
                     }
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let version = egui::Button::new(RichText::new(format!("v{}", crate::update::current())).small()).frame(false);
+                    if ui.add(version).on_hover_text("Version de Florm · clic : rechercher une mise à jour").clicked() {
+                        self.pending.push(Cmd::CheckUpdate);
+                    }
                     if let Some(u) = self.update.clone() {
                         let text = RichText::new(format!("⬆ Florm {}", u.version)).color(ui.visuals().hyperlink_color);
                         ui.menu_button(text, |ui| {
