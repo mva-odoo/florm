@@ -423,6 +423,16 @@ impl App {
         let (n_staged, n_changed) = wip.as_ref().map_or((0, 0), |st| {
             (st.entries.iter().filter(|e| e.staged()).count(), st.entries.iter().filter(|e| e.unstaged() && e.x != '?').count())
         });
+        // pull requests containing the selected commit
+        let commit_links = match (self.history.selected.zip(self.history.graph.as_ref()), self.history.repo.clone()) {
+            (Some((i, g)), Some(repo)) if self.history.wip_sel.is_none() => {
+                let sha = g.commits[i].hash.clone();
+                let msg = self.history.details.as_ref().map(|d| d.message.clone()).unwrap_or_default();
+                self.commit_prs(&repo, &sha, &msg)
+            }
+            _ => Vec::new(),
+        };
+        let mut open_pr = None;
         let mut do_commit = false;
         let commit_msg = &mut self.git.commit_msg;
         let focus_commit = std::mem::take(&mut self.git.focus_commit);
@@ -795,6 +805,13 @@ impl App {
                                 for r in &c.refs {
                                     ui.label(RichText::new(r.strip_prefix("HEAD -> ").unwrap_or(r)).small().color(accent).background_color(icons::mix(ui.visuals().panel_fill, accent, 0.15)));
                                 }
+                                for pr in &commit_links {
+                                    let (state, color) = super::pulls::state_badge(&pr.state, false);
+                                    let tip = if pr.title.is_empty() { format!("Pull request {state} — clic : l'ouvrir") } else { format!("{}\n{state} — clic : l'ouvrir", pr.title) };
+                                    if ui.add(egui::Button::new(RichText::new(format!("⇄ PR #{}", pr.number)).small().color(color)).small()).on_hover_text(tip).clicked() {
+                                        open_pr = Some(pr.number);
+                                    }
+                                }
                             });
                             let body = body.trim();
                             if !body.is_empty() {
@@ -903,6 +920,9 @@ impl App {
         }
         if do_commit {
             self.commit(n_staged);
+        }
+        if let (Some(n), Some(repo)) = (open_pr, self.history.repo.clone()) {
+            self.open_pr(repo, n);
         }
         if clear_notice {
             self.history.notice = None;

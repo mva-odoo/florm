@@ -317,6 +317,7 @@ impl App {
             ShowOutput => self.bottom = Some(BottomTab::Output),
             ShowGit => self.open_git_view(),
             PullRequests => self.open_pulls(),
+            CreatePr => self.start_pr_create(),
             ShowFiles => {
                 // a second time: back to the editor
                 if self.show_sidebar && self.side_tab == SideTab::Files && ctx.memory(|m| m.has_focus(sidebar::tree_id())) {

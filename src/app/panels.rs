@@ -121,6 +121,7 @@ impl App {
             item(ui, "Diff du fichier", Cmd::GitDiffFile);
             item(ui, "Historique (graphe)", Cmd::GitHistory);
             item(ui, "Pull requests GitHub", Cmd::PullRequests);
+            item(ui, "Créer une pull request…", Cmd::CreatePr);
             item(ui, "Diff dans l'éditeur (vert / rouge)", Cmd::ToggleInlineDiff);
             item(ui, "Blame de la ligne", Cmd::GitBlame);
             item(ui, "Historique de la ligne", Cmd::GitLineHistory);
@@ -715,6 +716,13 @@ impl App {
         let repo_name = self.history.repo.as_deref().map(|r| self.repo_label(r)).unwrap_or_default();
         let repo_choices: Vec<(PathBuf, String)> = self.repos.iter().map(|r| (r.clone(), self.repo_label(r))).collect();
         // pull requests of the branch, or the button to open one
+        let branch_prs = self.current_branch_prs();
+        let (mut open_pr, mut create_pr) = (None, false);
+        let main_branch = self.git.status.as_ref().is_some_and(|s| {
+            let b = s.branch.as_str();
+            let default = self.repo.as_ref().and_then(|r| self.gh.base_default(r));
+            Some(b) == default.as_deref() || b == "master" || b == "main" || b.trim_start_matches("saas-").split('.').all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+        });
 
         // --- branch, its upstream and the remote actions
         ui.horizontal(|ui| {
@@ -739,6 +747,16 @@ impl App {
                         ui.label(RichText::new("pas de branche distante").weak().small());
                     }
                 }
+            }
+            for pr in branch_prs.iter().take(3) {
+                let (state, color) = super::pulls::state_badge(&pr.state, pr.is_draft);
+                let text = RichText::new(format!("⇄ #{} {}", pr.number, state.to_lowercase())).color(color);
+                if ui.add(egui::Button::new(text).small()).on_hover_text(format!("{}\n{} → {}\nClic : ouvrir la pull request", pr.title, pr.head_ref_name, pr.base_ref_name)).clicked() {
+                    open_pr = Some(pr.number);
+                }
+            }
+            if !main_branch && !branch_prs.iter().any(|p| p.state == "OPEN") && ui.small_button("+ Créer une PR").on_hover_text("Pousser la branche et ouvrir une pull request (choix de la branche cible)").clicked() {
+                create_pr = true;
             }
             if self.git.busy > 0 {
                 ui.spinner();
@@ -823,6 +841,13 @@ impl App {
         if reload {
             self.git_refresh();
             self.load_history();
+            self.gh_forget_branches();
+        }
+        if let (Some(n), Some(repo)) = (open_pr, self.repo.clone()) {
+            self.open_pr(repo, n);
+        }
+        if create_pr {
+            self.start_pr_create();
         }
     }
 

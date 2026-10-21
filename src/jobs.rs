@@ -12,8 +12,13 @@ use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, Sender};
 
 pub enum JobResult {
+    GhBase(PathBuf, Result<(String, String), String>),
     /// Pull requests of a branch (repository, branch).
+    GhBranchPrs(PathBuf, String, Result<Vec<crate::github::PrSummary>, String>),
     /// Pull requests containing a commit.
+    GhCommitPrs(String, Result<Vec<crate::github::LinkedPr>, String>),
+    /// Branch pushed and pull request created: its address.
+    PrCreated(PathBuf, Result<String, String>),
     /// Pull requests of a repository (`gh pr list`).
     PrList(PathBuf, Result<Vec<crate::github::PrSummary>, String>),
     PrDetail(PathBuf, u64, Result<crate::github::PrDetail, String>),

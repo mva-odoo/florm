@@ -28,6 +28,7 @@ use std::time::{Duration, Instant};
 
 mod git_view;
 mod pulls;
+mod pr_links;
 mod split_commit;
 mod panes;
 mod lsp_client;
@@ -620,6 +621,7 @@ pub struct App {
     /// GitHub pull requests tab.
     pr: pulls::PrUi,
     /// Pull requests of branches and commits, creation of one.
+    gh: pr_links::GhUi,
     /// For the places without a context at hand (prompt submission).
     egui_ctx: egui::Context,
     /// File to bring into view in the tree ("afficher dans l'arborescence").
@@ -795,6 +797,7 @@ impl App {
             pending_focus: false,
             md_cache: egui_commonmark::CommonMarkCache::default(),
             pr: Default::default(),
+            gh: Default::default(),
             egui_ctx: cc.egui_ctx.clone(),
             tree_scroll: None,
             tree_nav: sidebar::Nav::default(),
@@ -1034,6 +1037,7 @@ impl eframe::App for App {
         }
         self.track_nav();
         self.line_history_ui(ctx);
+        self.pr_create_ui(ctx);
         self.overlay_ui(ctx);
         self.confirm_ui(ctx);
 

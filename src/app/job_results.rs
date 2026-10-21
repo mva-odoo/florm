@@ -159,6 +159,10 @@ impl App {
                     self.pr_update_notes();
                 }
                 JobResult::PrList(repo, r) => self.pr_list_loaded(repo, r),
+                JobResult::GhBase(repo, r) => self.gh_base_loaded(repo, r),
+                JobResult::GhBranchPrs(repo, branch, r) => self.gh_branch_prs_loaded(repo, branch, r),
+                JobResult::GhCommitPrs(sha, r) => self.gh_commit_prs_loaded(sha, r),
+                JobResult::PrCreated(repo, r) => self.pr_created(repo, r),
                 JobResult::PrDetail(repo, n, r) => self.pr_detail_loaded(repo, n, r),
                 JobResult::PrCommitDiff(sha, r) => self.pr_commit_diff_loaded(sha, r),
                 JobResult::PrOp { label, result, reload, draft } => self.pr_op_done(label, result, reload, draft),
