@@ -67,7 +67,9 @@ Le `.gitignore` est respecté.
 
 ## Git
 
-- **Ctrl+Shift+G** : panneau Git (indexer avec **+**, désindexer avec **−**, commit avec Ctrl+Entrée).
+- **Ctrl+Shift+G** (ou clic sur la branche dans la barre d'état) : vue Git. En haut la branche,
+  pull / push / fetch et le message du commit (Ctrl+Entrée) ; en dessous le graphe, dont les
+  premières lignes sont les modifications à indexer / indexées.
   Un clic sur un fichier ouvre ses changements dans la vue des commits.
 - **Ctrl+Alt+G** : la vue des commits. En haut la liste (avec les modifications non indexées
   et indexées), en dessous **tous les fichiers du commit et leurs changements, l'un sous l'autre**,

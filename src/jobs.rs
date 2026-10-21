@@ -29,7 +29,6 @@ pub enum JobResult {
     GitStatus {
         selected: PathBuf,
         statuses: Vec<(PathBuf, Result<git::Status, String>)>,
-        log: Vec<git::LogEntry>,
         /// `git remote -v` of each repository.
         remotes: Vec<(PathBuf, String)>,
     },

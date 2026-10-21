@@ -137,18 +137,10 @@ pub struct Status {
     /// +/- lines of the staged and of the unstaged changes, per file.
     pub staged_stats: Stats,
     pub unstaged_stats: Stats,
-    pub stashes: Vec<StashEntry>,
     /// Merge / cherry-pick / revert / rebase stopped in the repository.
     pub operation: Option<Operation>,
 }
 
-#[derive(Clone, Debug)]
-pub struct StashEntry {
-    /// "stash@{0}"
-    pub name: String,
-    pub subject: String,
-    pub time: i64,
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Operation {
@@ -209,18 +201,6 @@ pub fn operation(root: &Path) -> Option<Operation> {
     }
 }
 
-pub fn stashes(root: &Path) -> Vec<StashEntry> {
-    stdout(root, &["stash", "list", "--format=%gd%x1f%s%x1f%ct"])
-        .map(|s| {
-            s.lines()
-                .filter_map(|l| {
-                    let f: Vec<&str> = l.split('\x1f').collect();
-                    (f.len() >= 3).then(|| StashEntry { name: f[0].into(), subject: f[1].into(), time: f[2].parse().unwrap_or(0) })
-                })
-                .collect()
-        })
-        .unwrap_or_default()
-}
 
 impl Status {
     /// Upstream branch and how far ahead / behind it is: ("origin/main", 2, 0).
@@ -292,7 +272,6 @@ pub fn status(root: &Path) -> Result<Status, String> {
     }
     st.staged_stats = numstat(root, &["-c", "core.quotePath=false", "diff", "--cached", "--numstat", "--no-renames"]);
     st.unstaged_stats = numstat(root, &["-c", "core.quotePath=false", "diff", "--numstat", "--no-renames"]);
-    st.stashes = stashes(root);
     st.operation = operation(root);
     Ok(st)
 }
@@ -300,38 +279,6 @@ pub fn status(root: &Path) -> Result<Status, String> {
 pub fn branches(root: &Path) -> Vec<String> {
     stdout(root, &["branch", "-a", "--format=%(refname:short)"])
         .map(|s| s.lines().map(str::trim).filter(|l| !l.is_empty() && !l.ends_with("/HEAD")).map(String::from).collect())
-        .unwrap_or_default()
-}
-
-/// One commit of the short history shown in the Git panel.
-#[derive(Clone, Debug)]
-pub struct LogEntry {
-    pub hash: String,
-    pub short: String,
-    pub subject: String,
-    pub author: String,
-    pub time: i64,
-    /// Branches and tags pointing to it ("HEAD -> main, origin/main").
-    pub refs: String,
-}
-
-pub fn log(root: &Path) -> Vec<LogEntry> {
-    stdout(root, &["log", "-n", "40", "--format=%H%x1f%h%x1f%s%x1f%an%x1f%at%x1f%D"])
-        .map(|s| {
-            s.lines()
-                .filter_map(|l| {
-                    let f: Vec<&str> = l.split('\x1f').collect();
-                    (f.len() >= 6).then(|| LogEntry {
-                        hash: f[0].into(),
-                        short: f[1].into(),
-                        subject: f[2].into(),
-                        author: f[3].into(),
-                        time: f[4].parse().unwrap_or(0),
-                        refs: f[5].into(),
-                    })
-                })
-                .collect()
-        })
         .unwrap_or_default()
 }
 
@@ -520,9 +467,6 @@ mod status_tests {
         std::fs::write(repo.join("f"), "2\n").unwrap();
         g(&["stash", "push", "-m", "essai"]);
         let st = status(&repo).unwrap();
-        assert_eq!(st.stashes.len(), 1);
-        assert_eq!(st.stashes[0].name, "stash@{0}");
-        assert!(st.stashes[0].subject.contains("essai"));
         assert_eq!(st.operation, None);
         // a conflicting cherry-pick leaves an operation in progress
         g(&["checkout", "-qb", "other"]);

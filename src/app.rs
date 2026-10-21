@@ -72,7 +72,6 @@ const TAB_STRIP_H: f32 = 36.0;
 #[derive(PartialEq, Clone, Copy)]
 enum SideTab {
     Files,
-    Git,
     Projects,
 }
 
@@ -208,8 +207,6 @@ enum Confirm {
     ReplaceInFiles,
     /// Irreversible change requested from a diff (discarding uncommitted changes).
     DiffOp { msg: String, label: String, op: DiffOp },
-    /// Destructive git command of the Git panel (e.g. dropping a stash).
-    Git { title: String, msg: String, label: String, args: Vec<String> },
 }
 
 /// Change to the files or the index requested from a diff.
@@ -475,7 +472,6 @@ struct HistoryDiff {
 struct GitUi {
     status: Option<git::Status>,
     error: Option<String>,
-    log: Vec<git::LogEntry>,
     commit_msg: String,
     busy: usize,
     /// Last failed git command (label, message): shown until dismissed or a later command succeeds.
@@ -4562,7 +4558,7 @@ impl App {
         self.jobs.spawn(move || {
             let statuses = repos.iter().map(|r| (r.clone(), git::status(r))).collect();
             let remotes = repos.iter().map(|r| (r.clone(), git::stdout(r, &["remote", "-v"]).unwrap_or_default())).collect();
-            JobResult::GitStatus { log: git::log(&selected), selected, statuses, remotes }
+            JobResult::GitStatus { selected, statuses, remotes }
         });
     }
 
@@ -4587,32 +4583,19 @@ impl App {
     }
 
     /// The graph view on the staged / unstaged changes, scrolled to the diff of `rel`.
-    fn show_wip_file(&mut self, rel: String, staged: bool) {
-        let Some(repo) = self.repo.clone() else { return };
-        self.prefs.open = false;
+    /// The git view (tab): branch, remote actions and commit on top, then the graph and diffs.
+    fn open_git_view(&mut self) {
         if let Some(sp) = self.split.as_mut() {
             sp.shown = false;
         }
-        let reload = !self.history.open || self.history.repo.as_ref() != Some(&repo) || self.history.graph.is_none();
         self.history.open = true;
-        let h = &mut self.history;
-        h.compare = None;
-        h.rebase = None;
-        let key = if staged { "INDEX" } else { "WORKTREE" };
-        let shown = h.wip_sel == Some(staged) && h.diff.as_ref().is_some_and(|d| d.hash == key);
-        h.wip_sel = Some(staged);
-        match h.diff.as_ref().filter(|_| shown).and_then(|d| d.files.iter().position(|f| f.path == rel)) {
-            Some(k) => h.jump = Some(history::FileJump::To(k)),
-            None => {
-                h.diff = None;
-                h.jump_path = Some(rel);
-                self.load_wip_all(staged);
-            }
-        }
-        if reload {
+        self.prefs.open = false;
+        if self.history.graph.is_none() || self.history.repo != self.repo {
             self.load_history();
         }
+        self.git_refresh();
     }
+
 
     fn show_diff(&mut self, rel: String, untracked: bool) {
         let Some(repo) = self.repo.clone() else { return };
@@ -4704,7 +4687,7 @@ impl App {
                         }
                     }
                 }
-                JobResult::GitStatus { selected, statuses, log, remotes } => {
+                JobResult::GitStatus { selected, statuses, remotes } => {
                     if self.repo.as_ref() != Some(&selected) {
                         continue;
                     }
@@ -4745,7 +4728,6 @@ impl App {
                         }
                         self.repo_info.insert(repo.clone(), (label, tip));
                     }
-                    self.git.log = log;
                     self.git.map.clear();
                     self.git.status = None;
                     self.git.error = None;
@@ -5397,11 +5379,7 @@ impl App {
             }
             ShowProblems => self.bottom = Some(BottomTab::Problems),
             ShowOutput => self.bottom = Some(BottomTab::Output),
-            ShowGit => {
-                self.show_sidebar = true;
-                self.side_tab = SideTab::Git;
-                self.git_refresh();
-            }
+            ShowGit => self.open_git_view(),
             ShowFiles => {
                 // a second time: back to the editor
                 if self.show_sidebar && self.side_tab == SideTab::Files && ctx.memory(|m| m.has_focus(sidebar::tree_id())) {
@@ -5635,10 +5613,8 @@ impl App {
             GitFetch => self.git_job("fetch", &["fetch", "--all", "--prune"]),
             GitStageAll => self.git_job("add", &["add", "-A"]),
             GitCommit => {
-                self.show_sidebar = true;
-                self.side_tab = SideTab::Git;
+                self.open_git_view();
                 self.git.focus_commit = true;
-                self.git_refresh();
             }
             GitCheckout => {
                 if let Some(repo) = self.repo.clone() {
@@ -6398,7 +6374,6 @@ impl App {
                 ("Changer de projet", format!("Des fichiers ne sont pas enregistrés. Ouvrir « {} » ?", p.display()))
             }
             Confirm::DiffOp { msg, .. } => ("Annuler le changement", msg.clone()),
-            Confirm::Git { title, msg, .. } => (title.as_str(), msg.clone()),
             Confirm::ReplaceInFiles => {
                 let n = self.search.hit_count();
                 (
@@ -6426,7 +6401,6 @@ impl App {
                         Confirm::SwitchProject(_) => ("Tout enregistrer et changer", Some("Changer sans enregistrer")),
                         Confirm::ReplaceInFiles => ("Remplacer", None),
                         Confirm::DiffOp { .. } => ("Oui, annuler le changement", None),
-                        Confirm::Git { .. } => ("Oui", None),
                     };
                     if ui.button(yes).clicked() {
                         choice = Some(1);
@@ -6445,10 +6419,6 @@ impl App {
         let c = self.confirm.take().unwrap();
         match (c, choice) {
             (Confirm::DiffOp { label, op, .. }, 1) => self.run_diff_op(label, op),
-            (Confirm::Git { label, args, .. }, 1) => {
-                let a: Vec<&str> = args.iter().map(String::as_str).collect();
-                self.git_job(&label, &a);
-            }
             (Confirm::CloseTab(uid), 1 | 2) => {
                 if let Some(i) = self.docs.iter().position(|d| d.uid == uid) {
                     if choice == 2 || self.save(i) {
@@ -7080,12 +7050,10 @@ impl App {
             .show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 2.0;
-                for (tab, label) in [(SideTab::Files, "Fichiers"), (SideTab::Git, "Git"), (SideTab::Projects, "Projets")] {
+                // git is in its own view (Ctrl+Shift+G, or the branch in the status bar)
+                for (tab, label) in [(SideTab::Files, "Fichiers"), (SideTab::Projects, "Projets")] {
                     if nav_tab(ui, label, self.side_tab == tab).clicked() {
                         self.side_tab = tab;
-                        if tab == SideTab::Git {
-                            self.pending.push(Cmd::GitRefresh);
-                        }
                     }
                 }
             });
@@ -7106,7 +7074,6 @@ impl App {
                         }
                     }
                 },
-                SideTab::Git => self.git_ui(ui),
                 SideTab::Projects => self.projects_ui(ui),
             }
         });
@@ -7147,7 +7114,9 @@ impl App {
         }
     }
 
-    fn git_ui(&mut self, ui: &mut egui::Ui) {
+    /// Top of the git view: branch and its upstream, pull / push / fetch / branches, git errors,
+    /// then the commit message and button (the changes themselves are the first rows of the graph).
+    fn git_bar(&mut self, ui: &mut egui::Ui) {
         if self.repo.is_none() {
             ui.label("Aucun dépôt git dans ce dossier.");
             if let Some(root) = self.root.clone() {
@@ -7166,37 +7135,15 @@ impl App {
             }
             return;
         }
-        if self.repos.len() > 1 {
-            let mut chosen = None;
-            let current = self.repo.as_deref().map(|r| self.repo_label(r)).unwrap_or_default();
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("Dépôt").weak());
-                egui::ComboBox::from_id_salt("repo_select").selected_text(current).width(ui.available_width() - 8.0).show_ui(
-                    ui,
-                    |ui| {
-                        for r in &self.repos {
-                            let n = self.git.map.keys().filter(|p| p.starts_with(r) && p.is_file()).count();
-                            let label = if n > 0 { format!("{}  ({n})", self.repo_label(r)) } else { self.repo_label(r) };
-                            if ui.selectable_label(self.repo.as_ref() == Some(r), label).clicked() {
-                                chosen = Some(r.clone());
-                            }
-                        }
-                    },
-                );
-            });
-            if let Some(r) = chosen {
-                self.select_repo(r);
-            }
-        }
         let accent = self.hl.colors.accent;
         let bg = ui.visuals().panel_fill;
         let mut ops: Vec<(&str, Vec<String>)> = Vec::new();
-        let (mut diff, mut open, mut show_commit): (Option<(String, bool)>, Option<String>, Option<String>) = (None, None, None);
         let (mut do_commit, mut dismiss_error) = (false, false);
 
-        // --- branch and its upstream
-        if let Some(st) = &self.git.status {
-            ui.horizontal(|ui| {
+        // --- branch, its upstream and the remote actions
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 6.0;
+            if let Some(st) = &self.git.status {
                 ui.label(RichText::new(format!("🔀 {}", st.branch)).strong().size(15.0));
                 match st.upstream() {
                     Some((up, ahead, behind)) => {
@@ -7216,33 +7163,21 @@ impl App {
                         ui.label(RichText::new("pas de branche distante").weak().small());
                     }
                 }
-                if self.git.busy > 0 {
-                    ui.spinner();
-                }
-            });
-        }
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing.x = 4.0;
-            if ui.button("⟳").on_hover_text("Rafraîchir").clicked() {
-                self.pending.push(Cmd::GitRefresh);
             }
+            if self.git.busy > 0 {
+                ui.spinner();
+            }
+            ui.add_space(8.0);
             for (label, cmd, tip) in [
                 ("⬇ Pull", Cmd::GitPull, "Récupérer et intégrer les commits distants"),
                 ("⬆ Push", Cmd::GitPush, "Envoyer tes commits"),
                 ("Fetch", Cmd::GitFetch, "Récupérer sans intégrer"),
+                ("Branche ▾", Cmd::GitCheckout, "Changer de branche"),
+                ("+ Branche", Cmd::GitNewBranch, "Nouvelle branche"),
             ] {
                 if ui.button(label).on_hover_text(tip).clicked() {
                     self.pending.push(cmd);
                 }
-            }
-            if ui.button("Branche ▾").on_hover_text("Changer de branche").clicked() {
-                self.pending.push(Cmd::GitCheckout);
-            }
-            if ui.button("+").on_hover_text("Nouvelle branche").clicked() {
-                self.pending.push(Cmd::GitNewBranch);
-            }
-            if ui.button("Graphe").on_hover_text("Historique des commits (Ctrl+Alt+G)").clicked() {
-                self.pending.push(Cmd::GitHistory);
             }
         });
 
@@ -7271,53 +7206,10 @@ impl App {
                     });
                 });
         }
-        // --- merge / cherry-pick / revert / rebase stopped (usually on conflicts)
-        if let Some((op, n_conf)) = self.git.status.as_ref().and_then(|st| st.operation.map(|o| (o, st.entries.iter().filter(|e| e.conflicted()).count()))) {
-            egui::Frame::none()
-                .fill(icons::mix(bg, warn(), 0.16))
-                .stroke(egui::Stroke::new(1.0_f32, warn()))
-                .rounding(6.0)
-                .inner_margin(egui::Margin::same(8.0))
-                .show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    ui.label(RichText::new(format!("⚠ {} en cours", op.label())).color(warn()).strong());
-                    ui.label(
-                        RichText::new(if n_conf > 0 {
-                            format!("{n_conf} fichier(s) en conflit : résous-les (bouton ✔ quand c'est fait), puis Continuer.")
-                        } else {
-                            "Plus de conflit : tu peux continuer.".to_string()
-                        })
-                        .small(),
-                    );
-                    ui.horizontal(|ui| {
-                        if ui.add_enabled(n_conf == 0, egui::Button::new("Continuer")).clicked() {
-                            let mut a = vec!["-c".to_string(), "core.editor=true".to_string()];
-                            a.extend(op.continue_args().iter().map(|s| s.to_string()));
-                            ops.push(("continuer", a));
-                        }
-                        if ui.button("Abandonner").on_hover_text("Revient à l'état d'avant l'opération").clicked() {
-                            ops.push(("abandonner", op.abort_args().iter().map(|s| s.to_string()).collect()));
-                        }
-                    });
-                });
-        }
-        ui.add_space(4.0);
-
         // --- commit
         let (n_staged, n_changed) = self.git.status.as_ref().map_or((0, 0), |st| {
             (st.entries.iter().filter(|e| e.staged()).count(), st.entries.iter().filter(|e| e.unstaged() && e.x != '?').count())
         });
-        let resp = ui.add(
-            egui::TextEdit::multiline(&mut self.git.commit_msg)
-                .hint_text("Message du commit (Ctrl+Entrée)")
-                .desired_rows(2)
-                .desired_width(f32::INFINITY),
-        );
-        if self.git.focus_commit {
-            resp.request_focus();
-            self.git.focus_commit = false;
-        }
-        let ctrl_enter = resp.has_focus() && ui.input(|i| i.modifiers.command && i.key_pressed(Key::Enter));
         ui.horizontal(|ui| {
             let (label, tip) = if n_staged > 0 {
                 (format!("✔ Commit ({n_staged} indexé(s))"), "Valide les fichiers indexés")
@@ -7325,187 +7217,33 @@ impl App {
                 (format!("✔ Commit tout ({n_changed})"), "Rien d'indexé : valide toutes les modifications des fichiers suivis")
             };
             let can = !self.git.commit_msg.trim().is_empty() && (n_staged > 0 || n_changed > 0);
-            let b = filled_button(label, accent);
-            if ui.add_enabled(can, b).on_hover_text(tip).clicked() || (ctrl_enter && can) {
+            // the button on the right, the message takes the rest of the line
+            let mut clicked = false;
+            let resp = ui
+                .with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                    clicked = ui.add_enabled(can, filled_button(label, accent)).on_hover_text(tip).clicked();
+                    ui.add(
+                        egui::TextEdit::multiline(&mut self.git.commit_msg)
+                            .hint_text("Message du commit (Ctrl+Entrée)")
+                            .desired_rows(1)
+                            .desired_width(f32::INFINITY),
+                    )
+                })
+                .inner;
+            if self.git.focus_commit {
+                resp.request_focus();
+                self.git.focus_commit = false;
+            }
+            let ctrl_enter = resp.has_focus() && ui.input(|i| i.modifiers.command && i.key_pressed(Key::Enter));
+            if can && (clicked || ctrl_enter) {
                 do_commit = true;
             }
         });
-        ui.add_space(6.0);
-
-        // --- changes (staged / not staged), with +/- lines
-        let max_h = (ui.available_height() * 0.5).max(120.0);
-        egui::ScrollArea::vertical().id_salt("git_entries").max_height(max_h).auto_shrink([false, true]).show(ui, |ui| {
-            let Some(st) = &self.git.status else { return };
-            if st.entries.is_empty() {
-                ui.label(RichText::new("✔ Rien à valider, tout est propre.").color(ok()));
-                return;
-            }
-            let conflicted: Vec<&git::Entry> = st.entries.iter().filter(|e| e.conflicted()).collect();
-            if !conflicted.is_empty() {
-                ui.label(RichText::new(format!("CONFLITS · {}", conflicted.len())).small().strong().color(err()));
-                ui.label(RichText::new("Ouvre chaque fichier et choisis la version à garder, puis ✔.").small().weak());
-                for e in &conflicted {
-                    match git_file_row(ui, &e.path, 'C', None, "✔") {
-                        RowClick::Button => ops.push(("add", vec!["add".into(), "--".into(), e.path.clone()])),
-                        RowClick::Row | RowClick::Open => open = Some(e.path.clone()),
-                        RowClick::None => {}
-                    }
-                }
-                ui.add_space(6.0);
-            }
-            let staged: Vec<&git::Entry> = st.entries.iter().filter(|e| e.staged() && !e.conflicted()).collect();
-            let changed: Vec<&git::Entry> = st.entries.iter().filter(|e| e.unstaged() && !e.conflicted()).collect();
-            for (title, list, is_staged, color) in
-                [("INDEXÉS", &staged, true, ok()), ("MODIFICATIONS", &changed, false, warn())]
-            {
-                if list.is_empty() {
-                    continue;
-                }
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(format!("{title} · {}", list.len())).small().strong().color(color));
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let (l, args): (&str, Vec<String>) = if is_staged {
-                            ("Tout désindexer", vec!["restore".into(), "--staged".into(), ".".into()])
-                        } else {
-                            ("Tout indexer", vec!["add".into(), "-A".into()])
-                        };
-                        if ui.small_button(l).clicked() {
-                            ops.push((if is_staged { "restore" } else { "add" }, args));
-                        }
-                    });
-                });
-                for e in list.iter() {
-                    let letter = if is_staged { e.x } else { e.label() };
-                    let stats = if is_staged { st.staged_stats.get(&e.path) } else { st.unstaged_stats.get(&e.path) };
-                    let r = git_file_row(ui, &e.path, letter, stats.copied(), if is_staged { "−" } else { "+" });
-                    match r {
-                        RowClick::Button => {
-                            if is_staged {
-                                ops.push(("restore", vec!["restore".into(), "--staged".into(), "--".into(), e.path.clone()]));
-                            } else {
-                                ops.push(("add", vec!["add".into(), "--".into(), e.path.clone()]));
-                            }
-                        }
-                        RowClick::Open => open = Some(e.path.clone()),
-                        RowClick::Row => diff = Some((e.path.clone(), is_staged)),
-                        RowClick::None => {}
-                    }
-                }
-                ui.add_space(6.0);
-            }
-        });
-        // --- stash
-        let mut stash_act: Option<(&str, String)> = None;
-        let has_changes = self.git.status.as_ref().is_some_and(|st| !st.entries.is_empty());
-        let stashes = self.git.status.as_ref().map(|st| st.stashes.clone()).unwrap_or_default();
-        ui.horizontal(|ui| {
-            ui.label(RichText::new(format!("MIS DE CÔTÉ (STASH) · {}", stashes.len())).small().strong().color(accent));
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui
-                    .add_enabled(has_changes, egui::Button::new("Mettre de côté").small())
-                    .on_hover_text("git stash : range toutes les modifications (même les nouveaux fichiers) pour plus tard ; le message du commit sert de nom")
-                    .clicked()
-                {
-                    stash_act = Some(("push", String::new()));
-                }
-            });
-        });
-        for st in &stashes {
-            ui.horizontal(|ui| {
-                let r = ui
-                    .add(egui::Label::new(RichText::new(&st.subject).size(12.5)).sense(Sense::click()).truncate())
-                    .on_hover_text(format!("{} · {}\nClic : voir le contenu", st.name, git::ago(st.time)));
-                if r.clicked() {
-                    stash_act = Some(("show", st.name.clone()));
-                }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.small_button("×").on_hover_text("Supprimer").clicked() {
-                        stash_act = Some(("drop", st.name.clone()));
-                    }
-                    if ui.small_button("Récupérer").on_hover_text("Remet les modifications et retire le stash (pop)").clicked() {
-                        stash_act = Some(("pop", st.name.clone()));
-                    }
-                    if ui.small_button("Appliquer").on_hover_text("Remet les modifications et garde le stash").clicked() {
-                        stash_act = Some(("apply", st.name.clone()));
-                    }
-                });
-            });
-        }
-        ui.separator();
-
-        // --- recent commits
-        ui.horizontal(|ui| {
-            ui.label(RichText::new("DERNIERS COMMITS").small().strong().color(accent));
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.small_button("Graphe →").clicked() {
-                    self.pending.push(Cmd::GitHistory);
-                }
-            });
-        });
-        egui::ScrollArea::vertical().id_salt("git_log").auto_shrink([false, false]).show(ui, |ui| {
-            for c in &self.git.log {
-                let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 38.0), Sense::click());
-                let hovered = resp.hovered();
-                if hovered {
-                    ui.painter().rect_filled(rect, 5.0, ui.visuals().widgets.hovered.weak_bg_fill);
-                }
-                let p = ui.painter().with_clip_rect(rect.shrink(2.0));
-                let mut x = rect.left() + 6.0;
-                for r in c.refs.split(", ").filter(|r| !r.is_empty()) {
-                    let r = r.strip_prefix("HEAD -> ").unwrap_or(r);
-                    let g = p.layout_no_wrap(r.to_string(), egui::FontId::proportional(10.5), accent);
-                    let chip = egui::Rect::from_min_size(egui::pos2(x, rect.top() + 3.0), g.size() + egui::vec2(8.0, 2.0));
-                    p.rect_filled(chip, 4.0, icons::mix(bg, accent, 0.18));
-                    p.galley(chip.min + egui::vec2(4.0, 1.0), g, accent);
-                    x = chip.right() + 4.0;
-                }
-                p.text(egui::pos2(x, rect.top() + 3.0), Align2::LEFT_TOP, &c.subject, egui::FontId::proportional(13.0), ui.visuals().strong_text_color());
-                p.text(
-                    egui::pos2(rect.left() + 6.0, rect.top() + 21.0),
-                    Align2::LEFT_TOP,
-                    format!("{} · {} · {}", c.short, c.author, git::ago(c.time)),
-                    egui::FontId::proportional(11.5),
-                    ui.visuals().weak_text_color(),
-                );
-                if resp.on_hover_text("Voir ce commit dans le graphe").clicked() {
-                    show_commit = Some(c.hash.clone());
-                }
-            }
-        });
+        ui.add_space(4.0);
 
         if dismiss_error {
             self.git.op_error = None;
             self.git.error = None;
-        }
-        match stash_act {
-            Some(("push", _)) => {
-                let msg = self.git.commit_msg.trim().lines().next().unwrap_or("").to_string();
-                let mut a = vec!["stash".to_string(), "push".into(), "--include-untracked".into()];
-                if !msg.is_empty() {
-                    a.extend(["-m".into(), msg]);
-                }
-                ops.push(("stash", a));
-            }
-            Some(("show", name)) => {
-                if let Some(repo) = self.repo.clone() {
-                    self.jobs.spawn(move || {
-                        let text = git::run(&repo, &["stash", "show", "-p", "--include-untracked", &name])
-                            .or_else(|_| git::run(&repo, &["stash", "show", "-p", &name]))
-                            .unwrap_or_else(|e| e);
-                        JobResult::NewTab { title: format!("stash : {name}"), text, syntax: "Diff".into() }
-                    });
-                }
-            }
-            Some(("drop", name)) => {
-                self.confirm = Some(Confirm::Git {
-                    title: "Supprimer le stash".into(),
-                    msg: format!("Supprimer définitivement « {name} » ?\nSes modifications seront perdues."),
-                    label: "stash drop".into(),
-                    args: vec!["stash".into(), "drop".into(), name],
-                });
-            }
-            Some((verb, name)) => ops.push(("stash", vec!["stash".into(), verb.into(), name])),
-            None => {}
         }
         if do_commit {
             let msg = self.git.commit_msg.trim().to_string();
@@ -7521,18 +7259,6 @@ impl App {
         for (label, args) in ops {
             let a: Vec<&str> = args.iter().map(String::as_str).collect();
             self.git_job(label, &a);
-        }
-        if let Some((p, staged)) = diff {
-            self.show_wip_file(p, staged);
-        }
-        if let (Some(p), Some(repo)) = (open, self.repo.clone()) {
-            self.open_path(repo.join(p));
-        }
-        if let Some(h) = show_commit {
-            self.history.open = true;
-            self.prefs.open = false;
-            self.history.select_hash = Some(h);
-            self.load_history();
         }
     }
 
@@ -7696,6 +7422,10 @@ impl App {
                 return;
             }
             if self.history.open {
+                let fill = ui.visuals().panel_fill;
+                egui::TopBottomPanel::top("git_bar")
+                    .frame(egui::Frame::none().fill(fill).inner_margin(egui::Margin { left: 10.0, right: 10.0, top: 8.0, bottom: 4.0 }))
+                    .show_inside(ui, |ui| self.git_bar(ui));
                 egui::CentralPanel::default().show_inside(ui, |ui| self.history_ui(ui));
                 return;
             }
@@ -8217,80 +7947,6 @@ fn tab_menu(ui: &mut egui::Ui, i: usize, d: &Document, split: bool, alone: bool,
     }
 }
 
-/// What was clicked on a file row of the Git panel / graph.
-#[derive(PartialEq)]
-enum RowClick {
-    None,
-    Row,
-    Open,
-    Button,
-}
-
-/// "+12 −3" (or "binaire") for a file.
-fn stat_text(stats: Option<(Option<u32>, Option<u32>)>) -> Option<(String, String)> {
-    match stats? {
-        (Some(a), Some(d)) => Some((format!("+{a}"), format!("−{d}"))),
-        _ => Some(("binaire".into(), String::new())),
-    }
-}
-
-/// File line: status letter, name and folder, +/- lines; `button` ("+", "−") shown on hover.
-fn git_file_row(ui: &mut egui::Ui, path: &str, letter: char, stats: Option<(Option<u32>, Option<u32>)>, button: &str) -> RowClick {
-    let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 22.0), Sense::click());
-    let hovered = ui.rect_contains_pointer(rect);
-    let v = ui.visuals().clone();
-    if hovered {
-        ui.painter().rect_filled(rect, 4.0, v.widgets.hovered.weak_bg_fill);
-    }
-    let p = ui.painter().with_clip_rect(rect);
-    let cy = rect.center().y;
-    let color = match letter {
-        'M' | 'R' => warn(),
-        'A' | 'U' | '?' => ok(),
-        'D' | 'C' => err(),
-        _ => v.weak_text_color(),
-    };
-    let letter = if letter == '?' { 'U' } else { letter };
-    p.text(egui::pos2(rect.left() + 6.0, cy), Align2::LEFT_CENTER, letter.to_string(), egui::FontId::monospace(12.5), color);
-    let (dir, name) = path.rsplit_once('/').unwrap_or(("", path));
-    // stats on the right, then the name gets the remaining room
-    let mut right = rect.right() - 6.0;
-    let mut clicked_button = false;
-    if hovered && !button.is_empty() {
-        let b = egui::Rect::from_center_size(egui::pos2(right - 10.0, cy), egui::vec2(20.0, 18.0));
-        let tip = match button {
-            "+" => "Indexer",
-            "✔" => "Marquer comme résolu (git add)",
-            _ => "Désindexer",
-        };
-        clicked_button = ui.put(b, egui::Button::new(RichText::new(button).strong())).on_hover_text(tip).clicked();
-        right = b.left() - 4.0;
-    }
-    if let Some((a, d)) = stat_text(stats) {
-        let font = egui::FontId::monospace(11.5);
-        if !d.is_empty() {
-            let r = p.text(egui::pos2(right, cy), Align2::RIGHT_CENTER, &d, font.clone(), err());
-            right = r.left() - 4.0;
-        }
-        let r = p.text(egui::pos2(right, cy), Align2::RIGHT_CENTER, &a, font, if d.is_empty() { v.weak_text_color() } else { ok() });
-        right = r.left() - 6.0;
-    }
-    let p = p.with_clip_rect(egui::Rect::from_min_max(rect.min, egui::pos2(right, rect.max.y)));
-    let r = p.text(egui::pos2(rect.left() + 22.0, cy), Align2::LEFT_CENTER, name, egui::FontId::proportional(13.0), v.strong_text_color());
-    if !dir.is_empty() {
-        p.text(egui::pos2(r.right() + 6.0, cy), Align2::LEFT_CENTER, dir, egui::FontId::proportional(11.5), v.weak_text_color());
-    }
-    let resp = resp.on_hover_text(format!("{path}\nClic : voir le diff · Double-clic : ouvrir le fichier"));
-    if clicked_button {
-        RowClick::Button
-    } else if resp.double_clicked() {
-        RowClick::Open
-    } else if resp.clicked() {
-        RowClick::Row
-    } else {
-        RowClick::None
-    }
-}
 
 /// Action chosen in the commit graph (right click or details buttons).
 enum HistAct {
