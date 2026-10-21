@@ -179,7 +179,14 @@ impl App {
                 self.bottom = None;
             }
         }
-        for id in self.term.docked_ids() {
+        // "⇲ Panneau du bas": its tab goes, the panel shows it
+        let docked = self.term.docked_ids();
+        let back = self.docs.iter().position(|d| matches!(d.view, document::View::Terminal(id) if !docked.contains(&id) && self.term.title_of(id).is_some()));
+        if let Some(i) = back {
+            self.close_tab(i, true);
+            self.bottom = Some(BottomTab::Terminal);
+        }
+        for id in docked {
             if !self.docs.iter().any(|d| d.view == document::View::Terminal(id)) {
                 let title = self.term.title_of(id).unwrap_or_default();
                 self.open_view_tab(document::View::Terminal(id), format!(">_ {title}"));
@@ -601,8 +608,11 @@ impl App {
         }
         let was_active = idx == self.active;
         let d = self.docs.remove(idx);
-        if let document::View::Terminal(id) = d.view {
-            self.term.close(id);
+        // a terminal sent back to the bottom panel keeps running
+        if let document::View::Terminal(id) = d.view.clone() {
+            if self.term.docked_ids().contains(&id) {
+                self.term.close(id);
+            }
         }
         if let Some(p) = d.path {
             self.closed.push(p);
