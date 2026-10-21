@@ -224,7 +224,7 @@ pub fn paint_row(ui: &Ui, rect: Rect, row: &Row, with_lines: bool) {
             line(Pos2::new(x(row.col), mid), Pos2::new(x(l), bottom), c);
         }
     }
-    p.circle(Pos2::new(x(row.col), mid), 4.0, lane_color(row.col), Stroke::new(1.5_f32, Color32::BLACK));
+    p.circle(Pos2::new(x(row.col), mid), 4.0, lane_color(row.col), Stroke::new(1.5_f32, ui.visuals().panel_fill));
 }
 
 /// Small rounded badges for branch / tag names; returns the x after them.

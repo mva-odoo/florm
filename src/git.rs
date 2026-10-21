@@ -7,6 +7,9 @@ use std::process::Stdio;
 /// git in `dir`; for a WSL folder opened from Windows, trusted although owned by the Linux user.
 fn git(dir: &Path) -> std::process::Command {
     let mut c = crate::os::command("git");
+    // `git status` must not rewrite the index: that would look like a change made outside Florm
+    // (see `stamp`), and could collide with a git command run by the user in a terminal
+    c.env("GIT_OPTIONAL_LOCKS", "0");
     if cfg!(windows) && crate::os::is_wsl_unc(dir) {
         c.args(["-c", "safe.directory=*"]);
     }
@@ -72,6 +75,25 @@ pub fn repo_root(dir: &Path) -> Option<PathBuf> {
 
 /// Git repositories inside `root` (up to `max_depth` levels), plus the repository
 /// containing `root` when it is a subfolder of one.
+/// Modification times of the files git rewrites on a commit, checkout, staging, fetch…: when it
+/// changes, the repository was changed (possibly outside Florm, e.g. in a terminal).
+pub fn stamp(repo: &Path) -> Vec<Option<std::time::SystemTime>> {
+    let dot = repo.join(".git");
+    let dir = if dot.is_file() {
+        // worktree / submodule: ".git" is a file "gitdir: <path>"
+        match std::fs::read_to_string(&dot).ok().and_then(|t| t.trim().strip_prefix("gitdir:").map(|p| p.trim().to_string())) {
+            Some(p) => repo.join(p),
+            None => return Vec::new(),
+        }
+    } else {
+        dot
+    };
+    ["HEAD", "index", "logs/HEAD", "FETCH_HEAD", "ORIG_HEAD", "MERGE_HEAD", "rebase-merge"]
+        .iter()
+        .map(|f| std::fs::metadata(dir.join(f)).and_then(|m| m.modified()).ok())
+        .collect()
+}
+
 pub fn find_repos(root: &Path, max_depth: usize) -> Vec<PathBuf> {
     fn walk(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
         if dir.join(".git").exists() {
@@ -456,6 +478,30 @@ mod status_tests {
         assert_eq!(st("origin/dev [ahead 1, behind 12]").upstream(), Some(("origin/dev".into(), 1, 12)));
         assert_eq!(st("origin/x [behind 3]").upstream(), Some(("origin/x".into(), 0, 3)));
         assert_eq!(st("").upstream(), None);
+    }
+
+    #[test]
+    fn stamp_sees_commits_and_staging_made_elsewhere() {
+        let repo = std::env::temp_dir().join(format!("florm_stamp_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&repo);
+        std::fs::create_dir_all(&repo).unwrap();
+        let g = |args: &[&str]| run(&repo, args).unwrap_or_else(|e| panic!("git {args:?}: {e}"));
+        g(&["init", "-q", "-b", "main"]);
+        g(&["config", "user.name", "t"]);
+        g(&["config", "user.email", "t@t"]);
+        std::fs::write(repo.join("a"), "1").unwrap();
+        g(&["add", "."]);
+        g(&["commit", "-qm", "one"]);
+        let s1 = stamp(&repo);
+        assert!(s1.iter().any(|t| t.is_some()));
+        // a status (what Florm runs itself) does not count as a change
+        status(&repo).unwrap();
+        assert_eq!(stamp(&repo), s1);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(repo.join("a"), "2").unwrap();
+        g(&["commit", "-qam", "two"]);
+        assert_ne!(stamp(&repo), s1);
+        let _ = std::fs::remove_dir_all(&repo);
     }
 
     #[test]

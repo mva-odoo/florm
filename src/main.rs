@@ -98,7 +98,10 @@ fn main() -> eframe::Result<()> {
             .with_drag_and_drop(true)
             .with_icon(logo::icon(64))
             .with_title("Florm"),
-        vsync: true,
+        // Under Wayland, with vsync, eglSwapBuffers waits for a frame callback that a hidden window
+        // (other workspace, minimized) never gets: the event loop blocks and the compositor reports
+        // "application not responding". Florm only repaints on events, so vsync is not needed.
+        vsync: std::env::var_os("WAYLAND_DISPLAY").is_none(),
         ..Default::default()
     };
     eframe::run_native(

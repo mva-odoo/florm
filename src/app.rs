@@ -52,6 +52,21 @@ fn ok() -> Color32 {
     highlight::green()
 }
 
+/// Text color readable on a filled button (accent, status color): dark on light fills, white on dark ones.
+fn text_on(fill: Color32) -> Color32 {
+    let l = 0.2126 * fill.r() as f32 + 0.7152 * fill.g() as f32 + 0.0722 * fill.b() as f32;
+    if l > 150.0 {
+        Color32::from_rgb(0x14, 0x18, 0x20)
+    } else {
+        Color32::WHITE
+    }
+}
+
+/// Main action button, filled with `fill` (the theme accent, or a status color).
+fn filled_button(text: impl Into<String>, fill: Color32) -> egui::Button<'static> {
+    egui::Button::new(RichText::new(text.into()).color(text_on(fill)).strong()).fill(fill)
+}
+
 const TAB_STRIP_H: f32 = 36.0;
 
 #[derive(PartialEq, Clone, Copy)]
@@ -404,6 +419,8 @@ pub struct App {
     last_session_save: Instant,
     jobs: Jobs,
     file_index: Vec<PathBuf>,
+    /// When the file list was last asked for (Ctrl+P rebuilds it, at most every few seconds).
+    file_index_at: Option<Instant>,
     git: GitUi,
     term: Terminal,
     plugins: Vec<Plugin>,
@@ -473,6 +490,11 @@ pub struct App {
     /// Python linter actually used for the last lint ("flake8", "ruff"… or "syntaxe").
     python_linter: Option<String>,
     prefs: PrefsUi,
+    /// Last `git::stamp` of each repository: a change made outside Florm (commit in a terminal…)
+    /// refreshes the git panel and the gutter marks.
+    git_stamps: HashMap<PathBuf, Vec<Option<std::time::SystemTime>>>,
+    /// The window had the focus at the last frame (coming back to Florm checks the files at once).
+    was_focused: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -580,6 +602,7 @@ impl App {
             last_session_save: Instant::now(),
             jobs: Jobs::new(cc.egui_ctx.clone()),
             file_index: Vec::new(),
+            file_index_at: None,
             git: GitUi::default(),
             term: Terminal::new(),
             plugins: Vec::new(),
@@ -629,6 +652,8 @@ impl App {
             lint_inflight: HashSet::new(),
             python_linter: None,
             prefs: PrefsUi::default(),
+            git_stamps: HashMap::new(),
+            was_focused: true,
             settings,
         };
         if let Some(e) = settings_err {
@@ -716,8 +741,9 @@ impl App {
             self.switch_project(path);
             return true;
         }
+        // the file is shown even if the graph, the preferences or a commit split was on screen
         if let Some(i) = self.docs.iter().position(|d| d.path.as_ref() == Some(&path)) {
-            self.active = i;
+            self.activate_tab(i);
             return true;
         }
         let uid = self.next_uid();
@@ -727,7 +753,7 @@ impl App {
                     self.docs.clear();
                 }
                 self.docs.push(d);
-                self.active = self.docs.len() - 1;
+                self.activate_tab(self.docs.len() - 1);
                 self.analyze(self.active, false);
                 true
             }
@@ -1401,8 +1427,7 @@ impl App {
                         ui.label(RichText::new(e).color(err()));
                     }
                     ui.horizontal(|ui| {
-                        let b = egui::Button::new(RichText::new("Lancer le rebase").color(Color32::BLACK)).fill(accent);
-                        if ui.add_enabled(check.is_ok(), b).clicked() {
+                        if ui.add_enabled(check.is_ok(), filled_button("Lancer le rebase", accent)).clicked() {
                             rb_run = true;
                         }
                         if ui.button("Annuler").clicked() {
@@ -1873,7 +1898,7 @@ impl App {
                         if ui.button("Non, continuer").clicked() {
                             s.confirm_abort = false;
                         }
-                        let b = egui::Button::new(RichText::new("Oui, tout annuler").color(Color32::BLACK)).fill(err());
+                        let b = filled_button("Oui, tout annuler", err());
                         if ui.add_enabled(!s.busy, b).clicked() {
                             abort = true;
                         }
@@ -1947,8 +1972,7 @@ impl App {
                     ui.label(format!("— le commit d'origine sera remplacé par {} commit(s).", s.parts.len()));
                 });
                 ui.add_space(4.0);
-                let b = egui::Button::new(RichText::new("Terminer le découpage").color(Color32::BLACK).size(15.0))
-                    .fill(ok())
+                let b = filled_button("Terminer le découpage", ok())
                     .min_size(egui::vec2(220.0, 30.0));
                 if ui.add_enabled(!s.busy, b).clicked() {
                     finish = true;
@@ -1965,7 +1989,7 @@ impl App {
                 ui.horizontal(|ui| {
                     let ready = n_sel > 0 && !s.message.trim().is_empty() && !s.busy;
                     let label = format!("Valider la partie {part}  ({n_sel} / {n_hunks} bloc(s))");
-                    let b = egui::Button::new(RichText::new(label).color(Color32::BLACK)).fill(accent).min_size(egui::vec2(0.0, 28.0));
+                    let b = filled_button(label, accent).min_size(egui::vec2(0.0, 28.0));
                     let r = ui.add_enabled(ready, b);
                     if r.clicked() {
                         commit = true;
@@ -3525,7 +3549,7 @@ impl App {
             ui.toggle_value(&mut s.q.case, "Aa").on_hover_text("Respecter la casse");
             ui.toggle_value(&mut s.q.regex, ".*").on_hover_text("Expression régulière");
             ui.toggle_value(&mut s.q.whole, "« »").on_hover_text("Mot entier");
-            let search_btn = egui::Button::new(RichText::new("Rechercher").color(Color32::BLACK)).fill(accent);
+            let search_btn = filled_button("Rechercher", accent);
             if ui.add(search_btn).clicked() {
                 go = true;
             }
@@ -3545,8 +3569,7 @@ impl App {
                         .font(egui::TextStyle::Monospace),
                 );
                 let n = s.hit_count();
-                let label = RichText::new(format!("Tout remplacer ({n})")).color(Color32::BLACK);
-                if ui.add_enabled(n > 0 && !s.running, egui::Button::new(label).fill(warn())).clicked() {
+                if ui.add_enabled(n > 0 && !s.running, filled_button(format!("Tout remplacer ({n})"), warn())).clicked() {
                     act = Some(SearchAct::ReplaceAll);
                 }
                 ui.toggle_value(&mut s.q.preserve, "Garder la casse").on_hover_text("chat → chien, Chat → Chien, CHAT → CHIEN");
@@ -3901,6 +3924,7 @@ impl App {
 
     fn refresh_index(&mut self) {
         let Some(root) = self.root.clone() else { return };
+        self.file_index_at = Some(Instant::now());
         self.jobs.spawn(move || {
             let mut v = Vec::new();
             let walker = ignore::WalkBuilder::new(&root).hidden(false).filter_entry(|e| e.file_name() != ".git").build();
@@ -4261,8 +4285,16 @@ impl App {
                             JobResult::SymbolIndex(r, idx)
                         });
                     }
-                    if self.root.as_ref() == Some(&root) {
+                    if self.root.as_ref() == Some(&root) && self.file_index != v {
                         self.file_index = v;
+                        // "go to file" opened while the list was being made: show the new list
+                        if self.overlay.as_ref().is_some_and(|o| matches!(o.mode, Mode::Files)) {
+                            let items = self.file_items();
+                            if let Some(o) = self.overlay.as_mut() {
+                                o.items = items;
+                                o.last_query = None;
+                            }
+                        }
                     }
                 }
                 JobResult::GitStatus { selected, statuses, log } => {
@@ -4794,7 +4826,8 @@ impl App {
             }
             CommandPalette => self.open_overlay(Mode::Commands),
             QuickOpen => {
-                if self.file_index.is_empty() {
+                // the list is rebuilt in the background (new files), the last one is shown meanwhile
+                if self.file_index.is_empty() || self.file_index_at.map_or(true, |t| t.elapsed() > Duration::from_secs(5)) {
                     self.refresh_index();
                 }
                 self.open_overlay(Mode::Files);
@@ -5293,18 +5326,7 @@ impl App {
                 }
                 v
             }
-            Mode::Files => match &self.root {
-                Some(root) => self
-                    .file_index
-                    .iter()
-                    .map(|p| Item {
-                        label: p.to_string_lossy().into_owned(),
-                        detail: String::new(),
-                        action: Action::Open(root.join(p)),
-                    })
-                    .collect(),
-                None => Vec::new(),
-            },
+            Mode::Files => self.file_items(),
             Mode::Projects => self
                 .projects
                 .iter()
@@ -5344,6 +5366,14 @@ impl App {
             _ => Vec::new(),
         };
         self.open_overlay_with(mode, items, String::new());
+    }
+
+    fn file_items(&self) -> Vec<Item> {
+        let Some(root) = &self.root else { return Vec::new() };
+        self.file_index
+            .iter()
+            .map(|p| Item { label: p.to_string_lossy().into_owned(), detail: String::new(), action: Action::Open(root.join(p)) })
+            .collect()
     }
 
     fn open_overlay_with(&mut self, mode: Mode, items: Vec<Item>, query: String) {
@@ -5399,7 +5429,8 @@ impl App {
         let mut chosen: Option<Action> = None;
         let mut submit = false;
         let mut goto_only: Option<String> = None;
-        egui::Area::new(egui::Id::new("overlay"))
+        let indexing = files_mode && self.file_index.is_empty() && self.root.is_some();
+        let area = egui::Area::new(egui::Id::new("overlay"))
             .anchor(Align2::CENTER_TOP, egui::vec2(0.0, 40.0))
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
@@ -5455,7 +5486,13 @@ impl App {
                     if n > 0 && up {
                         ov.selected = (ov.selected + n - 1) % n;
                     }
-                    egui::ScrollArea::vertical().max_height(440.0).auto_shrink([false, true]).show(ui, |ui| {
+                    // same height whatever the number of results: the window does not jump while typing
+                    let fixed = matches!(ov.mode, Mode::Files | Mode::Commands);
+                    egui::ScrollArea::vertical()
+                        .max_height(440.0)
+                        .min_scrolled_height(if fixed { 440.0 } else { 0.0 })
+                        .auto_shrink([false, !fixed])
+                        .show(ui, |ui| {
                         for (row, &i) in ov.filtered.iter().enumerate() {
                             let it = &ov.items[i];
                             // full-width row: label on the left, shortcut / detail on the right
@@ -5499,7 +5536,12 @@ impl App {
                                 chosen = Some(it.action.clone());
                             }
                         }
-                        if n == 0 {
+                        if n == 0 && indexing {
+                            ui.horizontal(|ui| {
+                                ui.spinner();
+                                ui.label(RichText::new("Liste des fichiers du projet en cours…").weak());
+                            });
+                        } else if n == 0 {
                             ui.label(RichText::new("Aucun résultat").weak());
                         }
                     });
@@ -5510,6 +5552,12 @@ impl App {
                     }
                 });
             });
+        // A click elsewhere closes the overlay: otherwise it would stay open, holding the keyboard
+        // (the editor ignores typing while an overlay is open).
+        let outside = ctx.input(|i| i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|p| !area.response.rect.contains(p)));
+        if outside && chosen.is_none() && goto_only.is_none() && !submit {
+            return;
+        }
 
         if let Some(spec) = goto_only {
             self.goto_spec(&spec);
@@ -6552,7 +6600,7 @@ impl App {
                 (format!("✔ Commit tout ({n_changed})"), "Rien d'indexé : valide toutes les modifications des fichiers suivis")
             };
             let can = !self.git.commit_msg.trim().is_empty() && (n_staged > 0 || n_changed > 0);
-            let b = egui::Button::new(RichText::new(label).color(Color32::BLACK)).fill(accent);
+            let b = filled_button(label, accent);
             if ui.add_enabled(can, b).on_hover_text(tip).clicked() || (ctrl_enter && can) {
                 do_commit = true;
             }
@@ -7113,6 +7161,40 @@ impl App {
         }
     }
 
+    /// Repositories changed outside Florm (commit, checkout, add… in a terminal): refresh the git
+    /// panel, the graph and the gutter marks of their open files.
+    fn check_git_stamps(&mut self) {
+        let mut changed = Vec::new();
+        for r in &self.repos {
+            let st = git::stamp(r);
+            match self.git_stamps.insert(r.clone(), st.clone()) {
+                Some(old) if old != st => changed.push(r.clone()),
+                _ => {}
+            }
+        }
+        if changed.is_empty() {
+            return;
+        }
+        self.git_refresh();
+        if self.history.open && self.history.repo.as_ref().is_some_and(|r| changed.contains(r)) && self.history.rebase.is_none() {
+            self.load_history();
+        }
+        for i in 0..self.docs.len() {
+            let in_repo = self.docs[i].path.as_deref().and_then(|p| self.repo_for(p)).is_some_and(|r| changed.contains(&r));
+            if in_repo {
+                self.refresh_git_base(i);
+            }
+        }
+    }
+
+    /// Re-reads the HEAD version of document `i` (gutter marks), without linting it.
+    fn refresh_git_base(&mut self, i: usize) {
+        let Some(d) = self.docs.get(i) else { return };
+        let Some(path) = d.path.clone() else { return };
+        let (uid, version) = (d.uid, d.version);
+        self.jobs.spawn(move || JobResult::Analyzed { uid, version, reload: false, diags: None, base: git::head_text(&path), log: Vec::new() });
+    }
+
     fn periodic(&mut self, ctx: &egui::Context) {
         // with hot exit, unsaved changes are kept in the session: no question
         let keeps = self.settings.hot_exit && self.root.is_some();
@@ -7152,9 +7234,15 @@ impl App {
                 }
             }
         }
-        // Files changed outside the editor.
+        // Files changed outside the editor (checked at once when coming back to the window).
+        let focused = ctx.input(|i| i.focused);
+        if focused && !self.was_focused {
+            self.last_disk_check = Instant::now() - Duration::from_secs(10);
+        }
+        self.was_focused = focused;
         if self.last_disk_check.elapsed() > Duration::from_secs(2) {
             self.last_disk_check = Instant::now();
+            self.check_git_stamps();
             let mut msgs = Vec::new();
             for d in self.docs.iter_mut() {
                 let Some(p) = d.path.clone() else { continue };
@@ -8326,5 +8414,13 @@ mod font_tests {
         // a quoted word without a dot stays a plain word
         assert_eq!(at("x = 'hello'", 7).0, "hello");
         assert_eq!(at("    record.amo", 14).1, 11);
+    }
+
+    #[test]
+    fn readable_text_on_filled_buttons() {
+        // white on dark fills (Light+ accent), dark on light ones (yellow)
+        assert_eq!(text_on(Color32::from_rgb(0x00, 0x7a, 0xcc)), Color32::WHITE);
+        assert_ne!(text_on(Color32::from_rgb(0xe5, 0xc0, 0x7b)), Color32::WHITE);
+        assert_ne!(text_on(Color32::from_rgb(0x98, 0xc3, 0x79)), Color32::WHITE);
     }
 }
