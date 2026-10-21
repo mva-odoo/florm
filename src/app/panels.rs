@@ -152,6 +152,9 @@ impl App {
     /// Tab strip: every tab (`pane == None`, with the history / split / settings tabs) or those of one panel.
     pub(super) fn tabs_strip(&mut self, ui: &mut egui::Ui, pane: Option<u8>) {
         let tc = self.hl.tab_colors();
+        if self.history.open {
+            self.history.tab = true;
+        }
         let (mut activate, mut close, mut close_history, mut close_prefs) = (None, None, false, false);
         let (mut show_history, mut show_split, mut drag_start, mut menu_act) = (false, false, None, None);
         let split_on = self.split.as_ref().is_some_and(|s| s.shown) && !self.prefs.open;
@@ -210,14 +213,15 @@ impl App {
                                 body.on_hover_text(p.display().to_string());
                             }
                         }
+                        // the Git tab stays like a file tab (in the first panel when split)
+                        if self.history.tab && pane.unwrap_or(0) == 0 {
+                            let on = self.history.open && !split_on && !self.prefs.open;
+                            let (body, closed) = tab_widget(ui, "🔀 Historique Git", None, false, on, false, &tc);
+                            close_history = closed || body.middle_clicked();
+                            show_history = body.clicked() && !closed;
+                        }
                         if pane.is_some() {
                             return;
-                        }
-                        if self.history.open {
-                            let on = !split_on && !self.prefs.open;
-                            let (body, closed) = tab_widget(ui, "🔀 Historique Git", None, false, on, false, &tc);
-                            close_history = closed;
-                            show_history = body.clicked() && !closed;
                         }
                         if let Some(sp) = &self.split {
                             let title = format!("✂ Découpage {}", sp.info.short);
@@ -248,6 +252,12 @@ impl App {
             self.activate_tab(i);
         }
         if show_history {
+            // back to the Git view: its state is read again at once
+            if !self.history.open {
+                self.git_refresh();
+                self.load_history();
+            }
+            self.history.open = true;
             self.prefs.open = false;
             if let Some(sp) = self.split.as_mut() {
                 sp.shown = false;
@@ -264,6 +274,7 @@ impl App {
         }
         if close_history {
             self.history.open = false;
+            self.history.tab = false;
         }
         if close_prefs {
             self.prefs.open = false;
@@ -697,10 +708,12 @@ impl App {
             }
             return;
         }
-        let accent = self.hl.colors.accent;
         let bg = ui.visuals().panel_fill;
-        let mut ops: Vec<(&str, Vec<String>)> = Vec::new();
-        let (mut do_commit, mut dismiss_error) = (false, false);
+        let mut dismiss_error = false;
+        let (mut chosen_repo, mut reload) = (None, false);
+        let repo_name = self.history.repo.as_deref().map(|r| self.repo_label(r)).unwrap_or_default();
+        let repo_choices: Vec<(PathBuf, String)> = self.repos.iter().map(|r| (r.clone(), self.repo_label(r))).collect();
+        // pull requests of the branch, or the button to open one
 
         // --- branch, its upstream and the remote actions
         ui.horizontal(|ui| {
@@ -741,6 +754,30 @@ impl App {
                     self.pending.push(cmd);
                 }
             }
+            // the graph: repository, filter, branches shown
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let h = &mut self.history;
+                if h.loading {
+                    ui.spinner();
+                }
+                if ui.button("⟳").on_hover_text("Rafraîchir l'état et le graphe").clicked() {
+                    reload = true;
+                }
+                if ui.checkbox(&mut h.all, "Toutes les branches").changed() {
+                    reload = true;
+                }
+                ui.add(egui::TextEdit::singleline(&mut h.filter).hint_text("🔍 Filtrer : message, auteur, hash, branche…").desired_width(220.0))
+                    .on_hover_text("↑ ↓ commits · ← → fichiers du diff · Page ↑ ↓ défiler");
+                if repo_choices.len() > 1 {
+                    egui::ComboBox::from_id_salt("history_repo").selected_text(&repo_name).show_ui(ui, |ui| {
+                        for (r, label) in &repo_choices {
+                            if ui.selectable_label(h.repo.as_ref() == Some(r), label).clicked() {
+                                chosen_repo = Some(r.clone());
+                            }
+                        }
+                    });
+                }
+            });
         });
 
         // --- errors stay until dismissed (or until a later git command succeeds)
@@ -768,59 +805,22 @@ impl App {
                     });
                 });
         }
-        // --- commit
-        let (n_staged, n_changed) = self.git.status.as_ref().map_or((0, 0), |st| {
-            (st.entries.iter().filter(|e| e.staged()).count(), st.entries.iter().filter(|e| e.unstaged() && e.x != '?').count())
-        });
-        ui.horizontal(|ui| {
-            let (label, tip) = if n_staged > 0 {
-                (format!("✔ Commit ({n_staged} indexé(s))"), "Valide les fichiers indexés")
-            } else {
-                (format!("✔ Commit tout ({n_changed})"), "Rien d'indexé : valide toutes les modifications des fichiers suivis")
-            };
-            let can = !self.git.commit_msg.trim().is_empty() && (n_staged > 0 || n_changed > 0);
-            // the button on the right, the message takes the rest of the line
-            let mut clicked = false;
-            let resp = ui
-                .with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
-                    clicked = ui.add_enabled(can, filled_button(label, accent)).on_hover_text(tip).clicked();
-                    ui.add(
-                        egui::TextEdit::multiline(&mut self.git.commit_msg)
-                            .hint_text("Message du commit (Ctrl+Entrée)")
-                            .desired_rows(1)
-                            .desired_width(f32::INFINITY),
-                    )
-                })
-                .inner;
-            if self.git.focus_commit {
-                resp.request_focus();
-                self.git.focus_commit = false;
-            }
-            let ctrl_enter = resp.has_focus() && ui.input(|i| i.modifiers.command && i.key_pressed(Key::Enter));
-            if can && (clicked || ctrl_enter) {
-                do_commit = true;
-            }
-        });
         ui.add_space(4.0);
 
         if dismiss_error {
             self.git.op_error = None;
             self.git.error = None;
         }
-        if do_commit {
-            let msg = self.git.commit_msg.trim().to_string();
-            let mut args = vec!["commit".to_string()];
-            if n_staged == 0 {
-                args.push("-a".into()); // nothing staged: commit all tracked changes
+        if let Some(r) = chosen_repo {
+            self.select_repo(r.clone());
+            // the panel may already be on it while the view still shows another one
+            if self.history.repo.as_ref() != Some(&r) {
+                self.load_history();
             }
-            args.push("-m".into());
-            args.push(msg);
-            ops.push(("commit", args));
-            self.git.commit_msg.clear();
         }
-        for (label, args) in ops {
-            let a: Vec<&str> = args.iter().map(String::as_str).collect();
-            self.git_job(label, &a);
+        if reload {
+            self.git_refresh();
+            self.load_history();
         }
     }
 
@@ -972,7 +972,7 @@ impl App {
                 });
                 return;
             }
-            if !self.docs.is_empty() || special {
+            if !self.docs.is_empty() || special || self.history.tab {
                 self.tabs_strip(ui, None);
             }
             if self.prefs.open {
@@ -1247,9 +1247,19 @@ impl App {
         let focused = ctx.input(|i| i.focused);
         if focused && !self.was_focused {
             self.last_disk_check = Instant::now() - Duration::from_secs(10);
+            // files may have been changed by another program: the Git view shows them at once
+            if self.history.open {
+                self.git_refresh();
+            }
         }
         self.was_focused = focused;
-        if self.last_disk_check.elapsed() > Duration::from_secs(2) {
+        // a command run in a terminal (git commit, checkout…): its effect is shown within half a second
+        if self.term.has_focus(ctx) && ctx.input(|i| i.key_pressed(Key::Enter)) {
+            self.term_enter = Some(Instant::now());
+        }
+        let busy_term = self.term_enter.is_some_and(|t| t.elapsed() < Duration::from_secs(30));
+        let every = if busy_term { Duration::from_millis(500) } else { Duration::from_secs(2) };
+        if self.last_disk_check.elapsed() > every {
             self.last_disk_check = Instant::now();
             self.check_git_stamps();
             let mut msgs = Vec::new();
@@ -1269,7 +1279,7 @@ impl App {
                 self.set_status(m);
             }
         }
-        ctx.request_repaint_after(Duration::from_secs(2));
+        ctx.request_repaint_after(every);
         let mut title = String::from("Florm");
         if let Some(d) = self.docs.get(self.active) {
             title = format!("{}{} — Florm", d.title(), if d.is_dirty() { " •" } else { "" });

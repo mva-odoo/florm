@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, Sender};
 
 pub enum JobResult {
+    /// Diff of a commit of the pull request shown (its hash).
     Analyzed {
         uid: u64,
         version: u64,
@@ -32,13 +33,14 @@ pub enum JobResult {
         /// `git remote -v` of each repository.
         remotes: Vec<(PathBuf, String)>,
     },
-    History(PathBuf, Result<history::Graph, String>),
+    History(PathBuf, u64, Result<history::Graph, String>),
     HistoryDetails(String, Result<history::Details, String>),
     Blame { uid: u64, line: usize, version: u64, result: Result<git::Blame, String> },
     LineHistory(Result<Vec<git::LineCommit>, String>),
     HistoryDiff { hash: String, path: Option<String>, result: Result<String, String> },
     GitBranches(Vec<String>),
-    GitOp { label: String, result: Result<String, String> },
+    /// `status`: the repository read again right after, in the same job (shown at once).
+    GitOp { label: String, result: Result<String, String>, status: Option<(PathBuf, Result<git::Status, String>)> },
     NewTab { title: String, text: String, syntax: String },
     Search(u64, search::Outcome),
     /// Native file dialog closed: what it was for (0 folder, 1 file, 2 save as) and the choice.

@@ -11,6 +11,7 @@ impl App {
         };
         if self.history.repo.as_ref() != Some(&repo) {
             self.history.graph = None;
+            self.history.limit = 0;
         }
         self.history.repo = Some(repo.clone());
         self.history.loading = true;
@@ -21,9 +22,11 @@ impl App {
         self.history.selected = None;
         self.history.details = None;
         let all = self.history.all;
+        self.history.gen += 1;
+        let (gen, limit) = (self.history.gen, if self.history.limit == 0 { HISTORY_LIMIT } else { self.history.limit });
         self.jobs.spawn(move || {
-            let r = history::load(&repo, all, 3000);
-            JobResult::History(repo, r)
+            let r = history::load(&repo, all, limit);
+            JobResult::History(repo, gen, r)
         });
     }
 
@@ -189,7 +192,10 @@ impl App {
             }
             self.history.open = true;
             self.history.all = true;
+            // the filter could hide it
+            self.history.filter.clear();
             self.history.select_hash = Some(h);
+            self.history.seek = true;
             self.load_history();
         }
     }
@@ -322,7 +328,18 @@ impl App {
         };
         match confirm {
             Some(msg) => self.confirm = Some(Confirm::DiffOp { msg, label: label.into(), op }),
-            None => self.run_diff_op(label.into(), op),
+            None => {
+                // the changes leave the diff shown at once; git's new diff follows
+                if source != DiffSource::Commit && source != DiffSource::Compare {
+                    let whole = matches!(click, DiffClick::File(..));
+                    if let Some(d) = self.history.diff.as_mut() {
+                        d.text = history::without(&d.text, idx, whole);
+                        d.lines = history::parse_diff(&d.text);
+                        d.files = history::diff_files(&d.lines);
+                    }
+                }
+                self.run_diff_op(label.into(), op);
+            }
         }
     }
 
@@ -343,7 +360,7 @@ impl App {
                 }
                 DiffOp::Delete(p) => std::fs::remove_file(&p).map(|()| format!("{} supprimé", p.display())).map_err(|e| e.to_string()),
             };
-            JobResult::GitOp { label, result }
+            JobResult::GitOp { label, result, status: Some((repo.clone(), git::status(&repo))) }
         });
     }
 
@@ -363,8 +380,25 @@ impl App {
         }
     }
 
+    /// The list takes the whole view again: nothing selected below it.
+    pub(super) fn close_history_detail(&mut self) {
+        let h = &mut self.history;
+        h.selected = None;
+        h.details = None;
+        h.wip_sel = None;
+        h.compare = None;
+        h.diff = None;
+        h.diff_loading = false;
+    }
+
+    /// Something is shown under the commit list (Escape closes it before the view).
+    pub(super) fn history_detail_open(&self) -> bool {
+        let h = &self.history;
+        h.rebase.is_none() && (h.selected.is_some() || h.wip_sel.is_some() || h.compare.is_some())
+    }
+
     pub(super) fn history_ui(&mut self, ui: &mut egui::Ui) {
-        let (mut reload, mut close, mut select, mut diff_to_tab) = (false, false, None, false);
+        let (mut select, mut diff_to_tab, mut close_detail) = (None, false, false);
         let mut diff_click: Option<history::DiffClick> = None;
         let source = match (self.history.wip_sel, &self.history.compare) {
             (_, Some(_)) => DiffSource::Compare,
@@ -383,46 +417,19 @@ impl App {
         let (mut menu_act, mut clear_notice, mut resume, mut abort_rebase) = (None, false, false, false);
         let (mut wip_pick, mut wip_ops): (Option<bool>, Vec<Vec<String>>) = (None, Vec::new());
         let split_hidden = self.split.as_ref().map(|s| s.info.short.clone());
-        let repo_name = self.history.repo.as_deref().map(|r| self.repo_label(r)).unwrap_or_default();
-        let repo_choices: Vec<(PathBuf, String)> = self.repos.iter().map(|r| (r.clone(), self.repo_label(r))).collect();
-        let mut chosen_repo = None;
         let accent = self.hl.colors.accent;
         // working tree status (same repository as the graph)
         let wip = self.git.status.clone().filter(|_| self.repo == self.history.repo);
+        let (n_staged, n_changed) = wip.as_ref().map_or((0, 0), |st| {
+            (st.entries.iter().filter(|e| e.staged()).count(), st.entries.iter().filter(|e| e.unstaged() && e.x != '?').count())
+        });
+        let mut do_commit = false;
+        let commit_msg = &mut self.git.commit_msg;
+        let focus_commit = std::mem::take(&mut self.git.focus_commit);
         let h = &mut self.history;
-        egui::TopBottomPanel::top("history_top").show_inside(ui, |ui| {
-            ui.add_space(2.0);
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("Historique Git").strong().size(15.0));
-                if repo_choices.len() > 1 {
-                    egui::ComboBox::from_id_salt("history_repo").selected_text(&repo_name).show_ui(ui, |ui| {
-                        for (r, label) in &repo_choices {
-                            if ui.selectable_label(h.repo.as_ref() == Some(r), label).clicked() {
-                                chosen_repo = Some(r.clone());
-                            }
-                        }
-                    });
-                } else {
-                    ui.label(RichText::new(&repo_name).weak());
-                }
-                ui.add_space(8.0);
-                ui.add(egui::TextEdit::singleline(&mut h.filter).hint_text("🔍 Filtrer : message, auteur, hash, branche…").desired_width(240.0));
-                if ui.checkbox(&mut h.all, "Toutes les branches").changed() {
-                    reload = true;
-                }
-                if ui.button("⟳").on_hover_text("Rafraîchir").clicked() {
-                    reload = true;
-                }
-                if h.loading {
-                    ui.spinner();
-                }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("×").on_hover_text("Fermer (Échap)").clicked() {
-                        close = true;
-                    }
-                    ui.label(RichText::new("↑ ↓ commits · ← → fichiers · Page ↑ ↓ défiler").small().weak());
-                });
-            });
+        // messages and operations in progress, above the list (nothing when there are none)
+        let banner = h.notice.is_some() || split_hidden.is_some() || op_banner.is_some() || h.graph.as_ref().is_some_and(|g| g.rebasing);
+        egui::TopBottomPanel::top("history_top").show_animated_inside(ui, banner, |ui| {
             if let Some((n, color)) = &h.notice {
                 ui.horizontal(|ui| {
                     let icon = if *color == err() { "⚠" } else { "✔" };
@@ -494,6 +501,9 @@ impl App {
 
         // ------------------------------------------------ commit list, with the working tree on top
         let list = |ui: &mut egui::Ui| {
+            if n_staged + n_changed > 0 || !commit_msg.is_empty() || focus_commit {
+                do_commit = commit_box(ui, commit_msg, focus_commit, n_staged, n_changed, accent);
+            }
             if let Some(st) = &wip {
                 let staged: Vec<&git::Entry> = st.entries.iter().filter(|e| e.staged()).collect();
                 let unstaged: Vec<&git::Entry> = st.entries.iter().filter(|e| e.unstaged()).collect();
@@ -571,6 +581,12 @@ impl App {
             let row_h = 22.0;
             ui.spacing_mut().item_spacing.y = 0.0;
             let mut area = egui::ScrollArea::vertical().id_salt("history_list").auto_shrink([false, false]);
+            // a commit chosen from elsewhere ("voir dans le graphe"): in the middle of the list
+            if std::mem::take(&mut h.scroll_to_sel) {
+                if let Some(k) = pos {
+                    area = area.vertical_scroll_offset((k as f32 * row_h - ui.available_height() / 2.0).max(0.0));
+                }
+            }
             if let Some(k) = moved {
                 let id = ui.make_persistent_id("history_list");
                 let top = egui::scroll_area::State::load(ui.ctx(), id).map_or(0.0, |st| st.offset.y);
@@ -612,6 +628,13 @@ impl App {
             // ------------------------------------------------ below: what is selected, then its changes (like a pull request)
             egui::CentralPanel::default().show_inside(ui, |ui| {
                 ui.add_space(4.0);
+                if h.rebase.is_none() {
+                    let r = ui.max_rect();
+                    let at = egui::Rect::from_min_size(egui::pos2(r.right() - 26.0, r.top() + 2.0), egui::vec2(24.0, 24.0));
+                    if ui.put(at, egui::Button::new(RichText::new("×").size(16.0)).frame(false)).on_hover_text("Fermer le détail (Échap)").clicked() {
+                        close_detail = true;
+                    }
+                }
                 if let Some(rb) = h.rebase.as_mut() {
                     ui.label(RichText::new("Rebase interactif").size(16.0).strong());
                     ui.label(
@@ -756,6 +779,7 @@ impl App {
                             ui.horizontal(|ui| {
                                 ui.add(egui::Label::new(RichText::new(subject).size(16.0).strong()).truncate());
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    ui.add_space(28.0); // the × closing the detail
                                     ui.menu_button("Actions ▾", |ui| {
                                         commit_menu(ui, c, h.graph.as_ref().map_or(&[][..], |g| &g.local[..]), None, &mut menu_act);
                                     });
@@ -794,45 +818,32 @@ impl App {
                         ),
                     ];
                 }
-                // --- files: summary, then a chip per file (click: go to its diff)
+                ui.add_space(2.0);
+                ui.separator();
+                // --- files on the left (click: go to its diff), every diff one under the other on the right
                 let (adds, dels) = chips.iter().fold((0u32, 0u32), |(a, r), (_, _, s)| match s {
                     Some((x, y)) => (a + x.unwrap_or(0), r + y.unwrap_or(0)),
                     _ => (a, r),
                 });
-                ui.add_space(2.0);
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(format!("FICHIERS MODIFIÉS · {}", chips.len())).small().strong().color(accent));
-                    ui.label(RichText::new(format!("+{adds}")).small().monospace().color(ok()));
-                    ui.label(RichText::new(format!("−{dels}")).small().monospace().color(err()));
-                    if h.diff_loading {
-                        ui.spinner();
-                    }
-                    if let Some(d) = &h.diff {
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if !d.files.is_empty() {
-                                if ui.small_button("Tout déplier").clicked() {
-                                    h.collapsed.clear();
-                                }
-                                if ui.small_button("Tout replier").clicked() {
-                                    h.collapsed = d.files.iter().map(|f| f.start).collect();
-                                }
+                egui::SidePanel::left("history_files")
+                    .resizable(true)
+                    .default_width(300.0)
+                    .width_range(180.0..=600.0)
+                    .frame(egui::Frame::none().inner_margin(egui::Margin { left: 0.0, right: 6.0, top: 2.0, bottom: 0.0 }))
+                    .show_inside(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(format!("{} FICHIER(S)", chips.len())).small().strong().color(accent));
+                            ui.label(RichText::new(format!("+{adds}")).small().monospace().color(ok()));
+                            ui.label(RichText::new(format!("−{dels}")).small().monospace().color(err()));
+                            if h.diff_loading {
+                                ui.spinner();
                             }
                         });
-                    }
-                });
-                if !chips.is_empty() {
-                    egui::ScrollArea::vertical().id_salt("diff_chips").max_height(64.0).show(ui, |ui| {
-                        ui.horizontal_wrapped(|ui| {
-                            ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
-                            for (letter, path, _) in &chips {
-                                let name = path.rsplit('/').next().unwrap_or(path);
-                                let c = match letter {
-                                    'A' | '?' => ok(),
-                                    'D' => err(),
-                                    _ => warn(),
-                                };
-                                let text = RichText::new(format!("{letter} {name}")).small().color(c);
-                                if ui.add(egui::Button::new(text).small()).on_hover_text(path.as_str()).clicked() {
+                        ui.add_space(2.0);
+                        egui::ScrollArea::vertical().id_salt("diff_files").auto_shrink([false, false]).show(ui, |ui| {
+                            ui.spacing_mut().item_spacing.y = 0.0;
+                            for (letter, path, stats) in &chips {
+                                if file_row(ui, *letter, path, *stats).clicked() {
                                     if let Some(k) = h.diff.as_ref().and_then(|d| d.files.iter().position(|f| f.path == *path)) {
                                         if let Some(start) = h.diff.as_ref().map(|d| d.files[k].start) {
                                             h.collapsed.remove(&start);
@@ -843,47 +854,55 @@ impl App {
                             }
                         });
                     });
-                }
-                ui.separator();
-                // --- every file with its diff, one under the other
-                match &h.diff {
-                    Some(d) => {
-                        let hunk_buttons: &[history::DiffButton] = match source {
-                            DiffSource::Worktree => &[
-                                ("+ Indexer ce bloc", "Ajouter ce bloc au prochain commit", DiffAct::Stage),
-                                ("↺ Annuler ce bloc", "Supprimer ce changement du fichier (demande confirmation)", DiffAct::Discard),
-                            ],
-                            DiffSource::Index => {
-                                &[("− Désindexer ce bloc", "Retirer ce bloc du prochain commit (le changement reste dans le fichier)", DiffAct::Unstage)]
-                            }
-                            DiffSource::Commit => &[("↺ Annuler ce changement", "Défaire ce bloc dans tes fichiers actuels (à valider ensuite)", DiffAct::Revert)],
-                            DiffSource::Compare => &[],
-                        };
-                        let jump = h.jump.take();
-                        if let Some(c) = history::stacked_diff_view(ui, &d.lines, &d.files, &mut h.collapsed, "history_stacked", hunk_buttons, file_buttons, jump) {
-                            diff_click = Some(c);
-                        }
-                    }
-                    None if h.diff_loading => {
+                egui::CentralPanel::default().frame(egui::Frame::none().inner_margin(egui::Margin { left: 6.0, ..Default::default() })).show_inside(ui, |ui| {
+                    if let Some(d) = h.diff.as_ref().filter(|d| !d.files.is_empty()) {
+                        // in a row: alone, the right-to-left layout would take the whole height
                         ui.horizontal(|ui| {
-                            ui.spinner();
-                            ui.label(RichText::new("Chargement du diff…").weak());
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                if ui.small_button("Tout déplier").clicked() {
+                                    h.collapsed.clear();
+                                }
+                                if ui.small_button("Tout replier").clicked() {
+                                    h.collapsed = d.files.iter().map(|f| f.start).collect();
+                                }
+                            });
                         });
                     }
-                    None => {}
-                }
+                    match &h.diff {
+                        Some(d) => {
+                            let hunk_buttons: &[history::DiffButton] = match source {
+                                DiffSource::Worktree => &[
+                                    ("+ Indexer ce bloc", "Ajouter ce bloc au prochain commit", DiffAct::Stage),
+                                    ("↺ Annuler ce bloc", "Supprimer ce changement du fichier (demande confirmation)", DiffAct::Discard),
+                                ],
+                                DiffSource::Index => {
+                                    &[("− Désindexer ce bloc", "Retirer ce bloc du prochain commit (le changement reste dans le fichier)", DiffAct::Unstage)]
+                                }
+                                DiffSource::Commit => &[("↺ Annuler ce changement", "Défaire ce bloc dans tes fichiers actuels (à valider ensuite)", DiffAct::Revert)],
+                                DiffSource::Compare => &[],
+                            };
+                            let jump = h.jump.take();
+                            if let Some(c) = history::stacked_diff_view(ui, &d.lines, &d.files, &mut h.collapsed, "history_stacked", hunk_buttons, file_buttons, jump) {
+                                diff_click = Some(c);
+                            }
+                        }
+                        None if h.diff_loading => {
+                            ui.horizontal(|ui| {
+                                ui.spinner();
+                                ui.label(RichText::new("Chargement du diff…").weak());
+                            });
+                        }
+                        None => {}
+                    }
+                });
             });
         }
 
-        if close {
-            self.history.open = false;
+        if close_detail {
+            self.close_history_detail();
         }
-        if let Some(r) = chosen_repo {
-            self.select_repo(r.clone());
-            // the panel may already be on it while the view still shows another one
-            if self.history.repo.as_ref() != Some(&r) {
-                self.load_history();
-            }
+        if do_commit {
+            self.commit(n_staged);
         }
         if clear_notice {
             self.history.notice = None;
@@ -953,10 +972,6 @@ impl App {
                 _ => {}
             }
         }
-        if reload {
-            self.load_history();
-            self.git_refresh();
-        }
         if let Some(args) = op_cmd {
             if let Some(repo) = self.history.repo.clone() {
                 let a: Vec<&str> = args.iter().map(String::as_str).collect();
@@ -973,6 +988,7 @@ impl App {
                 self.jobs.spawn(move || JobResult::GitOp {
                     label: if crate::rebase::splits(&rb.steps) { "rebase (découpage)".into() } else { "rebase".into() },
                     result: crate::rebase::run(&repo, &rb.from, &rb.steps, crate::rebase::self_editor),
+                    status: None,
                 });
             }
         }
@@ -986,6 +1002,12 @@ impl App {
             self.load_wip_all(staged);
         }
         if !wip_ops.is_empty() {
+            // everything leaves the side shown: empty at once, git's new diff follows
+            if let Some(d) = self.history.diff.as_mut() {
+                d.text = "(aucune différence)".into();
+                d.lines = history::parse_diff(&d.text);
+                d.files = Vec::new();
+            }
             if let Some(repo) = self.history.repo.clone() {
                 for args in wip_ops {
                     let a: Vec<&str> = args.iter().map(String::as_str).collect();
@@ -1006,4 +1028,68 @@ impl App {
             }
         }
     }
+}
+
+/// Message and button of the next commit, on top of the working tree changes; true: commit now.
+fn commit_box(ui: &mut egui::Ui, msg: &mut String, focus: bool, n_staged: usize, n_changed: usize, accent: Color32) -> bool {
+    let (label, tip) = if n_staged > 0 {
+        (format!("✔ Commit ({n_staged} indexé(s))"), "Valide les fichiers indexés")
+    } else {
+        (format!("✔ Commit tout ({n_changed})"), "Rien d'indexé : valide toutes les modifications des fichiers suivis")
+    };
+    let can = !msg.trim().is_empty() && (n_staged > 0 || n_changed > 0);
+    let mut go = false;
+    egui::Frame::none().inner_margin(egui::Margin { left: 4.0, right: 4.0, top: 4.0, bottom: 6.0 }).show(ui, |ui| {
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+            let clicked = ui.add_enabled(can, filled_button(label, accent)).on_hover_text(tip).clicked();
+            let resp = ui.add(egui::TextEdit::multiline(msg).hint_text("Message du commit (Ctrl+Entrée)").desired_rows(1).desired_width(f32::INFINITY));
+            if focus {
+                resp.request_focus();
+            }
+            let ctrl_enter = resp.has_focus() && ui.input(|i| i.modifiers.command && i.key_pressed(Key::Enter));
+            go = can && (clicked || ctrl_enter);
+        });
+    });
+    go
+}
+
+/// A changed file in the list next to the diff: status letter, name, folder, lines added / removed.
+fn file_row(ui: &mut egui::Ui, letter: char, path: &str, stats: Option<(Option<u32>, Option<u32>)>) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 24.0), Sense::click());
+    let v = ui.visuals();
+    if resp.hovered() {
+        ui.painter().rect_filled(rect, 4.0, v.widgets.hovered.weak_bg_fill);
+    }
+    let (letter, color) = match letter {
+        'A' | '?' => ('A', ok()),
+        'D' => ('D', err()),
+        'R' | 'C' => (letter, Color32::from_rgb(0x8a, 0x7c, 0xd8)),
+        'U' => ('U', err()),
+        _ => ('M', warn()),
+    };
+    let p = ui.painter().with_clip_rect(rect);
+    let cy = rect.center().y;
+    // the letter in a small colored square
+    let badge = egui::Rect::from_center_size(egui::pos2(rect.left() + 12.0, cy), egui::vec2(16.0, 16.0));
+    p.rect_filled(badge, 3.0, icons::mix(v.panel_fill, color, 0.18));
+    p.text(badge.center(), Align2::CENTER_CENTER, letter, egui::FontId::monospace(11.0), color);
+    // lines added / removed on the right, the name and its folder in the rest
+    let mut right = rect.right() - 4.0;
+    if let Some((a, d)) = stats {
+        let d = d.map_or("bin".to_string(), |d| format!("−{d}"));
+        let r = p.text(egui::pos2(right, cy), Align2::RIGHT_CENTER, d, egui::FontId::monospace(11.0), err());
+        let r = p.text(egui::pos2(r.left() - 5.0, cy), Align2::RIGHT_CENTER, a.map_or(String::new(), |a| format!("+{a}")), egui::FontId::monospace(11.0), ok());
+        right = r.left() - 8.0;
+    }
+    let p = p.with_clip_rect(egui::Rect::from_min_max(rect.min, egui::pos2(right, rect.bottom())));
+    let (dir, name) = path.rsplit_once('/').map_or(("", path), |(d, n)| (d, n));
+    let strike = letter == 'D';
+    let r = p.text(egui::pos2(rect.left() + 26.0, cy), Align2::LEFT_CENTER, name, egui::FontId::proportional(13.0), if strike { v.weak_text_color() } else { v.strong_text_color() });
+    if strike {
+        p.line_segment([egui::pos2(r.left(), cy), egui::pos2(r.right(), cy)], egui::Stroke::new(1.0_f32, v.weak_text_color()));
+    }
+    if !dir.is_empty() {
+        p.text(egui::pos2(r.right() + 6.0, cy), Align2::LEFT_CENTER, dir, egui::FontId::proportional(11.5), v.weak_text_color());
+    }
+    resp.on_hover_text(path)
 }

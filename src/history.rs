@@ -281,6 +281,16 @@ pub fn row_ui(ui: &mut Ui, c: &Commit, row: &Row, graph_w: f32, selected: bool, 
 mod tests {
     use super::*;
 
+    #[test]
+    fn without_a_hunk_or_a_file() {
+        let d = "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n@@ -9 +9 @@\n-c\n+d\ndiff --git a/y b/y\n--- a/y\n+++ b/y\n@@ -1 +1 @@\n-e\n+f";
+        assert_eq!(without(d, 3, false), "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -9 +9 @@\n-c\n+d\ndiff --git a/y b/y\n--- a/y\n+++ b/y\n@@ -1 +1 @@\n-e\n+f");
+        assert_eq!(without(d, 0, true), "diff --git a/y b/y\n--- a/y\n+++ b/y\n@@ -1 +1 @@\n-e\n+f");
+        // the only hunk of y: the file goes
+        assert_eq!(without(d, 12, false), "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n@@ -9 +9 @@\n-c\n+d");
+        assert_eq!(without(&without(d, 0, true), 0, true), "(aucune différence)");
+    }
+
     fn c(h: &str, parents: &[&str]) -> Commit {
         Commit {
             hash: h.into(),
@@ -694,6 +704,27 @@ pub fn hunk_patch(text: &str, hunk: usize) -> Option<String> {
         .unwrap_or(lines.len());
     let body: Vec<&str> = lines[hunk..end].iter().copied().filter(|l| !l.is_empty()).collect();
     Some(format!("{}\n{}\n", lines[start..header_end].join("\n"), body.join("\n")))
+}
+
+/// The diff without the hunk at line `idx` (`whole_file`: without its file section), as shown
+/// right after staging / discarding it, before git gives the new diff.
+pub fn without(text: &str, idx: usize, whole_file: bool) -> String {
+    let lines: Vec<&str> = text.split('\n').collect();
+    let Some(start) = (0..=idx.min(lines.len().saturating_sub(1))).rev().find(|&i| lines[i].starts_with("diff --git")) else {
+        return text.to_string();
+    };
+    let end = (start + 1..lines.len()).find(|&i| lines[i].starts_with("diff --git")).unwrap_or(lines.len());
+    let (a, b) = if whole_file || !lines.get(idx).is_some_and(|l| l.starts_with("@@")) {
+        (start, end)
+    } else {
+        let hunk_end = (idx + 1..end).find(|&i| lines[i].starts_with("@@")).unwrap_or(end);
+        // its last hunk: the file goes too
+        let others = (start..end).filter(|&i| lines[i].starts_with("@@")).count() > 1;
+        if others { (idx, hunk_end) } else { (start, end) }
+    };
+    let rest: Vec<&str> = lines[..a].iter().chain(&lines[b..]).copied().collect();
+    let t = rest.join("\n");
+    if t.trim().is_empty() { "(aucune différence)".to_string() } else { t }
 }
 
 /// Patch of the whole file section containing line `idx`.

@@ -178,6 +178,8 @@ impl App {
                 if self.overlay.take().is_some() || self.confirm.take().is_some() || self.line_history.take().is_some() {
                 } else if let Some(sp) = self.split.as_mut().filter(|sp| sp.shown && !self.prefs.open) {
                     sp.shown = false;
+                } else if self.history.open && self.history_detail_open() {
+                    self.close_history_detail();
                 } else if self.history.open {
                     self.history.open = false;
                 } else if self.prefs.open {
@@ -274,6 +276,10 @@ impl App {
                 }
             }
             OpenFolderPath => self.open_prompt(Prompt::OpenFolder),
+            CloseTab if self.history.open && !self.prefs.open && !self.split.as_ref().is_some_and(|s| s.shown) => {
+                self.history.open = false;
+                self.history.tab = false;
+            }
             CloseTab => self.close_tab(self.active, false),
             ReopenClosed => {
                 if let Some(p) = self.closed.pop() {
@@ -601,11 +607,11 @@ impl App {
                 if self.history.open && !split_shown {
                     self.history.open = false;
                 } else {
+                    // hidden, the graph may have missed changes: read again
                     self.history.open = true;
                     self.prefs.open = false;
-                    if self.history.graph.is_none() || self.history.repo != self.repo {
-                        self.load_history();
-                    }
+                    self.load_history();
+                    self.git_refresh();
                 }
             }
             Plugin(k) => self.run_plugin(k),

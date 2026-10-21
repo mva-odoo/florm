@@ -381,9 +381,24 @@ impl SearchUi {
     }
 }
 
+/// Commits loaded in the Git view; up to `HISTORY_MAX` to find an older one asked for.
+const HISTORY_LIMIT: usize = 3000;
+const HISTORY_MAX: usize = 100_000;
+
 #[derive(Default)]
 struct HistoryUi {
+    /// The Git view is shown.
     open: bool,
+    /// Its tab is in the tab strip (it stays when another tab is shown, until closed).
+    tab: bool,
+    /// Number of the last load: results of older ones are dropped.
+    gen: u64,
+    /// Commits loaded (0: the default); raised to find a commit asked for that is older.
+    limit: usize,
+    /// Scroll the commit list to the selected commit at the next frame.
+    scroll_to_sel: bool,
+    /// `select_hash` was asked for ("voir dans le graphe"): more commits are loaded to find it.
+    seek: bool,
     repo: Option<PathBuf>,
     graph: Option<history::Graph>,
     error: Option<String>,
@@ -582,6 +597,8 @@ pub struct App {
     status: Option<(String, Instant)>,
     pending: Vec<Cmd>,
     last_disk_check: Instant,
+    /// Last command run in a terminal: git and the files are checked more often for a while.
+    term_enter: Option<Instant>,
     last_line_copy: Option<String>,
     quit_confirmed: bool,
     closed: Vec<PathBuf>,
@@ -759,6 +776,7 @@ impl App {
             status: None,
             pending: Vec::new(),
             last_disk_check: Instant::now(),
+            term_enter: None,
             last_line_copy: None,
             quit_confirmed: false,
             closed: Vec::new(),

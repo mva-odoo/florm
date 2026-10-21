@@ -13,6 +13,18 @@ impl App {
         });
     }
 
+    /// Commits with the message typed in the Git view (everything tracked when nothing is staged).
+    pub(super) fn commit(&mut self, n_staged: usize) {
+        let msg = self.git.commit_msg.trim().to_string();
+        let mut args = vec!["commit"];
+        if n_staged == 0 {
+            args.push("-a");
+        }
+        args.extend(["-m", &msg]);
+        self.git_job("commit", &args);
+        self.git.commit_msg.clear();
+    }
+
     pub(super) fn git_job(&mut self, label: &str, args: &[&str]) {
         let Some(repo) = self.repo.clone() else {
             self.set_status("Pas de dépôt git");
@@ -29,7 +41,8 @@ impl App {
         let label = label.to_string();
         self.jobs.spawn(move || {
             let a: Vec<&str> = args.iter().map(String::as_str).collect();
-            JobResult::GitOp { label, result: git::run(&repo, &a) }
+            let result = git::run(&repo, &a);
+            JobResult::GitOp { label, result, status: Some((repo.clone(), git::status(&repo))) }
         });
     }
 

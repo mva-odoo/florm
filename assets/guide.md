@@ -128,6 +128,10 @@ propose dans les suggestions, **Tab** (ou Entrée) le remplace par
 `log.py` (extension du fichier courant ; `log.xml` pour un autre type) dans le dossier des
 modèles et l'ouvre. S'il y avait une sélection, elle devient le texte du modèle.
 
+- **Commits** : un clic montre les changements de ce commit seul ; **Fichiers** : tout le
+  diff de la PR, les conversations **sous les lignes commentées** comme sur GitHub (répondre,
+  résoudre, appliquer une suggestion), et **double-clic sur une ligne** pour la commenter.
+
 ## Apparence
 
 **Préférences → Apparence** : thème (aperçus cliquables), couleur d'accentuation,

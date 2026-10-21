@@ -153,18 +153,29 @@ impl App {
                         }
                     }
                 }
-                JobResult::History(repo, r) => {
-                    if self.history.repo.as_ref() == Some(&repo) {
+                JobResult::History(repo, gen, r) => {
+                    if self.history.repo.as_ref() == Some(&repo) && gen == self.history.gen {
                         self.history.loading = false;
                         match r {
                             Ok(g) => {
-                                let pick = self.history.select_hash.take().and_then(|h| g.commits.iter().position(|c| c.hash == h));
+                                let wanted = self.history.select_hash.take();
+                                let pick = wanted.as_ref().and_then(|h| g.commits.iter().position(|c| &c.hash == h));
+                                // older than the commits loaded: load more of them
+                                let more = self.history.seek && pick.is_none() && g.commits.len() >= self.history.limit.max(HISTORY_LIMIT) && self.history.limit < HISTORY_MAX;
                                 self.history.graph = Some(g);
                                 self.history.error = None;
-                                if let Some(i) = pick {
+                                if more {
+                                    self.history.limit = HISTORY_MAX;
+                                    self.history.select_hash = wanted;
+                                    self.load_history();
+                                } else if let Some(i) = pick {
+                                    self.history.seek = false;
                                     self.history.wip_sel = None;
                                     self.history.diff = None;
+                                    self.history.scroll_to_sel = true;
                                     self.select_commit(i);
+                                } else if let Some(h) = wanted.filter(|_| std::mem::take(&mut self.history.seek)) {
+                                    self.history.notice = Some((format!("Commit {} introuvable dans le graphe", &h[..h.len().min(8)]), err()));
                                 }
                             }
                             Err(e) => self.history.error = Some(e),
@@ -232,8 +243,13 @@ impl App {
                         list.into_iter().map(|b| Item { label: b.clone(), detail: String::new(), action: Action::Branch(b) }).collect();
                     self.open_overlay_with(Mode::Branches, items, String::new());
                 }
-                JobResult::GitOp { label, result } => {
+                JobResult::GitOp { label, result, status } => {
                     self.git.busy = self.git.busy.saturating_sub(1);
+                    if let Some((repo, Ok(st))) = status {
+                        if self.repo.as_ref() == Some(&repo) {
+                            self.git.status = Some(st);
+                        }
+                    }
                     match result {
                         Ok(out) => {
                             self.log(out);
