@@ -92,9 +92,85 @@ pub fn reveal(path: &Path) -> Result<(), String> {
     r.map_err(|e| format!("Impossible d'ouvrir le gestionnaire de fichiers : {e}"))
 }
 
+/// File chooser of the desktop (GTK, KDE…) through the xdg portal: a folder (`kind` 0), a file
+/// to open (1) or where to save (2). Blocks until the dialog is closed; `Ok(None)` when cancelled.
+#[cfg(target_os = "linux")]
+pub fn portal_pick(kind: u8, dir: &Path, name: Option<&str>) -> Result<Option<PathBuf>, String> {
+    use std::collections::HashMap;
+    use std::os::unix::ffi::OsStrExt;
+    use zbus::zvariant::{OwnedObjectPath, Value};
+    let e = |e: zbus::Error| format!("Sélecteur de fichiers du bureau indisponible : {e}");
+    let conn = zbus::blocking::Connection::session().map_err(e)?;
+    // the request object path is known in advance: listen to its answer before asking
+    let token = format!("florm{}", std::process::id());
+    let sender = conn.unique_name().map(|n| n.trim_start_matches(':').replace('.', "_")).unwrap_or_default();
+    let handle = format!("/org/freedesktop/portal/desktop/request/{sender}/{token}");
+    let request = zbus::blocking::Proxy::new(&conn, "org.freedesktop.portal.Desktop", handle.as_str(), "org.freedesktop.portal.Request").map_err(e)?;
+    let mut answers = request.receive_signal("Response").map_err(e)?;
+    let mut folder = dir.as_os_str().as_bytes().to_vec();
+    folder.push(0);
+    let mut opts: HashMap<&str, Value> = HashMap::new();
+    opts.insert("handle_token", Value::from(token.as_str()));
+    opts.insert("current_folder", Value::from(folder));
+    let (method, title) = match kind {
+        0 => ("OpenFile", "Ouvrir un dossier"),
+        1 => ("OpenFile", "Ouvrir un fichier"),
+        _ => ("SaveFile", "Enregistrer sous"),
+    };
+    if kind == 0 {
+        opts.insert("directory", Value::from(true));
+    }
+    if let Some(n) = name {
+        opts.insert("current_name", Value::from(n));
+    }
+    let chooser = zbus::blocking::Proxy::new(&conn, "org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop", "org.freedesktop.portal.FileChooser").map_err(e)?;
+    let _: OwnedObjectPath = chooser.call(method, &("", title, opts)).map_err(e)?;
+    let Some(msg) = answers.next() else { return Ok(None) };
+    let body = msg.body();
+    let (code, results): (u32, HashMap<String, Value>) = body.deserialize().map_err(e)?;
+    if code != 0 {
+        return Ok(None);
+    }
+    let first = match results.get("uris") {
+        Some(Value::Array(a)) => a.iter().find_map(|v| if let Value::Str(s) = v { Some(s.to_string()) } else { None }),
+        _ => None,
+    };
+    Ok(first.and_then(|u| file_uri_path(&u)))
+}
+
+/// `file:///home/a%20b` → `/home/a b`.
+#[cfg(target_os = "linux")]
+fn file_uri_path(uri: &str) -> Option<PathBuf> {
+    use std::os::unix::ffi::OsStringExt;
+    let rest = uri.strip_prefix("file://")?.as_bytes();
+    let mut out = Vec::with_capacity(rest.len());
+    let mut i = 0;
+    while i < rest.len() {
+        let hex = rest.get(i + 1..i + 3).and_then(|h| std::str::from_utf8(h).ok()).and_then(|h| u8::from_str_radix(h, 16).ok());
+        match (rest[i], hex) {
+            (b'%', Some(b)) => {
+                out.push(b);
+                i += 3;
+            }
+            (c, _) => {
+                out.push(c);
+                i += 1;
+            }
+        }
+    }
+    Some(PathBuf::from(std::ffi::OsString::from_vec(out)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn file_uri_decoding() {
+        assert_eq!(file_uri_path("file:///home/a%20b/%C3%A9t%C3%A9.txt"), Some(PathBuf::from("/home/a b/été.txt")));
+        assert_eq!(file_uri_path("https://x"), None);
+    }
 
     #[test]
     fn wsl_paths_from_windows() {

@@ -3031,8 +3031,20 @@ impl App {
     /// to open (1) or where to save (2). Returns false where Florm uses its own path entry (Linux).
     #[cfg(any(windows, target_os = "macos"))]
     fn native_dialog(&mut self, kind: u8) -> bool {
+        self.file_dialog(kind);
+        true
+    }
+
+    #[cfg(not(any(windows, target_os = "macos")))]
+    fn native_dialog(&mut self, _kind: u8) -> bool {
+        false
+    }
+
+    /// File chooser of the system (Explorer, Finder, the desktop's one through the xdg portal on
+    /// Linux) for a folder (0), a file to open (1) or where to save (2).
+    fn file_dialog(&mut self, kind: u8) {
         if self.dialog_open {
-            return true;
+            return;
         }
         self.dialog_open = true;
         let current = self.docs.get(self.active).and_then(|d| d.path.clone());
@@ -3044,26 +3056,25 @@ impl App {
             .unwrap_or_else(config::home);
         let name = current.as_deref().and_then(Path::file_name).map(|n| n.to_string_lossy().into_owned());
         self.jobs.spawn(move || {
-            let d = rfd::FileDialog::new().set_directory(&dir);
-            let picked = match kind {
-                0 => d.set_title("Ouvrir un dossier (les projets WSL : \\\\wsl.localhost\\…)").pick_folder(),
-                1 => d.set_title("Ouvrir un fichier").pick_file(),
-                _ => {
-                    let d = d.set_title("Enregistrer sous");
-                    match name {
-                        Some(n) => d.set_file_name(n).save_file(),
-                        None => d.save_file(),
+            #[cfg(target_os = "linux")]
+            let picked = crate::os::portal_pick(kind, &dir, name.as_deref().filter(|_| kind == 2));
+            #[cfg(not(target_os = "linux"))]
+            let picked = {
+                let d = rfd::FileDialog::new().set_directory(&dir);
+                Ok(match kind {
+                    0 => d.set_title("Ouvrir un dossier (les projets WSL : \\\\wsl.localhost\\…)").pick_folder(),
+                    1 => d.set_title("Ouvrir un fichier").pick_file(),
+                    _ => {
+                        let d = d.set_title("Enregistrer sous");
+                        match name {
+                            Some(n) => d.set_file_name(n).save_file(),
+                            None => d.save_file(),
+                        }
                     }
-                }
+                })
             };
             JobResult::Picked(kind, picked)
         });
-        true
-    }
-
-    #[cfg(not(any(windows, target_os = "macos")))]
-    fn native_dialog(&mut self, _kind: u8) -> bool {
-        false
     }
 
     /// Shows `path` in the file tree: sidebar opened, folders expanded, entry scrolled into view.
@@ -4951,7 +4962,10 @@ impl App {
                 }
                 JobResult::Picked(kind, path) => {
                     self.dialog_open = false;
-                    if let Some(p) = path {
+                    if let Err(e) = &path {
+                        self.set_status(e.clone());
+                    }
+                    if let Ok(Some(p)) = path {
                         let prompt = match kind {
                             0 => Prompt::OpenFolder,
                             1 => Prompt::OpenFile,
@@ -5936,6 +5950,14 @@ impl App {
             _ => None,
         };
         let mut cursor_to_end = false;
+        // the same prompts can go through the system's file chooser
+        let dialog_kind = match &ov.mode {
+            Mode::Prompt(Prompt::OpenFolder) => Some(0),
+            Mode::Prompt(Prompt::OpenFile) => Some(1),
+            Mode::Prompt(Prompt::SaveAs) => Some(2),
+            _ => None,
+        };
+        let mut browse = false;
         if let Some((base, dirs_only)) = &path_base {
             if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Tab)) {
                 let (done, _) = complete_path(&ov.query, base, *dirs_only);
@@ -5958,20 +5980,46 @@ impl App {
             .show(ctx, |ui| {
                 egui::Frame::popup(ui.style()).inner_margin(egui::Margin::same(12.0)).rounding(14.0).show(ui, |ui| {
                     ui.set_width(640.0);
-                    ui.label(RichText::new(&title).small().weak());
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(&title).small().weak());
+                        if dialog_kind.is_some() {
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                browse = ui.small_button("📂 Parcourir…").on_hover_text("Choisir dans le gestionnaire de fichiers").clicked();
+                            });
+                        }
+                    });
                     ui.add_space(2.0);
                     let te = ui.add(
                         egui::TextEdit::singleline(&mut ov.query)
                             .desired_width(f32::INFINITY)
                             .frame(false)
                             .hint_text("Tapez pour filtrer…")
-                            .font(egui::FontId::proportional(17.0)),
+                            .font(egui::FontId::proportional(17.0))
+                            // Tab completes the path: it must not also move the focus to the next widget
+                            .lock_focus(path_base.is_some()),
                     );
                     ui.add_space(4.0);
                     ui.separator();
                     if ov.focus {
                         te.request_focus();
                         ov.focus = false;
+                        // the text field keeps its cursor from the previous prompt: put it at the end,
+                        // or select the name (without extension) of the file to save
+                        {
+                            let mut st = egui::TextEdit::load_state(ui.ctx(), te.id).unwrap_or_default();
+                            let chars: Vec<char> = ov.query.chars().collect();
+                            let end = chars.len();
+                            let name_start = chars.iter().rposition(|c| matches!(c, '/' | '\\')).map_or(0, |i| i + 1);
+                            let range = match chars[name_start..].iter().rposition(|c| *c == '.') {
+                                Some(dot) if matches!(ov.mode, Mode::Prompt(Prompt::SaveAs)) && dot > 0 => egui::text::CCursorRange::two(
+                                    egui::text::CCursor::new(name_start),
+                                    egui::text::CCursor::new(name_start + dot),
+                                ),
+                                _ => egui::text::CCursorRange::one(egui::text::CCursor::new(end)),
+                            };
+                            st.cursor.set_char_range(Some(range));
+                            st.store(ui.ctx(), te.id);
+                        }
                     }
                     if cursor_to_end {
                         if let Some(mut st) = egui::TextEdit::load_state(ui.ctx(), te.id) {
@@ -6120,6 +6168,10 @@ impl App {
             });
         // A click elsewhere closes the overlay: otherwise it would stay open, holding the keyboard
         // (the editor ignores typing while an overlay is open).
+        if let Some(kind) = dialog_kind.filter(|_| browse) {
+            self.file_dialog(kind);
+            return;
+        }
         let outside = ctx.input(|i| i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|p| !area.response.rect.contains(p)));
         if outside && chosen.is_none() && goto_only.is_none() && !submit {
             return;

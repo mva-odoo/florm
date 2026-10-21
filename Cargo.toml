@@ -38,6 +38,10 @@ panic = "abort"
 [profile.dev.package."*"]
 opt-level = 2
 
-# Native file dialogs (Windows Explorer / macOS Finder); on Linux the path is typed in Florm.
+# Native file dialogs (Windows Explorer / macOS Finder).
 [target.'cfg(any(windows, target_os = "macos"))'.dependencies]
 rfd = { version = "0.15", default-features = false }
+
+# Linux: the desktop's file chooser through the xdg portal (zbus is already used by egui's accessibility).
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus = { version = "4", default-features = false, features = ["async-io"] }
