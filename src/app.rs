@@ -129,6 +129,8 @@ enum Mode {
     Templates,
     /// Several definitions of a word: choose one.
     Definitions(String),
+    /// Where a symbol is used (language server).
+    References(String),
     Prompt(Prompt),
 }
 
@@ -434,6 +436,9 @@ enum LspReq {
     /// The word is searched in the project index when the server finds nothing.
     Definition { word: String },
     Rename { name: String },
+    /// Tooltip of the symbol at `range` in document `uid`.
+    Hover { uid: u64, range: (usize, usize), word: String },
+    References { word: String },
 }
 
 /// Interactive rebase prepared in the graph (see rebase.rs).
@@ -531,6 +536,8 @@ struct LspUi {
     complete_at: Option<Instant>,
     /// Why a language has no server (status bar).
     notes: HashMap<String, String>,
+    /// Hovered symbol whose tooltip was asked to the server (document uid, range).
+    hover_pending: Option<(u64, (usize, usize))>,
 }
 
 pub struct App {
@@ -955,6 +962,7 @@ impl eframe::App for App {
             self.last_active_path = cur;
         }
         self.lsp_frame(ctx);
+        self.update_hover(ctx);
         self.completion_keys(ctx);
         self.handle_keys(ctx);
         self.editor_input(ctx);

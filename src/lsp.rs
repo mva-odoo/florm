@@ -497,6 +497,36 @@ pub fn parse_location(v: &Value) -> Option<(PathBuf, Value)> {
     Some((uri_to_path(uri)?, range["start"].clone()))
 }
 
+/// Every location of a list (references): (path, start position).
+pub fn parse_locations(v: &Value) -> Vec<(PathBuf, Value)> {
+    v.as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|l| {
+                    let uri = l.get("uri").or_else(|| l.get("targetUri"))?.as_str()?;
+                    let range = l.get("targetSelectionRange").or_else(|| l.get("range"))?;
+                    Some((uri_to_path(uri)?, range["start"].clone()))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Text of a hover answer (markdown, plain text or the older "marked strings"), without the
+/// code fences.
+pub fn parse_hover(v: &Value) -> String {
+    fn text(c: &Value) -> String {
+        match c {
+            Value::String(s) => s.clone(),
+            Value::Array(a) => a.iter().map(text).filter(|t| !t.trim().is_empty()).collect::<Vec<_>>().join("\n\n"),
+            Value::Object(o) => o.get("value").and_then(Value::as_str).unwrap_or("").to_string(),
+            _ => String::new(),
+        }
+    }
+    let raw = text(&v["contents"]);
+    raw.lines().filter(|l| !l.trim_start().starts_with("```")).collect::<Vec<_>>().join("\n").trim().to_string()
+}
+
 /// Text edits of a workspace edit, per file: (path, [(range, new text)]).
 pub fn parse_workspace_edit(v: &Value) -> Vec<(PathBuf, Vec<(Value, String)>)> {
     let mut out: Vec<(PathBuf, Vec<(Value, String)>)> = Vec::new();
@@ -529,6 +559,22 @@ pub fn parse_workspace_edit(v: &Value) -> Vec<(PathBuf, Vec<(Value, String)>)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hover_and_references_answers() {
+        let md = serde_json::json!({ "contents": { "kind": "markdown", "value": "```python\ndef f(a: int) -> str\n```\nDoes things." } });
+        assert_eq!(parse_hover(&md), "def f(a: int) -> str\nDoes things.");
+        let old = serde_json::json!({ "contents": [{ "language": "python", "value": "x: int" }, "doc"] });
+        assert_eq!(parse_hover(&old), "x: int\n\ndoc");
+        assert_eq!(parse_hover(&serde_json::json!(null)), "");
+        let refs = serde_json::json!([
+            { "uri": "file:///a/b.py", "range": { "start": { "line": 3, "character": 4 }, "end": { "line": 3, "character": 7 } } },
+            { "uri": "file:///a/c.py", "range": { "start": { "line": 0, "character": 0 }, "end": { "line": 0, "character": 1 } } }
+        ]);
+        let l = parse_locations(&refs);
+        assert_eq!(l.len(), 2);
+        assert_eq!(l[0].1["line"], 3);
+    }
 
     #[test]
     fn positions_are_utf16() {

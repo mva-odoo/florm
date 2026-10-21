@@ -125,6 +125,7 @@ const DEFAULTS: &[(&str, &str)] = &[
     ("ctrl+shift+minus", "nav_forward"),
     ("ctrl+space", "complete"),
     ("f12", "goto_definition"),
+    ("shift+f12", "find_references"),
     ("f2", "rename_symbol"),
     ("ctrl+shift+v", "markdown_preview"),
     ("ctrl+shift+[", "fold"),

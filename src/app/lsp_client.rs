@@ -105,27 +105,83 @@ impl App {
     /// Word to look up for "go to definition": the identifier at the cursor, or a quoted dotted
     /// name ('sale.order', 'module.xml_id') when the cursor is in one.
     pub(super) fn definition_word(d: &Document) -> String {
-        let head = d.primary_sel().head;
-        let line = d.rope.char_to_line(head);
-        let text = d.line_text(line);
-        let col = head - d.rope.line_to_char(line);
-        let chars: Vec<char> = text.chars().collect();
-        let quote = |c: char| c == '\'' || c == '"';
-        let (mut a, mut b) = (col.min(chars.len()), col.min(chars.len()));
-        while a > 0 && !quote(chars[a - 1]) && !chars[a - 1].is_whitespace() {
-            a -= 1;
+        d.symbol_at(d.primary_sel().head).map(|(a, b)| d.slice(a, b)).unwrap_or_default()
+    }
+
+    /// Tooltip of the symbol under the mouse: the language server's documentation, else (or
+    /// when it has nothing) its definitions in the project index.
+    pub(super) fn update_hover(&mut self, ctx: &egui::Context) {
+        let i = self.active;
+        let Some(d) = self.docs.get(i) else { return };
+        let Some(range) = d.hover_word else { return };
+        let uid = d.uid;
+        if d.hover_info.as_ref().is_some_and(|(r, _)| *r == range) || self.lsp.hover_pending == Some((uid, range)) {
+            return;
         }
-        while b < chars.len() && !quote(chars[b]) && !chars[b].is_whitespace() {
-            b += 1;
+        let word = d.slice(range.0, range.1);
+        let pos = lsp::to_position(&d.rope, range.0);
+        let uri = d.path.as_ref().map(|p| lsp::path_to_uri(p));
+        if let (Some((ci, _)), Some(uri)) = (self.lsp_for(i, ctx, false), uri) {
+            if let Some(cl) = self.lsp.manager.client(ci) {
+                let id = cl.request("textDocument/hover", serde_json::json!({ "textDocument": { "uri": uri }, "position": pos }));
+                self.lsp.requests.insert((ci, id), LspReq::Hover { uid, range, word });
+                self.lsp.hover_pending = Some((uid, range));
+                return;
+            }
         }
-        let quoted: String = chars[a..b].iter().collect();
-        if a > 0 && b < chars.len() && quote(chars[a - 1]) && quote(chars[b]) && quoted.contains('.')
-            && quoted.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '.')
-        {
-            return quoted;
+        let text = self.index_hover(&word);
+        self.docs[i].hover_info = Some((range, text));
+    }
+
+    /// Definitions of `word` in the project index, for a tooltip ("" when none).
+    pub(super) fn index_hover(&self, word: &str) -> String {
+        if word.chars().count() < 2 || word.chars().all(|c| c.is_ascii_digit()) {
+            return String::new();
         }
-        let (ws, we) = d.word_at(head);
-        d.slice(ws, we)
+        let Some(ix) = &self.index.symbols else { return String::new() };
+        let found = ix.lookup(word);
+        let mut lines: Vec<String> = found
+            .iter()
+            .take(6)
+            .map(|(p, e)| {
+                let rel = self.root.as_ref().and_then(|r| p.strip_prefix(r).ok()).unwrap_or(p).display().to_string();
+                let what = if e.detail.is_empty() { format!("{} {}", e.kind.icon(), e.name) } else { format!("{} {}", e.kind.icon(), e.detail.trim()) };
+                format!("{what}\n    {rel}:{}", e.line + 1)
+            })
+            .collect();
+        if found.len() > 6 {
+            lines.push(format!("… et {} autre(s) (F12 pour la liste)", found.len() - 6));
+        }
+        lines.join("\n")
+    }
+
+    /// Where the symbol under the cursor is used: the language server's list, else a whole word
+    /// search in the folder.
+    pub(super) fn find_references(&mut self, ctx: &egui::Context) {
+        let i = self.active;
+        let Some(d) = self.docs.get(i) else { return };
+        let word = Self::definition_word(d);
+        if word.trim().is_empty() {
+            return;
+        }
+        if let Some((ci, _)) = self.lsp_for(i, ctx, true) {
+            if let (Some((doc, pos)), Some(cl)) = (self.lsp_text_position(i), self.lsp.manager.client(ci)) {
+                let params = serde_json::json!({ "textDocument": doc, "position": pos, "context": { "includeDeclaration": true } });
+                let id = cl.request("textDocument/references", params);
+                self.lsp.requests.insert((ci, id), LspReq::References { word });
+                return;
+            }
+        }
+        self.search_word_everywhere(word);
+    }
+
+    /// Whole word search of `word` in the folder (bottom panel).
+    pub(super) fn search_word_everywhere(&mut self, word: String) {
+        self.search.q.pattern = word;
+        self.search.q.whole = true;
+        self.search.q.regex = false;
+        self.bottom = Some(BottomTab::Search);
+        self.start_search();
     }
 
     pub(super) fn goto_definition(&mut self, ctx: &egui::Context) {
@@ -276,6 +332,41 @@ impl App {
                 }
                 None => self.index_definition(&word),
             },
+            LspReq::Hover { uid, range, word } => {
+                if self.lsp.hover_pending == Some((uid, range)) {
+                    self.lsp.hover_pending = None;
+                }
+                let mut text = lsp::parse_hover(&v);
+                if text.is_empty() {
+                    text = self.index_hover(&word);
+                }
+                if let Some(d) = self.docs.iter_mut().find(|d| d.uid == uid) {
+                    d.hover_info = Some((range, text.lines().take(30).collect::<Vec<_>>().join("\n")));
+                }
+            }
+            LspReq::References { word } => {
+                let found = lsp::parse_locations(&v);
+                if found.is_empty() {
+                    self.search_word_everywhere(word);
+                    return;
+                }
+                let root = self.root.clone();
+                // each file read once, for the text of its lines
+                let mut texts: HashMap<PathBuf, Vec<String>> = HashMap::new();
+                let items = found
+                    .into_iter()
+                    .map(|(p, pos)| {
+                        let line = pos["line"].as_u64().unwrap_or(0) as usize;
+                        let rel = root.as_ref().and_then(|r| p.strip_prefix(r).ok()).unwrap_or(&p).display().to_string();
+                        let lines = texts.entry(p.clone()).or_insert_with(|| {
+                            std::fs::read_to_string(&p).map(|t| t.lines().map(str::to_string).collect()).unwrap_or_default()
+                        });
+                        let text = lines.get(line).map(|l| l.trim().to_string()).unwrap_or_default();
+                        Item { label: format!("{rel}:{}", line + 1), detail: text, action: Action::Location(p, line) }
+                    })
+                    .collect();
+                self.open_overlay_with(Mode::References(word), items, String::new());
+            }
             LspReq::Rename { name } => {
                 let edits = lsp::parse_workspace_edit(&v);
                 if edits.is_empty() {

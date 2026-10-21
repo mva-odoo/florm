@@ -136,6 +136,10 @@ pub struct Document {
     pub peek: Option<usize>,
     /// Set by the inline diff popup to ask the app to switch to the inline diff view.
     pub request_inline_diff: bool,
+    /// Symbol under the mouse pointer (char range), set by the editor view.
+    pub hover_word: Option<(usize, usize)>,
+    /// What the app found about a hovered symbol (its range, the text of the tooltip).
+    pub hover_info: Option<((usize, usize), String)>,
     /// Inline blame annotation: (line, document version, text).
     pub blame: Option<(usize, u64, String)>,
     pub mtime: Option<SystemTime>,
@@ -398,6 +402,8 @@ impl Document {
             diff_version: u64::MAX,
             peek: None,
             request_inline_diff: false,
+            hover_word: None,
+            hover_info: None,
             blame: None,
             mtime: None,
             crlf: false,
@@ -649,6 +655,30 @@ impl Document {
         }
     }
 
+    /// The symbol at `pos`: an Odoo model or xml id between quotes ('sale.order',
+    /// "base.group_user"), else the identifier. None outside of a word.
+    pub fn symbol_at(&self, pos: usize) -> Option<(usize, usize)> {
+        let line = self.rope.char_to_line(pos.min(self.rope.len_chars()));
+        let ls = self.rope.line_to_char(line);
+        let chars: Vec<char> = self.line_text(line).chars().collect();
+        let col = (pos - ls).min(chars.len());
+        let quote = |c: char| c == '\'' || c == '"';
+        let (mut a, mut b) = (col, col);
+        while a > 0 && !quote(chars[a - 1]) && !chars[a - 1].is_whitespace() {
+            a -= 1;
+        }
+        while b < chars.len() && !quote(chars[b]) && !chars[b].is_whitespace() {
+            b += 1;
+        }
+        if a > 0 && b < chars.len() && quote(chars[a - 1]) && quote(chars[b]) && chars[a..b].contains(&'.')
+            && chars[a..b].iter().all(|c| c.is_alphanumeric() || *c == '_' || *c == '.')
+        {
+            return Some((ls + a, ls + b));
+        }
+        let (ws, we) = self.word_at(pos);
+        (we > ws).then_some((ws, we))
+    }
+
     pub fn word_at(&self, pos: usize) -> (usize, usize) {
         let here = self.char_at(pos).is_some_and(is_word);
         let before = pos > 0 && self.char_at(pos - 1).is_some_and(is_word);
@@ -775,6 +805,7 @@ impl Document {
 
     fn touch(&mut self, from_line: usize) {
         self.version += 1;
+        self.hover_info = None;
         self.content_id = next_content_id();
         self.highlight.invalidate(from_line);
         self.scroll_to_cursor = true;
@@ -2117,6 +2148,17 @@ fn read_text(path: &Path) -> Result<(String, Encoding), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn symbol_at_models_and_identifiers() {
+        let d = Document::from_text(1, "    _inherit = 'sale.order'\n    x = self.env.ref(\"base.main_company\")\n", 4, true);
+        let at = |line: usize, col: usize| d.symbol_at(d.pos_of(line, col)).map(|(a, b)| d.slice(a, b));
+        assert_eq!(at(0, 20).as_deref(), Some("sale.order"));
+        assert_eq!(at(0, 6).as_deref(), Some("_inherit"));
+        assert_eq!(at(1, 28).as_deref(), Some("base.main_company"));
+        assert_eq!(at(1, 13).as_deref(), Some("env"));
+        assert_eq!(at(0, 1), None);
+    }
 
     #[test]
     fn replace_all_keeps_cursor_and_undoes_at_once() {

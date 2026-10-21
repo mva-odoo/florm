@@ -1066,6 +1066,7 @@ impl App {
         }
         ui.separator();
         item(ui, "Aller à la définition", Cmd::GotoDefinition, true);
+        item(ui, "Rechercher les usages", Cmd::FindReferences, true);
         item(ui, "Suggestions", Cmd::Complete, !ro);
         if has_lsp {
             item(ui, "Renommer le symbole…", Cmd::RenameSymbol, !ro);

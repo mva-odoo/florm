@@ -439,6 +439,7 @@ impl App {
                     self.start_search();
                 }
             }
+            FindReferences => self.find_references(ctx),
             FormatDocument => self.python_rewrite(lint::Rewrite::Format),
             FixDocument => self.python_rewrite(lint::Rewrite::Fix),
             NoqaLine => {

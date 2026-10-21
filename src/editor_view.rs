@@ -261,6 +261,7 @@ fn text_area(
                     ui.scroll_to_rect(Rect::from_center_size(p, egui::vec2(1.0, 1.0)), None);
                 }
             }
+            doc.hover_word = None;
             if resp.hovered() {
                 if !in_gutter {
                     ui.ctx().set_cursor_icon(CursorIcon::Text);
@@ -268,6 +269,10 @@ fn text_area(
                     let l = rm.line_at_row(((p.y - origin.y) / rh).floor().max(0.0) as usize, nlines);
                     let col = doc.col_at_vcol(l, ((p.x - text_x) / cw).max(0.0) as usize);
                     let ls = doc.rope.line_to_char(l);
+                    // the symbol under the pointer (not past the end of the line): the app looks it up
+                    if col < doc.line_len(l) {
+                        doc.hover_word = doc.symbol_at(ls + col);
+                    }
                     let msgs: Vec<String> = doc
                         .diagnostics
                         .iter()
@@ -280,8 +285,15 @@ fn text_area(
                         })
                         .map(|d| format!("{} : {}", d.source, d.message))
                         .collect();
-                    if !msgs.is_empty() {
-                        resp.clone().on_hover_text(msgs.join("\n"));
+                    let mut tip = msgs.join("\n");
+                    if let Some((_, info)) = doc.hover_info.as_ref().filter(|(r, t)| Some(*r) == doc.hover_word && !t.is_empty()) {
+                        if !tip.is_empty() {
+                            tip.push_str("\n\n");
+                        }
+                        tip.push_str(info);
+                    }
+                    if !tip.is_empty() {
+                        resp.clone().on_hover_text(tip);
                     }
                 } else {
                     let l = rm.line_at_row(((p.y - origin.y) / rh).floor().max(0.0) as usize, nlines);
