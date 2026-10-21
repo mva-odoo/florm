@@ -628,7 +628,8 @@ impl App {
             s.text_styles.insert(TextStyle::Monospace, FontId::monospace(13.5));
         });
         plugins::install_examples(&config::plugins_dir());
-        let hl = Highlighting::new(&settings.theme, &config::themes_dir());
+        let mut hl = Highlighting::new(&settings.theme, &config::themes_dir());
+        hl.set_overrides(highlight::parse_hex(&settings.accent_color), settings.text_softness);
         apply_visuals(&cc.egui_ctx, hl.visuals());
         cc.egui_ctx.set_fonts(crate::fonts::definitions(&settings.editor_font, &settings.ui_font));
         egui_extras::install_image_loaders(&cc.egui_ctx);
@@ -4214,6 +4215,10 @@ impl App {
         }
         if s.editor_font != self.settings.editor_font || s.ui_font != self.settings.ui_font {
             self.egui_ctx.set_fonts(crate::fonts::definitions(&s.editor_font, &s.ui_font));
+        }
+        if s.accent_color != self.settings.accent_color || s.text_softness != self.settings.text_softness {
+            self.hl.set_overrides(highlight::parse_hex(&s.accent_color), s.text_softness);
+            self.visuals_dirty = true;
         }
         self.settings = s;
         self.rebuild_keymap();
@@ -8031,6 +8036,33 @@ fn noqa_codes(d: &Document, line: usize) -> Vec<String> {
 
 // ---------------------------------------------------------------------- preferences page
 
+/// A theme in the preferences: its background with a few lines of "code" in its colors.
+fn theme_card(ui: &mut egui::Ui, name: &str, pv: &highlight::ThemePreview, selected: bool) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(168.0, 92.0), Sense::click());
+    let p = ui.painter();
+    let stroke = if selected {
+        egui::Stroke::new(2.5_f32, ui.visuals().selection.stroke.color)
+    } else if resp.hovered() {
+        egui::Stroke::new(1.5_f32, ui.visuals().weak_text_color())
+    } else {
+        egui::Stroke::new(1.0_f32, ui.visuals().widgets.noninteractive.bg_stroke.color)
+    };
+    p.rect_filled(rect, 8.0, pv.bg);
+    // lines of "code"
+    let bars: [(f32, f32, Color32); 4] = [(10.0, 50.0, pv.code[0]), (64.0, 60.0, pv.fg), (10.0, 80.0, pv.code[1]), (24.0, 60.0, pv.code[2])];
+    for (k, (x, w, c)) in bars.iter().enumerate() {
+        let y = rect.top() + 12.0 + k as f32 * 11.0;
+        p.rect_filled(egui::Rect::from_min_size(egui::pos2(rect.left() + x, y), egui::vec2(*w, 5.0)), 2.5, *c);
+    }
+    p.rect_filled(egui::Rect::from_min_size(egui::pos2(rect.right() - 26.0, rect.top() + 10.0), egui::vec2(16.0, 16.0)), 8.0, pv.accent);
+    let band = egui::Rect::from_min_max(egui::pos2(rect.left(), rect.bottom() - 26.0), rect.max);
+    let band_bg = icons::mix(pv.bg, pv.fg, 0.08);
+    p.rect_filled(band, egui::Rounding { nw: 0.0, ne: 0.0, sw: 8.0, se: 8.0 }, band_bg);
+    p.with_clip_rect(band.shrink(4.0)).text(band.left_center() + egui::vec2(10.0, 0.0), Align2::LEFT_CENTER, name, egui::FontId::proportional(12.5), pv.fg);
+    p.rect_stroke(rect, 8.0, stroke);
+    resp
+}
+
 /// iOS-like switch.
 fn toggle_switch(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
     let size = egui::vec2(36.0, 20.0);
@@ -8173,13 +8205,54 @@ impl App {
         let s = &mut self.settings;
         match sec {
             PrefSection::Appearance => {
-                let themes = self.hl.theme_names();
+                let themes: Vec<(String, Option<highlight::ThemePreview>)> =
+                    self.hl.theme_names().into_iter().map(|n| (n.clone(), self.hl.preview(&n))).collect();
                 pref_row(ui, rc, "Thème", "Couleurs de l'éditeur et de l'interface. Les .tmTheme du dossier « themes » de la configuration sont listés aussi.", |ui| {
                     egui::ComboBox::from_id_salt("pref_theme").selected_text(&s.theme).width(220.0).show_ui(ui, |ui| {
-                        for t in &themes {
+                        for (t, _) in &themes {
                             ui.selectable_value(&mut s.theme, t.clone(), t);
                         }
                     });
+                });
+                if rc.matches(&["Thème", "couleurs", "aperçu"]) {
+                    // the themes side by side, with a few colors of each: a click chooses it
+                    ui.horizontal_wrapped(|ui| {
+                        ui.spacing_mut().item_spacing = egui::vec2(10.0, 10.0);
+                        for (name, pv) in &themes {
+                            let Some(pv) = pv else { continue };
+                            if theme_card(ui, name, pv, s.theme == *name).clicked() {
+                                s.theme = name.clone();
+                            }
+                        }
+                    });
+                    ui.add_space(8.0);
+                }
+                let theme_accent = self.hl.preview(&s.theme).map(|p| p.accent).unwrap_or(self.hl.colors.accent);
+                pref_row(ui, rc, "Couleur d'accentuation", "Boutons principaux, onglet actif, sélection dans les listes. Par défaut celle du thème.", |ui| {
+                    let mut c = highlight::parse_hex(&s.accent_color).unwrap_or(theme_accent);
+                    if egui::color_picker::color_edit_button_srgba(ui, &mut c, egui::color_picker::Alpha::Opaque).changed() {
+                        s.accent_color = highlight::to_hex(c);
+                    }
+                    for (hex, tip) in [("#4F8CFF", "Bleu"), ("#2EA043", "Vert"), ("#D2A8FF", "Violet"), ("#F0883E", "Orange"), ("#E5534B", "Rouge"), ("#39C5CF", "Cyan")] {
+                        let col = highlight::parse_hex(hex).unwrap();
+                        let (r, resp) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), Sense::click());
+                        ui.painter().circle_filled(r.center(), 8.0, col);
+                        if s.accent_color.eq_ignore_ascii_case(hex) {
+                            ui.painter().circle_stroke(r.center(), 9.5, egui::Stroke::new(1.5_f32, ui.visuals().strong_text_color()));
+                        }
+                        if resp.on_hover_text(tip).clicked() {
+                            s.accent_color = hex.to_string();
+                        }
+                    }
+                    if !s.accent_color.is_empty() && ui.small_button("↺ Celle du thème").clicked() {
+                        s.accent_color.clear();
+                    }
+                });
+                pref_row(ui, rc, "Texte adouci", "Éclaircit les couleurs du texte (code et interface) : le texte paraît moins gras, surtout sur les thèmes clairs.", |ui| {
+                    let mut pct = (s.text_softness * 100.0).round();
+                    if ui.add(egui::Slider::new(&mut pct, 0.0..=40.0).step_by(5.0).suffix(" %")).changed() {
+                        s.text_softness = pct / 100.0;
+                    }
                 });
                 pref_row(ui, rc, "Taille du texte", "Taille de la police de l'éditeur (Ctrl+= / Ctrl+- aussi).", |ui| {
                     ui.add(egui::Slider::new(&mut s.font_size, 9.0..=28.0).step_by(0.5).suffix(" px"));
@@ -8548,6 +8621,12 @@ impl App {
         }
         if s.font_size != before.font_size {
             self.persist("font_size", format!("{:.1}", s.font_size));
+        }
+        if s.accent_color != before.accent_color || s.text_softness != before.text_softness {
+            self.hl.set_overrides(highlight::parse_hex(&s.accent_color), s.text_softness);
+            self.visuals_dirty = true;
+            self.persist("accent_color", config::toml_str(&s.accent_color));
+            self.persist("text_softness", format!("{:.2}", s.text_softness));
         }
         if s.editor_font != before.editor_font || s.ui_font != before.ui_font {
             self.egui_ctx.set_fonts(crate::fonts::definitions(&s.editor_font, &s.ui_font));

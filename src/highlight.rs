@@ -44,6 +44,38 @@ pub struct Highlighting {
     pub colors: Colors,
     /// Bumped when the theme changes so cached spans get recomputed.
     pub generation: u64,
+    /// Accent chosen in the preferences instead of the theme's.
+    accent_override: Option<Color32>,
+    /// 0 = the theme's text colors; up to ~0.4: text colors mixed with the background (lighter
+    /// text on light themes, which egui renders heavier than other editors do).
+    softness: f32,
+}
+
+/// Small preview of a theme for the preferences: background, text, accent, keyword / string / comment colors.
+pub struct ThemePreview {
+    pub bg: Color32,
+    pub fg: Color32,
+    pub accent: Color32,
+    pub code: [Color32; 3],
+}
+
+/// "#RRGGBB" → color.
+pub fn parse_hex(s: &str) -> Option<Color32> {
+    let h = s.trim().strip_prefix('#')?;
+    if h.len() != 6 {
+        return None;
+    }
+    let v = u32::from_str_radix(h, 16).ok()?;
+    Some(Color32::from_rgb((v >> 16) as u8, (v >> 8) as u8, v as u8))
+}
+
+pub fn to_hex(c: Color32) -> String {
+    format!("#{:02X}{:02X}{:02X}", c.r(), c.g(), c.b())
+}
+
+fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
+    let f = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t) as u8;
+    Color32::from_rgb(f(a.r(), b.r()), f(a.g(), b.g()), f(a.b(), b.b()))
 }
 
 static LIGHT_UI: AtomicBool = AtomicBool::new(false);
@@ -104,6 +136,8 @@ impl Highlighting {
                 accent2: Color32::LIGHT_BLUE,
             },
             generation: 0,
+            accent_override: None,
+            softness: 0.0,
         };
         if !h.set_theme(theme_name) {
             h.set_theme("Florm");
@@ -126,6 +160,7 @@ impl Highlighting {
             let f = |c: u8| (c as i16 + if light { -amount } else { amount }).clamp(0, 255) as u8;
             Color32::from_rgb(f(bg.r()), f(bg.g()), f(bg.b()))
         };
+        let fg = mix(fg, bg, self.softness);
         self.colors = Colors {
             bg,
             fg,
@@ -140,10 +175,53 @@ impl Highlighting {
             accent: col(s.accent, col(s.caret, fg)),
             accent2: col(s.find_highlight, col(s.accent, col(s.caret, fg))),
         };
+        if let Some(a) = self.accent_override {
+            self.colors.accent = a;
+            self.colors.accent2 = a;
+        }
         self.theme = theme;
         self.theme_name = name.to_string();
         self.generation += 1;
         true
+    }
+
+    /// Accent color and text softness from the preferences (applied to the current theme).
+    pub fn set_overrides(&mut self, accent: Option<Color32>, softness: f32) {
+        let softness = softness.clamp(0.0, 0.5);
+        if self.accent_override == accent && self.softness == softness {
+            return;
+        }
+        self.accent_override = accent;
+        self.softness = softness;
+        let name = self.theme_name.clone();
+        self.set_theme(&name);
+    }
+
+    /// A syntax color with the text softness applied.
+    fn code_color(&self, c: Color32) -> Color32 {
+        if self.softness > 0.0 {
+            mix(c, self.colors.bg, self.softness)
+        } else {
+            c
+        }
+    }
+
+    pub fn preview(&self, name: &str) -> Option<ThemePreview> {
+        let theme = self.themes.get(name)?;
+        let s = &theme.settings;
+        let bg = col(s.background, Color32::from_rgb(0x2b, 0x30, 0x3b));
+        let fg = col(s.foreground, Color32::from_rgb(0xc0, 0xc5, 0xce));
+        let h = Highlighter::new(theme);
+        let scope = |n: &str| {
+            let st = h.style_for_stack(&[syntect::parsing::Scope::new(n).unwrap()]);
+            Color32::from_rgb(st.foreground.r, st.foreground.g, st.foreground.b)
+        };
+        Some(ThemePreview {
+            bg,
+            fg,
+            accent: col(s.accent, col(s.caret, fg)),
+            code: [scope("keyword.control"), scope("string.quoted"), scope("comment.line")],
+        })
     }
 
     pub fn is_light(&self) -> bool {
@@ -205,7 +283,8 @@ impl Highlighting {
         v.window_shadow = egui::epaint::Shadow { offset: egui::vec2(0.0, 10.0), blur: 30.0, spread: 0.0, color: shadow };
         v.popup_shadow = egui::epaint::Shadow { offset: egui::vec2(0.0, 6.0), blur: 18.0, spread: 0.0, color: shadow };
         // UI text a bit brighter than code text, for readability on panels.
-        let text = if light { mix(c.fg, Color32::BLACK, 0.25) } else { mix(c.fg, Color32::WHITE, 0.3) };
+        // on light themes, pure black text looks bold with egui's rendering: a dark grey instead
+        let text = if light { mix(mix(c.fg, Color32::BLACK, 0.25), c.bg, 0.18) } else { mix(c.fg, Color32::WHITE, 0.3) };
         v.widgets.noninteractive.bg_fill = v.panel_fill;
         v.widgets.noninteractive.weak_bg_fill = v.panel_fill;
         v.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, shade(8)); // separators: barely visible
@@ -316,7 +395,7 @@ impl HlCache {
                 let mut off = 0;
                 for (style, text) in HighlightIterator::new(&mut hs, &ops, &line, &highlighter) {
                     let f = style.foreground;
-                    spans.push((Color32::from_rgb(f.r, f.g, f.b), off..off + text.len()));
+                    spans.push((hl.code_color(Color32::from_rgb(f.r, f.g, f.b)), off..off + text.len()));
                     off += text.len();
                 }
             }
@@ -331,6 +410,25 @@ impl HlCache {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn accent_and_softer_text() {
+        let mut hl = Highlighting::new("Light+ (VS Code)", Path::new("/nonexistent"));
+        let (fg, accent) = (hl.colors.fg, hl.colors.accent);
+        let red = parse_hex("#E5534B").unwrap();
+        assert_eq!(to_hex(red), "#E5534B");
+        assert!(parse_hex("E5534B").is_none() && parse_hex("#E553").is_none());
+        hl.set_overrides(Some(red), 0.3);
+        assert_eq!(hl.colors.accent, red);
+        // softer text: closer to the white background
+        assert!(hl.colors.fg.r() > fg.r());
+        let gen = hl.generation;
+        hl.set_overrides(None, 0.0);
+        assert_eq!((hl.colors.fg, hl.colors.accent), (fg, accent));
+        assert!(hl.generation > gen, "spans must be recomputed");
+        let pv = hl.preview("Florm").unwrap();
+        assert_ne!(pv.bg, pv.fg);
+    }
 
     #[test]
     fn vscode_light_plus() {

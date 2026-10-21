@@ -9,6 +9,10 @@ pub struct Settings {
     pub tab_size: usize,
     pub translate_tabs_to_spaces: bool,
     pub theme: String,
+    /// Interface accent "#RRGGBB" instead of the theme's; empty: the theme's.
+    pub accent_color: String,
+    /// 0.0 – 0.4: text colors mixed with the background (lighter, thinner-looking text).
+    pub text_softness: f32,
     /// Editor font (a monospaced font installed on the system); empty: the default one.
     pub editor_font: String,
     /// Interface font; empty: the default one.
@@ -52,6 +56,8 @@ impl Default for Settings {
             tab_size: 4,
             translate_tabs_to_spaces: true,
             theme: "Florm".into(),
+            accent_color: String::new(),
+            text_softness: 0.0,
             editor_font: String::new(),
             ui_font: String::new(),
             show_minimap: true,
@@ -83,6 +89,10 @@ translate_tabs_to_spaces = true
 # Solarized (dark), Solarized (light), InspiredGitHub.
 # Tout fichier .tmTheme déposé dans le dossier "themes" de la config est aussi chargé.
 theme = "Florm"
+# couleur d'accentuation de l'interface, ex. #4F8CFF ; vide = celle du thème
+accent_color = ""
+# texte adouci (0.0 à 0.4) : couleurs du texte mélangées au fond, pour un texte moins « gras »
+text_softness = 0.0
 # polices installées sur le système ; vide = par défaut (Consolas / Segoe UI sous Windows)
 editor_font = ""
 ui_font = ""
