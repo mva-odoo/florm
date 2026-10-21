@@ -547,6 +547,16 @@ impl App {
                 self.open_path(dir.join("README.md"));
                 self.set_status(format!("Dossier des modèles : {} — un fichier par modèle", dir.display()));
             }
+            NewTemplate => {
+                let d = self.docs.get(self.active).filter(|d| d.view == document::View::Text);
+                let body = d.map(|d| d.slice(d.primary_sel().start(), d.primary_sel().end())).unwrap_or_default();
+                let ext = d
+                    .and_then(|d| d.path.as_deref())
+                    .and_then(|p| p.extension())
+                    .map(|e| e.to_string_lossy().to_lowercase())
+                    .unwrap_or_default();
+                self.open_prompt(Prompt::NewTemplate { body, ext });
+            }
             OpenPluginsFolder => {
                 let dir = config::plugins_dir();
                 let _ = std::fs::create_dir_all(&dir);

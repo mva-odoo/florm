@@ -118,6 +118,16 @@ Pour ajouter les tiens : **Outils → Dossier des modèles**, un fichier par mod
 (son nom = le nom du modèle, son extension = le type de fichier). Un fichier qui porte le nom
 d'un modèle intégré le remplace.
 
+**Déclencheurs**, comme les snippets de Sublime : taper `ipdb` dans un fichier Python le
+propose dans les suggestions, **Tab** (ou Entrée) le remplace par
+`import ipdb; ipdb.set_trace()`. Aussi `pdb`, et `odoo_` pour tous les modèles Odoo
+(`odoo_form`, `odoo_model`, `odoo_menu`…). Un modèle perso dont le nom est un seul mot
+(`log.py`, `ifmain.py`) a ce mot pour déclencheur.
+
+**Outils → Nouveau modèle…** (ou la palette) : tape le déclencheur (`log`), Florm crée
+`log.py` (extension du fichier courant ; `log.xml` pour un autre type) dans le dossier des
+modèles et l'ouvre. S'il y avait une sélection, elle devient le texte du modèle.
+
 ## Apparence
 
 **Préférences → Apparence** : thème (aperçus cliquables), couleur d'accentuation,

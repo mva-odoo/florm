@@ -134,6 +134,7 @@ impl App {
                 ui.separator();
             }
             item(ui, "Insérer un modèle (vue Odoo, menu…)…", Cmd::InsertTemplate);
+            item(ui, "Nouveau modèle…", Cmd::NewTemplate);
             item(ui, "Dossier des modèles", Cmd::OpenTemplatesFolder);
             ui.separator();
             item(ui, "Recharger les plugins", Cmd::ReloadPlugins);

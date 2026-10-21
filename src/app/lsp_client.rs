@@ -267,6 +267,7 @@ impl App {
                     sort: w.to_string(),
                     insert: w.to_string(),
                     range: None,
+                    template: None,
                 });
             }
         };
@@ -296,6 +297,7 @@ impl App {
                 }
             }
         }
+        items.extend(self.template_completions(&prefix));
         if items.is_empty() {
             return;
         }
@@ -310,10 +312,14 @@ impl App {
                 if d.primary_sel().head < start {
                     return;
                 }
-                let (items, incomplete) = lsp::parse_completion(&v);
+                let (mut items, incomplete) = lsp::parse_completion(&v);
+                let prefix = d.slice(start, d.primary_sel().head);
                 if items.is_empty() {
                     self.local_completion(false);
                     return;
+                }
+                if !prefix.is_empty() {
+                    items.extend(self.template_completions(&prefix));
                 }
                 self.lsp.completion = Some(CompletionUi { uid, start, items, shown: Vec::new(), selected: 0, incomplete, client: ci });
                 self.completion_filter();
@@ -425,7 +431,8 @@ impl App {
                     return Some((0, k));
                 }
                 let f = it.filter.to_lowercase();
-                let bonus = if f.starts_with(&lower) { 1000 } else { 0 };
+                // a template whose trigger is the word typed comes first
+                let bonus = if it.template.is_some() && f == lower { 2000 } else if f.starts_with(&lower) { 1000 } else { 0 };
                 fuzzy::score(&prefix, &it.filter).map(|s| (s + bonus, k))
             })
             .collect();
@@ -442,6 +449,12 @@ impl App {
         let Some(c) = self.lsp.completion.take() else { return };
         let Some(&item) = c.shown.get(k).as_ref() else { return };
         let it = &c.items[*item];
+        if let Some(body) = &it.template {
+            if self.docs.get(self.active).is_some_and(|d| d.uid == c.uid) {
+                self.expand_template_at(c.start, body);
+            }
+            return;
+        }
         let Some(d) = self.docs.get_mut(self.active).filter(|d| d.uid == c.uid) else { return };
         let head = d.primary_sel().head;
         let a = match &it.range {
@@ -455,9 +468,74 @@ impl App {
         let _ = c.client;
     }
 
+    /// Suggestions for the templates whose trigger starts with `prefix`, in the current file.
+    fn template_completions(&self, prefix: &str) -> Vec<lsp::CompletionItem> {
+        let ext = self.active_ext();
+        let all = crate::templates::load(&crate::templates::dir());
+        crate::templates::with_trigger(&all, &ext, prefix)
+            .map(|t| lsp::CompletionItem {
+                label: t.trigger.clone(),
+                detail: t.name.clone(),
+                kind: 15,
+                filter: t.trigger.clone(),
+                sort: t.trigger.clone(),
+                insert: String::new(),
+                range: None,
+                template: Some(t.body.clone()),
+            })
+            .collect()
+    }
+
+    fn active_ext(&self) -> String {
+        self.docs
+            .get(self.active)
+            .and_then(|d| d.path.as_deref())
+            .and_then(|p| p.extension())
+            .map(|e| e.to_string_lossy().to_lowercase())
+            .unwrap_or_default()
+    }
+
+    /// Replaces from `start` to the cursor with a template body, indented like the line, the
+    /// cursor at its `$0`.
+    fn expand_template_at(&mut self, start: usize, body: &str) {
+        let Some(d) = self.docs.get_mut(self.active) else { return };
+        let head = d.primary_sel().head;
+        let line = d.rope.char_to_line(start);
+        let line_start = d.rope.line_to_char(line);
+        let indent: String = d.line_text(line).chars().take(start - line_start).take_while(|c| *c == ' ' || *c == '\t').collect();
+        let vars = crate::templates::variables(d.path.as_deref());
+        let (text, cursor) = crate::templates::expand(body, &vars, &indent);
+        d.edit(EditKind::Other, vec![Edit { start, end: head, text, anchor: cursor, head: cursor }]);
+        d.scroll_to_cursor = true;
+    }
+
+    /// Tab right after the trigger of a template (`ipdb`) expands it, list open or not.
+    fn tab_expands_trigger(&mut self, ctx: &egui::Context) {
+        if !ctx.input(|i| i.events.iter().any(|e| matches!(e, Event::Key { key: Key::Tab, pressed: true, modifiers, .. } if modifiers.is_none()))) {
+            return;
+        }
+        let Some(d) = self.docs.get(self.active).filter(|d| !d.read_only && d.view == document::View::Text && d.sels.len() == 1 && d.primary_sel().is_empty()) else { return };
+        let start = Self::word_start(d);
+        let word = d.slice(start, d.primary_sel().head);
+        if word.is_empty() {
+            return;
+        }
+        let all = crate::templates::load(&crate::templates::dir());
+        let Some(t) = crate::templates::with_trigger(&all, &self.active_ext(), &word).find(|t| t.trigger == word) else { return };
+        let body = t.body.clone();
+        ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Tab));
+        self.lsp.completion = None;
+        self.lsp.complete_at = None;
+        self.expand_template_at(start, &body);
+    }
+
     /// Up / Down / Enter / Tab / Escape go to the suggestion list while it is open.
     pub(super) fn completion_keys(&mut self, ctx: &egui::Context) {
-        if self.lsp.completion.is_none() || !ctx.memory(|m| m.has_focus(editor_id())) {
+        if !ctx.memory(|m| m.has_focus(editor_id())) {
+            return;
+        }
+        self.tab_expands_trigger(ctx);
+        if self.lsp.completion.is_none() {
             return;
         }
         let events = ctx.input(|i| i.events.clone());

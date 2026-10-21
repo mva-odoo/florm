@@ -436,6 +436,8 @@ pub struct CompletionItem {
     pub insert: String,
     /// Range replaced (from the server), else the word before the cursor.
     pub range: Option<Value>,
+    /// Body of a Florm template, expanded when accepted (variables, indentation, `$0`).
+    pub template: Option<String>,
 }
 
 impl CompletionItem {
@@ -448,6 +450,7 @@ impl CompletionItem {
             9 => "M",
             14 => "k",
             21 => "π",
+            15 => "»",
             _ => "·",
         }
     }
@@ -479,6 +482,7 @@ pub fn parse_completion(v: &Value) -> (Vec<CompletionItem>, bool) {
                 insert,
                 range,
                 label,
+                template: None,
             }
         })
         .collect();

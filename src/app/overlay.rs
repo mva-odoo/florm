@@ -174,6 +174,8 @@ impl App {
                 Prompt::Rename(p) => format!("Renommer {}", p.display()),
                 Prompt::NewBranch => "Nom de la nouvelle branche".into(),
                 Prompt::RenameSymbol => "Nouveau nom (renommé partout dans le projet)".into(),
+                Prompt::NewTemplate { ext, .. } if ext.is_empty() => "Nouveau modèle : son déclencheur, avec l'extension des fichiers visés (ipdb.py)".into(),
+                Prompt::NewTemplate { ext, .. } => format!("Nouveau modèle pour les .{ext} : son déclencheur (ex. ipdb ; nom.xml pour un autre type)"),
                 Prompt::RenameProject(_) => "Nom du projet".into(),
                 Prompt::BranchAt(h) => format!("Nouvelle branche sur le commit {}", &h[..h.len().min(8)]),
             },
@@ -576,6 +578,22 @@ impl App {
                 }
                 self.open_path(path);
                 self.exec_refresh_tree();
+            }
+            Prompt::NewTemplate { body, ext } => {
+                let dir = crate::templates::dir();
+                crate::templates::install_readme(&dir);
+                let name = if text.contains('.') || ext.is_empty() { text.clone() } else { format!("{text}.{ext}") };
+                let path = dir.join(&name);
+                if !path.exists() {
+                    let body = if body.is_empty() { String::new() } else { format!("{body}$0") };
+                    if let Err(e) = std::fs::write(&path, body) {
+                        self.set_status(e.to_string());
+                        return;
+                    }
+                }
+                self.open_path(path);
+                let trigger = name.split('.').next().unwrap_or("");
+                self.set_status(format!("Écris le modèle ($0 = place du curseur), enregistre, puis tape « {trigger} » + Tab"));
             }
             Prompt::NewFolder(dir) => {
                 if let Err(e) = std::fs::create_dir_all(dir.join(&text)) {

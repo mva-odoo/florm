@@ -113,6 +113,8 @@ enum Prompt {
     NewBranch,
     /// New name of the symbol under the cursor (LSP rename).
     RenameSymbol,
+    /// Trigger of a new template, with its body (the selection) and the extension of the file.
+    NewTemplate { body: String, ext: String },
 }
 
 #[derive(Clone)]

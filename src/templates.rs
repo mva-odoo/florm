@@ -3,6 +3,8 @@
 //! of the template, extension = language). Variables are filled from the current file:
 //! `${model}` (sale.order), `${model_}` (sale_order), `${Model}` (SaleOrder), `${name}` (Sale
 //! Order), `${module}` (folder with the `__manifest__.py`); `$0` is where the cursor goes.
+//! A template with a trigger (`ipdb`) is also offered by the completion, and Tab after the
+//! word expands it, like the snippets of Sublime Text.
 
 use std::path::{Path, PathBuf};
 
@@ -11,15 +13,21 @@ pub struct Template {
     pub name: String,
     /// Extension of the files it is meant for ("xml", "py"…); empty: any.
     pub ext: String,
+    /// Word that expands it ("ipdb"); empty: only in the list of templates.
+    pub trigger: String,
     pub body: String,
     /// File of a user template (None: built-in).
     pub path: Option<PathBuf>,
 }
 
-const BUILTIN: &[(&str, &str, &str)] = &[
+/// (name, extension, trigger, body)
+const BUILTIN: &[(&str, &str, &str, &str)] = &[
+    ("Python : ipdb", "py", "ipdb", "import ipdb; ipdb.set_trace()$0"),
+    ("Python : pdb", "py", "pdb", "import pdb; pdb.set_trace()$0"),
     (
         "Odoo : vue formulaire",
         "xml",
+        "odoo_form",
         r#"<record id="${model_}_view_form" model="ir.ui.view">
     <field name="name">${model}.view.form</field>
     <field name="model">${model}</field>
@@ -38,6 +46,7 @@ const BUILTIN: &[(&str, &str, &str)] = &[
     (
         "Odoo : vue liste",
         "xml",
+        "odoo_list",
         r#"<record id="${model_}_view_list" model="ir.ui.view">
     <field name="name">${model}.view.list</field>
     <field name="model">${model}</field>
@@ -52,6 +61,7 @@ const BUILTIN: &[(&str, &str, &str)] = &[
     (
         "Odoo : vue recherche",
         "xml",
+        "odoo_search",
         r#"<record id="${model_}_view_search" model="ir.ui.view">
     <field name="name">${model}.view.search</field>
     <field name="model">${model}</field>
@@ -66,6 +76,7 @@ const BUILTIN: &[(&str, &str, &str)] = &[
     (
         "Odoo : héritage de vue",
         "xml",
+        "odoo_view_inherit",
         r#"<record id="${model_}_view_form_inherit_${module}" model="ir.ui.view">
     <field name="name">${model}.view.form.inherit.${module}</field>
     <field name="model">${model}</field>
@@ -80,6 +91,7 @@ const BUILTIN: &[(&str, &str, &str)] = &[
     (
         "Odoo : action de fenêtre",
         "xml",
+        "odoo_action",
         r#"<record id="${model_}_action" model="ir.actions.act_window">
     <field name="name">${name}</field>
     <field name="res_model">${model}</field>
@@ -93,6 +105,7 @@ const BUILTIN: &[(&str, &str, &str)] = &[
     (
         "Odoo : menu",
         "xml",
+        "odoo_menu",
         r#"<menuitem id="${model_}_menu"
           name="${name}"
           parent="$0"
@@ -103,6 +116,7 @@ const BUILTIN: &[(&str, &str, &str)] = &[
     (
         "Odoo : vues + action + menu",
         "xml",
+        "odoo_views",
         r#"<record id="${model_}_view_list" model="ir.ui.view">
     <field name="name">${model}.view.list</field>
     <field name="model">${model}</field>
@@ -139,6 +153,7 @@ const BUILTIN: &[(&str, &str, &str)] = &[
     (
         "Odoo : fichier de données XML",
         "xml",
+        "odoo_xml",
         r#"<?xml version="1.0" encoding="utf-8"?>
 <odoo>
     $0
@@ -148,6 +163,7 @@ const BUILTIN: &[(&str, &str, &str)] = &[
     (
         "Odoo : modèle",
         "py",
+        "odoo_model",
         r#"from odoo import api, fields, models
 
 
@@ -161,6 +177,7 @@ class ${Model}(models.Model):
     (
         "Odoo : héritage de modèle",
         "py",
+        "odoo_inherit",
         r#"from odoo import api, fields, models
 
 
@@ -173,6 +190,7 @@ class ${Model}(models.Model):
     (
         "Odoo : champ calculé",
         "py",
+        "odoo_compute",
         r#"total = fields.Float(compute='_compute_total', store=True)
 
 @api.depends($0)
@@ -184,6 +202,7 @@ def _compute_total(self):
     (
         "Odoo : __manifest__.py",
         "py",
+        "odoo_manifest",
         r#"{
     'name': "${name}",
     'version': '1.0',
@@ -199,6 +218,7 @@ def _compute_total(self):
     (
         "Odoo : droits d'accès (ir.model.access.csv)",
         "csv",
+        "odoo_access",
         r#"id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_${model_}_user,${model}.user,model_${model_},base.group_user,1,1,1,1$0
 "#,
@@ -208,6 +228,8 @@ access_${model_}_user,${model}.user,model_${model_},base.group_user,1,1,1,1$0
 const README: &str = "# Modèles Florm\n\n\
 Chaque fichier de ce dossier est un modèle : son nom devient le nom du modèle, son extension\n\
 le type de fichier pour lequel il est proposé en premier (ex. « Ma vue kanban.xml »).\n\n\
+Un nom d'un seul mot (lettres, chiffres, _) sert aussi de déclencheur : avec « ipdb.py », taper\n\
+`ipdb` dans un fichier .py le propose dans les suggestions, et Tab le développe.\n\n\
 Variables remplacées à l'insertion, d'après le fichier courant :\n\n\
 - `${model}` : sale.order (d'après le nom du fichier : sale_order_views.xml, sale_order.py)\n\
 - `${model_}` : sale_order\n\
@@ -231,7 +253,7 @@ pub fn install_readme(dir: &Path) {
 pub fn load(dir: &Path) -> Vec<Template> {
     let mut v: Vec<Template> = BUILTIN
         .iter()
-        .map(|(n, e, b)| Template { name: n.to_string(), ext: e.to_string(), body: b.to_string(), path: None })
+        .map(|(n, e, tr, b)| Template { name: n.to_string(), ext: e.to_string(), trigger: tr.to_string(), body: b.to_string(), path: None })
         .collect();
     if let Ok(rd) = std::fs::read_dir(dir) {
         let mut files: Vec<PathBuf> = rd.flatten().map(|e| e.path()).filter(|p| p.is_file()).collect();
@@ -243,11 +265,26 @@ pub fn load(dir: &Path) -> Vec<Template> {
             let Ok(body) = std::fs::read_to_string(&p) else { continue };
             let name = p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
             let ext = p.extension().map(|s| s.to_string_lossy().to_lowercase()).unwrap_or_default();
-            v.retain(|t| t.name != name);
-            v.push(Template { name, ext, body, path: Some(p) });
+            let trigger = if is_word(&name) { name.clone() } else { String::new() };
+            // a user template with a built-in's trigger replaces it too
+            v.retain(|t| t.name != name && (trigger.is_empty() || t.trigger != trigger));
+            v.push(Template { name, ext, trigger, body, path: Some(p) });
         }
     }
     v
+}
+
+fn is_word(s: &str) -> bool {
+    s.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_') && s.chars().all(|c| c.is_alphanumeric() || c == '_')
+}
+
+/// Templates whose trigger starts with `prefix` (any case), for a file of extension `ext`
+/// (none: a new file, all of them).
+pub fn with_trigger<'a>(all: &'a [Template], ext: &str, prefix: &str) -> impl Iterator<Item = &'a Template> {
+    let (lower, ext) = (prefix.to_lowercase(), ext.to_string());
+    all.iter().filter(move |t| {
+        !t.trigger.is_empty() && (ext.is_empty() || t.ext.is_empty() || t.ext == ext) && t.trigger.to_lowercase().starts_with(&lower)
+    })
 }
 
 /// Model name guessed from a file name: "sale_order_views.xml" → "sale.order".
@@ -355,6 +392,14 @@ mod tests {
         assert_eq!(all.iter().find(|t| t.name == "Odoo : menu").unwrap().body, "<menuitem/>");
         assert!(all.iter().any(|t| t.name == "Kanban" && t.ext == "xml"));
         assert!(!all.iter().any(|t| t.name == "README"));
+        assert_eq!(all.iter().find(|t| t.name == "Kanban").unwrap().trigger, "Kanban");
+        std::fs::write(dir.join("ipdb.py"), "breakpoint()").unwrap();
+        let all = load(&dir);
+        let hits: Vec<&Template> = with_trigger(&all, "py", "ipd").collect();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].body, "breakpoint()");
+        assert_eq!(with_trigger(&all, "xml", "ipdb").count(), 0);
+        assert_eq!(with_trigger(&all, "py", "odoo_").filter(|t| t.ext != "py").count(), 0);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
