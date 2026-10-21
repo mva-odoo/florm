@@ -174,6 +174,39 @@ fn parse_colon_format(out: &str, source: &str) -> Vec<Diagnostic> {
         .collect()
 }
 
+/// `ruff check --output-format=json`: diagnostics with their code ("F821 Undefined name `x`",
+/// like the text formats). `None` when the output is not JSON (ruff failed: its message is
+/// then parsed as text).
+fn parse_ruff_json(out: &str) -> Option<Vec<Diagnostic>> {
+    let start = out.find('[')?;
+    let mut items = serde_json::Deserializer::from_str(&out[start..]).into_iter::<serde_json::Value>();
+    let list = items.next()?.ok()?;
+    Some(
+        list.as_array()?
+            .iter()
+            .filter_map(|v| {
+                let loc = v.get("location")?;
+                let line = loc.get("row")?.as_u64()? as usize;
+                let col = loc.get("column")?.as_u64()? as usize;
+                let text = v.get("message")?.as_str()?;
+                let code = v.get("code").and_then(|c| c.as_str()).map(str::to_string);
+                let message = match &code {
+                    Some(c) => format!("{c} {text}"),
+                    None => text.to_string(),
+                };
+                Some(Diagnostic {
+                    line: line.saturating_sub(1),
+                    col: col.saturating_sub(1),
+                    severity: classify(&message, code.as_deref()),
+                    message,
+                    source: "ruff".into(),
+                    code,
+                })
+            })
+            .collect(),
+    )
+}
+
 /// Syntax check on stdin when no linter is installed.
 const PY_SYNTAX: &str = r#"
 import ast, sys
@@ -282,7 +315,9 @@ pub fn lint_python(path: &Path, text: &str, root: Option<&Path>, cfg: &LintConfi
     for name in wanted {
         let Some(runner) = find_runner(name) else { continue };
         let args: Vec<String> = match name {
-            "ruff" => ["check", "--output-format=concise", "--no-cache", "--quiet", "--stdin-filename", &display]
+            // JSON: the rule code is always there (in preview mode, the text formats show the
+            // rule name instead, e.g. "undefined-name:" for F821)
+            "ruff" => ["check", "--output-format=json", "--no-cache", "--quiet", "--stdin-filename", &display]
                 .iter()
                 .map(|s| s.to_string())
                 .chain(extra.clone())
@@ -302,7 +337,10 @@ pub fn lint_python(path: &Path, text: &str, root: Option<&Path>, cfg: &LintConfi
             _ => continue,
         };
         if let Some(out) = run_with_stdin(&runner, &args, text, cwd) {
-            let mut diags = parse_colon_format(&out, name);
+            let mut diags = match name {
+                "ruff" => parse_ruff_json(&out).unwrap_or_else(|| parse_colon_format(&out, name)),
+                _ => parse_colon_format(&out, name),
+            };
             if name == "pylint" {
                 for d in &mut diags {
                     d.col += 1; // pylint columns are 0-based
@@ -425,6 +463,11 @@ mod tests {
     #[test]
     fn colon_format() {
         let d = parse_colon_format("/tmp/x.py:3:5: F821 Undefined name `y`\nFound 1 error.", "ruff");
+        let j = parse_ruff_json(r#"[{"code":"F821","location":{"row":2,"column":5},"message":"Undefined name `y`","name":"undefined-name"},{"code":null,"location":{"row":4,"column":1},"message":"SyntaxError: Expected an expression"}]"#).unwrap();
+        assert_eq!((j[0].line, j[0].col, j[0].code.as_deref()), (1, 4, Some("F821")));
+        assert_eq!(j[0].severity, d[0].severity);
+        assert_eq!(j[1].code, None);
+        assert!(parse_ruff_json("ruff: error: unexpected argument").is_none());
         assert_eq!(d[0].code.as_deref(), Some("F821"));
         assert_eq!(d.len(), 1);
         assert_eq!((d[0].line, d[0].col), (2, 4));
