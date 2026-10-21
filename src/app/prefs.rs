@@ -472,6 +472,9 @@ impl App {
                         }
                     });
                 });
+                pref_row(ui, rc, "Chercher les mises à jour", &format!("Au démarrage, Florm regarde s'il existe une version plus récente que la {} sur GitHub et la propose en bas à droite.", crate::update::current()), |ui| {
+                    toggle_switch(ui, &mut s.check_updates);
+                });
                 pref_row(ui, rc, "Fichier de préférences", &config::settings_path().display().to_string(), |ui| {
                     if ui.button("Ouvrir settings.toml").clicked() {
                         actions.push(Cmd::OpenSettingsFile);
@@ -655,6 +658,7 @@ impl App {
             ("lint_live", s.lint_live, before.lint_live),
             ("lint_on_save", s.lint_on_save, before.lint_on_save),
             ("inline_diff", s.inline_diff, before.inline_diff),
+            ("check_updates", s.check_updates, before.check_updates),
         ];
         for (key, now, was) in bools {
             if now != was {

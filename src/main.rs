@@ -28,6 +28,7 @@ mod rebase;
 mod search;
 mod sidebar;
 mod split;
+mod update;
 mod symbols;
 mod templates;
 mod terminal;

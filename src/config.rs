@@ -57,6 +57,8 @@ pub struct Settings {
     pub exclude: Vec<String>,
     /// Most source files in the symbol index (the repositories of the open files come first).
     pub index_max_files: usize,
+    /// Look for a newer release of Florm at startup (GitHub).
+    pub check_updates: bool,
 }
 
 impl Default for Settings {
@@ -92,6 +94,7 @@ impl Default for Settings {
             lsp_servers: HashMap::new(),
             exclude: ["__pycache__/", "*.pyc", "node_modules/", ".venv/", "*.egg-info/"].map(String::from).to_vec(),
             index_max_files: 150_000,
+            check_updates: true,
         }
     }
 }
@@ -146,6 +149,8 @@ lsp = true
 exclude = ["__pycache__/", "*.pyc", "node_modules/", ".venv/", "*.egg-info/"]
 # Fichiers source au plus dans l'index des symboles (les dépôts des fichiers ouverts d'abord)
 index_max_files = 150000
+# chercher une nouvelle version de Florm au démarrage (releases GitHub)
+check_updates = true
 
 [keys]
 # Raccourcis personnalisés : "combinaison" = "id_de_commande"

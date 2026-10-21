@@ -149,6 +149,8 @@ impl App {
             item(ui, "Accueil", Cmd::ShowWelcome);
             item(ui, "Palette de commandes", Cmd::CommandPalette);
             item(ui, "Raccourcis et préférences", Cmd::OpenSettings);
+            ui.separator();
+            item(ui, "Rechercher une mise à jour", Cmd::CheckUpdate);
         });
     }
 
@@ -371,6 +373,29 @@ impl App {
                     }
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if let Some(u) = self.update.clone() {
+                        let text = RichText::new(format!("⬆ Florm {}", u.version)).color(ui.visuals().hyperlink_color);
+                        ui.menu_button(text, |ui| {
+                            ui.visuals_mut().override_text_color = None;
+                            ui.label(format!("Nouvelle version (vous avez la {})", crate::update::current()));
+                            if let Some((name, url)) = &u.file {
+                                if ui.button(format!("Télécharger {name}")).on_hover_text("Installez-le comme la première fois : il remplace l'ancienne version, les préférences sont gardées.").clicked() {
+                                    ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+                                    ui.close_menu();
+                                }
+                            }
+                            if ui.button("Notes de version et tous les fichiers").clicked() {
+                                ui.ctx().open_url(egui::OpenUrl::new_tab(&u.page));
+                                ui.close_menu();
+                            }
+                            if ui.button("Masquer").on_hover_text("Jusqu'au prochain démarrage").clicked() {
+                                self.update = None;
+                                ui.close_menu();
+                            }
+                        })
+                        .response
+                        .on_hover_text("Une nouvelle version de Florm est disponible");
+                    }
                     // the rest of the file's details, the terminal and the language server in a menu
                     let mut pending = Vec::new();
                     let lsp_line = self.lsp_status_line();

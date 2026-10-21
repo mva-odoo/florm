@@ -405,6 +405,23 @@ impl App {
                         }
                     }
                 }
+                JobResult::Update { manual, result } => match result {
+                    Ok(Some(u)) => {
+                        self.log(format!("Florm {} est disponible : {}", u.version, u.page));
+                        if manual {
+                            self.set_status(format!("Florm {} est disponible (en bas à droite)", u.version));
+                        }
+                        self.update = Some(u);
+                    }
+                    Ok(None) if manual => self.set_status(format!("Florm est à jour ({})", crate::update::current())),
+                    Ok(None) => {}
+                    Err(e) => {
+                        if manual {
+                            self.set_status("Recherche de mise à jour impossible (voir Sortie)");
+                        }
+                        self.log(e);
+                    }
+                },
                 JobResult::Fonts(list) => {
                     self.prefs.font_list = Some(list);
                     self.prefs.font_list_loading = false;

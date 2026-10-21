@@ -600,6 +600,8 @@ pub struct App {
     confirm: Option<Confirm>,
     output: Vec<String>,
     status: Option<(String, Instant)>,
+    /// Newer release of Florm, shown in the status bar until dismissed.
+    update: Option<crate::update::Update>,
     pending: Vec<Cmd>,
     last_disk_check: Instant,
     /// Last command run in a terminal: git and the files are checked more often for a while.
@@ -785,6 +787,7 @@ impl App {
             confirm: None,
             output: Vec::new(),
             status: None,
+            update: None,
             pending: Vec::new(),
             last_disk_check: Instant::now(),
             term_enter: None,
@@ -830,6 +833,9 @@ impl App {
             app.log(e);
         }
         app.search = app.fresh_search();
+        if app.settings.check_updates {
+            app.check_update(false);
+        }
         let cwd = std::env::current_dir().unwrap_or_default();
         let last_project = app.projects.iter().find(|p| p.path.is_dir()).map(|p| p.path.clone());
         match arg {
@@ -871,6 +877,14 @@ impl App {
 
     fn set_status(&mut self, s: impl Into<String>) {
         self.status = Some((s.into(), Instant::now()));
+    }
+
+    /// Looks for a newer release in the background; `manual` also reports "up to date" and errors.
+    fn check_update(&mut self, manual: bool) {
+        if manual {
+            self.set_status("Recherche d'une mise à jour…");
+        }
+        self.jobs.spawn(move || JobResult::Update { manual, result: crate::update::check() });
     }
 
     fn focus_editor(&self, ctx: &egui::Context) {

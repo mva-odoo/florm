@@ -75,6 +75,8 @@ pub enum JobResult {
     /// Changes left after a refresh or a partial commit (with its short hash and subject).
     SplitChanges { result: Result<Vec<split::FileChange>, String>, committed: Option<(String, String)> },
     SplitEnded { aborted: bool, result: Result<String, String> },
+    /// Newer release of Florm (`manual`: asked from the menu, so "up to date" is shown too).
+    Update { manual: bool, result: Result<Option<crate::update::Update>, String> },
     Plugin { uid: u64, version: u64, title: String, output: Output, result: Result<Vec<String>, String> },
 }
 

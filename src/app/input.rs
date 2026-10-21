@@ -555,6 +555,7 @@ impl App {
                 self.reload_plugins();
                 self.set_status(format!("{} plugin(s) chargé(s)", self.plugins.len()));
             }
+            CheckUpdate => self.check_update(true),
             ShowGuide => self.open_view_tab(document::View::Help, "❓ Guide de Florm".into()),
             ShowWelcome => self.open_view_tab(document::View::Welcome, "Accueil".into()),
             InsertTemplate => self.open_overlay(Mode::Templates),
