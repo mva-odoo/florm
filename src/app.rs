@@ -6898,7 +6898,7 @@ impl App {
                         }
                     }
                     let t = ui
-                        .add(egui::Button::new(">_ Terminal").frame(false))
+                        .add(egui::Button::new(">_ Terminal").selected(self.bottom == Some(BottomTab::Terminal)))
                         .on_hover_text(format!("Terminal en bas ({}) · clic droit : nouveau terminal dans un onglet ({})", self.keymap.label(Cmd::ToggleTerminal), self.keymap.label(Cmd::NewTerminalTab)));
                     if t.clicked() {
                         self.pending.push(Cmd::ToggleTerminal);
