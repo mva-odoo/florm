@@ -43,7 +43,7 @@ pub enum JobResult {
     Search(u64, search::Outcome),
     /// Native file dialog closed: what it was for (0 folder, 1 file, 2 save as) and the choice.
     #[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
-    Picked(u8, Result<Option<PathBuf>, String>),
+    Picked(crate::os::Pick, Result<Option<PathBuf>, String>),
     /// Fonts installed on the system (preferences).
     Fonts(Vec<crate::fonts::FontInfo>),
     /// Git repositories found in the opened folder.

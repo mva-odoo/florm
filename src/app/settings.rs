@@ -95,4 +95,21 @@ impl App {
             JobResult::Plugin { uid, version, title, output, result: Ok(outs) }
         });
     }
+
+    pub(super) fn plugin_env(&self, idx: usize) -> Vec<(String, String)> {
+        let mut env = Vec::new();
+        if let Some(r) = &self.root {
+            env.push(("FLORM_PROJECT".into(), r.display().to_string()));
+        }
+        if let Some(d) = self.docs.get(idx) {
+            if let Some(p) = &d.path {
+                env.push(("FLORM_FILE".into(), p.display().to_string()));
+            }
+            let (l, c) = d.line_col(d.primary_sel().head);
+            env.push(("FLORM_LINE".into(), (l + 1).to_string()));
+            env.push(("FLORM_COLUMN".into(), (c + 1).to_string()));
+            env.push(("FLORM_SYNTAX".into(), d.syntax.clone()));
+        }
+        env
+    }
 }

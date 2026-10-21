@@ -498,6 +498,41 @@ struct GitUi {
     map: HashMap<PathBuf, char>,
 }
 
+/// Cursor history (back / forward between places).
+#[derive(Default)]
+struct NavState {
+    /// Cursor history: previous / next places, and the place seen at the last frame.
+    back: Vec<NavPos>,
+    fwd: Vec<NavPos>,
+    last: Option<(NavPos, usize)>,
+    /// The cursor moved because of Alt+- / Alt++: do not record it.
+    jumping: bool,
+}
+
+/// Indexes of the project: its files (go to file) and its symbols.
+#[derive(Default)]
+struct Indexes {
+    files: Vec<PathBuf>,
+    /// When the file list was last asked for (Ctrl+P rebuilds it, at most every few seconds).
+    files_at: Option<Instant>,
+    /// Project symbols (go to definition / completion without a language server).
+    symbols: Option<crate::index::Index>,
+    /// The project index is being built for this folder.
+    symbols_for: Option<PathBuf>,
+}
+
+/// Language servers and what is waiting for them.
+#[derive(Default)]
+struct LspUi {
+    manager: lsp::Manager,
+    requests: HashMap<(usize, i64), LspReq>,
+    completion: Option<CompletionUi>,
+    /// Ask the server for suggestions at this moment (debounce while typing).
+    complete_at: Option<Instant>,
+    /// Why a language has no server (status bar).
+    notes: HashMap<String, String>,
+}
+
 pub struct App {
     settings: Settings,
     hl: Highlighting,
@@ -522,9 +557,6 @@ pub struct App {
     projects: Vec<Project>,
     last_session_save: Instant,
     jobs: Jobs,
-    file_index: Vec<PathBuf>,
-    /// When the file list was last asked for (Ctrl+P rebuilds it, at most every few seconds).
-    file_index_at: Option<Instant>,
     git: GitUi,
     term: Terminal,
     plugins: Vec<Plugin>,
@@ -553,23 +585,8 @@ pub struct App {
     /// Give the keyboard focus to the editor at the next frame (after a tab change).
     pending_focus: bool,
     md_cache: egui_commonmark::CommonMarkCache,
-    lsp: lsp::Manager,
-    lsp_req: HashMap<(usize, i64), LspReq>,
     /// For the places without a context at hand (prompt submission).
     egui_ctx: egui::Context,
-    completion: Option<CompletionUi>,
-    /// Ask the server for suggestions at this moment (debounce while typing).
-    complete_at: Option<Instant>,
-    /// Why a language has no server (status bar).
-    lsp_note: HashMap<String, String>,
-    /// Project symbols (go to definition / completion without a language server).
-    sym_index: Option<crate::index::Index>,
-    /// Cursor history: previous / next places, and the place seen at the last frame.
-    nav_back: Vec<NavPos>,
-    nav_fwd: Vec<NavPos>,
-    nav_last: Option<(NavPos, usize)>,
-    /// The cursor moved because of Alt+- / Alt++: do not record it.
-    nav_jumping: bool,
     /// File to bring into view in the tree ("afficher dans l'arborescence").
     tree_scroll: Option<PathBuf>,
     /// Keyboard cursor of the tree.
@@ -582,11 +599,6 @@ pub struct App {
     drop_alt_text: Option<Instant>,
     /// A native file dialog is open (do not open a second one).
     dialog_open: bool,
-    /// Fonts of the system, for the preferences (None until listed).
-    font_list: Option<Vec<crate::fonts::FontInfo>>,
-    font_list_loading: bool,
-    /// The project index is being built for this folder.
-    sym_index_for: Option<PathBuf>,
     /// Ctrl+B: blame annotation following the cursor line.
     blame_mode: bool,
     blame_req: Option<(u64, usize, u64)>,
@@ -605,6 +617,9 @@ pub struct App {
     git_stamps: HashMap<PathBuf, Vec<Option<std::time::SystemTime>>>,
     /// The window had the focus at the last frame (coming back to Florm checks the files at once).
     was_focused: bool,
+    nav: NavState,
+    index: Indexes,
+    lsp: LspUi,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -656,11 +671,14 @@ struct PrefsUi {
     /// text buffers edited before being saved
     lint_args: String,
     shell: String,
+    /// Fonts of the system, for the preferences (None until listed).
+    font_list: Option<Vec<crate::fonts::FontInfo>>,
+    font_list_loading: bool,
 }
 
 impl Default for PrefsUi {
     fn default() -> Self {
-        PrefsUi { capture: None, proposed: None, key_action: None, open: false, section: PrefSection::Appearance, filter: String::new(), lint_args: String::new(), shell: String::new() }
+        PrefsUi { capture: None, proposed: None, key_action: None, open: false, section: PrefSection::Appearance, filter: String::new(), lint_args: String::new(), shell: String::new(), font_list: None, font_list_loading: false }
     }
 }
 
@@ -712,8 +730,6 @@ impl App {
             projects: project::load_list(),
             last_session_save: Instant::now(),
             jobs: Jobs::new(cc.egui_ctx.clone()),
-            file_index: Vec::new(),
-            file_index_at: None,
             git: GitUi::default(),
             term: Terminal::new(),
             plugins: Vec::new(),
@@ -738,26 +754,13 @@ impl App {
             drop_zones: DropZones::default(),
             pending_focus: false,
             md_cache: egui_commonmark::CommonMarkCache::default(),
-            lsp: lsp::Manager::default(),
             egui_ctx: cc.egui_ctx.clone(),
-            lsp_req: HashMap::new(),
-            completion: None,
-            complete_at: None,
-            lsp_note: HashMap::new(),
-            sym_index: None,
-            nav_back: Vec::new(),
-            nav_fwd: Vec::new(),
-            nav_last: None,
-            nav_jumping: false,
             tree_scroll: None,
             tree_nav: sidebar::Nav::default(),
             repo_info: HashMap::new(),
             goto_select: false,
             drop_alt_text: None,
             dialog_open: false,
-            font_list: None,
-            font_list_loading: false,
-            sym_index_for: None,
             blame_mode: false,
             blame_req: None,
             line_history: None,
@@ -765,6 +768,9 @@ impl App {
             lint_inflight: HashSet::new(),
             python_linter: None,
             prefs: PrefsUi::default(),
+            nav: NavState::default(),
+            index: Indexes::default(),
+            lsp: LspUi::default(),
             templates: Vec::new(),
             git_stamps: HashMap::new(),
             was_focused: true,
@@ -896,11 +902,11 @@ impl App {
             let repos = git::find_repos(&r, 3);
             JobResult::Repos(r, repos)
         });
-        self.file_index.clear();
+        self.index.files.clear();
         self.refresh_index();
         // the symbol index starts once the file list is done (they would compete for the disk)
-        self.sym_index = None;
-        self.sym_index_for = None;
+        self.index.symbols = None;
+        self.index.symbols_for = None;
         self.reload_plugins();
     }
 

@@ -397,8 +397,8 @@ impl App {
                         self.pending.push(Cmd::ShowProblems);
                     }
                     if let Some(fam) = self.settings.lsp.then(|| self.docs.get(self.active).and_then(|d| d.path.as_deref()).and_then(lsp::language_of)).flatten().map(|l| l.0) {
-                        let running = self.lsp.clients.iter().flatten().find(|c| c.family == fam);
-                        match (running, self.lsp_note.get(fam)) {
+                        let running = self.lsp.manager.clients.iter().flatten().find(|c| c.family == fam);
+                        match (running, self.lsp.notes.get(fam)) {
                             (Some(c), _) => {
                                 let t = if c.ready { format!("LSP : {}", c.name) } else { format!("LSP : {} (démarrage…)", c.name) };
                                 ui.label(t).on_hover_text("Complétion Ctrl+Espace · Définition F12 · Renommer F2");
@@ -1186,43 +1186,6 @@ impl App {
         }
     }
 
-    /// Repositories changed outside Florm (commit, checkout, add… in a terminal): refresh the git
-    /// panel, the graph and the gutter marks of their open files.
-    fn check_git_stamps(&mut self) {
-        let mut changed = Vec::new();
-        for r in &self.repos {
-            let st = git::stamp(r);
-            match self.git_stamps.insert(r.clone(), st.clone()) {
-                Some(old) if old != st => changed.push(r.clone()),
-                _ => {}
-            }
-        }
-        if changed.is_empty() {
-            return;
-        }
-        self.git_refresh();
-        if self.history.open && self.history.repo.as_ref().is_some_and(|r| changed.contains(r)) && self.history.rebase.is_none() {
-            self.load_history();
-            if let Some(staged) = self.history.wip_sel {
-                self.load_wip_all(staged);
-            }
-        }
-        for i in 0..self.docs.len() {
-            let in_repo = self.docs[i].path.as_deref().and_then(|p| self.repo_for(p)).is_some_and(|r| changed.contains(&r));
-            if in_repo {
-                self.refresh_git_base(i);
-            }
-        }
-    }
-
-    /// Re-reads the HEAD version of document `i` (gutter marks), without linting it.
-    fn refresh_git_base(&mut self, i: usize) {
-        let Some(d) = self.docs.get(i) else { return };
-        let Some(path) = d.path.clone() else { return };
-        let (uid, version) = (d.uid, d.version);
-        self.jobs.spawn(move || JobResult::Analyzed { uid, version, reload: false, diags: None, base: git::head_text(&path), log: Vec::new() });
-    }
-
     pub(super) fn periodic(&mut self, ctx: &egui::Context) {
         // with hot exit, unsaved changes are kept in the session: no question
         let keeps = self.settings.hot_exit && self.root.is_some();
@@ -1299,6 +1262,29 @@ impl App {
         if title != self.last_title {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
             self.last_title = title;
+        }
+    }
+
+    /// Shows `path` in the file tree: sidebar opened, folders expanded, entry scrolled into view.
+    pub(super) fn reveal_in_tree(&mut self, path: &Path) {
+        let Some(tree) = self.tree.as_mut() else {
+            self.set_status("Aucun dossier ouvert");
+            return;
+        };
+        let path = crate::os::canon(path);
+        if !tree.reveal(&path) {
+            self.set_status("Ce fichier n'est pas dans le dossier ouvert");
+            return;
+        }
+        self.show_sidebar = true;
+        self.side_tab = SideTab::Files;
+        self.tree_nav.cursor = Some(path.clone());
+        self.tree_scroll = Some(path);
+    }
+
+    pub(super) fn reveal(&mut self, path: &Path) {
+        if let Err(e) = crate::os::reveal(path) {
+            self.set_status(e);
         }
     }
 }

@@ -47,7 +47,6 @@ impl App {
         self.git_refresh();
     }
 
-
     pub(super) fn show_diff(&mut self, rel: String, untracked: bool) {
         let Some(repo) = self.repo.clone() else { return };
         if untracked {
@@ -61,5 +60,42 @@ impl App {
             let text = if text.is_empty() { "(aucune différence)".into() } else { text };
             JobResult::NewTab { title: format!("diff : {rel}"), text, syntax: "Diff".into() }
         });
+    }
+
+    /// Repositories changed outside Florm (commit, checkout, add… in a terminal): refresh the git
+    /// panel, the graph and the gutter marks of their open files.
+    pub(super) fn check_git_stamps(&mut self) {
+        let mut changed = Vec::new();
+        for r in &self.repos {
+            let st = git::stamp(r);
+            match self.git_stamps.insert(r.clone(), st.clone()) {
+                Some(old) if old != st => changed.push(r.clone()),
+                _ => {}
+            }
+        }
+        if changed.is_empty() {
+            return;
+        }
+        self.git_refresh();
+        if self.history.open && self.history.repo.as_ref().is_some_and(|r| changed.contains(r)) && self.history.rebase.is_none() {
+            self.load_history();
+            if let Some(staged) = self.history.wip_sel {
+                self.load_wip_all(staged);
+            }
+        }
+        for i in 0..self.docs.len() {
+            let in_repo = self.docs[i].path.as_deref().and_then(|p| self.repo_for(p)).is_some_and(|r| changed.contains(&r));
+            if in_repo {
+                self.refresh_git_base(i);
+            }
+        }
+    }
+
+    /// Re-reads the HEAD version of document `i` (gutter marks), without linting it.
+    fn refresh_git_base(&mut self, i: usize) {
+        let Some(d) = self.docs.get(i) else { return };
+        let Some(path) = d.path.clone() else { return };
+        let (uid, version) = (d.uid, d.version);
+        self.jobs.spawn(move || JobResult::Analyzed { uid, version, reload: false, diags: None, base: git::head_text(&path), log: Vec::new() });
     }
 }

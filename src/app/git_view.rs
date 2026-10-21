@@ -1,6 +1,7 @@
 //! Git view: commit graph, diffs, and what is done from them.
 
 use super::*;
+use history::DiffAct;
 
 impl App {
     pub(super) fn load_history(&mut self) {
@@ -52,36 +53,6 @@ impl App {
                 None => git::run(&repo, &["show", "--format=", "--patch", "-m", "--first-parent", &hash]),
             };
             JobResult::HistoryDiff { hash, path, result }
-        });
-    }
-
-    pub(super) fn lint_config(&self) -> lint::LintConfig {
-        lint::LintConfig { python_linter: self.settings.python_linter.clone(), python_args: self.settings.python_lint_args.clone() }
-    }
-
-    /// Lints the active Python buffer while typing (debounced, one run at a time per document).
-    pub(super) fn update_live_lint(&mut self, ctx: &egui::Context) {
-        if !self.settings.lint_live {
-            return;
-        }
-        let Some(d) = self.docs.get(self.active) else { return };
-        let Some(path) = d.path.clone() else { return };
-        if lint::lang_of(&path) != Some("python") || d.lint_version == d.version || self.lint_inflight.contains(&d.uid) {
-            return;
-        }
-        let wait = Duration::from_millis(500);
-        let el = d.last_change.elapsed();
-        if el < wait && d.lint_version != u64::MAX {
-            ctx.request_repaint_after(wait - el);
-            return;
-        }
-        let (uid, version, text) = (d.uid, d.version, d.rope.to_string());
-        let root = self.repo_for(&path).or_else(|| self.root.clone());
-        let cfg = self.lint_config();
-        self.lint_inflight.insert(uid);
-        self.jobs.spawn(move || {
-            let (diags, linter) = lint::lint_python(&path, &text, root.as_deref(), &cfg);
-            JobResult::Lint { uid, version, diags, linter }
         });
     }
 
@@ -296,16 +267,12 @@ impl App {
     }
 
     /// Button or double click in the diff of the graph view.
-    fn diff_action(&mut self, source: DiffSource, click: Option<history::DiffClick>, file_act: Option<&str>) {
+    fn diff_action(&mut self, source: DiffSource, click: history::DiffClick) {
         let Some(d) = &self.history.diff else { return };
         let Some(repo) = self.history.repo.clone() else { return };
         let (text, lines) = (d.text.clone(), &d.lines);
-        let first = lines.iter().position(|l| l.kind == history::DiffKind::Hunk).unwrap_or(0);
-        let (idx, hunk_button) = match click {
-            Some(history::DiffClick::Line(i)) => (i, None),
-            Some(history::DiffClick::Hunk(i, b)) => (i, Some(b)),
-            Some(history::DiffClick::File(i, _)) => (i, None),
-            None => (first, None),
+        let idx = match click {
+            history::DiffClick::Line(i) | history::DiffClick::Hunk(i, _) | history::DiffClick::File(i, _) => i,
         };
         // a new file not yet known to git (only in the unstaged changes)
         let untracked = source == DiffSource::Worktree && history::file_patch(&text, idx).is_some_and(|f| f.contains("\n--- /dev/null"));
@@ -313,44 +280,45 @@ impl App {
         let line = history::target_line(lines, idx);
         let lose = |what: &str| format!("{what}\n\nCe changement n'est pas encore dans un commit : il sera perdu.");
         let stage_file = DiffOp::Git(vec!["add".into(), "--".into(), path.clone()]);
-        let (label, op, confirm) = match (click, file_act, hunk_button) {
-            (Some(history::DiffClick::Line(_)), _, _) | (_, Some("open"), _) => {
+        use history::DiffClick;
+        let (label, op, confirm) = match click {
+            DiffClick::Line(_) | DiffClick::File(_, DiffAct::Open) | DiffClick::Hunk(_, DiffAct::Open) => {
                 self.jump_to_file(&repo, &path, line);
                 return;
             }
-            (_, Some("stage"), _) => ("add", stage_file, None),
-            (_, Some("unstage"), _) => ("restore", DiffOp::Git(vec!["restore".into(), "--staged".into(), "--".into(), path.clone()]), None),
-            (_, Some("discard"), _) if untracked => {
+            // a whole file, or a block of a new file (git has no blocks for it yet)
+            DiffClick::File(_, DiffAct::Stage) => ("add", stage_file, None),
+            DiffClick::Hunk(_, DiffAct::Stage | DiffAct::Discard) if untracked && source == DiffSource::Worktree => match click {
+                DiffClick::Hunk(_, DiffAct::Stage) => ("add", stage_file, None),
+                _ => ("rm", DiffOp::Delete(repo.join(&path)), Some(lose(&format!("Supprimer le nouveau fichier « {path} » ?")))),
+            },
+            DiffClick::File(_, DiffAct::Unstage) => ("restore", DiffOp::Git(vec!["restore".into(), "--staged".into(), "--".into(), path.clone()]), None),
+            DiffClick::File(_, DiffAct::Discard) if untracked => {
                 ("rm", DiffOp::Delete(repo.join(&path)), Some(lose(&format!("Supprimer le nouveau fichier « {path} » ?"))))
             }
-            (_, Some("discard"), _) => (
+            DiffClick::File(_, DiffAct::Discard) => (
                 "restore",
                 DiffOp::Git(vec!["restore".into(), "--".into(), path.clone()]),
                 Some(lose(&format!("Annuler toutes les modifications non indexées de « {path} » ?"))),
             ),
-            (_, Some("revert"), _) => {
+            DiffClick::File(_, DiffAct::Revert) => {
                 let Some(patch) = history::file_patch(&text, idx) else { return };
                 ("apply", DiffOp::Apply { patch, flags: vec!["-R"] }, None)
             }
-            (_, _, Some(b)) => {
+            DiffClick::Hunk(_, act) => {
                 let Some(patch) = history::hunk_patch(&text, idx) else { return };
-                match (source, b) {
-                    (DiffSource::Worktree, 0) if untracked => ("add", stage_file, None),
-                    (DiffSource::Worktree, 0) => ("apply", DiffOp::Apply { patch, flags: vec!["--cached"] }, None),
-                    (DiffSource::Worktree, _) if untracked => {
-                        ("rm", DiffOp::Delete(repo.join(&path)), Some(lose(&format!("Supprimer le nouveau fichier « {path} » ?"))))
-                    }
-                    (DiffSource::Worktree, _) => (
+                match act {
+                    DiffAct::Stage => ("apply", DiffOp::Apply { patch, flags: vec!["--cached"] }, None),
+                    DiffAct::Unstage => ("apply", DiffOp::Apply { patch, flags: vec!["--cached", "-R"] }, None),
+                    DiffAct::Discard => (
                         "apply",
                         DiffOp::Apply { patch, flags: vec!["-R"] },
                         Some(lose(&format!("Annuler ce bloc de modifications dans « {path} » (vers la ligne {line}) ?"))),
                     ),
-                    (DiffSource::Index, _) => ("apply", DiffOp::Apply { patch, flags: vec!["--cached", "-R"] }, None),
-                    (DiffSource::Commit, _) => ("apply", DiffOp::Apply { patch, flags: vec!["-R"] }, None),
-                    (DiffSource::Compare, _) => return,
+                    DiffAct::Revert => ("apply", DiffOp::Apply { patch, flags: vec!["-R"] }, None),
+                    DiffAct::Open => return,
                 }
             }
-            _ => return,
         };
         match confirm {
             Some(msg) => self.confirm = Some(Confirm::DiffOp { msg, label: label.into(), op }),
@@ -397,7 +365,7 @@ impl App {
 
     pub(super) fn history_ui(&mut self, ui: &mut egui::Ui) {
         let (mut reload, mut close, mut select, mut diff_to_tab) = (false, false, None, false);
-        let (mut diff_click, mut file_act): (Option<history::DiffClick>, Option<&str>) = (None, None);
+        let mut diff_click: Option<history::DiffClick> = None;
         let source = match (self.history.wip_sel, &self.history.compare) {
             (_, Some(_)) => DiffSource::Compare,
             (Some(false), _) => DiffSource::Worktree,
@@ -723,7 +691,7 @@ impl App {
                     return;
                 }
                 // --- header of what is selected
-                let (mut chips, mut file_buttons): (Vec<(char, String, Option<(Option<u32>, Option<u32>)>)>, &[(&str, &str)]) = (Vec::new(), &[]);
+                let (mut chips, mut file_buttons): (Vec<(char, String, Option<(Option<u32>, Option<u32>)>)>, &[history::DiffButton]) = (Vec::new(), &[]);
                 if let Some((_, _, title)) = &h.compare {
                     ui.label(RichText::new(title).size(16.0).strong());
                     if let Some(d) = &h.details {
@@ -732,7 +700,7 @@ impl App {
                         }
                         chips = d.files.clone();
                     }
-                    file_buttons = &[("Ouvrir", "Ouvrir le fichier (tel qu'il est dans tes fichiers)")];
+                    file_buttons = &[("Ouvrir", "Ouvrir le fichier (tel qu'il est dans tes fichiers)", DiffAct::Open)];
                 } else if let Some(staged) = h.wip_sel {
                     let (title, color) = if staged { ("Modifications indexées", ok()) } else { ("Modifications non indexées", warn()) };
                     ui.horizontal(|ui| {
@@ -767,12 +735,15 @@ impl App {
                             .collect();
                     }
                     file_buttons = if staged {
-                        &[("Ouvrir", "Ouvrir le fichier"), ("− Désindexer", "Le retirer du prochain commit (les modifications restent dans le fichier)")]
+                        &[
+                            ("Ouvrir", "Ouvrir le fichier", DiffAct::Open),
+                            ("− Désindexer", "Le retirer du prochain commit (les modifications restent dans le fichier)", DiffAct::Unstage),
+                        ]
                     } else {
                         &[
-                            ("Ouvrir", "Ouvrir le fichier"),
-                            ("+ Indexer", "Ajouter tout le fichier au prochain commit"),
-                            ("↺ Annuler", "Remettre le fichier comme au dernier commit (demande confirmation)"),
+                            ("Ouvrir", "Ouvrir le fichier", DiffAct::Open),
+                            ("+ Indexer", "Ajouter tout le fichier au prochain commit", DiffAct::Stage),
+                            ("↺ Annuler", "Remettre le fichier comme au dernier commit (demande confirmation)", DiffAct::Discard),
                         ]
                     };
                 } else if let Some(c) = &selected_commit {
@@ -815,8 +786,12 @@ impl App {
                         }
                     }
                     file_buttons = &[
-                        ("Ouvrir", "Ouvrir le fichier (tel qu'il est dans tes fichiers)"),
-                        ("↺ Annuler dans mes fichiers", "Défaire ce que ce commit a changé dans ce fichier, dans tes fichiers actuels (à valider ensuite)"),
+                        ("Ouvrir", "Ouvrir le fichier (tel qu'il est dans tes fichiers)", DiffAct::Open),
+                        (
+                            "↺ Annuler dans mes fichiers",
+                            "Défaire ce que ce commit a changé dans ce fichier, dans tes fichiers actuels (à valider ensuite)",
+                            DiffAct::Revert,
+                        ),
                     ];
                 }
                 // --- files: summary, then a chip per file (click: go to its diff)
@@ -873,27 +848,19 @@ impl App {
                 // --- every file with its diff, one under the other
                 match &h.diff {
                     Some(d) => {
-                        let hunk_buttons: &[(&str, &str)] = match source {
+                        let hunk_buttons: &[history::DiffButton] = match source {
                             DiffSource::Worktree => &[
-                                ("+ Indexer ce bloc", "Ajouter ce bloc au prochain commit"),
-                                ("↺ Annuler ce bloc", "Supprimer ce changement du fichier (demande confirmation)"),
+                                ("+ Indexer ce bloc", "Ajouter ce bloc au prochain commit", DiffAct::Stage),
+                                ("↺ Annuler ce bloc", "Supprimer ce changement du fichier (demande confirmation)", DiffAct::Discard),
                             ],
-                            DiffSource::Index => &[("− Désindexer ce bloc", "Retirer ce bloc du prochain commit (le changement reste dans le fichier)")],
-                            DiffSource::Commit => &[("↺ Annuler ce changement", "Défaire ce bloc dans tes fichiers actuels (à valider ensuite)")],
+                            DiffSource::Index => {
+                                &[("− Désindexer ce bloc", "Retirer ce bloc du prochain commit (le changement reste dans le fichier)", DiffAct::Unstage)]
+                            }
+                            DiffSource::Commit => &[("↺ Annuler ce changement", "Défaire ce bloc dans tes fichiers actuels (à valider ensuite)", DiffAct::Revert)],
                             DiffSource::Compare => &[],
                         };
                         let jump = h.jump.take();
                         if let Some(c) = history::stacked_diff_view(ui, &d.lines, &d.files, &mut h.collapsed, "history_stacked", hunk_buttons, file_buttons, jump) {
-                            if let history::DiffClick::File(_, b) = c {
-                                file_act = match (source, b) {
-                                    (_, 0) => Some("open"),
-                                    (DiffSource::Worktree, 1) => Some("stage"),
-                                    (DiffSource::Worktree, _) => Some("discard"),
-                                    (DiffSource::Index, _) => Some("unstage"),
-                                    (DiffSource::Commit, _) => Some("revert"),
-                                    (DiffSource::Compare, _) => None,
-                                };
-                            }
                             diff_click = Some(c);
                         }
                     }
@@ -921,8 +888,8 @@ impl App {
         if clear_notice {
             self.history.notice = None;
         }
-        if diff_click.is_some() || file_act.is_some() {
-            self.diff_action(source, diff_click, file_act);
+        if let Some(c) = diff_click {
+            self.diff_action(source, c);
         }
         if diff_to_tab {
             match &self.history.diff {

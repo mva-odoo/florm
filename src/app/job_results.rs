@@ -37,8 +37,8 @@ impl App {
                 }
                 JobResult::ToolInstalled(r) => {
                     // a language server may have been installed: try again
-                    self.lsp.reset();
-                    self.lsp_note.clear();
+                    self.lsp.manager.reset();
+                    self.lsp.notes.clear();
                     match r {
                         Ok(msg) => {
                             self.log(msg.clone());
@@ -55,16 +55,16 @@ impl App {
                     }
                 }
                 JobResult::FileIndex(root, v) => {
-                    if self.root.as_ref() == Some(&root) && self.sym_index_for.as_ref() != Some(&root) {
-                        self.sym_index_for = Some(root.clone());
+                    if self.root.as_ref() == Some(&root) && self.index.symbols_for.as_ref() != Some(&root) {
+                        self.index.symbols_for = Some(root.clone());
                         let r = root.clone();
                         self.jobs.spawn(move || {
                             let idx = crate::index::Index::build(&r);
                             JobResult::SymbolIndex(r, idx)
                         });
                     }
-                    if self.root.as_ref() == Some(&root) && self.file_index != v {
-                        self.file_index = v;
+                    if self.root.as_ref() == Some(&root) && self.index.files != v {
+                        self.index.files = v;
                         // "go to file" opened while the list was being made: show the new list
                         if self.overlay.as_ref().is_some_and(|o| matches!(o.mode, Mode::Files)) {
                             let items = self.file_items();
@@ -342,9 +342,9 @@ impl App {
                     }
                     if let Ok(Some(p)) = path {
                         let prompt = match kind {
-                            0 => Prompt::OpenFolder,
-                            1 => Prompt::OpenFile,
-                            _ => Prompt::SaveAs,
+                            crate::os::Pick::Folder => Prompt::OpenFolder,
+                            crate::os::Pick::File => Prompt::OpenFile,
+                            crate::os::Pick::SaveAs => Prompt::SaveAs,
                         };
                         self.submit_prompt(prompt, p.display().to_string());
                     }
@@ -366,13 +366,13 @@ impl App {
                     }
                 }
                 JobResult::Fonts(list) => {
-                    self.font_list = Some(list);
-                    self.font_list_loading = false;
+                    self.prefs.font_list = Some(list);
+                    self.prefs.font_list_loading = false;
                 }
                 JobResult::SymbolIndex(root, idx) => {
                     if self.root.as_ref() == Some(&root) {
                         self.log(format!("Projet indexé : {} symboles dans {} fichiers", idx.len(), idx.files.len()));
-                        self.sym_index = Some(idx);
+                        self.index.symbols = Some(idx);
                     }
                 }
                 JobResult::Search(gen, out) => {

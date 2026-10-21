@@ -114,17 +114,6 @@ impl App {
         self.git_refresh();
     }
 
-    /// Shell chosen in the preferences (None: $SHELL, or cmd on Windows).
-    pub(super) fn term_shell(&self) -> Option<String> {
-        self.settings.shell.clone().filter(|s| !s.trim().is_empty())
-    }
-
-    pub(super) fn reveal(&mut self, path: &Path) {
-        if let Err(e) = crate::os::reveal(path) {
-            self.set_status(e);
-        }
-    }
-
     pub(super) fn search_ui(&mut self, ui: &mut egui::Ui, in_tab: bool) {
         let (mut go, mut act) = (false, None);
         let accent = self.hl.colors.accent;
@@ -566,40 +555,4 @@ impl App {
         }
     }
 
-    pub(super) fn refresh_index(&mut self) {
-        let Some(root) = self.root.clone() else { return };
-        self.file_index_at = Some(Instant::now());
-        self.jobs.spawn(move || {
-            let mut v = Vec::new();
-            let walker = ignore::WalkBuilder::new(&root).hidden(false).filter_entry(|e| e.file_name() != ".git").build();
-            for e in walker.flatten() {
-                if e.file_type().is_some_and(|t| t.is_file()) {
-                    if let Ok(rel) = e.path().strip_prefix(&root) {
-                        v.push(rel.to_path_buf());
-                    }
-                    if v.len() >= 1_500_000 {
-                        break;
-                    }
-                }
-            }
-            JobResult::FileIndex(root, v)
-        });
-    }
-
-    pub(super) fn plugin_env(&self, idx: usize) -> Vec<(String, String)> {
-        let mut env = Vec::new();
-        if let Some(r) = &self.root {
-            env.push(("FLORM_PROJECT".into(), r.display().to_string()));
-        }
-        if let Some(d) = self.docs.get(idx) {
-            if let Some(p) = &d.path {
-                env.push(("FLORM_FILE".into(), p.display().to_string()));
-            }
-            let (l, c) = d.line_col(d.primary_sel().head);
-            env.push(("FLORM_LINE".into(), (l + 1).to_string()));
-            env.push(("FLORM_COLUMN".into(), (c + 1).to_string()));
-            env.push(("FLORM_SYNTAX".into(), d.syntax.clone()));
-        }
-        env
-    }
 }

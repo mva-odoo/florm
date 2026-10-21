@@ -92,10 +92,18 @@ pub fn reveal(path: &Path) -> Result<(), String> {
     r.map_err(|e| format!("Impossible d'ouvrir le gestionnaire de fichiers : {e}"))
 }
 
-/// File chooser of the desktop (GTK, KDE…) through the xdg portal: a folder (`kind` 0), a file
-/// to open (1) or where to save (2). Blocks until the dialog is closed; `Ok(None)` when cancelled.
+/// What a file chooser asks for.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Pick {
+    Folder,
+    File,
+    SaveAs,
+}
+
+/// File chooser of the desktop (GTK, KDE…) through the xdg portal. Blocks until the dialog is
+/// closed; `Ok(None)` when cancelled.
 #[cfg(target_os = "linux")]
-pub fn portal_pick(kind: u8, dir: &Path, name: Option<&str>) -> Result<Option<PathBuf>, String> {
+pub fn portal_pick(kind: Pick, dir: &Path, name: Option<&str>) -> Result<Option<PathBuf>, String> {
     use std::collections::HashMap;
     use std::os::unix::ffi::OsStrExt;
     use zbus::zvariant::{OwnedObjectPath, Value};
@@ -113,11 +121,11 @@ pub fn portal_pick(kind: u8, dir: &Path, name: Option<&str>) -> Result<Option<Pa
     opts.insert("handle_token", Value::from(token.as_str()));
     opts.insert("current_folder", Value::from(folder));
     let (method, title) = match kind {
-        0 => ("OpenFile", "Ouvrir un dossier"),
-        1 => ("OpenFile", "Ouvrir un fichier"),
-        _ => ("SaveFile", "Enregistrer sous"),
+        Pick::Folder => ("OpenFile", "Ouvrir un dossier"),
+        Pick::File => ("OpenFile", "Ouvrir un fichier"),
+        Pick::SaveAs => ("SaveFile", "Enregistrer sous"),
     };
-    if kind == 0 {
+    if kind == Pick::Folder {
         opts.insert("directory", Value::from(true));
     }
     if let Some(n) = name {

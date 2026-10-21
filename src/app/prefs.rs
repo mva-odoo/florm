@@ -223,11 +223,11 @@ impl App {
                 pref_row(ui, rc, "Taille du texte", "Taille de la police de l'éditeur (Ctrl+= / Ctrl+- aussi).", |ui| {
                     ui.add(egui::Slider::new(&mut s.font_size, 9.0..=28.0).step_by(0.5).suffix(" px"));
                 });
-                if self.font_list.is_none() && !self.font_list_loading {
-                    self.font_list_loading = true;
+                if self.prefs.font_list.is_none() && !self.prefs.font_list_loading {
+                    self.prefs.font_list_loading = true;
                     self.jobs.spawn(|| JobResult::Fonts(crate::fonts::scan()));
                 }
-                let fonts = self.font_list.clone();
+                let fonts = self.prefs.font_list.clone();
                 let font_combo = |ui: &mut egui::Ui, id: &str, value: &mut String, mono_only: bool, default: &str| {
                     let shown = if value.is_empty() { format!("Par défaut ({default})") } else { value.clone() };
                     egui::ComboBox::from_id_salt(id).selected_text(shown).width(260.0).height(400.0).show_ui(ui, |ui| {
@@ -641,9 +641,9 @@ impl App {
             }
         }
         if s.lsp != before.lsp || s.lsp_servers != before.lsp_servers {
-            self.lsp.reset();
-            self.lsp_note.clear();
-            self.completion = None;
+            self.lsp.manager.reset();
+            self.lsp.notes.clear();
+            self.lsp.completion = None;
         }
         if s.shell != before.shell {
             self.persist("shell", config::toml_str(s.shell.as_deref().unwrap_or("")));

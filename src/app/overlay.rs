@@ -1,6 +1,7 @@
 //! Overlay: command palette, go to file, prompts.
 
 use super::*;
+use crate::os::Pick;
 
 impl App {
     pub(super) fn open_overlay(&mut self, mode: Mode) {
@@ -92,7 +93,7 @@ impl App {
         if self.root.is_none() {
             return Vec::new();
         }
-        self.file_index
+        self.index.files
             .iter()
             .enumerate()
             .map(|(i, p)| Item { label: p.to_string_lossy().into_owned(), detail: String::new(), action: Action::OpenIndexed(i) })
@@ -160,9 +161,9 @@ impl App {
         let mut cursor_to_end = false;
         // the same prompts can go through the system's file chooser
         let dialog_kind = match &ov.mode {
-            Mode::Prompt(Prompt::OpenFolder) => Some(0),
-            Mode::Prompt(Prompt::OpenFile) => Some(1),
-            Mode::Prompt(Prompt::SaveAs) => Some(2),
+            Mode::Prompt(Prompt::OpenFolder) => Some(Pick::Folder),
+            Mode::Prompt(Prompt::OpenFile) => Some(Pick::File),
+            Mode::Prompt(Prompt::SaveAs) => Some(Pick::SaveAs),
             _ => None,
         };
         let mut browse = false;
@@ -181,7 +182,7 @@ impl App {
         let mut chosen: Option<Action> = None;
         let mut submit = false;
         let mut goto_only: Option<String> = None;
-        let indexing = files_mode && self.file_index.is_empty() && self.root.is_some();
+        let indexing = files_mode && self.index.files.is_empty() && self.root.is_some();
         let area = egui::Area::new(egui::Id::new("overlay"))
             .anchor(Align2::CENTER_TOP, egui::vec2(0.0, 40.0))
             .order(egui::Order::Foreground)
@@ -436,7 +437,7 @@ impl App {
         match action {
             Action::Cmd(c) => self.exec(ctx, c),
             Action::OpenIndexed(i) => {
-                if let (Some(root), Some(p)) = (self.root.clone(), self.file_index.get(i)) {
+                if let (Some(root), Some(p)) = (self.root.clone(), self.index.files.get(i)) {
                     self.open_path(root.join(p));
                 }
             }
@@ -565,9 +566,9 @@ impl App {
                 let ctx = self.egui_ctx.clone();
                 let i = self.active;
                 if let (Some((ci, _)), Some((doc, pos))) = (self.lsp_for(i, &ctx, true), self.lsp_text_position(i)) {
-                    if let Some(c) = self.lsp.client(ci) {
+                    if let Some(c) = self.lsp.manager.client(ci) {
                         let id = c.request("textDocument/rename", serde_json::json!({ "textDocument": doc, "position": pos, "newName": text }));
-                        self.lsp_req.insert((ci, id), LspReq::Rename { name: text });
+                        self.lsp.requests.insert((ci, id), LspReq::Rename { name: text });
                     }
                 }
             }
@@ -688,5 +689,55 @@ impl App {
             }
             _ => {}
         }
+    }
+
+    /// Native dialog of the system (Windows Explorer, macOS Finder) to choose a folder, a file
+    /// to open or where to save. Returns false where Florm uses its own path entry (Linux).
+    #[cfg(any(windows, target_os = "macos"))]
+    pub(super) fn native_dialog(&mut self, kind: Pick) -> bool {
+        self.file_dialog(kind);
+        true
+    }
+
+    #[cfg(not(any(windows, target_os = "macos")))]
+    pub(super) fn native_dialog(&mut self, _kind: Pick) -> bool {
+        false
+    }
+
+    /// File chooser of the system (Explorer, Finder, the desktop's one through the xdg portal on
+    /// Linux) for a folder, a file to open or where to save.
+    pub(super) fn file_dialog(&mut self, kind: Pick) {
+        if self.dialog_open {
+            return;
+        }
+        self.dialog_open = true;
+        let current = self.docs.get(self.active).and_then(|d| d.path.clone());
+        let dir = current
+            .as_deref()
+            .and_then(Path::parent)
+            .map(Path::to_path_buf)
+            .or_else(|| self.root.clone())
+            .unwrap_or_else(config::home);
+        let name = current.as_deref().and_then(Path::file_name).map(|n| n.to_string_lossy().into_owned());
+        self.jobs.spawn(move || {
+            #[cfg(target_os = "linux")]
+            let picked = crate::os::portal_pick(kind, &dir, name.as_deref().filter(|_| kind == Pick::SaveAs));
+            #[cfg(not(target_os = "linux"))]
+            let picked = {
+                let d = rfd::FileDialog::new().set_directory(&dir);
+                Ok(match kind {
+                    Pick::Folder => d.set_title("Ouvrir un dossier (les projets WSL : \\\\wsl.localhost\\…)").pick_folder(),
+                    Pick::File => d.set_title("Ouvrir un fichier").pick_file(),
+                    Pick::SaveAs => {
+                        let d = d.set_title("Enregistrer sous");
+                        match name {
+                            Some(n) => d.set_file_name(n).save_file(),
+                            None => d.save_file(),
+                        }
+                    }
+                })
+            };
+            JobResult::Picked(kind, picked)
+        });
     }
 }

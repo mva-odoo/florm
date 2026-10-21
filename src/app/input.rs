@@ -122,8 +122,8 @@ impl App {
                     let head = doc.primary_sel().head;
                     let typed = (head.saturating_sub(2)..head).all(|p| doc.char_at(p).is_some_and(word));
                     let has_server = self.settings.lsp && doc.path.as_deref().and_then(lsp::language_of).is_some();
-                    if self.completion.is_none() && ((has_server && last == Some('.')) || (last.is_some_and(word) && typed)) {
-                        self.complete_at = Some(Instant::now() + Duration::from_millis(120));
+                    if self.lsp.completion.is_none() && ((has_server && last == Some('.')) || (last.is_some_and(word) && typed)) {
+                        self.lsp.complete_at = Some(Instant::now() + Duration::from_millis(120));
                     }
                 }
                 Event::Copy => {
@@ -198,7 +198,7 @@ impl App {
             CommandPalette => self.open_overlay(Mode::Commands),
             QuickOpen => {
                 // the list is rebuilt in the background (new files), the last one is shown meanwhile
-                if self.file_index.is_empty() || self.file_index_at.map_or(true, |t| t.elapsed() > Duration::from_secs(5)) {
+                if self.index.files.is_empty() || self.index.files_at.map_or(true, |t| t.elapsed() > Duration::from_secs(5)) {
                     self.refresh_index();
                 }
                 self.open_overlay(Mode::Files);
@@ -251,7 +251,7 @@ impl App {
                 self.save(self.active);
             }
             SaveAs => {
-                if !self.native_dialog(2) {
+                if !self.native_dialog(crate::os::Pick::SaveAs) {
                     self.open_prompt(Prompt::SaveAs);
                 }
             }
@@ -264,12 +264,12 @@ impl App {
             }
             NewFile => self.new_doc(),
             OpenFile => {
-                if !self.native_dialog(1) {
+                if !self.native_dialog(crate::os::Pick::File) {
                     self.open_prompt(Prompt::OpenFile);
                 }
             }
             OpenFolder => {
-                if !self.native_dialog(0) {
+                if !self.native_dialog(crate::os::Pick::Folder) {
                     self.open_prompt(Prompt::OpenFolder);
                 }
             }
@@ -360,10 +360,10 @@ impl App {
                 self.jobs.spawn(|| JobResult::ToolInstalled(lint::install_python_tool("python-lsp-server")));
             }
             LspRestart => {
-                self.lsp.reset();
-                self.lsp_req.clear();
-                self.completion = None;
-                self.lsp_note.clear();
+                self.lsp.manager.reset();
+                self.lsp.requests.clear();
+                self.lsp.completion = None;
+                self.lsp.notes.clear();
                 self.set_status("Serveurs de langage redémarrés");
             }
             MarkdownPreview => self.markdown_preview(false),

@@ -358,12 +358,28 @@ pub fn parse_diff(text: &str) -> Vec<DiffLine> {
         .collect()
 }
 
-/// What was clicked in a diff: a line (double click), button `n` of the hunk starting at a line,
-/// or button `n` of the header of the file starting at a line (stacked view).
+/// What a button of a diff does (on a hunk, or on the header of a file).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DiffAct {
+    Open,
+    Stage,
+    Unstage,
+    /// Remove the change from the working tree (asks for confirmation).
+    Discard,
+    /// Undo, in the working tree, what a commit changed.
+    Revert,
+}
+
+/// A button of a diff: label, tooltip, action.
+pub type DiffButton<'a> = (&'a str, &'a str, DiffAct);
+
+/// What was clicked in a diff: a line (double click), a button of the hunk starting at a line,
+/// or a button of the header of the file starting at a line (stacked view).
+#[derive(Clone, Copy)]
 pub enum DiffClick {
     Line(usize),
-    Hunk(usize, usize),
-    File(usize, usize),
+    Hunk(usize, DiffAct),
+    File(usize, DiffAct),
 }
 
 /// A file of a diff with several files.
@@ -432,8 +448,8 @@ pub fn stacked_diff_view(
     files: &[DiffFile],
     collapsed: &mut std::collections::HashSet<usize>,
     id: &str,
-    hunk_buttons: &[(&str, &str)],
-    file_buttons: &[(&str, &str)],
+    hunk_buttons: &[DiffButton],
+    file_buttons: &[DiffButton],
     jump: Option<FileJump>,
 ) -> Option<DiffClick> {
     let font = egui::TextStyle::Monospace.resolve(ui.style());
@@ -517,14 +533,14 @@ pub fn stacked_diff_view(
                     p.text(Pos2::new(a.right() + 6.0, cy), Align2::LEFT_CENTER, format!("−{}", f.dels), FontId::monospace(12.0), crate::highlight::red());
                     let mut right = bar.right() - 6.0;
                     let mut on_button = false;
-                    for (b, (label, tip)) in file_buttons.iter().enumerate().rev() {
+                    for (label, tip, act) in file_buttons.iter().rev() {
                         let w = button_width(ui, label);
                         let br = Rect::from_min_max(Pos2::new(right - w, bar.top() + 2.0), Pos2::new(right, bar.bottom() - 2.0));
                         right -= w + 4.0;
                         let bresp = ui.put(br, egui::Button::new(egui::RichText::new(*label).size(12.5))).on_hover_text(*tip);
                         on_button |= bresp.hovered();
                         if bresp.clicked() {
-                            click = Some(DiffClick::File(f.start, b));
+                            click = Some(DiffClick::File(f.start, *act));
                         }
                     }
                     if resp.clicked() && !on_button {
@@ -559,12 +575,12 @@ pub fn stacked_diff_view(
                     p.text(Pos2::new(rect.left() + nums_w, y), Align2::LEFT_CENTER, &l.text, font.clone(), color);
                     if l.kind == DiffKind::Hunk && !hunk_buttons.is_empty() {
                         let mut right = rect.right().min(visible.right()) - 6.0;
-                        for (b, (label, tip)) in hunk_buttons.iter().enumerate().rev() {
+                        for (label, tip, act) in hunk_buttons.iter().rev() {
                             let w = button_width(ui, label);
                             let br = Rect::from_min_max(Pos2::new(right - w, rect.top() + 2.0), Pos2::new(right, rect.bottom() - 2.0));
                             right -= w + 4.0;
                             if ui.put(br, egui::Button::new(egui::RichText::new(*label).size(12.5))).on_hover_text(*tip).clicked() {
-                                click = Some(DiffClick::Hunk(i, b));
+                                click = Some(DiffClick::Hunk(i, *act));
                             }
                         }
                     } else if l.kind != DiffKind::Hunk && resp.on_hover_text_at_pointer("Double-clic : ouvrir le fichier à cette ligne").double_clicked() {
@@ -606,7 +622,7 @@ pub fn reflow(body: &str) -> String {
 
 /// Unified diff with green / red line backgrounds and old / new line numbers. `hunk_buttons`
 /// (label, tooltip) are shown on every "@@" line; double-clicking a line reports it.
-pub fn diff_view(ui: &mut Ui, lines: &[DiffLine], id: &str, hunk_buttons: &[(&str, &str)]) -> Option<DiffClick> {
+pub fn diff_view(ui: &mut Ui, lines: &[DiffLine], id: &str, hunk_buttons: &[DiffButton]) -> Option<DiffClick> {
     let font = egui::TextStyle::Monospace.resolve(ui.style());
     let (row_h, cw) = ui.fonts(|f| (f.row_height(&font) + 2.0, crate::editor_view::char_width(f, &font)));
     let row_h = if hunk_buttons.is_empty() { row_h } else { row_h.max(22.0) };
@@ -647,12 +663,12 @@ pub fn diff_view(ui: &mut Ui, lines: &[DiffLine], id: &str, hunk_buttons: &[(&st
             if l.kind == DiffKind::Hunk && !hunk_buttons.is_empty() {
                 // buttons on the right of the visible area
                 let mut right = rect.right().min(visible_right) - 6.0;
-                for (b, (label, tip)) in hunk_buttons.iter().enumerate().rev() {
+                for (label, tip, act) in hunk_buttons.iter().rev() {
                     let w = button_width(ui, label);
                     let r = Rect::from_min_max(Pos2::new(right - w, rect.top() + 1.0), Pos2::new(right, rect.bottom() - 1.0));
                     right -= w + 4.0;
                     if ui.put(r, egui::Button::new(egui::RichText::new(*label).size(12.5))).on_hover_text(*tip).clicked() {
-                        click = Some(DiffClick::Hunk(i, b));
+                        click = Some(DiffClick::Hunk(i, *act));
                     }
                 }
             } else if resp.on_hover_text_at_pointer("Double-clic : ouvrir le fichier à cette ligne").double_clicked() {
@@ -751,7 +767,7 @@ mod diff_tests {
         for jump in [None, Some(FileJump::To(1)), Some(FileJump::Next), Some(FileJump::PageUp)] {
             let _ = ctx.run(Default::default(), |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
-                    let click = stacked_diff_view(ui, &lines, &files, &mut folded, "t", &[("+", "")], &[("Ouvrir", "")], jump);
+                    let click = stacked_diff_view(ui, &lines, &files, &mut folded, "t", &[("+", "", DiffAct::Stage)], &[("Ouvrir", "", DiffAct::Open)], jump);
                     assert!(click.is_none());
                 });
             });

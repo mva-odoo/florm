@@ -566,4 +566,49 @@ impl App {
             }
         }
     }
+
+    /// Moves tab `from` before tab `to` (`to == len`: at the end); the moved tab becomes active.
+    pub(super) fn move_tab(&mut self, from: usize, to: usize) {
+        if from >= self.docs.len() {
+            return;
+        }
+        let d = self.docs.remove(from);
+        let to = if to > from { to - 1 } else { to }.min(self.docs.len());
+        self.docs.insert(to, d);
+        self.active = to;
+        self.tab_scrolled = None;
+        self.history.open = false;
+        self.prefs.open = false;
+        if let Some(sp) = self.split.as_mut() {
+            sp.shown = false;
+        }
+    }
+
+    pub(super) fn close_tab(&mut self, idx: usize, force: bool) {
+        let Some(doc) = self.docs.get(idx) else { return };
+        if doc.is_dirty() && !force {
+            self.confirm = Some(Confirm::CloseTab(doc.uid));
+            return;
+        }
+        let was_active = idx == self.active;
+        let d = self.docs.remove(idx);
+        if let document::View::Terminal(id) = d.view {
+            self.term.close(id);
+        }
+        if let Some(p) = d.path {
+            self.closed.push(p);
+        }
+        if was_active {
+            // next tab of the same panel (the one on the right, else on the left)
+            let same = self.docs.iter().enumerate().filter(|(_, x)| x.pane == d.pane).map(|(j, _)| j);
+            self.active = same.min_by_key(|&j| (j < idx, j.abs_diff(idx))).unwrap_or(idx.min(self.docs.len().saturating_sub(1)));
+        } else if idx < self.active {
+            self.active -= 1;
+        }
+    }
+
+    /// Shell chosen in the preferences (None: $SHELL, or cmd on Windows).
+    pub(super) fn term_shell(&self) -> Option<String> {
+        self.settings.shell.clone().filter(|s| !s.trim().is_empty())
+    }
 }

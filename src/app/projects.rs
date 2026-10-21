@@ -62,7 +62,7 @@ impl App {
         self.repos.clear();
         self.history = HistoryUi::default();
         self.tree = None;
-        self.file_index.clear();
+        self.index.files.clear();
         self.git = GitUi::default();
         self.search.gen.store(u64::MAX, Ordering::SeqCst);
         self.search = self.fresh_search();
@@ -253,5 +253,25 @@ impl App {
             }
             Err(e) => self.set_status(format!("Déplacement impossible : {e}")),
         }
+    }
+
+    pub(super) fn refresh_index(&mut self) {
+        let Some(root) = self.root.clone() else { return };
+        self.index.files_at = Some(Instant::now());
+        self.jobs.spawn(move || {
+            let mut v = Vec::new();
+            let walker = ignore::WalkBuilder::new(&root).hidden(false).filter_entry(|e| e.file_name() != ".git").build();
+            for e in walker.flatten() {
+                if e.file_type().is_some_and(|t| t.is_file()) {
+                    if let Ok(rel) = e.path().strip_prefix(&root) {
+                        v.push(rel.to_path_buf());
+                    }
+                    if v.len() >= 1_500_000 {
+                        break;
+                    }
+                }
+            }
+            JobResult::FileIndex(root, v)
+        });
     }
 }

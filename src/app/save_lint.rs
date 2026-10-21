@@ -29,7 +29,7 @@ impl App {
     }
 
     fn after_save(&mut self, idx: usize, path: &Path) {
-        if let (Some(ix), Some(d)) = (self.sym_index.as_mut(), self.docs.get(idx)) {
+        if let (Some(ix), Some(d)) = (self.index.symbols.as_mut(), self.docs.get(idx)) {
             ix.update(path, &d.rope.to_string());
         }
         let canon = |p: &Path| crate::os::canon(p);
@@ -91,43 +91,33 @@ impl App {
         });
     }
 
-    /// Moves tab `from` before tab `to` (`to == len`: at the end); the moved tab becomes active.
-    pub(super) fn move_tab(&mut self, from: usize, to: usize) {
-        if from >= self.docs.len() {
-            return;
-        }
-        let d = self.docs.remove(from);
-        let to = if to > from { to - 1 } else { to }.min(self.docs.len());
-        self.docs.insert(to, d);
-        self.active = to;
-        self.tab_scrolled = None;
-        self.history.open = false;
-        self.prefs.open = false;
-        if let Some(sp) = self.split.as_mut() {
-            sp.shown = false;
-        }
+    pub(super) fn lint_config(&self) -> lint::LintConfig {
+        lint::LintConfig { python_linter: self.settings.python_linter.clone(), python_args: self.settings.python_lint_args.clone() }
     }
 
-    pub(super) fn close_tab(&mut self, idx: usize, force: bool) {
-        let Some(doc) = self.docs.get(idx) else { return };
-        if doc.is_dirty() && !force {
-            self.confirm = Some(Confirm::CloseTab(doc.uid));
+    /// Lints the active Python buffer while typing (debounced, one run at a time per document).
+    pub(super) fn update_live_lint(&mut self, ctx: &egui::Context) {
+        if !self.settings.lint_live {
             return;
         }
-        let was_active = idx == self.active;
-        let d = self.docs.remove(idx);
-        if let document::View::Terminal(id) = d.view {
-            self.term.close(id);
+        let Some(d) = self.docs.get(self.active) else { return };
+        let Some(path) = d.path.clone() else { return };
+        if lint::lang_of(&path) != Some("python") || d.lint_version == d.version || self.lint_inflight.contains(&d.uid) {
+            return;
         }
-        if let Some(p) = d.path {
-            self.closed.push(p);
+        let wait = Duration::from_millis(500);
+        let el = d.last_change.elapsed();
+        if el < wait && d.lint_version != u64::MAX {
+            ctx.request_repaint_after(wait - el);
+            return;
         }
-        if was_active {
-            // next tab of the same panel (the one on the right, else on the left)
-            let same = self.docs.iter().enumerate().filter(|(_, x)| x.pane == d.pane).map(|(j, _)| j);
-            self.active = same.min_by_key(|&j| (j < idx, j.abs_diff(idx))).unwrap_or(idx.min(self.docs.len().saturating_sub(1)));
-        } else if idx < self.active {
-            self.active -= 1;
-        }
+        let (uid, version, text) = (d.uid, d.version, d.rope.to_string());
+        let root = self.repo_for(&path).or_else(|| self.root.clone());
+        let cfg = self.lint_config();
+        self.lint_inflight.insert(uid);
+        self.jobs.spawn(move || {
+            let (diags, linter) = lint::lint_python(&path, &text, root.as_deref(), &cfg);
+            JobResult::Lint { uid, version, diags, linter }
+        });
     }
 }
