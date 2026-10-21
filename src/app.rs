@@ -678,6 +678,8 @@ struct PrefsUi {
     /// text buffers edited before being saved
     lint_args: String,
     shell: String,
+    /// `exclude` setting being edited (comma separated).
+    exclude: String,
     /// Fonts of the system, for the preferences (None until listed).
     font_list: Option<Vec<crate::fonts::FontInfo>>,
     font_list_loading: bool,
@@ -685,7 +687,7 @@ struct PrefsUi {
 
 impl Default for PrefsUi {
     fn default() -> Self {
-        PrefsUi { capture: None, proposed: None, key_action: None, open: false, section: PrefSection::Appearance, filter: String::new(), lint_args: String::new(), shell: String::new(), font_list: None, font_list_loading: false }
+        PrefsUi { capture: None, proposed: None, key_action: None, open: false, section: PrefSection::Appearance, filter: String::new(), lint_args: String::new(), shell: String::new(), exclude: String::new(), font_list: None, font_list_loading: false }
     }
 }
 

@@ -440,6 +440,28 @@ impl App {
                 }
             }
             PrefSection::Advanced => {
+                let exclude = &mut self.prefs.exclude;
+                pref_row(
+                    ui,
+                    rc,
+                    "Fichiers exclus",
+                    "Ni dans « aller au fichier » (Ctrl+P), ni dans l'index des symboles, ni dans la recherche. Séparés par des virgules, syntaxe .gitignore (dossier/ ou *.ext). Le .gitignore des dépôts et .git sont toujours appliqués.",
+                    |ui| {
+                        let r = ui.add(egui::TextEdit::singleline(exclude).desired_width(320.0).font(egui::TextStyle::Monospace).hint_text("__pycache__/, *.pyc"));
+                        if r.lost_focus() || r.changed() && ui.input(|i| i.key_pressed(Key::Enter)) {
+                            s.exclude = exclude.split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect();
+                        }
+                    },
+                );
+                pref_row(ui, rc, "Taille de l'index des symboles", "Fichiers source lus au plus (définitions F12, survol, complétion). Les dépôts des fichiers ouverts passent en premier ; plus grand = plus de mémoire et un chargement plus long.", |ui| {
+                    // fixed choices: each change builds the index again
+                    let label = |n: usize| format!("{} fichiers", n.to_string().as_bytes().rchunks(3).rev().map(|c| std::str::from_utf8(c).unwrap()).collect::<Vec<_>>().join(" "));
+                    egui::ComboBox::from_id_salt("pref_index_max").selected_text(label(s.index_max_files)).show_ui(ui, |ui| {
+                        for n in [50_000, 150_000, 300_000, 600_000, 1_500_000] {
+                            ui.selectable_value(&mut s.index_max_files, n, label(n));
+                        }
+                    });
+                });
                 pref_row(ui, rc, "Fichier de préférences", &config::settings_path().display().to_string(), |ui| {
                     if ui.button("Ouvrir settings.toml").clicked() {
                         actions.push(Cmd::OpenSettingsFile);
@@ -644,6 +666,17 @@ impl App {
             self.lsp.manager.reset();
             self.lsp.notes.clear();
             self.lsp.completion = None;
+        }
+        if s.exclude != before.exclude {
+            self.persist("exclude", config::toml_str_array(&s.exclude));
+        }
+        if s.index_max_files != before.index_max_files {
+            self.persist("index_max_files", s.index_max_files.to_string());
+        }
+        if s.exclude != before.exclude || s.index_max_files != before.index_max_files {
+            // file list and symbol index made again with the new rules
+            self.index.symbols_for = None;
+            self.refresh_index();
         }
         if s.shell != before.shell {
             self.persist("shell", config::toml_str(s.shell.as_deref().unwrap_or("")));

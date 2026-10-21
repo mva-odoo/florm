@@ -508,6 +508,7 @@ impl App {
                 self.prefs.open = true;
                 self.history.open = false;
                 self.prefs.lint_args = self.settings.python_lint_args.join(" ");
+                self.prefs.exclude = self.settings.exclude.join(", ");
                 self.prefs.shell = self.settings.shell.clone().unwrap_or_default();
             }
             OpenSettingsFile => {
