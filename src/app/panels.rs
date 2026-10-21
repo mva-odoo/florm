@@ -166,7 +166,6 @@ impl App {
         egui::TopBottomPanel::top(panel_id).exact_height(TAB_STRIP_H).frame(egui::Frame::none().fill(tc.bar)).show_inside(ui, |ui| {
             let bar = ui.max_rect();
             strip.0 = bar;
-            ui.painter().line_segment([bar.left_bottom(), bar.right_bottom()], egui::Stroke::new(1.0_f32, tc.border.gamma_multiply(0.35)));
             egui::ScrollArea::horizontal()
                 .id_salt(panel_id.with("scroll"))
                 .drag_to_scroll(false)
@@ -356,11 +355,50 @@ impl App {
                     }
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if let Some(d) = self.docs.get(self.active) {
-                        if ui.small_button(&d.syntax).clicked() {
-                            self.pending.push(Cmd::SetSyntax);
+                    // the rest of the file's details, the terminal and the language server in a menu
+                    let mut pending = Vec::new();
+                    let lsp_line = self.lsp_status_line();
+                    ui.menu_button("⋯", |ui| {
+                        ui.visuals_mut().override_text_color = None;
+                        if let Some(d) = self.docs.get(self.active) {
+                            if ui.button(format!("Syntaxe : {}…", d.syntax)).clicked() {
+                                pending.push(Cmd::SetSyntax);
+                                ui.close_menu();
+                            }
+                            let ind = if d.use_spaces { format!("Espaces : {}", d.tab_size) } else { format!("Tabulations : {}", d.tab_size) };
+                            if ui.button(format!("Indentation : {ind}")).on_hover_text("Clic : passer aux espaces / aux tabulations").clicked() {
+                                toggle_spaces = true;
+                                ui.close_menu();
+                            }
+                            ui.label(format!("Fin de ligne : {}", if d.crlf { "CRLF (Windows)" } else { "LF" }));
+                            ui.label(format!("Encodage : {}", d.encoding.label()));
                         }
-                        ui.label(if d.crlf { "CRLF" } else { "LF" });
+                        ui.separator();
+                        if ui.button(format!(">_ Terminal en bas    {}", self.keymap.label(Cmd::ToggleTerminal))).clicked() {
+                            pending.push(Cmd::ToggleTerminal);
+                            ui.close_menu();
+                        }
+                        if ui.button(format!("Nouveau terminal dans un onglet    {}", self.keymap.label(Cmd::NewTerminalTab))).clicked() {
+                            pending.push(Cmd::NewTerminalTab);
+                            ui.close_menu();
+                        }
+                        if let Some((text, warning, install)) = &lsp_line {
+                            ui.separator();
+                            let t = if *warning { RichText::new(text).color(warn()) } else { RichText::new(text) };
+                            if *install {
+                                if ui.button(t).on_hover_text("Installe python-lsp-server pour Florm (pip --target, sans toucher au Python système). Ou installe pyright.").clicked() {
+                                    pending.push(Cmd::InstallPylsp);
+                                    ui.close_menu();
+                                }
+                            } else {
+                                ui.label(t);
+                            }
+                        }
+                    })
+                    .response
+                    .on_hover_text("Syntaxe, indentation, fin de ligne, encodage, terminal");
+                    self.pending.extend(pending);
+                    if let Some(d) = self.docs.get(self.active) {
                         // only shown when it is not UTF-8: the file is saved back in its encoding
                         if d.encoding != document::Encoding::Utf8
                             && ui
@@ -370,15 +408,8 @@ impl App {
                         {
                             convert_utf8 = true;
                         }
-                        let ind = if d.use_spaces {
-                            format!("Espaces : {}", d.tab_size)
-                        } else {
-                            format!("Tabulations : {}", d.tab_size)
-                        };
-                        if ui.small_button(ind).clicked() {
-                            toggle_spaces = true;
-                        }
                     }
+                    // problems: only when there are some
                     let errs: usize = self
                         .docs
                         .iter()
@@ -386,48 +417,11 @@ impl App {
                         .filter(|g| g.severity == Severity::Error)
                         .count();
                     let warns: usize = self.docs.iter().map(|d| d.diagnostics.len()).sum::<usize>() - errs;
-                    let txt = RichText::new(format!("✖ {errs}  ⚠ {warns}")).color(if errs > 0 {
-                        err()
-                    } else if warns > 0 {
-                        warn()
-                    } else {
-                        ui.visuals().weak_text_color()
-                    });
-                    if ui.add(egui::Button::new(txt).frame(false)).clicked() {
-                        self.pending.push(Cmd::ShowProblems);
-                    }
-                    if let Some(fam) = self.settings.lsp.then(|| self.docs.get(self.active).and_then(|d| d.path.as_deref()).and_then(lsp::language_of)).flatten().map(|l| l.0) {
-                        let running = self.lsp.manager.clients.iter().flatten().find(|c| c.family == fam);
-                        match (running, self.lsp.notes.get(fam)) {
-                            (Some(c), _) => {
-                                let t = if c.ready { format!("LSP : {}", c.name) } else { format!("LSP : {} (démarrage…)", c.name) };
-                                ui.label(t).on_hover_text("Complétion Ctrl+Espace · Définition F12 · Renommer F2");
-                            }
-                            (None, Some(why)) if fam == "python" => {
-                                if ui
-                                    .add(egui::Button::new(RichText::new("LSP : installer pylsp").color(warn())).frame(false))
-                                    .on_hover_text(format!("{why}\nClic : installe python-lsp-server pour Florm (pip --target, sans toucher au Python système). Ou installe pyright."))
-                                    .clicked()
-                                {
-                                    self.pending.push(Cmd::InstallPylsp);
-                                }
-                            }
-                            (None, Some(why)) => {
-                                ui.label(RichText::new("LSP : aucun serveur").color(warn())).on_hover_text(format!(
-                                    "{why}\nInstalle typescript-language-server, rust-analyzer, gopls ou clangd selon le langage, ou indique la commande dans [lsp_servers] des préférences."
-                                ));
-                            }
-                            _ => {}
+                    if errs + warns > 0 {
+                        let txt = RichText::new(format!("✖ {errs}  ⚠ {warns}")).color(if errs > 0 { err() } else { warn() });
+                        if ui.add(egui::Button::new(txt).frame(false)).on_hover_text("Problèmes (Ctrl+Shift+M)").clicked() {
+                            self.pending.push(Cmd::ShowProblems);
                         }
-                    }
-                    let t = ui
-                        .add(egui::Button::new(">_ Terminal").selected(self.bottom == Some(BottomTab::Terminal)))
-                        .on_hover_text(format!("Terminal en bas ({}) · clic droit : nouveau terminal dans un onglet ({})", self.keymap.label(Cmd::ToggleTerminal), self.keymap.label(Cmd::NewTerminalTab)));
-                    if t.clicked() {
-                        self.pending.push(Cmd::ToggleTerminal);
-                    }
-                    if t.secondary_clicked() {
-                        self.pending.push(Cmd::NewTerminalTab);
                     }
                     if let Some(st) = &self.git.status {
                         let label = match (&self.repo, self.repos.len() > 1) {
@@ -451,6 +445,20 @@ impl App {
                 d.convert_to_utf8();
                 self.set_status("Sera enregistré en UTF-8 (Ctrl+S)");
             }
+        }
+    }
+
+    /// Language server of the active file, for the status bar menu: (text, is a warning, the
+    /// click installs pylsp).
+    fn lsp_status_line(&self) -> Option<(String, bool, bool)> {
+        let fam = self.settings.lsp.then(|| self.docs.get(self.active).and_then(|d| d.path.as_deref()).and_then(lsp::language_of)).flatten()?.0;
+        let running = self.lsp.manager.clients.iter().flatten().find(|c| c.family == fam);
+        match (running, self.lsp.notes.get(fam)) {
+            (Some(c), _) if c.ready => Some((format!("Serveur de langage : {}", c.name), false, false)),
+            (Some(c), _) => Some((format!("Serveur de langage : {} (démarrage…)", c.name), false, false)),
+            (None, Some(_)) if fam == "python" => Some(("Serveur de langage : installer pylsp".into(), true, true)),
+            (None, Some(why)) => Some((format!("Pas de serveur de langage : {why}"), true, false)),
+            _ => None,
         }
     }
 

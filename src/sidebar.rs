@@ -281,7 +281,7 @@ fn node_ui(
     x += 14.0;
     let icon = Rect::from_center_size(Pos2::new(x + 8.0, cy), egui::vec2(16.0, 16.0));
     if node.is_dir {
-        let folder = mix(v.hyperlink_color, v.weak_text_color(), 0.45);
+        let folder = mix(v.hyperlink_color, v.weak_text_color(), 0.75);
         icons::paint_folder(&painter, icon, node.expanded, folder, bg);
     } else {
         icons::paint_file(&painter, icon, &node.name, bg, light);
@@ -296,7 +296,19 @@ fn node_ui(
     let name = painter.layout_no_wrap(node.name.clone(), FontId::proportional(13.5), color);
     let name_end = x + name.size().x;
     painter.galley(Pos2::new(x, cy - name.size().y / 2.0), name, color);
-    if let Some((label, _)) = node.is_dir.then(|| repos.get(&node.path)).flatten() {
+    if let Some((full, _)) = node.is_dir.then(|| repos.get(&node.path)).flatten() {
+        // at rest only what needs attention (↑ to push, ↓ to pull, changed files); the branch
+        // when the row is hovered
+        let label = if r.hovered() {
+            full.clone()
+        } else {
+            [" ↑", " ↓", " · "]
+                .iter()
+                .filter_map(|p| full.find(p))
+                .min()
+                .map(|i| full[i..].trim_start_matches(" · ").trim().to_string())
+                .unwrap_or_default()
+        };
         let room = rect.right() - 6.0 - (name_end + 10.0);
         let font = FontId::proportional(11.0);
         let tint = mix(v.hyperlink_color, v.weak_text_color(), 0.35);

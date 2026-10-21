@@ -10,7 +10,7 @@ use eframe::egui::{
     self, text::LayoutJob, Align, Align2, Color32, CursorIcon, FontId, Id, Pos2, Rect, RichText, Sense, Shape,
     Stroke, TextFormat, Ui,
 };
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// Real advance of one monospace character, as laid out by egui. `glyph_width` returns the
 /// unrounded advance (e.g. 8.275 px) while laid out text uses pixel-rounded advances
@@ -693,12 +693,25 @@ fn text_area(
         painter.rect_filled(gutter, 0.0, c.bg);
         let cursor_lines: HashSet<usize> = doc.sels.iter().map(|s| doc.rope.char_to_line(s.head)).collect();
         let bookmarks: HashSet<usize> = doc.bookmark_lines().into_iter().collect();
+        let mut problems: HashMap<usize, Severity> = HashMap::new();
+        for d in &doc.diagnostics {
+            let e = problems.entry(d.line).or_insert(d.severity);
+            if d.severity == Severity::Error {
+                *e = Severity::Error;
+            }
+        }
         let gutter_hover = ui.rect_contains_pointer(gutter);
         for l in first..=last {
             if rm.is_hidden(l) {
                 continue;
             }
-            let color = if cursor_lines.contains(&l) { c.fg } else { c.gutter_fg };
+            // the number of a line with a problem takes its color (no extra mark in the gutter)
+            let color = match problems.get(&l) {
+                Some(Severity::Error) => highlight::red(),
+                Some(_) => highlight::yellow(),
+                None if cursor_lines.contains(&l) => c.fg,
+                None => c.gutter_fg.gamma_multiply(0.75),
+            };
             painter.text(Pos2::new(gx + gutter_w - 22.0, line_y(l)), Align2::RIGHT_TOP, (l + 1).to_string(), font.clone(), color);
             if bookmarks.contains(&l) {
                 // bookmark: a small ribbon on the left of the number
@@ -724,13 +737,6 @@ fn text_area(
                 };
                 painter.rect_filled(r, 0.0, col);
             }
-        }
-        let mut dots: Vec<(usize, Severity)> = doc.diagnostics.iter().map(|d| (d.line, d.severity)).collect();
-        dots.sort_by_key(|(l, s)| (*l, *s != Severity::Error));
-        dots.dedup_by_key(|(l, _)| *l);
-        for (l, sev) in dots.into_iter().filter(|(l, _)| (first..=last).contains(l) && !rm.is_hidden(*l)) {
-            let col = if sev == Severity::Error { highlight::red() } else { highlight::yellow() };
-            painter.circle_filled(Pos2::new(gx + 7.0, line_y(l) + rh / 2.0), 3.5, col);
         }
 
         // gutter markers of phantom rows (drawn after the gutter background)

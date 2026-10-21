@@ -84,7 +84,7 @@ fn filled_button(text: impl Into<String>, fill: Color32) -> egui::Button<'static
     egui::Button::new(RichText::new(text.into()).color(text_on(fill)).strong()).fill(fill)
 }
 
-const TAB_STRIP_H: f32 = 36.0;
+const TAB_STRIP_H: f32 = 32.0;
 
 #[derive(PartialEq, Clone, Copy)]
 enum SideTab {
@@ -1042,13 +1042,13 @@ fn tab_widget(
     error: bool,
     tc: &crate::highlight::TabColors,
 ) -> (egui::Response, bool) {
-    let font = egui::FontId::proportional(14.0);
+    let font = egui::FontId::proportional(13.5);
     let text_color = if error { err() } else if active { tc.text_active } else { tc.text_inactive };
     let galley = ui.painter().layout_no_wrap(title.to_string(), font, text_color);
     let icon_w = if icon.is_some() { 22.0 } else { 0.0 };
     let w = galley.size().x + 52.0 + icon_w;
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, TAB_STRIP_H), Sense::click_and_drag());
-    let tab = egui::Rect::from_min_max(egui::pos2(rect.left(), rect.top() + 5.0), rect.right_bottom());
+    let tab = egui::Rect::from_min_max(egui::pos2(rect.left(), rect.top() + 4.0), rect.right_bottom());
     let close_rect = egui::Rect::from_center_size(egui::pos2(tab.right() - 17.0, tab.center().y), egui::vec2(18.0, 18.0));
     let close = ui.interact(close_rect, resp.id.with("close"), Sense::click());
     let hovered = resp.hovered() || close.hovered();
