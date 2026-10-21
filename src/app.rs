@@ -131,6 +131,7 @@ enum Mode {
     Definitions(String),
     /// Where a symbol is used (language server).
     References(String),
+    Bookmarks,
     Prompt(Prompt),
 }
 

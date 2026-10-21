@@ -440,6 +440,24 @@ impl App {
                 }
             }
             FindReferences => self.find_references(ctx),
+            ToggleBookmark | NextBookmark | PrevBookmark | ClearBookmarks => {
+                if let Some(d) = self.docs.get_mut(self.active).filter(|d| d.view == document::View::Text) {
+                    let msg = match cmd {
+                        ToggleBookmark if d.toggle_bookmark() => "Signet ajouté (F8 / Maj+F8 : suivant / précédent)",
+                        ToggleBookmark => "Signet retiré",
+                        ClearBookmarks => {
+                            d.bookmarks.clear();
+                            "Signets du fichier retirés"
+                        }
+                        _ if d.goto_bookmark(cmd == NextBookmark) => "",
+                        _ => "Aucun signet dans ce fichier (Ctrl+F2 pour en poser un)",
+                    };
+                    if !msg.is_empty() {
+                        self.set_status(msg);
+                    }
+                }
+            }
+            ListBookmarks => self.list_bookmarks(),
             FormatDocument => self.python_rewrite(lint::Rewrite::Format),
             FixDocument => self.python_rewrite(lint::Rewrite::Fix),
             NoqaLine => {

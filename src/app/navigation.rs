@@ -3,6 +3,24 @@
 use super::*;
 
 impl App {
+    /// The bookmarks of all the open files, in a list to jump to one.
+    pub(super) fn list_bookmarks(&mut self) {
+        let root = self.root.clone();
+        let mut items = Vec::new();
+        for d in &self.docs {
+            let Some(p) = &d.path else { continue };
+            let rel = root.as_ref().and_then(|r| p.strip_prefix(r).ok()).unwrap_or(p).display().to_string();
+            for l in d.bookmark_lines() {
+                items.push(Item { label: format!("{rel}:{}", l + 1), detail: d.line_text(l).trim().to_string(), action: Action::Location(p.clone(), l) });
+            }
+        }
+        if items.is_empty() {
+            self.set_status("Aucun signet dans les fichiers ouverts (Ctrl+F2 pour en poser un)");
+            return;
+        }
+        self.open_overlay_with(Mode::Bookmarks, items, String::new());
+    }
+
     /// Records the previous place when the cursor jumps (another file, or 8+ lines away).
     pub(super) fn track_nav(&mut self) {
         let Some(d) = self.docs.get(self.active).filter(|d| d.view == document::View::Text) else { return };

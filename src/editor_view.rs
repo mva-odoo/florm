@@ -692,6 +692,7 @@ fn text_area(
         let gutter = Rect::from_min_size(Pos2::new(gx, origin.y + vp.min.y), egui::vec2(gutter_w, vp.height()));
         painter.rect_filled(gutter, 0.0, c.bg);
         let cursor_lines: HashSet<usize> = doc.sels.iter().map(|s| doc.rope.char_to_line(s.head)).collect();
+        let bookmarks: HashSet<usize> = doc.bookmark_lines().into_iter().collect();
         let gutter_hover = ui.rect_contains_pointer(gutter);
         for l in first..=last {
             if rm.is_hidden(l) {
@@ -699,6 +700,11 @@ fn text_area(
             }
             let color = if cursor_lines.contains(&l) { c.fg } else { c.gutter_fg };
             painter.text(Pos2::new(gx + gutter_w - 22.0, line_y(l)), Align2::RIGHT_TOP, (l + 1).to_string(), font.clone(), color);
+            if bookmarks.contains(&l) {
+                // bookmark: a small ribbon on the left of the number
+                let r = Rect::from_min_size(Pos2::new(gx + 4.0, line_y(l) + 3.0), egui::vec2(4.0, rh - 6.0));
+                painter.rect_filled(r, 2.0, c.accent);
+            }
             let arrow = Pos2::new(gx + gutter_w - 14.0, line_y(l) + rh / 2.0);
             if folded.contains(&l) {
                 crate::icons::paint_chevron(painter, arrow, false, c.accent);

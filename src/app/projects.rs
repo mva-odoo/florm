@@ -92,7 +92,7 @@ impl App {
             if let Some(name) = &backup {
                 backups.push((name.clone(), d.rope.to_string()));
             }
-            files.push(SessionFile { path, line, col, backup });
+            files.push(SessionFile { path, line, col, backup, bookmarks: d.bookmark_lines() });
         }
         let mut expanded = Vec::new();
         if let Some(t) = &self.tree {
@@ -161,6 +161,7 @@ impl App {
                     restored += 1;
                 }
                 self.docs[i].goto_line(f.line, f.col);
+                self.docs[i].set_bookmark_lines(&f.bookmarks);
                 opened.push(Some(i));
             } else {
                 opened.push(None);

@@ -1081,6 +1081,7 @@ impl App {
             item(ui, "Corriger automatiquement (ruff --fix)", Cmd::FixDocument, !ro);
         }
         ui.separator();
+        item(ui, "Ajouter / retirer un signet", Cmd::ToggleBookmark, true);
         item(ui, "Commenter / décommenter", Cmd::ToggleComment, !ro);
         item(ui, "Replier le bloc", Cmd::Fold, true);
         item(ui, "Tout replier", Cmd::FoldAll, true);

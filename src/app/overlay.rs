@@ -164,6 +164,7 @@ impl App {
             Mode::Symbols => "Aller au symbole   (classe, fonction, méthode, record Odoo, titre…)".into(),
             Mode::Definitions(w) => format!("Définitions de « {w} »"),
             Mode::References(w) => format!("Usages de « {w} »"),
+            Mode::Bookmarks => "Signets".into(),
             Mode::Prompt(p) => match p {
                 Prompt::OpenFolder => "Ouvrir le dossier".into(),
                 Prompt::OpenFile => "Ouvrir le fichier".into(),

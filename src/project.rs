@@ -46,6 +46,9 @@ pub struct SessionFile {
     /// Unsaved content kept at exit: file name in `backup_dir` (hot exit).
     #[serde(default)]
     pub backup: Option<String>,
+    /// Bookmarked lines.
+    #[serde(default)]
+    pub bookmarks: Vec<usize>,
 }
 
 /// State remembered across projects and restarts.
@@ -192,15 +195,18 @@ mod tests {
         let s = Session {
             active: 1,
             search_include: "*.py".into(),
-            files: vec![SessionFile { path: "/a/b.py".into(), line: 3, col: 4, backup: Some("doc0.txt".into()) }],
+            files: vec![SessionFile { path: "/a/b.py".into(), line: 3, col: 4, backup: Some("doc0.txt".into()), bookmarks: vec![2, 7] }],
+            recent: vec!["/a/b.py".into()],
             ..Default::default()
         };
         let back: Session = toml::from_str(&toml::to_string(&s).unwrap()).unwrap();
         assert_eq!(back.files[0].line, 3);
         assert_eq!(back.files[0].backup.as_deref(), Some("doc0.txt"));
+        assert_eq!(back.files[0].bookmarks, [2, 7]);
+        assert_eq!(back.recent.len(), 1);
         // sessions written before hot exit still load
         let old: Session = toml::from_str("active = 0\n[[files]]\npath = \"/x\"\nline = 1\ncol = 2\n").unwrap();
-        assert!(old.files[0].backup.is_none());
+        assert!(old.files[0].backup.is_none() && old.files[0].bookmarks.is_empty() && old.recent.is_empty());
         assert_eq!(back.search_include, "*.py");
     }
 }

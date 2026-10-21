@@ -166,6 +166,8 @@ pub struct Document {
     symbols_cache: Option<(u64, String, Vec<crate::symbols::Symbol>)>,
     /// Folded blocks: start of their first line (char position, follows the edits).
     pub folds: Vec<usize>,
+    /// Bookmarked lines, as the char position of their start (moved by the edits, like folds).
+    pub bookmarks: Vec<usize>,
     /// Range searched by Ctrl+F "dans la sélection" (tinted in the editor).
     pub find_scope: Option<(usize, usize)>,
     conflicts_cache: Option<(u64, Vec<Conflict>)>,
@@ -423,6 +425,7 @@ impl Document {
             pane: NO_PANE,
             symbols_cache: None,
             folds: Vec::new(),
+            bookmarks: Vec::new(),
             find_scope: None,
             conflicts_cache: None,
             had_conflicts: false,
@@ -870,6 +873,18 @@ impl Document {
             f.sort_unstable();
             f.dedup();
             self.folds = f;
+        }
+        if !self.bookmarks.is_empty() {
+            let spans: Vec<(usize, usize, usize)> = edits.iter().map(|(s, e, t)| (*s, *e, t.chars().count())).collect();
+            let len = self.rope.len_chars();
+            let mut b: Vec<usize> = self
+                .bookmarks
+                .iter()
+                .map(|&p| self.rope.line_to_char(self.rope.char_to_line(map_pos(p, &spans).min(len))))
+                .collect();
+            b.sort_unstable();
+            b.dedup();
+            self.bookmarks = b;
         }
         starts
     }
@@ -1826,6 +1841,58 @@ impl Document {
             .is_some_and(|l| crate::symbols::indent_of(&l, self.tab_size) > ind)
     }
 
+    pub fn bookmark_lines(&self) -> Vec<usize> {
+        let len = self.len();
+        let mut v: Vec<usize> = self.bookmarks.iter().map(|&p| self.rope.char_to_line(p.min(len))).collect();
+        v.dedup();
+        v
+    }
+
+    pub fn set_bookmark_lines(&mut self, lines: &[usize]) {
+        let n = self.rope.len_lines();
+        self.bookmarks = lines.iter().filter(|&&l| l < n).map(|&l| self.rope.line_to_char(l)).collect();
+        self.bookmarks.sort_unstable();
+        self.bookmarks.dedup();
+    }
+
+    /// Adds or removes the bookmark of the cursor line; true when it is now bookmarked.
+    pub fn toggle_bookmark(&mut self) -> bool {
+        let line = self.rope.char_to_line(self.primary_sel().head);
+        let mut lines = self.bookmark_lines();
+        let on = match lines.iter().position(|&l| l == line) {
+            Some(i) => {
+                lines.remove(i);
+                false
+            }
+            None => {
+                lines.push(line);
+                true
+            }
+        };
+        lines.sort_unstable();
+        self.set_bookmark_lines(&lines);
+        on
+    }
+
+    /// Moves the cursor to the next (or previous) bookmark, around the end of the file.
+    pub fn goto_bookmark(&mut self, forward: bool) -> bool {
+        let lines = self.bookmark_lines();
+        let cur = self.rope.char_to_line(self.primary_sel().head);
+        let target = if forward {
+            lines.iter().find(|&&l| l > cur).or(lines.first())
+        } else {
+            lines.iter().rev().find(|&&l| l < cur).or(lines.last())
+        };
+        match target.copied() {
+            Some(l) => {
+                let ind = self.indent_len(l);
+                self.goto_line(l, ind);
+                true
+            }
+            None => false,
+        }
+    }
+
     pub fn fold_lines(&self) -> Vec<usize> {
         let len = self.len();
         self.folds.iter().map(|&p| self.rope.char_to_line(p.min(len))).collect()
@@ -2148,6 +2215,29 @@ fn read_text(path: &Path) -> Result<(String, Encoding), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bookmarks_follow_the_edits() {
+        let mut d = Document::from_text(1, "a\nb\nc\nd\n", 4, true);
+        d.goto_line(2, 0);
+        assert!(d.toggle_bookmark());
+        d.goto_line(0, 0);
+        d.toggle_bookmark();
+        assert_eq!(d.bookmark_lines(), [0, 2]);
+        // a line inserted above "c" moves its bookmark down
+        d.goto_line(1, 0);
+        d.insert_text("x\n", false);
+        assert_eq!(d.bookmark_lines(), [0, 3]);
+        d.goto_line(1, 0);
+        assert!(d.goto_bookmark(true));
+        assert_eq!(d.rope.char_to_line(d.primary_sel().head), 3);
+        assert!(d.goto_bookmark(true)); // around the end
+        assert_eq!(d.rope.char_to_line(d.primary_sel().head), 0);
+        assert!(d.goto_bookmark(false));
+        assert_eq!(d.rope.char_to_line(d.primary_sel().head), 3);
+        assert!(!d.toggle_bookmark());
+        assert_eq!(d.bookmark_lines(), [0]);
+    }
 
     #[test]
     fn symbol_at_models_and_identifiers() {

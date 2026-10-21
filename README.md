@@ -52,6 +52,7 @@ Le `.exe` est autonome (pas d'installation) : double-clic pour le lancer. Git, l
 | Complétion, définition, survol, usages | Comme Sublime, sans rien installer : le projet est indexé en arrière-plan (classes, fonctions, méthodes, modèles Odoo `_name`, champs, records XML) ; F12 va à la définition (plusieurs résultats : liste des fichiers ; marche aussi sur `'sale.order'` ou `'module.xml_id'`) et les suggestions proposent les mots des fichiers ouverts et les symboles du projet. Avec un serveur de langage (pyright ou pylsp — bouton « installer pylsp » dans la barre d'état —, typescript-language-server, rust-analyzer, gopls, clangd) : complétion intelligente, définition exacte, F2 renommer dans tout le projet. Commande par langage dans `[lsp_servers]`. **Survol** d'un symbole : sa documentation (serveur de langage) ou ses définitions dans le projet. **Maj+F12** : ses usages (serveur de langage, sinon le mot entier dans le dossier) |
 | Symboles et fil d'Ariane | Ctrl+R : classes, fonctions, méthodes, records / templates Odoo, titres Markdown. Au-dessus de l'éditeur : `dossier › fichier › Classe › méthode`, cliquable |
 | Repli de code | Flèches dans la marge, Ctrl+Shift+[ / Ctrl+Shift+], Ctrl+K Ctrl+0 tout replier, Ctrl+K Ctrl+J tout déplier ; « ⋯ N lignes » cliquable sur un bloc replié |
+| En-tête figé, règles | En défilant, les lignes `class` / `def` (titres, records…) qui contiennent le haut de l'écran y restent ; clic pour y aller (`sticky_scroll`). Règles verticales aux colonnes de `rulers` (ex. `[79, 120]`) |
 | Conflits de merge | Ta version en vert, la version entrante en bleu ; barre « Garder le mien / le leur / les deux » (annulable), puis « marquer comme résolu » ; bandeau merge / cherry-pick / rebase en cours (Continuer / Abandonner) dans la vue Git |
 | Rechercher dans la sélection | Bouton « Sél. » de Ctrl+F / Ctrl+H ; « Garder la casse » au remplacement (chat → chien, Chat → Chien, CHAT → CHIEN), aussi dans la recherche globale |
 | Aperçu Markdown, images | Ctrl+Shift+V (onglet) ou Ctrl+K V (à côté, suit la frappe) ; png, jpg, gif, webp, bmp, ico, svg s'ouvrent dans un onglet image |
@@ -65,7 +66,7 @@ Le `.exe` est autonome (pas d'installation) : double-clic pour le lancer. Git, l
 | Raccourci | Action |
 |---|---|
 | Ctrl+Shift+P / F1 | Palette de commandes |
-| Ctrl+P | Aller au fichier (`nom:42` pour aller à la ligne, `:42` dans le fichier courant) |
+| Ctrl+P | Aller au fichier, les récents d'abord (`nom:42` pour aller à la ligne, `:42` dans le fichier courant) |
 | Ctrl+G | Aller à la ligne |
 | Alt+G | Aller à la ligne et la sélectionner : `42`, `10-20` pour plusieurs lignes, vide + Entrée = la ligne courante |
 | Ctrl+R | Aller au symbole du fichier |
@@ -75,6 +76,7 @@ Le `.exe` est autonome (pas d'installation) : double-clic pour le lancer. Git, l
 | Ctrl+K Ctrl+Shift+Z | Remettre tout le fichier comme au dernier commit |
 | Ctrl+Espace / F12 / F2 | Suggestions / aller à la définition / renommer le symbole |
 | Maj+F12 | Rechercher les usages du symbole |
+| Ctrl+F2 / F8 / Maj+F8 | Signet sur la ligne / suivant / précédent (Ctrl+Maj+F2 : tout retirer ; « Signet : liste » dans la palette) |
 | Ctrl+Shift+[ / Ctrl+Shift+] | Replier / déplier le bloc |
 | Ctrl+\\ | Diviser l'éditeur à droite |
 | Ctrl+Shift+V / Ctrl+K V | Aperçu Markdown / à côté |
