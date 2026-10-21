@@ -142,6 +142,55 @@ struct Overlay {
     items: Vec<Item>,
     filtered: Vec<usize>,
     last_query: Option<String>,
+    /// Path prompts: entries of the folder being typed, for the query they were listed for.
+    paths: Option<(String, Vec<(String, bool)>)>,
+}
+
+/// Completion of a path typed in a prompt, like Tab in a shell: the entries of the folder being
+/// typed that start with the last component, and the input completed as far as they agree
+/// (with a separator after a single folder). `base` resolves relative paths.
+fn complete_path(input: &str, base: &Path, dirs_only: bool) -> (String, Vec<(String, bool)>) {
+    let cut = input.rfind(['/', '\\']).map_or(0, |i| i + 1);
+    let (dir_part, prefix) = input.split_at(cut);
+    let dir = match dir_part.strip_prefix("~/") {
+        Some(rest) => config::home().join(rest),
+        None if dir_part == "~" => config::home(),
+        None if dir_part.is_empty() => base.to_path_buf(),
+        None if Path::new(dir_part).is_absolute() => PathBuf::from(dir_part),
+        None => base.join(dir_part),
+    };
+    let entries: Vec<(String, bool)> = std::fs::read_dir(&dir)
+        .map(|rd| rd.flatten().map(|e| (e.file_name().to_string_lossy().into_owned(), e.path().is_dir())).collect())
+        .unwrap_or_default();
+    let pick = |exact: bool| -> Vec<(String, bool)> {
+        let lower = prefix.to_lowercase();
+        entries
+            .iter()
+            .filter(|(n, d)| (!dirs_only || *d) && if exact { n.starts_with(prefix) } else { n.to_lowercase().starts_with(&lower) })
+            // hidden entries only when asked for with a dot
+            .filter(|(n, _)| !n.starts_with('.') || prefix.starts_with('.'))
+            .cloned()
+            .collect()
+    };
+    let mut found = pick(true);
+    if found.is_empty() {
+        found = pick(false);
+    }
+    found.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.to_lowercase().cmp(&b.0.to_lowercase())));
+    let completed = match found.as_slice() {
+        [] => input.to_string(),
+        [(n, true)] => format!("{dir_part}{n}{}", std::path::MAIN_SEPARATOR),
+        [(n, false)] => format!("{dir_part}{n}"),
+        many => {
+            let first = &many[0].0;
+            let mut len = first.len();
+            for (n, _) in &many[1..] {
+                len = first.char_indices().zip(n.chars()).take_while(|((_, a), b)| a == b).last().map_or(0, |((i, a), _)| i + a.len_utf8()).min(len);
+            }
+            if len >= prefix.len() { format!("{dir_part}{}", &first[..len]) } else { input.to_string() }
+        }
+    };
+    (completed, found)
 }
 
 enum Confirm {
@@ -468,6 +517,10 @@ pub struct App {
     nav_jumping: bool,
     /// File to bring into view in the tree ("afficher dans l'arborescence").
     tree_scroll: Option<PathBuf>,
+    /// Keyboard cursor of the tree.
+    tree_nav: sidebar::Nav,
+    /// Branch / upstream (label) and remotes (tooltip) of each repository, shown on its folder in the tree.
+    repo_info: HashMap<PathBuf, (String, String)>,
     /// The "go to line" prompt was opened by Alt+G: select the line(s).
     goto_select: bool,
     /// Ignore the letter of an Alt shortcut if it arrives just after it.
@@ -639,6 +692,8 @@ impl App {
             nav_last: None,
             nav_jumping: false,
             tree_scroll: None,
+            tree_nav: sidebar::Nav::default(),
+            repo_info: HashMap::new(),
             goto_select: false,
             drop_alt_text: None,
             dialog_open: false,
@@ -2418,15 +2473,24 @@ impl App {
         let accent = self.hl.colors.accent;
         let Some(d) = self.docs.get_mut(i) else { return };
         let line = d.rope.char_to_line(d.primary_sel().head);
-        let mut dirs: Vec<String> = Vec::new();
+        // folders of the path (relative to the project), with their absolute path for the menus
+        let mut dirs: Vec<(String, Option<PathBuf>)> = Vec::new();
         let file = match &d.path {
             Some(p) => {
-                let rel = root.as_ref().and_then(|r| p.strip_prefix(r).ok()).unwrap_or(p);
-                let mut comps: Vec<String> = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
-                let f = comps.pop().unwrap_or_default();
+                let base = root.as_ref().filter(|r| p.starts_with(r)).cloned().unwrap_or_default();
+                let rel = p.strip_prefix(&base).unwrap_or(p);
+                let mut acc = base.clone();
+                let mut comps: Vec<(String, Option<PathBuf>)> = rel
+                    .components()
+                    .map(|c| {
+                        acc.push(c.as_os_str());
+                        (c.as_os_str().to_string_lossy().into_owned(), Some(acc.clone()))
+                    })
+                    .collect();
+                let f = comps.pop().map(|c| c.0).unwrap_or_default();
                 if comps.len() > 3 {
                     comps.drain(..comps.len() - 3);
-                    comps.insert(0, "…".into());
+                    comps.insert(0, ("…".into(), None));
                 }
                 dirs = comps;
                 f
@@ -2436,7 +2500,7 @@ impl App {
         let chain: Vec<(String, symbols::Kind, usize)> =
             symbols::path_at(d.symbols(), line).iter().map(|s| (s.name.clone(), s.kind, s.line)).collect();
         let is_md = d.view == document::View::Text && d.syntax.contains("Markdown");
-        let (mut goto, mut list, mut preview) = (None, false, false);
+        let (mut goto, mut list, mut preview, mut open, mut reveal) = (None, false, false, None, None);
         let bg = self.hl.colors.bg;
         egui::TopBottomPanel::top(egui::Id::new("crumbs").with(pane))
             .exact_height(22.0)
@@ -2448,8 +2512,46 @@ impl App {
                     let sep = |ui: &mut egui::Ui| {
                         ui.label(RichText::new("›").size(12.0).color(weak));
                     };
-                    for dname in &dirs {
-                        ui.label(RichText::new(dname).size(12.0).color(weak));
+                    for (dname, dir) in &dirs {
+                        match dir {
+                            // a folder: its files and folders in a menu
+                            Some(dir) => {
+                                let r = ui.menu_button(RichText::new(dname).size(12.0).color(weak), |ui| {
+                                    ui.set_max_height(420.0);
+                                    if ui.button("Afficher dans l'arborescence").clicked() {
+                                        reveal = Some(dir.clone());
+                                        ui.close_menu();
+                                    }
+                                    ui.separator();
+                                    let mut entries: Vec<(String, PathBuf, bool)> = std::fs::read_dir(dir)
+                                        .map(|rd| {
+                                            rd.flatten()
+                                                .filter(|e| e.file_name() != ".git")
+                                                .map(|e| (e.file_name().to_string_lossy().into_owned(), e.path(), e.path().is_dir()))
+                                                .collect()
+                                        })
+                                        .unwrap_or_default();
+                                    entries.sort_by(|a, b| b.2.cmp(&a.2).then_with(|| a.0.to_lowercase().cmp(&b.0.to_lowercase())));
+                                    egui::ScrollArea::vertical().max_height(380.0).show(ui, |ui| {
+                                        for (name, path, is_dir) in entries {
+                                            let label = if is_dir { format!("📁 {name}") } else { name };
+                                            if ui.button(label).clicked() {
+                                                if is_dir {
+                                                    reveal = Some(path);
+                                                } else {
+                                                    open = Some(path);
+                                                }
+                                                ui.close_menu();
+                                            }
+                                        }
+                                    });
+                                });
+                                r.response.on_hover_text(dir.display().to_string());
+                            }
+                            None => {
+                                ui.label(RichText::new(dname).size(12.0).color(weak));
+                            }
+                        }
                         sep(ui);
                     }
                     let r = ui.add(egui::Label::new(RichText::new(&file).size(12.0)).sense(Sense::click()));
@@ -2487,6 +2589,13 @@ impl App {
         if preview {
             self.active = i;
             self.markdown_preview(true);
+        }
+        if let Some(p) = open {
+            self.open_path(p);
+        }
+        if let Some(p) = reveal {
+            self.reveal_in_tree(&p);
+            self.tree_nav.focus = true;
         }
     }
 
@@ -2752,6 +2861,7 @@ impl App {
         }
         self.show_sidebar = true;
         self.side_tab = SideTab::Files;
+        self.tree_nav.cursor = Some(path.clone());
         self.tree_scroll = Some(path);
     }
 
@@ -4184,7 +4294,8 @@ impl App {
         let repos = self.repos.clone();
         self.jobs.spawn(move || {
             let statuses = repos.iter().map(|r| (r.clone(), git::status(r))).collect();
-            JobResult::GitStatus { log: git::log(&selected), selected, statuses }
+            let remotes = repos.iter().map(|r| (r.clone(), git::stdout(r, &["remote", "-v"]).unwrap_or_default())).collect();
+            JobResult::GitStatus { log: git::log(&selected), selected, statuses, remotes }
         });
     }
 
@@ -4297,9 +4408,46 @@ impl App {
                         }
                     }
                 }
-                JobResult::GitStatus { selected, statuses, log } => {
+                JobResult::GitStatus { selected, statuses, log, remotes } => {
                     if self.repo.as_ref() != Some(&selected) {
                         continue;
+                    }
+                    // branch / remote of every repository, for the tree
+                    self.repo_info.clear();
+                    for (repo, st) in &statuses {
+                        let Ok(st) = st else { continue };
+                        let mut label = st.branch.clone();
+                        if let Some((up, ahead, behind)) = st.upstream() {
+                            label.push_str(&format!(" → {up}"));
+                            if ahead > 0 {
+                                label.push_str(&format!(" ↑{ahead}"));
+                            }
+                            if behind > 0 {
+                                label.push_str(&format!(" ↓{behind}"));
+                            }
+                        }
+                        let raw = remotes.iter().find(|(r, _)| r == repo).map(|(_, t)| t.as_str()).unwrap_or("");
+                        let mut urls: Vec<String> = raw
+                            .lines()
+                            .filter(|l| l.ends_with("(fetch)"))
+                            .map(|l| l.trim_end_matches("(fetch)").trim().replacen('\t', " : ", 1))
+                            .collect();
+                        urls.dedup();
+                        let mut tip = format!("Branche : {}\n", st.branch);
+                        match st.upstream() {
+                            Some((up, a, b)) => tip.push_str(&format!("Suit : {up} ({a} à pousser, {b} à récupérer)\n")),
+                            None => tip.push_str("Pas de branche distante suivie\n"),
+                        }
+                        if urls.is_empty() {
+                            tip.push_str("Aucun remote");
+                        } else {
+                            tip.push_str(&format!("Remote(s) :\n{}", urls.join("\n")));
+                        }
+                        let n = st.entries.len();
+                        if n > 0 {
+                            label.push_str(&format!(" · {n} modif."));
+                        }
+                        self.repo_info.insert(repo.clone(), (label, tip));
                     }
                     self.git.log = log;
                     self.git.map.clear();
@@ -4939,8 +5087,27 @@ impl App {
                 self.git_refresh();
             }
             ShowFiles => {
-                self.show_sidebar = true;
-                self.side_tab = SideTab::Files;
+                // a second time: back to the editor
+                if self.show_sidebar && self.side_tab == SideTab::Files && ctx.memory(|m| m.has_focus(sidebar::tree_id())) {
+                    self.focus_editor(ctx);
+                } else {
+                    self.show_sidebar = true;
+                    self.side_tab = SideTab::Files;
+                    // the keyboard goes to the tree, on the current file
+                    if let Some(p) = self.docs.get(self.active).and_then(|d| d.path.clone()) {
+                        if self.tree_nav.cursor.is_none() || !ctx.memory(|m| m.has_focus(sidebar::tree_id())) {
+                            self.reveal_in_tree(&p);
+                        }
+                    }
+                    self.tree_nav.focus = true;
+                }
+            }
+            ToggleMenuBar => {
+                self.settings.show_menu_bar = !self.settings.show_menu_bar;
+                self.persist("show_menu_bar", self.settings.show_menu_bar.to_string());
+                if !self.settings.show_menu_bar {
+                    self.set_status("Barre de menus masquée : les menus restent dans ☰ en bas à gauche");
+                }
             }
             RevealInTree => {
                 if let Some(p) = self.docs.get(self.active).and_then(|d| d.path.clone()) {
@@ -5377,7 +5544,7 @@ impl App {
     }
 
     fn open_overlay_with(&mut self, mode: Mode, items: Vec<Item>, query: String) {
-        self.overlay = Some(Overlay { mode, query, selected: 0, focus: true, items, filtered: Vec::new(), last_query: None });
+        self.overlay = Some(Overlay { mode, query, selected: 0, focus: true, items, filtered: Vec::new(), last_query: None, paths: None });
     }
 
     fn open_prompt(&mut self, p: Prompt) {
@@ -5425,6 +5592,26 @@ impl App {
             },
         };
         let is_list = !matches!(ov.mode, Mode::Prompt(_) | Mode::GotoLine);
+        // prompts asking for a path complete it with Tab, like a shell
+        let path_base = match &ov.mode {
+            Mode::Prompt(Prompt::OpenFolder | Prompt::OpenFile | Prompt::SaveAs) => {
+                Some((self.root.clone().unwrap_or_else(|| std::env::current_dir().unwrap_or_default()), matches!(ov.mode, Mode::Prompt(Prompt::OpenFolder))))
+            }
+            Mode::Prompt(Prompt::NewFile(d) | Prompt::NewFolder(d)) => Some((d.clone(), matches!(ov.mode, Mode::Prompt(Prompt::NewFolder(_))))),
+            _ => None,
+        };
+        let mut cursor_to_end = false;
+        if let Some((base, dirs_only)) = &path_base {
+            if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Tab)) {
+                let (done, _) = complete_path(&ov.query, base, *dirs_only);
+                ov.query = done;
+                cursor_to_end = true;
+            }
+            if ov.paths.as_ref().map(|(q, _)| q) != Some(&ov.query) {
+                let (_, found) = complete_path(&ov.query, base, *dirs_only);
+                ov.paths = Some((ov.query.clone(), found));
+            }
+        }
         let files_mode = matches!(ov.mode, Mode::Files);
         let mut chosen: Option<Action> = None;
         let mut submit = false;
@@ -5451,8 +5638,44 @@ impl App {
                         te.request_focus();
                         ov.focus = false;
                     }
+                    if cursor_to_end {
+                        if let Some(mut st) = egui::TextEdit::load_state(ui.ctx(), te.id) {
+                            let end = egui::text::CCursor::new(ov.query.chars().count());
+                            st.cursor.set_char_range(Some(egui::text::CCursorRange::one(end)));
+                            st.store(ui.ctx(), te.id);
+                        }
+                        te.request_focus();
+                    }
                     let (down, up, enter) =
                         ui.input(|i| (i.key_pressed(Key::ArrowDown), i.key_pressed(Key::ArrowUp), i.key_pressed(Key::Enter)));
+                    if let Some((_, found)) = ov.paths.as_ref().filter(|_| path_base.is_some()) {
+                        let cut = ov.query.rfind(['/', '\\']).map_or(0, |i| i + 1);
+                        let mut fill = None;
+                        if found.is_empty() {
+                            ui.label(RichText::new("Tab : compléter le chemin").small().weak());
+                        } else {
+                            ui.label(RichText::new(format!("Tab : compléter · {} entrée(s)", found.len())).small().weak());
+                            egui::ScrollArea::vertical().max_height(220.0).auto_shrink([false, true]).show(ui, |ui| {
+                                for (name, is_dir) in found.iter().take(200) {
+                                    let label = if *is_dir { format!("{name}{}", std::path::MAIN_SEPARATOR) } else { name.clone() };
+                                    let text = RichText::new(label.clone()).monospace();
+                                    let text = if *is_dir { text.color(ui.visuals().hyperlink_color) } else { text };
+                                    if ui.add(egui::Label::new(text).sense(Sense::click())).clicked() {
+                                        fill = Some(format!("{}{label}", &ov.query[..cut]));
+                                    }
+                                }
+                            });
+                        }
+                        if let Some(f) = fill {
+                            ov.query = f;
+                            ov.focus = true;
+                            if let Some(mut st) = egui::TextEdit::load_state(ui.ctx(), te.id) {
+                                let end = egui::text::CCursor::new(ov.query.chars().count());
+                                st.cursor.set_char_range(Some(egui::text::CCursorRange::one(end)));
+                                st.store(ui.ctx(), te.id);
+                            }
+                        }
+                    }
                     if !is_list {
                         submit = enter;
                         return;
@@ -5840,9 +6063,9 @@ impl App {
     // ------------------------------------------------------------------ panels
 
     fn menu_bar(&mut self, ctx: &egui::Context) {
-        let km = &self.keymap;
-        let plugins = &self.plugins;
-        let plugin_cmds = &self.plugin_cmds;
+        if !self.settings.show_menu_bar {
+            return;
+        }
         let mut pending = Vec::new();
         let project = self.root.as_ref().and_then(|r| r.file_name()).map(|n| n.to_string_lossy().into_owned());
         let panel = ctx.style().visuals.panel_fill;
@@ -5854,106 +6077,7 @@ impl App {
                 let (r, _) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), Sense::hover());
                 logo::paint(ui.painter(), r, false);
                 ui.add_space(2.0);
-                let mut item = |ui: &mut egui::Ui, label: &str, cmd: Cmd| {
-                    if ui.add(egui::Button::new(label).shortcut_text(km.label(cmd))).clicked() {
-                        pending.push(cmd);
-                        ui.close_menu();
-                    }
-                };
-                ui.menu_button("Fichier", |ui| {
-                    item(ui, "Nouveau fichier", Cmd::NewFile);
-                    item(ui, "Ouvrir un fichier…", Cmd::OpenFile);
-                    item(ui, "Ouvrir un dossier…", Cmd::OpenFolder);
-                    item(ui, "Changer de projet…", Cmd::SwitchProject);
-                    item(ui, "Fermer le dossier", Cmd::CloseFolder);
-                    item(ui, "Rouvrir l'onglet fermé", Cmd::ReopenClosed);
-                    ui.separator();
-                    item(ui, "Enregistrer", Cmd::Save);
-                    item(ui, "Enregistrer sous…", Cmd::SaveAs);
-                    item(ui, "Tout enregistrer", Cmd::SaveAll);
-                    ui.separator();
-                    item(ui, "Fermer l'onglet", Cmd::CloseTab);
-                    item(ui, "Préférences", Cmd::OpenSettings);
-                    item(ui, "Ouvrir settings.toml", Cmd::OpenSettingsFile);
-                    item(ui, "Quitter", Cmd::Quit);
-                });
-                ui.menu_button("Édition", |ui| {
-                    item(ui, "Annuler", Cmd::Undo);
-                    item(ui, "Rétablir", Cmd::Redo);
-                    ui.separator();
-                    item(ui, "Dupliquer la ligne", Cmd::DuplicateLine);
-                    item(ui, "Supprimer la ligne", Cmd::DeleteLine);
-                    item(ui, "Monter la ligne", Cmd::MoveLineUp);
-                    item(ui, "Descendre la ligne", Cmd::MoveLineDown);
-                    item(ui, "Joindre les lignes", Cmd::JoinLines);
-                    item(ui, "Commenter / décommenter", Cmd::ToggleComment);
-                    item(ui, "Indenter", Cmd::Indent);
-                    item(ui, "Désindenter", Cmd::Unindent);
-                    item(ui, "Trier les lignes", Cmd::SortLines);
-                    item(ui, "MAJUSCULES", Cmd::UpperCase);
-                    item(ui, "minuscules", Cmd::LowerCase);
-                });
-                ui.menu_button("Sélection", |ui| {
-                    item(ui, "Tout sélectionner", Cmd::SelectAll);
-                    item(ui, "Sélectionner la ligne", Cmd::SelectLine);
-                    item(ui, "Ajouter l'occurrence suivante", Cmd::SelectNext);
-                    item(ui, "Toutes les occurrences", Cmd::SelectAllOccurrences);
-                    item(ui, "Diviser en lignes", Cmd::SplitLines);
-                    item(ui, "Curseur au-dessus", Cmd::AddCursorAbove);
-                    item(ui, "Curseur en dessous", Cmd::AddCursorBelow);
-                    item(ui, "Crochet correspondant", Cmd::GotoBracket);
-                });
-                ui.menu_button("Rechercher", |ui| {
-                    item(ui, "Rechercher…", Cmd::Find);
-                    item(ui, "Remplacer…", Cmd::Replace);
-                    item(ui, "Suivant", Cmd::FindNext);
-                    item(ui, "Rechercher dans le dossier…", Cmd::FindInFiles);
-                    item(ui, "Résultat global suivant", Cmd::NextResult);
-                    item(ui, "Précédent", Cmd::FindPrev);
-                    ui.separator();
-                    item(ui, "Aller au fichier…", Cmd::QuickOpen);
-                    item(ui, "Aller à la ligne…", Cmd::GotoLine);
-                });
-                ui.menu_button("Affichage", |ui| {
-                    item(ui, "Palette de commandes", Cmd::CommandPalette);
-                    item(ui, "Barre latérale", Cmd::ToggleSidebar);
-                    item(ui, "Terminal", Cmd::ToggleTerminal);
-                    item(ui, "Problèmes", Cmd::ShowProblems);
-                    item(ui, "Sortie", Cmd::ShowOutput);
-                    item(ui, "Minimap", Cmd::ToggleMinimap);
-                    ui.separator();
-                    item(ui, "Syntaxe…", Cmd::SetSyntax);
-                    item(ui, "Thème…", Cmd::SelectTheme);
-                    item(ui, "Zoom avant", Cmd::ZoomIn);
-                    item(ui, "Zoom arrière", Cmd::ZoomOut);
-                });
-                ui.menu_button("Git", |ui| {
-                    item(ui, "Panneau Git", Cmd::ShowGit);
-                    item(ui, "Commit…", Cmd::GitCommit);
-                    item(ui, "Pull", Cmd::GitPull);
-                    item(ui, "Push", Cmd::GitPush);
-                    item(ui, "Fetch", Cmd::GitFetch);
-                    ui.separator();
-                    item(ui, "Changer de branche…", Cmd::GitCheckout);
-                    item(ui, "Nouvelle branche…", Cmd::GitNewBranch);
-                    item(ui, "Diff du fichier", Cmd::GitDiffFile);
-                    item(ui, "Historique (graphe)", Cmd::GitHistory);
-                    item(ui, "Diff dans l'éditeur (vert / rouge)", Cmd::ToggleInlineDiff);
-                    item(ui, "Blame de la ligne", Cmd::GitBlame);
-                    item(ui, "Historique de la ligne", Cmd::GitLineHistory);
-                });
-                ui.menu_button("Outils", |ui| {
-                    item(ui, "Linter le fichier", Cmd::Lint);
-                    ui.separator();
-                    for (k, &(pi, ci)) in plugin_cmds.iter().enumerate() {
-                        item(ui, &plugins[pi].commands[ci].title, Cmd::Plugin(k));
-                    }
-                    if !plugin_cmds.is_empty() {
-                        ui.separator();
-                    }
-                    item(ui, "Recharger les plugins", Cmd::ReloadPlugins);
-                    item(ui, "Dossier des plugins", Cmd::OpenPluginsFolder);
-                });
+                self.menus(ui, &mut pending);
                 // project name, right-aligned, after the menus
                 if let Some(p) = &project {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -5963,6 +6087,114 @@ impl App {
             });
         });
         self.pending.extend(pending);
+    }
+
+    /// The menus (in the menu bar, or under ☰ in the status bar when the bar is hidden).
+    fn menus(&self, ui: &mut egui::Ui, pending: &mut Vec<Cmd>) {
+        let km = &self.keymap;
+        let plugins = &self.plugins;
+        let plugin_cmds = &self.plugin_cmds;
+        let mut item = |ui: &mut egui::Ui, label: &str, cmd: Cmd| {
+            if ui.add(egui::Button::new(label).shortcut_text(km.label(cmd))).clicked() {
+                pending.push(cmd);
+                ui.close_menu();
+            }
+        };
+        ui.menu_button("Fichier", |ui| {
+            item(ui, "Nouveau fichier", Cmd::NewFile);
+            item(ui, "Ouvrir un fichier…", Cmd::OpenFile);
+            item(ui, "Ouvrir un dossier…", Cmd::OpenFolder);
+            item(ui, "Changer de projet…", Cmd::SwitchProject);
+            item(ui, "Fermer le dossier", Cmd::CloseFolder);
+            item(ui, "Rouvrir l'onglet fermé", Cmd::ReopenClosed);
+            ui.separator();
+            item(ui, "Enregistrer", Cmd::Save);
+            item(ui, "Enregistrer sous…", Cmd::SaveAs);
+            item(ui, "Tout enregistrer", Cmd::SaveAll);
+            ui.separator();
+            item(ui, "Fermer l'onglet", Cmd::CloseTab);
+            item(ui, "Préférences", Cmd::OpenSettings);
+            item(ui, "Ouvrir settings.toml", Cmd::OpenSettingsFile);
+            item(ui, "Quitter", Cmd::Quit);
+        });
+        ui.menu_button("Édition", |ui| {
+            item(ui, "Annuler", Cmd::Undo);
+            item(ui, "Rétablir", Cmd::Redo);
+            ui.separator();
+            item(ui, "Dupliquer la ligne", Cmd::DuplicateLine);
+            item(ui, "Supprimer la ligne", Cmd::DeleteLine);
+            item(ui, "Monter la ligne", Cmd::MoveLineUp);
+            item(ui, "Descendre la ligne", Cmd::MoveLineDown);
+            item(ui, "Joindre les lignes", Cmd::JoinLines);
+            item(ui, "Commenter / décommenter", Cmd::ToggleComment);
+            item(ui, "Indenter", Cmd::Indent);
+            item(ui, "Désindenter", Cmd::Unindent);
+            item(ui, "Trier les lignes", Cmd::SortLines);
+            item(ui, "MAJUSCULES", Cmd::UpperCase);
+            item(ui, "minuscules", Cmd::LowerCase);
+        });
+        ui.menu_button("Sélection", |ui| {
+            item(ui, "Tout sélectionner", Cmd::SelectAll);
+            item(ui, "Sélectionner la ligne", Cmd::SelectLine);
+            item(ui, "Ajouter l'occurrence suivante", Cmd::SelectNext);
+            item(ui, "Toutes les occurrences", Cmd::SelectAllOccurrences);
+            item(ui, "Diviser en lignes", Cmd::SplitLines);
+            item(ui, "Curseur au-dessus", Cmd::AddCursorAbove);
+            item(ui, "Curseur en dessous", Cmd::AddCursorBelow);
+            item(ui, "Crochet correspondant", Cmd::GotoBracket);
+        });
+        ui.menu_button("Rechercher", |ui| {
+            item(ui, "Rechercher…", Cmd::Find);
+            item(ui, "Remplacer…", Cmd::Replace);
+            item(ui, "Suivant", Cmd::FindNext);
+            item(ui, "Rechercher dans le dossier…", Cmd::FindInFiles);
+            item(ui, "Résultat global suivant", Cmd::NextResult);
+            item(ui, "Précédent", Cmd::FindPrev);
+            ui.separator();
+            item(ui, "Aller au fichier…", Cmd::QuickOpen);
+            item(ui, "Aller à la ligne…", Cmd::GotoLine);
+        });
+        ui.menu_button("Affichage", |ui| {
+            item(ui, "Palette de commandes", Cmd::CommandPalette);
+            item(ui, "Barre latérale", Cmd::ToggleSidebar);
+            item(ui, "Terminal", Cmd::ToggleTerminal);
+            item(ui, "Problèmes", Cmd::ShowProblems);
+            item(ui, "Sortie", Cmd::ShowOutput);
+            item(ui, "Minimap", Cmd::ToggleMinimap);
+            item(ui, "Barre de menus", Cmd::ToggleMenuBar);
+            ui.separator();
+            item(ui, "Syntaxe…", Cmd::SetSyntax);
+            item(ui, "Thème…", Cmd::SelectTheme);
+            item(ui, "Zoom avant", Cmd::ZoomIn);
+            item(ui, "Zoom arrière", Cmd::ZoomOut);
+        });
+        ui.menu_button("Git", |ui| {
+            item(ui, "Panneau Git", Cmd::ShowGit);
+            item(ui, "Commit…", Cmd::GitCommit);
+            item(ui, "Pull", Cmd::GitPull);
+            item(ui, "Push", Cmd::GitPush);
+            item(ui, "Fetch", Cmd::GitFetch);
+            ui.separator();
+            item(ui, "Changer de branche…", Cmd::GitCheckout);
+            item(ui, "Nouvelle branche…", Cmd::GitNewBranch);
+            item(ui, "Diff du fichier", Cmd::GitDiffFile);
+            item(ui, "Historique (graphe)", Cmd::GitHistory);
+            item(ui, "Diff dans l'éditeur (vert / rouge)", Cmd::ToggleInlineDiff);
+            item(ui, "Blame de la ligne", Cmd::GitBlame);
+            item(ui, "Historique de la ligne", Cmd::GitLineHistory);
+        });
+        ui.menu_button("Outils", |ui| {
+            item(ui, "Linter le fichier", Cmd::Lint);
+            ui.separator();
+            for (k, &(pi, ci)) in plugin_cmds.iter().enumerate() {
+                item(ui, &plugins[pi].commands[ci].title, Cmd::Plugin(k));
+            }
+            if !plugin_cmds.is_empty() {
+                ui.separator();
+            }
+            item(ui, "Recharger les plugins", Cmd::ReloadPlugins);
+            item(ui, "Dossier des plugins", Cmd::OpenPluginsFolder);
+        });
     }
 
     /// Tab strip drawn above the editor area only (not above the sidebar).
@@ -6139,6 +6371,21 @@ impl App {
             ui.style_mut().text_styles.insert(egui::TextStyle::Button, egui::FontId::proportional(12.5));
             ui.visuals_mut().override_text_color = Some(ui.visuals().weak_text_color());
             ui.horizontal_centered(|ui| {
+                if !self.settings.show_menu_bar {
+                    let mut pending = Vec::new();
+                    ui.menu_button("☰", |ui| {
+                        ui.visuals_mut().override_text_color = None;
+                        self.menus(ui, &mut pending);
+                        ui.separator();
+                        if ui.button("Afficher la barre de menus").clicked() {
+                            pending.push(Cmd::ToggleMenuBar);
+                            ui.close_menu();
+                        }
+                    })
+                    .response
+                    .on_hover_text("Menus (barre de menus masquée)");
+                    self.pending.extend(pending);
+                }
                 if let Some(d) = self.docs.get(self.active) {
                     let p = d.primary_sel();
                     let (l, c) = d.line_col(p.head);
@@ -6357,10 +6604,24 @@ impl App {
         }
     }
 
+    /// Thin strip at the left edge while the sidebar is hidden: a click brings it back.
+    fn sidebar_strip(&mut self, ctx: &egui::Context) {
+        let panel = ctx.style().visuals.panel_fill;
+        egui::SidePanel::left("sidebar_strip").exact_width(10.0).resizable(false).frame(egui::Frame::none().fill(panel)).show(ctx, |ui| {
+            let rect = ui.max_rect();
+            let r = ui.interact(rect, egui::Id::new("sidebar_strip_btn"), Sense::click());
+            let c = if r.hovered() { self.hl.colors.accent } else { ui.visuals().weak_text_color().gamma_multiply(0.5) };
+            ui.painter().text(rect.center(), Align2::CENTER_CENTER, "›", egui::FontId::proportional(14.0), c);
+            if r.on_hover_text("Afficher la barre latérale (Ctrl+K Ctrl+B)").clicked() {
+                self.show_sidebar = true;
+            }
+        });
+    }
+
     fn sidebar(&mut self, ctx: &egui::Context) {
         let mut tree_action = None;
         let panel = ctx.style().visuals.panel_fill;
-        egui::SidePanel::left("sidebar")
+        let shown = egui::SidePanel::left("sidebar")
             .resizable(true)
             .default_width(260.0)
             .width_range(150.0..=700.0)
@@ -6382,7 +6643,10 @@ impl App {
                 SideTab::Files => match self.tree.as_mut() {
                     Some(tree) => {
                         let active = self.docs.get(self.active).and_then(|d| d.path.clone());
-                        tree_action = sidebar::show(ui, tree, active.as_deref(), &self.git.map, &mut self.tree_scroll);
+                        let empty = HashMap::new();
+                        let info = if self.settings.tree_git_info { &self.repo_info } else { &empty };
+                        tree_action =
+                            sidebar::show(ui, tree, active.as_deref(), &self.git.map, info, &mut self.tree_scroll, &mut self.tree_nav);
                     }
                     None => {
                         ui.label("Aucun dossier ouvert.");
@@ -6395,6 +6659,16 @@ impl App {
                 SideTab::Projects => self.projects_ui(ui),
             }
         });
+        // double click on the border between the sidebar and the editor: hide the sidebar
+        let edge = shown.response.rect.right();
+        let hide = ctx.input(|i| {
+            i.pointer.button_double_clicked(egui::PointerButton::Primary)
+                && i.pointer.interact_pos().is_some_and(|p| (p.x - edge).abs() <= 5.0 && shown.response.rect.y_range().contains(p.y))
+        });
+        if hide {
+            self.show_sidebar = false;
+            self.set_status("Barre latérale masquée : clic sur le bord gauche ou Ctrl+K Ctrl+B pour la réafficher");
+        }
         if let Some(a) = tree_action {
             self.tree_action(ctx, a);
         }
@@ -7308,6 +7582,8 @@ impl eframe::App for App {
         self.status_bar(ctx);
         if self.show_sidebar {
             self.sidebar(ctx);
+        } else {
+            self.sidebar_strip(ctx);
         }
         if self.bottom.is_some() {
             self.bottom_panel(ctx);
@@ -7940,6 +8216,9 @@ impl App {
                 pref_row(ui, rc, "Minimap", "Aperçu du fichier à droite de l'éditeur.", |ui| {
                     toggle_switch(ui, &mut s.show_minimap);
                 });
+                pref_row(ui, rc, "Barre de menus", "Fichier, Édition, Sélection… en haut de la fenêtre. Masquée, les menus restent accessibles par ☰ en bas à gauche.", |ui| {
+                    toggle_switch(ui, &mut s.show_menu_bar);
+                });
                 pref_row(ui, rc, "Fil d'Ariane", "Dossier › fichier › classe › fonction au-dessus de l'éditeur ; clic sur un élément pour y aller.", |ui| {
                     toggle_switch(ui, &mut s.breadcrumbs);
                 });
@@ -8007,6 +8286,9 @@ impl App {
                 });
             }
             PrefSection::Git => {
+                pref_row(ui, rc, "Branche et remote dans l'arborescence", "Sur le dossier de chaque dépôt git : sa branche, la branche distante suivie (↑ à pousser, ↓ à récupérer) et le nombre de fichiers modifiés ; survol : les remotes.", |ui| {
+                    toggle_switch(ui, &mut s.tree_git_info);
+                });
                 pref_row(ui, rc, "Diff dans l'éditeur", "Lignes ajoutées en vert et anciennes lignes en rouge directement dans le code (Ctrl+Alt+D).", |ui| {
                     toggle_switch(ui, &mut s.inline_diff);
                 });
@@ -8282,6 +8564,8 @@ impl App {
         let bools = [
             ("show_minimap", s.show_minimap, before.show_minimap),
             ("breadcrumbs", s.breadcrumbs, before.breadcrumbs),
+            ("show_menu_bar", s.show_menu_bar, before.show_menu_bar),
+            ("tree_git_info", s.tree_git_info, before.tree_git_info),
             ("auto_pair", s.auto_pair, before.auto_pair),
             ("trim_trailing_whitespace_on_save", s.trim_trailing_whitespace_on_save, before.trim_trailing_whitespace_on_save),
             ("hot_exit", s.hot_exit, before.hot_exit),
@@ -8422,5 +8706,31 @@ mod font_tests {
         assert_eq!(text_on(Color32::from_rgb(0x00, 0x7a, 0xcc)), Color32::WHITE);
         assert_ne!(text_on(Color32::from_rgb(0xe5, 0xc0, 0x7b)), Color32::WHITE);
         assert_ne!(text_on(Color32::from_rgb(0x98, 0xc3, 0x79)), Color32::WHITE);
+    }
+
+    #[test]
+    fn path_completion_like_a_shell() {
+        let dir = std::env::temp_dir().join(format!("florm_complete_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("addons/sale")).unwrap();
+        std::fs::create_dir_all(dir.join("addons/stock")).unwrap();
+        std::fs::write(dir.join("addons/readme.md"), "").unwrap();
+        std::fs::write(dir.join(".hidden"), "").unwrap();
+        let sep = std::path::MAIN_SEPARATOR;
+        // a single folder: completed with its separator
+        assert_eq!(complete_path("add", &dir, false).0, format!("addons{sep}"));
+        // several: as far as they agree
+        let (done, found) = complete_path("addons/s", &dir, false);
+        assert_eq!(done, "addons/s");
+        assert_eq!(found.len(), 2);
+        assert_eq!(complete_path("addons/sa", &dir, false).0, format!("addons/sale{sep}"));
+        // folders only (open a folder), case-insensitive when nothing matches exactly
+        assert_eq!(complete_path("addons/", &dir, true).1.len(), 2);
+        assert_eq!(complete_path("addons/README", &dir, false).0, "addons/readme.md");
+        // absolute paths, hidden files only with a dot
+        let abs = format!("{}/", dir.display());
+        assert!(complete_path(&abs, Path::new("/"), false).1.iter().all(|(n, _)| !n.starts_with('.')));
+        assert_eq!(complete_path(&format!("{abs}.h"), Path::new("/"), false).0, format!("{abs}.hidden"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

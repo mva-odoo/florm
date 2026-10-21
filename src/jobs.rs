@@ -26,7 +26,13 @@ pub enum JobResult {
     /// Live lint of the buffer while typing.
     Lint { uid: u64, version: u64, diags: Vec<Diagnostic>, linter: String },
     ToolInstalled(Result<String, String>),
-    GitStatus { selected: PathBuf, statuses: Vec<(PathBuf, Result<git::Status, String>)>, log: Vec<git::LogEntry> },
+    GitStatus {
+        selected: PathBuf,
+        statuses: Vec<(PathBuf, Result<git::Status, String>)>,
+        log: Vec<git::LogEntry>,
+        /// `git remote -v` of each repository.
+        remotes: Vec<(PathBuf, String)>,
+    },
     History(PathBuf, Result<history::Graph, String>),
     HistoryDetails(String, Result<history::Details, String>),
     Blame { uid: u64, line: usize, version: u64, result: Result<git::Blame, String> },

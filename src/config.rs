@@ -16,6 +16,12 @@ pub struct Settings {
     pub show_minimap: bool,
     /// Path and enclosing class / function above the editor.
     pub breadcrumbs: bool,
+    /// Menu bar (Fichier, Édition…) at the top; hidden, the menus are under ☰ in the status bar.
+    pub show_menu_bar: bool,
+    /// "Find in files" in an editor tab instead of the bottom panel.
+    pub search_in_tab: bool,
+    /// Branch and upstream of git repositories on their folder in the tree.
+    pub tree_git_info: bool,
     /// Show git changes inside the editor (deleted lines in red, added in green).
     pub inline_diff: bool,
     pub auto_pair: bool,
@@ -50,6 +56,9 @@ impl Default for Settings {
             ui_font: String::new(),
             show_minimap: true,
             breadcrumbs: true,
+            show_menu_bar: true,
+            search_in_tab: false,
+            tree_git_info: true,
             inline_diff: false,
             auto_pair: true,
             lint_on_save: true,
@@ -80,6 +89,12 @@ ui_font = ""
 show_minimap = true
 # fil d'Ariane (dossier › fichier › classe › méthode) au-dessus de l'éditeur
 breadcrumbs = true
+# barre de menus en haut (masquée : menus sous ☰ en bas à gauche)
+show_menu_bar = true
+# recherche dans le dossier (Ctrl+Shift+F) dans un onglet plutôt que dans le panneau du bas
+search_in_tab = false
+# branche et branche distante des dépôts git sur leur dossier dans l'arborescence
+tree_git_info = true
 # diff git dans l'éditeur : lignes supprimées en rouge, ajoutées en vert (Ctrl+Alt+D)
 inline_diff = false
 auto_pair = true
