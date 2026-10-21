@@ -105,7 +105,8 @@ pub fn find_repos(root: &Path, max_depth: usize) -> Vec<PathBuf> {
         let Ok(rd) = std::fs::read_dir(dir) else { return };
         let mut subdirs: Vec<PathBuf> = rd
             .flatten()
-            .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+            // follows symbolic links too (repositories linked into the project)
+            .filter(|e| e.path().is_dir())
             .filter(|e| {
                 let n = e.file_name();
                 let n = n.to_string_lossy();

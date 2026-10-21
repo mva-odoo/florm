@@ -518,7 +518,7 @@ pub fn stacked_diff_view(
                     let mut right = bar.right() - 6.0;
                     let mut on_button = false;
                     for (b, (label, tip)) in file_buttons.iter().enumerate().rev() {
-                        let w = ui.fonts(|fo| fo.layout_no_wrap(label.to_string(), FontId::proportional(12.5), fg).size().x) + 14.0;
+                        let w = button_width(ui, label);
                         let br = Rect::from_min_max(Pos2::new(right - w, bar.top() + 2.0), Pos2::new(right, bar.bottom() - 2.0));
                         right -= w + 4.0;
                         let bresp = ui.put(br, egui::Button::new(egui::RichText::new(*label).size(12.5))).on_hover_text(*tip);
@@ -560,7 +560,7 @@ pub fn stacked_diff_view(
                     if l.kind == DiffKind::Hunk && !hunk_buttons.is_empty() {
                         let mut right = rect.right().min(visible.right()) - 6.0;
                         for (b, (label, tip)) in hunk_buttons.iter().enumerate().rev() {
-                            let w = ui.fonts(|fo| fo.layout_no_wrap(label.to_string(), FontId::proportional(12.5), fg).size().x) + 14.0;
+                            let w = button_width(ui, label);
                             let br = Rect::from_min_max(Pos2::new(right - w, rect.top() + 2.0), Pos2::new(right, rect.bottom() - 2.0));
                             right -= w + 4.0;
                             if ui.put(br, egui::Button::new(egui::RichText::new(*label).size(12.5))).on_hover_text(*tip).clicked() {
@@ -575,6 +575,33 @@ pub fn stacked_diff_view(
         }
     });
     click
+}
+
+/// Width of a diff button (12.5 pt label + the style's padding): the button must fit in the
+/// rect given to `ui.put`, or it overflows onto its neighbour.
+fn button_width(ui: &Ui, label: &str) -> f32 {
+    let text = ui.fonts(|f| f.layout_no_wrap(label.to_string(), FontId::proportional(12.5), Color32::WHITE).size().x);
+    text + 2.0 * ui.spacing().button_padding.x + 2.0
+}
+
+/// Commit message body for display: the lines of a paragraph (hard-wrapped at ~72 columns by
+/// git habit) are joined so the text fills the width; blank lines, list items and indented
+/// lines are kept.
+pub fn reflow(body: &str) -> String {
+    let mut out = String::new();
+    let mut prev_text = false;
+    for line in body.lines() {
+        let t = line.trim_start();
+        let item = t.starts_with(['-', '*', '+', '•']) || t.split_once(['.', ')']).is_some_and(|(n, _)| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()));
+        if prev_text && !t.is_empty() && !item && t.len() == line.len() {
+            out.push(' ');
+        } else if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str(line.trim_end());
+        prev_text = !t.is_empty();
+    }
+    out
 }
 
 /// Unified diff with green / red line backgrounds and old / new line numbers. `hunk_buttons`
@@ -621,7 +648,7 @@ pub fn diff_view(ui: &mut Ui, lines: &[DiffLine], id: &str, hunk_buttons: &[(&st
                 // buttons on the right of the visible area
                 let mut right = rect.right().min(visible_right) - 6.0;
                 for (b, (label, tip)) in hunk_buttons.iter().enumerate().rev() {
-                    let w = ui.fonts(|f| f.layout_no_wrap(label.to_string(), egui::FontId::proportional(12.5), fg).size().x) + 14.0;
+                    let w = button_width(ui, label);
                     let r = Rect::from_min_max(Pos2::new(right - w, rect.top() + 1.0), Pos2::new(right, rect.bottom() - 1.0));
                     right -= w + 4.0;
                     if ui.put(r, egui::Button::new(egui::RichText::new(*label).size(12.5))).on_hover_text(*tip).clicked() {
@@ -686,6 +713,12 @@ pub fn target_line(lines: &[DiffLine], idx: usize) -> usize {
 #[cfg(test)]
 mod diff_tests {
     use super::*;
+
+    #[test]
+    fn reflow_joins_paragraph_lines() {
+        let body = "Une phrase coupée\nà 72 colonnes.\n\n- point un\n- point deux\n  suite indentée\n1. étape";
+        assert_eq!(reflow(body), "Une phrase coupée à 72 colonnes.\n\n- point un\n- point deux\n  suite indentée\n1. étape");
+    }
 
     #[test]
     fn line_numbers() {

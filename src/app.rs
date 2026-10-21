@@ -1331,6 +1331,8 @@ impl App {
         let (mut wip_pick, mut wip_ops): (Option<bool>, Vec<Vec<String>>) = (None, Vec::new());
         let split_hidden = self.split.as_ref().map(|s| s.info.short.clone());
         let repo_name = self.history.repo.as_deref().map(|r| self.repo_label(r)).unwrap_or_default();
+        let repo_choices: Vec<(PathBuf, String)> = self.repos.iter().map(|r| (r.clone(), self.repo_label(r))).collect();
+        let mut chosen_repo = None;
         let accent = self.hl.colors.accent;
         // working tree status (same repository as the graph)
         let wip = self.git.status.clone().filter(|_| self.repo == self.history.repo);
@@ -1339,7 +1341,17 @@ impl App {
             ui.add_space(2.0);
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Historique Git").strong().size(15.0));
-                ui.label(RichText::new(&repo_name).weak());
+                if repo_choices.len() > 1 {
+                    egui::ComboBox::from_id_salt("history_repo").selected_text(&repo_name).show_ui(ui, |ui| {
+                        for (r, label) in &repo_choices {
+                            if ui.selectable_label(h.repo.as_ref() == Some(r), label).clicked() {
+                                chosen_repo = Some(r.clone());
+                            }
+                        }
+                    });
+                } else {
+                    ui.label(RichText::new(&repo_name).weak());
+                }
                 ui.add_space(8.0);
                 ui.add(egui::TextEdit::singleline(&mut h.filter).hint_text("🔍 Filtrer : message, auteur, hash, branche…").desired_width(240.0));
                 if ui.checkbox(&mut h.all, "Toutes les branches").changed() {
@@ -1709,8 +1721,8 @@ impl App {
                                 egui::CollapsingHeader::new(RichText::new("Message complet").small().weak())
                                     .default_open(body.lines().count() <= 6)
                                     .show(ui, |ui| {
-                                        egui::ScrollArea::vertical().id_salt("commit_msg").max_height(120.0).show(ui, |ui| {
-                                            ui.label(RichText::new(body).weak());
+                                        egui::ScrollArea::vertical().id_salt("commit_msg").max_height(120.0).auto_shrink([false, true]).show(ui, |ui| {
+                                            ui.add(egui::Label::new(RichText::new(history::reflow(body)).weak()).wrap());
                                         });
                                     });
                             }
@@ -1813,6 +1825,13 @@ impl App {
 
         if close {
             self.history.open = false;
+        }
+        if let Some(r) = chosen_repo {
+            self.select_repo(r.clone());
+            // the panel may already be on it while the view still shows another one
+            if self.history.repo.as_ref() != Some(&r) {
+                self.load_history();
+            }
         }
         if clear_notice {
             self.history.notice = None;
