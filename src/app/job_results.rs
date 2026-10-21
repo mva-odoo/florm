@@ -92,7 +92,10 @@ impl App {
                         let Ok(st) = st else { continue };
                         let mut label = st.branch.clone();
                         if let Some((up, ahead, behind)) = st.upstream() {
-                            label.push_str(&format!(" → {up}"));
+                            // the usual origin/<same branch> is left to the tooltip
+                            if !up.split_once('/').is_some_and(|(_, b)| b == st.branch) {
+                                label.push_str(&format!(" → {up}"));
+                            }
                             if ahead > 0 {
                                 label.push_str(&format!(" ↑{ahead}"));
                             }

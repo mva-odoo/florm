@@ -291,22 +291,26 @@ fn node_ui(
         .get(&node.path)
         .and_then(|c| git_color(*c))
         .unwrap_or(if selected { v.strong_text_color() } else { v.text_color() });
-    // a git repository: its branch and upstream at the right of the row
-    let repo = node.is_dir.then(|| repos.get(&node.path)).flatten();
-    let name_right = match repo {
-        Some((label, _)) => {
-            let g = painter.layout_no_wrap(label.clone(), FontId::proportional(11.0), v.weak_text_color());
-            let w = g.size().x.min(rect.width() * 0.55);
-            let pos = Pos2::new(rect.right() - 6.0 - w, cy - g.size().y / 2.0);
-            let tint = mix(v.hyperlink_color, v.weak_text_color(), 0.35);
-            painter.with_clip_rect(Rect::from_min_max(Pos2::new(pos.x, rect.top()), rect.max)).galley(pos, g, tint);
-            pos.x - 6.0
+    // the name first; a git repository's branch at the right of the row, in the room left
+    // (shortened with "…", or not shown when there is too little)
+    let name = painter.layout_no_wrap(node.name.clone(), FontId::proportional(13.5), color);
+    let name_end = x + name.size().x;
+    painter.galley(Pos2::new(x, cy - name.size().y / 2.0), name, color);
+    if let Some((label, _)) = node.is_dir.then(|| repos.get(&node.path)).flatten() {
+        let room = rect.right() - 6.0 - (name_end + 10.0);
+        let font = FontId::proportional(11.0);
+        let tint = mix(v.hyperlink_color, v.weak_text_color(), 0.35);
+        let mut text = label.clone();
+        let mut g = painter.layout_no_wrap(text.clone(), font.clone(), tint);
+        while g.size().x > room && text.chars().count() > 4 {
+            text = format!("{}…", text.chars().take(text.chars().count().saturating_sub(2)).collect::<String>().trim_end_matches('…'));
+            g = painter.layout_no_wrap(text.clone(), font.clone(), tint);
         }
-        None => rect.right(),
-    };
-    painter
-        .with_clip_rect(Rect::from_min_max(rect.min, Pos2::new(name_right, rect.bottom())))
-        .text(Pos2::new(x, cy), Align2::LEFT_CENTER, &node.name, FontId::proportional(13.5), color);
+        if room >= 30.0 && g.size().x <= room {
+            painter.galley(Pos2::new(rect.right() - 6.0 - g.size().x, cy - g.size().y / 2.0), g, tint);
+        }
+    }
+    let repo = node.is_dir.then(|| repos.get(&node.path)).flatten();
     if r.drag_started() {
         DragAndDrop::set_payload(ui.ctx(), node.path.clone());
     }
