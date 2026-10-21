@@ -259,7 +259,7 @@ pub const ALL: &[(&str, &str, Cmd)] = &[
     ("focus_other_pane", "Aller à l'autre panneau de l'éditeur", FocusOtherPane),
     ("show_problems", "Afficher les problèmes (lint)", ShowProblems),
     ("show_output", "Afficher la sortie", ShowOutput),
-    ("show_git", "Afficher le panneau Git", ShowGit),
+    ("show_git", "Git : afficher la vue Git", ShowGit),
     ("show_files", "Afficher les fichiers", ShowFiles),
     ("show_welcome", "Afficher l'accueil de Florm", ShowWelcome),
     ("toggle_minimap", "Afficher/masquer la minimap", ToggleMinimap),

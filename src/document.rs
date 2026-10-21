@@ -140,6 +140,8 @@ pub struct Document {
     pub blame: Option<(usize, u64, String)>,
     pub mtime: Option<SystemTime>,
     pub crlf: bool,
+    /// Encoding of the file on disk: kept when saving.
+    pub encoding: Encoding,
     pub tab_size: usize,
     pub use_spaces: bool,
     // view state
@@ -399,6 +401,7 @@ impl Document {
             blame: None,
             mtime: None,
             crlf: false,
+            encoding: Encoding::Utf8,
             tab_size: tab_size.max(1),
             use_spaces,
             scroll_to_cursor: false,
@@ -438,7 +441,8 @@ impl Document {
             return Ok(d);
         }
         if path.exists() {
-            let text = read_text(path)?;
+            let (text, encoding) = read_text(path)?;
+            d.encoding = encoding;
             d.crlf = text.contains("\r\n");
             d.rope = Rope::from_str(&text.replace("\r\n", "\n"));
             d.mtime = std::fs::metadata(path).and_then(|m| m.modified()).ok();
@@ -494,18 +498,28 @@ impl Document {
         if self.crlf {
             text = text.replace('\n', "\r\n");
         }
+        let bytes = self.encoding.encode(&text)?;
         if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
-        std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))?;
+        std::fs::write(&path, bytes).map_err(|e| format!("{}: {e}", path.display()))?;
         self.saved_content = self.content_id;
         self.mtime = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
         Ok(())
     }
 
+    /// Saves in UTF-8 from now on (the document becomes modified).
+    pub fn convert_to_utf8(&mut self) {
+        if self.encoding != Encoding::Utf8 {
+            self.encoding = Encoding::Utf8;
+            self.saved_content = u64::MAX;
+        }
+    }
+
     pub fn reload_from_disk(&mut self) -> Result<(), String> {
         let path = self.path.clone().ok_or("aucun chemin")?;
-        let text = read_text(&path)?;
+        let (text, encoding) = read_text(&path)?;
+        self.encoding = encoding;
         self.crlf = text.contains("\r\n");
         let text = text.replace("\r\n", "\n");
         if text != self.rope.to_string() {
@@ -2020,20 +2034,93 @@ impl Document {
     }
 }
 
-fn read_text(path: &Path) -> Result<String, String> {
+/// Encoding of a text file. Files that are not valid UTF-8 are read as Windows-1252 (latin-1
+/// and its extensions, the usual case) and written back in it, byte for byte: replacing the
+/// invalid bytes, as before, lost the accents of the whole file at the first save.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Encoding {
+    Utf8,
+    Windows1252,
+}
+
+/// Characters of the bytes 0x80..=0x9F in Windows-1252 (the five unassigned bytes keep their
+/// C1 control code point, as in browsers: every byte comes back unchanged).
+const CP1252_HIGH: [char; 32] = [
+    '€', '\u{81}', '‚', 'ƒ', '„', '…', '†', '‡', 'ˆ', '‰', 'Š', '‹', 'Œ', '\u{8d}', 'Ž', '\u{8f}', '\u{90}', '‘', '’', '“', '”', '•', '–', '—', '˜', '™',
+    'š', '›', 'œ', '\u{9d}', 'ž', 'Ÿ',
+];
+
+impl Encoding {
+    pub fn label(self) -> &'static str {
+        match self {
+            Encoding::Utf8 => "UTF-8",
+            Encoding::Windows1252 => "Windows-1252",
+        }
+    }
+
+    fn decode(self, bytes: &[u8]) -> String {
+        match self {
+            Encoding::Utf8 => String::from_utf8_lossy(bytes).into_owned(),
+            Encoding::Windows1252 => bytes.iter().map(|&b| if (0x80..0xa0).contains(&b) { CP1252_HIGH[(b - 0x80) as usize] } else { b as char }).collect(),
+        }
+    }
+
+    /// Bytes to write; an error names the first character the encoding cannot hold.
+    pub fn encode(self, text: &str) -> Result<Vec<u8>, String> {
+        match self {
+            Encoding::Utf8 => Ok(text.as_bytes().to_vec()),
+            Encoding::Windows1252 => text
+                .chars()
+                .enumerate()
+                .map(|(i, c)| match c as u32 {
+                    n if n < 0x80 || (0xa0..=0xff).contains(&n) => Ok(n as u8),
+                    _ => CP1252_HIGH.iter().position(|h| *h == c).map(|k| 0x80 + k as u8).ok_or_else(|| {
+                        let line = text.chars().take(i).filter(|c| *c == '\n').count() + 1;
+                        format!("« {c} » (ligne {line}) n'existe pas en Windows-1252, l'encodage du fichier : clic sur « Windows-1252 » dans la barre d'état pour l'enregistrer en UTF-8")
+                    }),
+                })
+                .collect(),
+        }
+    }
+}
+
+fn read_text(path: &Path) -> Result<(String, Encoding), String> {
     let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
     if bytes.iter().take(8192).any(|b| *b == 0) {
         return Err(format!("{} : fichier binaire", path.display()));
     }
     Ok(match String::from_utf8(bytes) {
-        Ok(s) => s,
-        Err(e) => String::from_utf8_lossy(e.as_bytes()).into_owned(),
+        Ok(s) => (s, Encoding::Utf8),
+        Err(e) => (Encoding::Windows1252.decode(e.as_bytes()), Encoding::Windows1252),
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn windows_1252_round_trip() {
+        let all: Vec<u8> = (1..=255u8).collect();
+        let text = Encoding::Windows1252.decode(&all);
+        assert_eq!(Encoding::Windows1252.encode(&text).unwrap(), all);
+        assert_eq!(Encoding::Windows1252.decode(b"caf\xe9 \x80"), "café €");
+        let err = Encoding::Windows1252.encode("a\nb ✓").unwrap_err();
+        assert!(err.contains("ligne 2"), "{err}");
+    }
+
+    #[test]
+    fn latin1_file_saved_unchanged() {
+        let p = std::env::temp_dir().join(format!("florm_enc_{}.txt", std::process::id()));
+        std::fs::write(&p, b"Cr\xe9\xe9 le \x93test\x94\n").unwrap();
+        let hl = crate::highlight::Highlighting::new("Light+ (VS Code)", Path::new("/nonexistent"));
+        let mut d = Document::open(1, &p, 4, true, &hl).unwrap();
+        assert_eq!(d.encoding, Encoding::Windows1252);
+        assert_eq!(d.rope.to_string(), "Créé le “test”\n");
+        d.save(false).unwrap();
+        assert_eq!(std::fs::read(&p).unwrap(), b"Cr\xe9\xe9 le \x93test\x94\n");
+        let _ = std::fs::remove_file(&p);
+    }
 
     fn doc(text: &str) -> Document {
         Document::from_text(1, text, 4, true)

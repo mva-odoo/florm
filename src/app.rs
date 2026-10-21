@@ -6773,7 +6773,7 @@ impl App {
     }
 
     fn status_bar(&mut self, ctx: &egui::Context) {
-        let mut toggle_spaces = false;
+        let (mut toggle_spaces, mut convert_utf8) = (false, false);
         let panel = ctx.style().visuals.panel_fill;
         egui::TopBottomPanel::bottom("status")
             .exact_height(24.0)
@@ -6823,6 +6823,15 @@ impl App {
                             self.pending.push(Cmd::SetSyntax);
                         }
                         ui.label(if d.crlf { "CRLF" } else { "LF" });
+                        // only shown when it is not UTF-8: the file is saved back in its encoding
+                        if d.encoding != document::Encoding::Utf8
+                            && ui
+                                .add(egui::Button::new(RichText::new(d.encoding.label()).color(warn())).frame(false))
+                                .on_hover_text("Le fichier n'est pas en UTF-8 : il est enregistré dans son encodage.\nClic : l'enregistrer en UTF-8 désormais.")
+                                .clicked()
+                        {
+                            convert_utf8 = true;
+                        }
                         let ind = if d.use_spaces {
                             format!("Espaces : {}", d.tab_size)
                         } else {
@@ -6897,6 +6906,12 @@ impl App {
         if toggle_spaces {
             if let Some(d) = self.docs.get_mut(self.active) {
                 d.use_spaces = !d.use_spaces;
+            }
+        }
+        if convert_utf8 {
+            if let Some(d) = self.docs.get_mut(self.active) {
+                d.convert_to_utf8();
+                self.set_status("Sera enregistré en UTF-8 (Ctrl+S)");
             }
         }
     }
