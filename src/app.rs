@@ -2416,6 +2416,10 @@ impl App {
                 self.markdown_view(ui, src);
                 None
             }
+            document::View::Welcome => {
+                egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.welcome_ui(ui));
+                None
+            }
             document::View::Help => {
                 self.render_markdown(ui, "guide", include_str!("../assets/guide.md"), "file://".into());
                 None
@@ -5604,6 +5608,7 @@ impl App {
                 self.set_status(format!("{} plugin(s) chargé(s)", self.plugins.len()));
             }
             ShowGuide => self.open_view_tab(document::View::Help, "❓ Guide de Florm".into()),
+            ShowWelcome => self.open_view_tab(document::View::Welcome, "Accueil".into()),
             InsertTemplate => self.open_overlay(Mode::Templates),
             OpenTemplatesFolder => {
                 let dir = crate::templates::dir();
@@ -6628,6 +6633,7 @@ impl App {
         });
         ui.menu_button("Aide", |ui| {
             item(ui, "Guide de Florm (recherche, Git, terminal, modèles…)", Cmd::ShowGuide);
+            item(ui, "Accueil", Cmd::ShowWelcome);
             item(ui, "Palette de commandes", Cmd::CommandPalette);
             item(ui, "Raccourcis et préférences", Cmd::OpenSettings);
         });
@@ -7838,14 +7844,18 @@ impl App {
     /// Start screen in the style of the Florm artwork: logo, title, shortcuts, recent projects.
     fn welcome_ui(&mut self, ui: &mut egui::Ui) {
         let rect = ui.max_rect();
-        logo::paint_backdrop(ui.painter(), rect);
+        let light = self.hl.is_light();
+        let wc = welcome_colors(light);
+        // the cyan of the logo is too pale for titles on paper
+        let start_c = if light { Color32::from_rgb(0x0b, 0x86, 0xab) } else { logo::CYAN };
+        logo::paint_backdrop(ui.painter(), rect, light);
         let size = (rect.height() * 0.28).clamp(80.0, 220.0);
         let top = rect.top() + (rect.height() * 0.10).max(16.0);
         let logo_rect = egui::Rect::from_center_size(egui::pos2(rect.center().x, top + size / 2.0), egui::Vec2::splat(size));
         logo::paint(ui.painter(), logo_rect, true);
         let title_size = size * 0.30;
         let title_y = logo_rect.bottom() + size * 0.10;
-        logo::paint_title(ui.painter(), egui::pos2(rect.center().x, title_y), title_size);
+        logo::paint_title(ui.painter(), egui::pos2(rect.center().x, title_y), title_size, light);
 
         let y = title_y + title_size * 2.2;
         let width = 560.0_f32.min(rect.width() - 32.0);
@@ -7853,10 +7863,10 @@ impl App {
         let mut cmd = None;
         let mut open = None;
         ui.allocate_new_ui(egui::UiBuilder::new().max_rect(inner), |ui| {
-            // The backdrop is always dark navy: fixed light colors, whatever the editor theme.
-            ui.visuals_mut().override_text_color = Some(WELCOME_TEXT);
+            // colors of the backdrop (navy or paper), not of the editor theme
+            ui.visuals_mut().override_text_color = Some(wc.text);
             ui.columns(2, |cols| {
-                welcome_card(&mut cols[0], "DÉMARRER", logo::CYAN, |ui| {
+                welcome_card(&mut cols[0], "DÉMARRER", start_c, &wc, |ui| {
                     for (label, c) in [
                         ("Nouveau fichier", Cmd::NewFile),
                         ("Ouvrir un dossier…", Cmd::OpenFolder),
@@ -7865,22 +7875,22 @@ impl App {
                         ("Rechercher dans le dossier", Cmd::FindInFiles),
                         ("Graphe git", Cmd::GitHistory),
                     ] {
-                        if welcome_row(ui, label, &self.keymap.label(c), true, logo::CYAN).clicked() {
+                        if welcome_row(ui, label, &self.keymap.label(c), true, start_c, &wc).clicked() {
                             cmd = Some(c);
                         }
                     }
                 });
-                welcome_card(&mut cols[1], "RÉCENTS", logo::PURPLE, |ui| {
+                welcome_card(&mut cols[1], "RÉCENTS", logo::PURPLE, &wc, |ui| {
                     for p in self.projects.iter().filter(|p| p.path.is_dir()).take(6) {
                         let parent = p.path.parent().map(|d| d.display().to_string()).unwrap_or_default();
-                        let r = welcome_row(ui, &p.name, &parent, false, logo::PURPLE)
+                        let r = welcome_row(ui, &p.name, &parent, false, logo::PURPLE, &wc)
                             .on_hover_text(p.path.display().to_string());
                         if r.clicked() {
                             open = Some(p.path.clone());
                         }
                     }
                     if self.projects.is_empty() {
-                        ui.label(RichText::new("Aucun projet récent").color(WELCOME_DIM));
+                        ui.label(RichText::new("Aucun projet récent").color(wc.dim));
                     }
                 });
             });
@@ -8352,14 +8362,50 @@ fn commit_menu(ui: &mut egui::Ui, c: &history::Commit, local: &[String], selecte
     item(ui, "Copier le message", HistAct::Copy(c.subject.clone()), act);
 }
 
-const WELCOME_TEXT: Color32 = Color32::from_rgb(0xe8, 0xee, 0xf8);
-const WELCOME_DIM: Color32 = Color32::from_rgb(0xa3, 0xb3, 0xcc);
+/// Colors of the welcome page, on the navy (dark theme) or paper (light theme) backdrop.
+#[derive(Clone, Copy)]
+struct WelcomeColors {
+    text: Color32,
+    dim: Color32,
+    strong: Color32,
+    card: Color32,
+    card_stroke: Color32,
+    hover: Color32,
+    key: Color32,
+    key_stroke: Color32,
+}
+
+fn welcome_colors(light: bool) -> WelcomeColors {
+    if light {
+        WelcomeColors {
+            text: Color32::from_rgb(0x1f, 0x2a, 0x3e),
+            dim: Color32::from_rgb(0x5f, 0x6e, 0x88),
+            strong: Color32::from_rgb(0x0d, 0x16, 0x26),
+            card: Color32::from_rgb(0xff, 0xff, 0xff),
+            card_stroke: Color32::from_rgb(0xd5, 0xde, 0xec),
+            hover: Color32::from_rgb(0xe8, 0xef, 0xfb),
+            key: Color32::from_rgb(0xf1, 0xf4, 0xf9),
+            key_stroke: Color32::from_rgb(0xc8, 0xd3, 0xe4),
+        }
+    } else {
+        WelcomeColors {
+            text: Color32::from_rgb(0xe8, 0xee, 0xf8),
+            dim: Color32::from_rgb(0xa3, 0xb3, 0xcc),
+            strong: Color32::WHITE,
+            card: Color32::from_rgb(0x16, 0x22, 0x38),
+            card_stroke: Color32::from_rgb(0x26, 0x36, 0x52),
+            hover: Color32::from_rgb(0x22, 0x33, 0x52),
+            key: Color32::from_rgb(0x0f, 0x19, 0x2b),
+            key_stroke: Color32::from_rgb(0x34, 0x47, 0x68),
+        }
+    }
+}
 
 /// Rounded panel on the welcome backdrop, with a colored title.
-fn welcome_card(ui: &mut egui::Ui, title: &str, color: Color32, add: impl FnOnce(&mut egui::Ui)) {
+fn welcome_card(ui: &mut egui::Ui, title: &str, color: Color32, wc: &WelcomeColors, add: impl FnOnce(&mut egui::Ui)) {
     egui::Frame::none()
-        .fill(Color32::from_rgb(0x16, 0x22, 0x38))
-        .stroke(egui::Stroke::new(1.0_f32, Color32::from_rgb(0x26, 0x36, 0x52)))
+        .fill(wc.card)
+        .stroke(egui::Stroke::new(1.0_f32, wc.card_stroke))
         .rounding(10.0)
         .inner_margin(egui::Margin::same(12.0))
         .show(ui, |ui| {
@@ -8371,26 +8417,26 @@ fn welcome_card(ui: &mut egui::Ui, title: &str, color: Color32, add: impl FnOnce
 }
 
 /// Clickable line of the welcome page: label, then a shortcut (keycap) or a dimmed detail.
-fn welcome_row(ui: &mut egui::Ui, label: &str, detail: &str, keycap: bool, color: Color32) -> egui::Response {
+fn welcome_row(ui: &mut egui::Ui, label: &str, detail: &str, keycap: bool, color: Color32, wc: &WelcomeColors) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 28.0), Sense::click());
     let hovered = resp.hovered();
     let p = ui.painter().with_clip_rect(rect);
     if hovered {
-        p.rect_filled(rect, 6.0, Color32::from_rgb(0x22, 0x33, 0x52));
+        p.rect_filled(rect, 6.0, wc.hover);
         p.rect_filled(egui::Rect::from_min_size(rect.min + egui::vec2(0.0, 6.0), egui::vec2(3.0, 16.0)), 1.5, color);
     }
     let cy = rect.center().y;
-    let text = if hovered { Color32::WHITE } else { WELCOME_TEXT };
+    let text = if hovered { wc.strong } else { wc.text };
     let lr = p.text(egui::pos2(rect.left() + 10.0, cy), Align2::LEFT_CENTER, label, egui::FontId::proportional(14.0), text);
     if !detail.is_empty() {
         let font = egui::FontId::proportional(if keycap { 11.5 } else { 12.0 });
-        let galley = p.layout_no_wrap(detail.to_string(), font, WELCOME_DIM);
+        let galley = p.layout_no_wrap(detail.to_string(), font, wc.dim);
         let w = galley.size().x;
         if keycap {
             let key = egui::Rect::from_min_size(egui::pos2(rect.right() - w - 18.0, cy - 10.0), egui::vec2(w + 12.0, 20.0));
-            p.rect_filled(key, 4.0, Color32::from_rgb(0x0f, 0x19, 0x2b));
-            p.rect_stroke(key, 4.0, egui::Stroke::new(1.0_f32, Color32::from_rgb(0x34, 0x47, 0x68)));
-            p.galley(key.center() - galley.size() / 2.0, galley, WELCOME_DIM);
+            p.rect_filled(key, 4.0, wc.key);
+            p.rect_stroke(key, 4.0, egui::Stroke::new(1.0_f32, wc.key_stroke));
+            p.galley(key.center() - galley.size() / 2.0, galley, wc.dim);
         } else {
             // path after the name, cut on the left when too long
             let x = lr.right() + 10.0;
@@ -8400,9 +8446,9 @@ fn welcome_row(ui: &mut egui::Ui, label: &str, detail: &str, keycap: bool, color
                 let mut g = galley;
                 while g.size().x > room && d.chars().count() > 2 {
                     d = format!("…{}", d.chars().skip(4).collect::<String>());
-                    g = p.layout_no_wrap(d.clone(), egui::FontId::proportional(12.0), WELCOME_DIM);
+                    g = p.layout_no_wrap(d.clone(), egui::FontId::proportional(12.0), wc.dim);
                 }
-                p.galley(egui::pos2(x, cy - g.size().y / 2.0), g, WELCOME_DIM);
+                p.galley(egui::pos2(x, cy - g.size().y / 2.0), g, wc.dim);
             }
         }
     }

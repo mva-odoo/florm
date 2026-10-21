@@ -189,6 +189,8 @@ pub enum View {
     Terminal(u64),
     /// The guide of Florm (assets/guide.md).
     Help,
+    /// The welcome page (logo, start actions, recent projects).
+    Welcome,
 }
 
 /// Files shown as images rather than text.

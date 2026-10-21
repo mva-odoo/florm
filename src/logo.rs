@@ -130,12 +130,13 @@ pub fn paint(painter: &Painter, rect: Rect, detail: bool) {
     painter.add(Shape::line(chevron.iter().map(|p| at(*p)).collect(), Stroke::new(w, PURPLE)));
 }
 
-/// "FLORM" + "TEXT EDITOR" under the logo, letter-spaced like the artwork.
-pub fn paint_title(painter: &Painter, center_top: Pos2, size: f32) {
+/// "FLORM" + "TEXT EDITOR" under the logo, letter-spaced like the artwork (dark ink on the
+/// `light` backdrop).
+pub fn paint_title(painter: &Painter, center_top: Pos2, size: f32, light: bool) {
     let mut job = LayoutJob::default();
     let fmt = TextFormat {
         font_id: FontId::proportional(size),
-        color: Color32::from_rgb(0xe6, 0xec, 0xf5),
+        color: if light { Color32::from_rgb(0x1a, 0x24, 0x38) } else { Color32::from_rgb(0xe6, 0xec, 0xf5) },
         extra_letter_spacing: size * 0.12,
         ..Default::default()
     };
@@ -143,7 +144,8 @@ pub fn paint_title(painter: &Painter, center_top: Pos2, size: f32) {
     let galley = painter.layout_job(job);
     let pos = center_top - Vec2::new(galley.size().x / 2.0, 0.0);
     // subtle shadow then the silver title
-    painter.galley(pos + Vec2::new(0.0, 2.0), galley.clone(), Color32::BLACK);
+    let shadow = if light { Color32::from_rgba_unmultiplied(0x5b, 0x8c, 0xf8, 40) } else { Color32::BLACK };
+    painter.galley(pos + Vec2::new(0.0, 2.0), galley.clone(), shadow);
     painter.galley(pos, galley.clone(), Color32::WHITE);
     let mut sub = LayoutJob::default();
     sub.append(
@@ -151,7 +153,7 @@ pub fn paint_title(painter: &Painter, center_top: Pos2, size: f32) {
         0.0,
         TextFormat {
             font_id: FontId::proportional(size * 0.32),
-            color: Color32::from_rgb(0x9a, 0xa8, 0xc0),
+            color: if light { Color32::from_rgb(0x5a, 0x6a, 0x85) } else { Color32::from_rgb(0x9a, 0xa8, 0xc0) },
             extra_letter_spacing: size * 0.09,
             ..Default::default()
         },
@@ -161,16 +163,20 @@ pub fn paint_title(painter: &Painter, center_top: Pos2, size: f32) {
     painter.galley(Pos2::new(center_top.x - sg.size().x / 2.0, y), sg, Color32::WHITE);
 }
 
-/// Navy background with a faint blueprint grid, as in the artwork.
-pub fn paint_backdrop(painter: &Painter, rect: Rect) {
-    painter.rect_filled(rect, 0.0, NAVY);
+/// Navy background with a faint blueprint grid, as in the artwork; paper white with a light
+/// theme.
+pub fn paint_backdrop(painter: &Painter, rect: Rect, light: bool) {
+    // the blue ink of the grid, glow and outlines, darker on the light backdrop
+    let ink = |a: u8| if light { Color32::from_rgba_unmultiplied(0x3a, 0x5a, 0x9a, a + a / 2) } else { Color32::from_rgba_unmultiplied(0x6a, 0x8a, 0xc0, a) };
+    painter.rect_filled(rect, 0.0, if light { Color32::from_rgb(0xf4, 0xf7, 0xfc) } else { NAVY });
     let glow = Rect::from_center_size(rect.center() - Vec2::new(0.0, rect.height() * 0.12), Vec2::splat(rect.height() * 0.9));
     for i in 0..12 {
         let k = 1.0 - i as f32 / 12.0 * 0.8;
-        painter.circle_filled(glow.center(), glow.width() / 2.0 * k, Color32::from_rgba_unmultiplied(0x2a, 0x4a, 0x8a, 2));
+        let glow_c = if light { Color32::from_rgba_unmultiplied(0x9b, 0xb8, 0xf5, 3) } else { Color32::from_rgba_unmultiplied(0x2a, 0x4a, 0x8a, 2) };
+        painter.circle_filled(glow.center(), glow.width() / 2.0 * k, glow_c);
     }
     let step = 48.0;
-    let line = Color32::from_rgba_unmultiplied(0x6a, 0x8a, 0xc0, 10);
+    let line = ink(10);
     let mut x = rect.left() + (rect.width() % step) / 2.0;
     while x < rect.right() {
         painter.line_segment([Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())], Stroke::new(1.0_f32, line));
@@ -182,7 +188,7 @@ pub fn paint_backdrop(painter: &Painter, rect: Rect) {
         y += step;
     }
     // corner "circuit" outlines
-    let c = Color32::from_rgba_unmultiplied(0x6a, 0x8a, 0xc0, 28);
+    let c = ink(28);
     for i in 0..3 {
         let d = 40.0 + i as f32 * 26.0;
         let bl = rect.left_bottom();
