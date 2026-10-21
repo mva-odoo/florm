@@ -7,33 +7,238 @@
 - **Coloration incrémentale** avec les grammaires de Sublime Text (`syntect`).
 - Un seul binaire (~17 Mo sous Linux, sans dépendance système à part OpenGL).
 
-## Compiler et lancer
+## Installation
+
+Tous les fichiers sont dans la dernière [release](https://github.com/mva-odoo/florm/releases). Remplacez `<version>` par le numéro de la release (ex. `0.1.0`).
+
+Florm ne demande rien d'autre qu'OpenGL pour s'afficher. Les fonctions avancées (Git, GitHub, Claude, linters…) utilisent des programmes externes : voir [Outils et connexions](#outils-et-connexions).
+
+### Linux
+
+Florm marche sous X11 comme sous Wayland. Les paquets installent `florm` dans `/usr/bin`, une entrée « Florm » dans le menu des applications et son icône.
+
+#### Debian, Ubuntu, Linux Mint, Pop!_OS
 
 ```bash
+sudo apt install ./florm_<version>_amd64.deb
+```
+
+`apt` installe aussi les bibliothèques graphiques nécessaires (OpenGL, Wayland, X11). Désinstaller : `sudo apt remove florm`.
+
+#### Fedora, openSUSE, RHEL
+
+```bash
+sudo dnf install ./florm-<version>.x86_64.rpm        # Fedora, RHEL
+sudo zypper install ./florm-<version>.x86_64.rpm     # openSUSE
+```
+
+#### Arch Linux, Manjaro, EndeavourOS, Omarchy
+
+```bash
+sudo pacman -U florm-<version>-1-x86_64.pkg.tar.zst
+```
+
+Désinstaller : `sudo pacman -R florm`.
+
+#### Autres distributions : binaire seul
+
+```bash
+chmod +x florm-<version>-linux-x86_64
+mv florm-<version>-linux-x86_64 ~/.local/bin/florm
+```
+
+Il faut les bibliothèques OpenGL (`libGL`, `libEGL`) et `libxkbcommon-x11`, presque toujours déjà présentes sur un bureau.
+
+### Windows
+
+Téléchargez `florm-<version>-windows-x86_64.exe`. Il est **autonome** : pas d'installation, double-clic pour le lancer. Rangez-le où vous voulez (par exemple `C:\Users\<vous>\Florm\florm.exe`) et épinglez-le à la barre des tâches.
+
+Au premier lancement, **Windows SmartScreen** peut afficher « Windows a protégé votre ordinateur » : le fichier n'est pas signé. Cliquez sur **Informations complémentaires** puis **Exécuter quand même**.
+
+Les préférences sont dans `%APPDATA%\florm`.
+
+### macOS
+
+Téléchargez `Florm-<version>-macos-universal.dmg` (Mac Intel et Apple Silicon), ouvrez-le et glissez **Florm** dans **Applications**.
+
+Florm n'est pas signé par un compte développeur Apple : au **premier lancement**, faites **clic droit sur Florm → Ouvrir**, puis **Ouvrir** dans la fenêtre d'avertissement. Ensuite, il se lance normalement.
+
+Si macOS dit que l'application « est endommagée », retirez la quarantaine :
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Florm.app
+```
+
+### Depuis les sources
+
+Avec [Rust](https://rustup.rs) installé :
+
+```bash
+git clone https://github.com/mva-odoo/florm.git
+cd florm
 cargo build --release
-./target/release/florm              # rouvre le dernier projet utilisé
-./target/release/florm .            # ouvre le dossier courant
-./target/release/florm fichier.py   # ouvre un fichier
+./target/release/florm .
 ```
 
-Fonctionne sous Linux (X11/Wayland, WSLg), macOS et Windows.
+### Mettre à jour
 
-### Version Windows depuis WSL
+Quand une nouvelle version sort, Florm l'indique au démarrage par **⬆ Florm x.y.z** en bas à droite. Un clic propose de **télécharger le fichier pour votre système** (le `.deb` sous Ubuntu, le paquet Arch sous Arch, le `.exe` sous Windows, le `.dmg` sous macOS…) ou d'ouvrir les notes de version. Pour vérifier à la main : **Aide → Rechercher une mise à jour**. Pour ne plus chercher : Préférences → Avancé → « Chercher les mises à jour ».
+
+Inutile de désinstaller l'ancienne version : la nouvelle s'installe **par-dessus**, et les préférences sont gardées.
+
+| Système | Mettre à jour |
+|---|---|
+| Debian / Ubuntu | `sudo apt install ./florm_<version>_amd64.deb` |
+| Fedora | `sudo dnf install ./florm-<version>.x86_64.rpm` |
+| openSUSE | `sudo zypper install ./florm-<version>.x86_64.rpm` |
+| Arch | `sudo pacman -U florm-<version>-1-x86_64.pkg.tar.zst` |
+| Binaire seul | remplacer `~/.local/bin/florm` par le nouveau fichier |
+| Windows | fermer Florm, remplacer l'ancien `.exe` par le nouveau |
+| macOS | fermer Florm, glisser le nouveau Florm dans Applications → **Remplacer** |
+
+### Premier lancement
 
 ```bash
-sudo apt install mingw-w64          # une seule fois (ou sans sudo : pip install --user ziglang && cargo install cargo-zigbuild)
-scripts/build-windows.sh            # compile florm.exe et le copie dans C:\Users\<toi>\Florm
+florm                # rouvre le dernier projet
+florm .              # ouvre le dossier courant
+florm fichier.py     # ouvre un fichier
 ```
 
-Le `.exe` est autonome (pas d'installation) : double-clic pour le lancer. Git, les linters et les serveurs de langage utilisés sont ceux installés côté Windows.
+Les préférences s'ouvrent avec **Ctrl+,** et sont enregistrées dans `~/.config/florm/settings.toml` (`%APPDATA%\florm\settings.toml` sous Windows). Le guide intégré est dans le menu Aide.
 
-### Paquets et release GitHub
+## Outils et connexions
+
+L'édition, la recherche, la coloration, l'index des symboles (F12, complétion) et le lint XML / JSON marchent **sans rien installer**. Les autres fonctions s'appuient sur des programmes externes, cherchés dans le `PATH`. Aucun n'est obligatoire : sans lui, seule la fonction concernée est indisponible.
+
+| Fonction | Programme | Obligatoire pour |
+|---|---|---|
+| Vue Git, commit, push, diff, rebase | `git` | Tout ce qui touche à Git |
+| Pull requests GitHub | `gh` (GitHub CLI), connecté | Onglet Pull requests, « Créer une PR » |
+| Claude dans l'éditeur | `claude` (Claude Code), connecté | Onglet Claude, ✨ message de commit |
+| Lint Python | `flake8` ou `ruff` (ou `pyflakes`, `pylint`) | Soulignements dans les fichiers Python |
+| Formatage Python | `ruff` | Ctrl+Alt+F, « Corriger automatiquement » |
+| Lint JavaScript | `eslint` (sinon `node`) | Soulignements dans les fichiers JS |
+| Complétion intelligente, F2 renommer | un serveur de langage | Voir plus bas |
+| Plugins d'exemple | `python3` | Les plugins écrits en Python |
+| Icônes du terminal | une Nerd Font | Les symboles des prompts (starship, powerline) |
+
+### Git
+
+Indispensable pour la vue Git (Ctrl+Alt+G), les couleurs de l'arborescence et le diff dans la marge.
+
+| Système | Installation |
+|---|---|
+| Debian / Ubuntu | `sudo apt install git` |
+| Fedora | `sudo dnf install git` |
+| Arch | `sudo pacman -S git` |
+| Windows | [git-scm.com](https://git-scm.com/download/win) (laisser « Git from the command line » coché) ou `winget install Git.Git` |
+| macOS | `xcode-select --install` ou `brew install git` |
+
+Configurez votre identité une fois, sinon les commits échouent :
 
 ```bash
-gh workflow run release.yml -f version=0.2.0    # ou Actions → Release → Run workflow
+git config --global user.name "Votre Nom"
+git config --global user.email "vous@exemple.com"
 ```
 
-Compile sur GitHub Actions et publie dans la release `v0.2.0` (créée si besoin) : `.deb`, `.rpm`, `.pkg.tar.zst` (Arch), binaire Linux, `.exe` Windows et `.dmg` macOS (universel Intel + Apple Silicon). Sans `version` : celle de `Cargo.toml`. Le `.dmg` n'est pas signé par un compte développeur Apple : au premier lancement, clic droit sur Florm → Ouvrir.
+Pour **pousser** vers GitHub, il faut une clé SSH ajoutée à votre compte ([guide GitHub](https://docs.github.com/fr/authentication/connecting-to-github-with-ssh)), ou bien `gh auth login` (ci-dessous), qui configure aussi Git en HTTPS.
+
+### GitHub : pull requests
+
+L'onglet **Pull requests** (Ctrl+Alt+R), les pastilles de PR et « Créer une PR » passent par **GitHub CLI** (`gh`). Florm ne demande aucun token : il utilise la connexion de `gh`.
+
+| Système | Installation |
+|---|---|
+| Debian / Ubuntu | `sudo apt install gh` (ou le [dépôt officiel](https://github.com/cli/cli/blob/trunk/docs/install_linux.md) pour une version récente) |
+| Fedora | `sudo dnf install gh` |
+| Arch | `sudo pacman -S github-cli` |
+| Windows | `winget install GitHub.cli` |
+| macOS | `brew install gh` |
+
+Puis connectez-vous, une fois :
+
+```bash
+gh auth login
+```
+
+Choisissez **GitHub.com**, **HTTPS** ou **SSH**, puis **Login with a web browser** : copiez le code affiché, collez-le sur la page qui s'ouvre et cliquez sur **Authorize**. Vérifiez avec `gh auth status`.
+
+Pour des dépôts d'une organisation qui utilise le SSO, autorisez aussi l'organisation sur la page d'autorisation.
+
+### Claude dans l'éditeur
+
+L'onglet **Claude** (Ctrl+Alt+C) et le bouton ✨ (proposer un message de commit) lancent **Claude Code** (`claude`). Il faut un compte Claude (abonnement Pro / Max ou clé API).
+
+```bash
+# Linux, macOS
+curl -fsSL https://claude.ai/install.sh | bash
+```
+
+```powershell
+# Windows (PowerShell)
+irm https://claude.ai/install.ps1 | iex
+```
+
+Puis connectez-vous, une fois, dans un terminal :
+
+```bash
+claude
+```
+
+et suivez la connexion dans le navigateur (ou `/login` dans Claude Code). Une fois `claude` connecté dans le terminal, Florm l'utilise tel quel.
+
+### Python : lint et formatage
+
+Le lint Python tourne pendant la frappe. Florm prend le premier disponible : `flake8`, sinon `ruff`, `pyflakes`, `pylint` (au choix dans Préférences → Lint, `python_linter`). Il est lancé depuis la racine du dépôt et lit donc `setup.cfg`, `.flake8`, `tox.ini` ou `pyproject.toml`.
+
+Le plus simple : le bouton **« Installer flake8 »** du panneau Problèmes. Florm l'installe dans son propre dossier (`~/.local/share/florm/pytools`) sans toucher au Python du système. Il faut seulement `python3` et `pip`.
+
+Ou à la main :
+
+```bash
+pipx install ruff flake8        # partout
+sudo apt install flake8         # Debian / Ubuntu
+sudo pacman -S flake8 ruff      # Arch
+brew install ruff flake8        # macOS
+```
+
+Le **formatage** (Ctrl+Alt+F, `format_on_save`) et « Corriger automatiquement » utilisent `ruff`.
+
+### JavaScript
+
+`eslint` du projet (`node_modules/.bin/eslint`) ou du `PATH`. Sans eslint, Florm vérifie la syntaxe avec `node --check`.
+
+### Serveurs de langage (LSP)
+
+Sans serveur de langage, Florm complète et va à la définition grâce à son propre index. Un serveur ajoute la complétion exacte, la documentation au survol, les usages (Maj+F12) et le renommage dans tout le projet (F2). Florm détecte automatiquement :
+
+| Langage | Serveur | Installation |
+|---|---|---|
+| Python | `pyright-langserver` ou `pylsp` | Bouton **« installer pylsp »** de la barre d'état, ou `npm i -g pyright`, ou `pipx install python-lsp-server` |
+| JavaScript / TypeScript | `typescript-language-server` | `npm i -g typescript typescript-language-server` |
+| Rust | `rust-analyzer` | `rustup component add rust-analyzer` |
+| Go | `gopls` | `go install golang.org/x/tools/gopls@latest` |
+| C / C++ | `clangd` | paquet `clangd` (Linux), `brew install llvm` (macOS), LLVM (Windows) |
+
+Pour choisir une autre commande, dans `settings.toml` :
+
+```toml
+[lsp_servers]
+python = "pyright-langserver --stdio"
+```
+
+### Terminal intégré
+
+Il lance votre shell (`$SHELL` sous Linux et macOS, `cmd.exe` ou `%COMSPEC%` sous Windows ; à changer dans Préférences → Terminal). Pour les icônes des prompts (starship, powerline), installez une [Nerd Font](https://www.nerdfonts.com) : Florm la trouve tout seul.
+
+### Vérifier que tout est en place
+
+```bash
+git --version
+gh auth status
+claude --version
+flake8 --version || ruff --version
+```
 
 ## Fonctionnalités
 
@@ -151,16 +356,13 @@ lint_on_save = true
 Les identifiants de commande sont listés dans `src/commands.rs`. Les thèmes `.tmTheme` (ex. Monokai)
 déposés dans `~/.config/florm/themes/` sont chargés au démarrage.
 
-## Outils recommandés
+## Publier une release
 
-- flake8 : bouton « Installer flake8 » du panneau Problèmes (ou palette → « Lint : installer flake8 pour Florm »), ou ruff / flake8 déjà présents dans le PATH
-- `eslint` dans le projet (`node_modules/.bin`) ou dans le PATH pour le JS
+```bash
+gh workflow run release.yml -f version=0.2.0    # ou Actions → Release → Run workflow
+```
 
-## Limites connues
-
-- Pas de retour à la ligne automatique (soft wrap).
-- Les caractères larges (CJK) peuvent être mal alignés dans l'éditeur.
-- Pas de sélecteur de fichiers natif : ouverture via un chemin (pré-rempli) ou l'arborescence.
+Compile sur GitHub Actions et publie dans la release `v0.2.0` (créée si besoin) : `.deb`, `.rpm`, `.pkg.tar.zst` (Arch), binaire Linux, `.exe` Windows et `.dmg` macOS (universel Intel + Apple Silicon). Sans `version` : celle de `Cargo.toml`. Un push sur `main` ne crée pas de release.
 
 ## Licence
 
