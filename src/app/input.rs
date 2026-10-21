@@ -241,10 +241,10 @@ impl App {
             NextResult => self.step_result(true),
             PrevResult => self.step_result(false),
             SwitchProject => self.open_overlay(Mode::Projects),
-            ShowProjects => {
-                self.show_sidebar = true;
-                self.side_tab = SideTab::Projects;
-            }
+            RenameProject => match self.projects.iter().find(|p| Some(&p.path) == self.root.as_ref()).cloned() {
+                Some(p) => self.open_overlay_with(Mode::Prompt(Prompt::RenameProject(p.path)), Vec::new(), p.name),
+                None => self.set_status("Aucun dossier ouvert"),
+            },
             CloseFolder => self.close_folder(),
             FindNext => self.find_step(true, false),
             FindPrev => self.find_step(false, false),
@@ -329,11 +329,10 @@ impl App {
             }
             ShowFiles => {
                 // a second time: back to the editor
-                if self.show_sidebar && self.side_tab == SideTab::Files && ctx.memory(|m| m.has_focus(sidebar::tree_id())) {
+                if self.show_sidebar && ctx.memory(|m| m.has_focus(sidebar::tree_id())) {
                     self.focus_editor(ctx);
                 } else {
                     self.show_sidebar = true;
-                    self.side_tab = SideTab::Files;
                     // the keyboard goes to the tree, on the current file
                     if let Some(p) = self.docs.get(self.active).and_then(|d| d.path.clone()) {
                         if self.tree_nav.cursor.is_none() || !ctx.memory(|m| m.has_focus(sidebar::tree_id())) {

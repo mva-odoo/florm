@@ -131,6 +131,22 @@ pub fn paint_chevron(painter: &Painter, center: Pos2, open: bool, color: Color32
     painter.add(Shape::convex_polygon(pts, color, Stroke::NONE));
 }
 
+/// Magnifying glass centered on `center` (search button).
+pub fn paint_search(painter: &Painter, center: Pos2, color: Color32) {
+    let c = center + Vec2::new(-1.5, -1.5);
+    painter.circle_stroke(c, 4.5, Stroke::new(1.5_f32, color));
+    painter.line_segment([c + Vec2::splat(3.3), c + Vec2::splat(7.0)], Stroke::new(1.8_f32, color));
+}
+
+/// Small terminal window with a `>_` prompt (terminal button).
+pub fn paint_terminal(painter: &Painter, center: Pos2, color: Color32) {
+    let r = Rect::from_center_size(center, Vec2::new(15.0, 12.0));
+    painter.rect_stroke(r, 2.0, Stroke::new(1.3_f32, color));
+    let (x, y) = (r.left() + 3.5, r.center().y);
+    painter.add(Shape::line(vec![Pos2::new(x, y - 2.5), Pos2::new(x + 2.5, y), Pos2::new(x, y + 2.5)], Stroke::new(1.3_f32, color)));
+    painter.line_segment([Pos2::new(x + 4.5, y + 2.5), Pos2::new(x + 8.0, y + 2.5)], Stroke::new(1.3_f32, color));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

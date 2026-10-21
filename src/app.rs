@@ -90,12 +90,6 @@ fn filled_button(text: impl Into<String>, fill: Color32) -> egui::Button<'static
 const TAB_STRIP_H: f32 = 32.0;
 
 #[derive(PartialEq, Clone, Copy)]
-enum SideTab {
-    Files,
-    Projects,
-}
-
-#[derive(PartialEq, Clone, Copy)]
 enum BottomTab {
     Search,
     Problems,
@@ -583,7 +577,6 @@ pub struct App {
     last_active_path: Option<PathBuf>,
     tree: Option<Node>,
     show_sidebar: bool,
-    side_tab: SideTab,
     bottom: Option<BottomTab>,
     overlay: Option<Overlay>,
     find: FindState,
@@ -770,7 +763,6 @@ impl App {
             last_active_path: None,
             tree: None,
             show_sidebar: true,
-            side_tab: SideTab::Files,
             bottom: None,
             overlay: None,
             find: FindState::default(),

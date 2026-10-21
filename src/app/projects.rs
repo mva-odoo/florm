@@ -175,62 +175,6 @@ impl App {
         }
     }
 
-    pub(super) fn projects_ui(&mut self, ui: &mut egui::Ui) {
-        let (mut switch, mut remove, mut rename) = (None, None, None);
-        ui.horizontal(|ui| {
-            if ui.button("Ouvrir un dossier…").clicked() {
-                self.pending.push(Cmd::OpenFolder);
-            }
-            if self.root.is_some() && ui.button("Fermer").on_hover_text("Fermer le dossier courant").clicked() {
-                self.pending.push(Cmd::CloseFolder);
-            }
-        });
-        ui.separator();
-        if self.projects.is_empty() {
-            ui.label(RichText::new("Aucun projet : ouvre un dossier.").weak());
-        }
-        egui::ScrollArea::vertical().id_salt("projects").auto_shrink([false, false]).show(ui, |ui| {
-            for p in &self.projects {
-                let current = self.root.as_ref() == Some(&p.path);
-                let exists = p.path.is_dir();
-                let mut name = RichText::new(&p.name).strong();
-                if !exists {
-                    name = name.strikethrough().weak();
-                }
-                let r = ui.selectable_label(current, name).on_hover_text("Clic : ouvrir · Clic droit : options");
-                ui.label(RichText::new(p.path.display().to_string()).weak().small());
-                if r.clicked() && !current && exists {
-                    switch = Some(p.path.clone());
-                }
-                r.context_menu(|ui| {
-                    if ui.button("Renommer…").clicked() {
-                        rename = Some(p.clone());
-                        ui.close_menu();
-                    }
-                    if ui.button("Retirer de la liste").clicked() {
-                        remove = Some(p.path.clone());
-                        ui.close_menu();
-                    }
-                    if ui.button("Copier le chemin").clicked() {
-                        ui.ctx().output_mut(|o| o.copied_text = p.path.display().to_string());
-                        ui.close_menu();
-                    }
-                });
-                ui.add_space(4.0);
-            }
-        });
-        if let Some(p) = switch {
-            self.switch_project(p);
-        }
-        if let Some(p) = remove {
-            self.projects.retain(|x| x.path != p);
-            project::save_list(&self.projects);
-        }
-        if let Some(p) = rename {
-            self.open_overlay_with(Mode::Prompt(Prompt::RenameProject(p.path)), Vec::new(), p.name);
-        }
-    }
-
     pub(super) fn relocate_docs(&mut self, old: &Path, new: &Path) {
         for d in self.docs.iter_mut() {
             if let Some(p) = d.path.clone() {

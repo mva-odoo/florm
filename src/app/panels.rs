@@ -650,33 +650,40 @@ impl App {
             .width_range(150.0..=700.0)
             .frame(egui::Frame::none().fill(panel).inner_margin(egui::Margin { left: 10.0, right: 8.0, top: 4.0, bottom: 6.0 }))
             .show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 2.0;
-                // git is in its own view (Ctrl+Shift+G, or the branch in the status bar)
-                for (tab, label) in [(SideTab::Files, "Fichiers"), (SideTab::Projects, "Projets")] {
-                    if nav_tab(ui, label, self.side_tab == tab).clicked() {
-                        self.side_tab = tab;
-                    }
-                }
-            });
-            ui.add_space(6.0);
-            match self.side_tab {
-                SideTab::Files => match self.tree.as_mut() {
-                    Some(tree) => {
-                        let active = self.docs.get(self.active).and_then(|d| d.path.clone());
-                        let empty = HashMap::new();
-                        let info = if self.settings.tree_git_info { &self.repo_info } else { &empty };
-                        tree_action =
-                            sidebar::show(ui, tree, active.as_deref(), &self.git.map, info, &mut self.tree_scroll, &mut self.tree_nav);
-                    }
-                    None => {
-                        ui.label("Aucun dossier ouvert.");
-                        if ui.button("Ouvrir un dossier…").clicked() {
-                            self.pending.push(Cmd::OpenFolder);
+            // search and terminal at the bottom; projects are under Ctrl+Alt+P, git in its own view
+            egui::TopBottomPanel::bottom("sidebar_tools").frame(egui::Frame::none().inner_margin(egui::Margin { left: 0.0, right: 0.0, top: 6.0, bottom: 0.0 })).show_inside(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 2.0;
+                    let tools: [(Cmd, fn(&egui::Painter, egui::Pos2, Color32), &str); 2] = [
+                        (Cmd::FindInFiles, crate::icons::paint_search, "Rechercher dans le dossier"),
+                        (Cmd::ToggleTerminal, crate::icons::paint_terminal, "Terminal"),
+                    ];
+                    for (cmd, paint, tip) in tools {
+                        let (rect, r) = ui.allocate_exact_size(egui::vec2(28.0, 24.0), Sense::click());
+                        if r.hovered() {
+                            ui.painter().rect_filled(rect, 4.0, ui.visuals().widgets.hovered.weak_bg_fill);
+                        }
+                        let c = if r.hovered() { ui.visuals().strong_text_color() } else { ui.visuals().weak_text_color() };
+                        paint(ui.painter(), rect.center(), c);
+                        if r.on_hover_text(format!("{tip}    {}", self.keymap.label(cmd))).clicked() {
+                            self.pending.push(cmd);
                         }
                     }
-                },
-                SideTab::Projects => self.projects_ui(ui),
+                });
+            });
+            match self.tree.as_mut() {
+                Some(tree) => {
+                    let active = self.docs.get(self.active).and_then(|d| d.path.clone());
+                    let empty = HashMap::new();
+                    let info = if self.settings.tree_git_info { &self.repo_info } else { &empty };
+                    tree_action = sidebar::show(ui, tree, active.as_deref(), &self.git.map, info, &mut self.tree_scroll, &mut self.tree_nav);
+                }
+                None => {
+                    ui.label("Aucun dossier ouvert.");
+                    if ui.button("Ouvrir un dossier…").clicked() {
+                        self.pending.push(Cmd::OpenFolder);
+                    }
+                }
             }
         });
         // double click on the border between the sidebar and the editor: hide the sidebar
@@ -1365,7 +1372,6 @@ impl App {
             return;
         }
         self.show_sidebar = true;
-        self.side_tab = SideTab::Files;
         self.tree_nav.cursor = Some(path.clone());
         self.tree_scroll = Some(path);
     }
