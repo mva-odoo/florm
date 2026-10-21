@@ -32,7 +32,7 @@ pub struct Settings {
     pub lint_on_save: bool,
     /// Lint Python while typing (not only on save).
     pub lint_live: bool,
-    /// "auto" (ruff → flake8 → pyflakes), "flake8", "ruff", "pyflakes" or "pylint".
+    /// "auto" (flake8 → ruff → pyflakes), "flake8", "ruff", "pyflakes" or "pylint".
     pub python_linter: String,
     /// Extra arguments for the Python linter, e.g. ["--max-line-length=120"].
     pub python_lint_args: Vec<String>,
@@ -120,7 +120,7 @@ auto_pair = true
 lint_on_save = true
 # Lint Python pendant la frappe
 lint_live = true
-# Linter Python : "auto" (ruff → flake8 → pyflakes), "flake8", "ruff", "pyflakes", "pylint"
+# Linter Python : "auto" (flake8 → ruff → pyflakes), "flake8", "ruff", "pyflakes", "pylint"
 python_linter = "auto"
 # Arguments en plus, ex. ["--max-line-length=120"] (la config du projet, setup.cfg / .flake8 / tox.ini, est lue aussi)
 python_lint_args = []

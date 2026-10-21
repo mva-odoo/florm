@@ -1,5 +1,5 @@
 //! Linters: XML/JSON in-process, Python and JavaScript through external tools
-//! (ruff → flake8 → pyflakes → ast, eslint → node --check).
+//! (flake8 → ruff → pyflakes → ast, eslint → node --check).
 
 use std::collections::HashMap;
 use std::io::Write;
@@ -50,7 +50,7 @@ pub fn lint_in_process(lang: &str, text: &str) -> Vec<Diagnostic> {
 /// Which Python linter to use and its extra arguments (from the settings).
 #[derive(Clone, Debug, Default)]
 pub struct LintConfig {
-    /// "auto" (ruff → flake8 → pyflakes), or "flake8", "ruff", "pyflakes", "pylint".
+    /// "auto" (flake8 → ruff → pyflakes), or "flake8", "ruff", "pyflakes", "pylint".
     pub python_linter: String,
     pub python_args: Vec<String>,
 }
@@ -360,7 +360,7 @@ pub fn lint_python(path: &Path, text: &str, root: Option<&Path>, cfg: &LintConfi
     let cwd = root.or(path.parent()).unwrap_or(Path::new("."));
     let display = path.strip_prefix(cwd).unwrap_or(path).to_string_lossy().into_owned();
     let wanted: Vec<&str> = match cfg.python_linter.as_str() {
-        "" | "auto" => vec!["ruff", "flake8", "pyflakes"],
+        "" | "auto" => vec!["flake8", "ruff", "pyflakes"],
         other => vec![other],
     };
     let extra = cfg.python_args.iter().cloned();

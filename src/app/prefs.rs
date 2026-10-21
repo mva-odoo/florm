@@ -294,7 +294,7 @@ impl App {
                 });
                 let status: Vec<(&str, bool)> =
                     ["flake8", "ruff", "pyflakes", "pylint"].iter().map(|n| (*n, lint::is_installed(n))).collect();
-                pref_row(ui, rc, "Linter Python", "« Automatique » prend ruff, sinon flake8, sinon pyflakes. La configuration du projet (setup.cfg, .flake8, tox.ini, pyproject.toml) est lue.", |ui| {
+                pref_row(ui, rc, "Linter Python", "« Automatique » prend flake8, sinon ruff, sinon pyflakes. La configuration du projet (setup.cfg, .flake8, tox.ini, pyproject.toml) est lue.", |ui| {
                     let label = |n: &str| match n {
                         "auto" => "Automatique".to_string(),
                         n => {
