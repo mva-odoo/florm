@@ -145,6 +145,33 @@ pub fn default_ui_font() -> &'static [&'static str] {
     }
 }
 
+/// A Nerd Font installed on the system, for the icons of shell prompts (starship, powerline
+/// arrows, logos…) that are in the private use area of Unicode: added after the other fonts,
+/// only the glyphs they lack come from it. Found by file name (no font is read): the symbols
+/// only font first, then a monospaced one.
+fn nerd_font_file() -> Option<PathBuf> {
+    let mut files = Vec::new();
+    for d in font_dirs() {
+        font_files(&d, 4, &mut files);
+    }
+    let rank = |p: &PathBuf| {
+        let n = p.file_name()?.to_string_lossy().to_lowercase();
+        if !n.contains("nerdfont") || !n.contains("-regular.") || n.contains("propo") {
+            return None;
+        }
+        Some(if n.starts_with("symbolsnerdfontmono") {
+            0
+        } else if n.starts_with("symbolsnerdfont") {
+            1
+        } else if n.contains("nerdfontmono-") {
+            2
+        } else {
+            3
+        })
+    };
+    files.into_iter().filter_map(|p| Some((rank(&p)?, p))).min().map(|(_, p)| p)
+}
+
 /// egui fonts with the chosen editor (monospace) and interface fonts first.
 pub fn definitions(editor: &str, ui: &str) -> FontDefinitions {
     let mut defs = crate::app::font_definitions();
@@ -165,12 +192,27 @@ pub fn definitions(editor: &str, ui: &str) -> FontDefinitions {
         defs.font_data.insert("user_ui".into(), d);
         defs.families.entry(FontFamily::Proportional).or_default().insert(0, "user_ui".into());
     }
+    if let Some(bytes) = nerd_font_file().and_then(|p| std::fs::read(p).ok()) {
+        defs.font_data.insert("nerd_symbols".into(), FontData::from_owned(bytes));
+        for family in [FontFamily::Monospace, FontFamily::Proportional] {
+            defs.families.entry(family).or_default().push("nerd_symbols".into());
+        }
+    }
     defs
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn finds_a_nerd_font_by_its_file_name() {
+        // only checks the choice when the system has one
+        if let Some(p) = nerd_font_file() {
+            let n = p.file_name().unwrap().to_string_lossy().to_lowercase();
+            assert!(n.contains("nerdfont") && n.contains("-regular.") && !n.contains("propo"), "{n}");
+        }
+    }
 
     #[test]
     fn reads_font_names() {
