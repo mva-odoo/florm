@@ -882,7 +882,7 @@ impl App {
                                 DiffSource::Compare => &[],
                             };
                             let jump = h.jump.take();
-                            if let Some(c) = history::stacked_diff_view(ui, &d.lines, &d.files, &mut h.collapsed, "history_stacked", hunk_buttons, file_buttons, jump) {
+                            if let Some(c) = history::stacked_diff_view(ui, &d.lines, &d.files, &mut h.collapsed, "history_stacked", hunk_buttons, file_buttons, jump, None) {
                                 diff_click = Some(c);
                             }
                         }
@@ -1054,7 +1054,7 @@ fn commit_box(ui: &mut egui::Ui, msg: &mut String, focus: bool, n_staged: usize,
 }
 
 /// A changed file in the list next to the diff: status letter, name, folder, lines added / removed.
-fn file_row(ui: &mut egui::Ui, letter: char, path: &str, stats: Option<(Option<u32>, Option<u32>)>) -> egui::Response {
+pub(super) fn file_row(ui: &mut egui::Ui, letter: char, path: &str, stats: Option<(Option<u32>, Option<u32>)>) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 24.0), Sense::click());
     let v = ui.visuals();
     if resp.hovered() {

@@ -27,6 +27,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 mod git_view;
+mod pulls;
 mod split_commit;
 mod panes;
 mod lsp_client;
@@ -616,6 +617,9 @@ pub struct App {
     /// Give the keyboard focus to the editor at the next frame (after a tab change).
     pending_focus: bool,
     md_cache: egui_commonmark::CommonMarkCache,
+    /// GitHub pull requests tab.
+    pr: pulls::PrUi,
+    /// Pull requests of branches and commits, creation of one.
     /// For the places without a context at hand (prompt submission).
     egui_ctx: egui::Context,
     /// File to bring into view in the tree ("afficher dans l'arborescence").
@@ -790,6 +794,7 @@ impl App {
             drop_zones: DropZones::default(),
             pending_focus: false,
             md_cache: egui_commonmark::CommonMarkCache::default(),
+            pr: Default::default(),
             egui_ctx: cc.egui_ctx.clone(),
             tree_scroll: None,
             tree_nav: sidebar::Nav::default(),

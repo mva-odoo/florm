@@ -10,6 +10,7 @@ mod editor_view;
 mod fuzzy;
 mod fonts;
 mod git;
+mod github;
 mod highlight;
 mod history;
 mod icons;

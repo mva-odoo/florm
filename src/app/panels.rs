@@ -120,6 +120,7 @@ impl App {
             item(ui, "Nouvelle branche…", Cmd::GitNewBranch);
             item(ui, "Diff du fichier", Cmd::GitDiffFile);
             item(ui, "Historique (graphe)", Cmd::GitHistory);
+            item(ui, "Pull requests GitHub", Cmd::PullRequests);
             item(ui, "Diff dans l'éditeur (vert / rouge)", Cmd::ToggleInlineDiff);
             item(ui, "Blame de la ligne", Cmd::GitBlame);
             item(ui, "Historique de la ligne", Cmd::GitLineHistory);
@@ -749,6 +750,7 @@ impl App {
                 ("Fetch", Cmd::GitFetch, "Récupérer sans intégrer"),
                 ("Branche ▾", Cmd::GitCheckout, "Changer de branche"),
                 ("+ Branche", Cmd::GitNewBranch, "Nouvelle branche"),
+                ("⇄ PR", Cmd::PullRequests, "Pull requests GitHub : commentaires, suggestions, commits"),
             ] {
                 if ui.button(label).on_hover_text(tip).clicked() {
                     self.pending.push(cmd);

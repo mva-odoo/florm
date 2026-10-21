@@ -128,6 +128,20 @@ propose dans les suggestions, **Tab** (ou Entrée) le remplace par
 `log.py` (extension du fichier courant ; `log.xml` pour un autre type) dans le dossier des
 modèles et l'ouvre. S'il y avait une sélection, elle devient le texte du modèle.
 
+## Pull requests GitHub
+
+**Ctrl+Alt+R** (ou Git → Pull requests GitHub, le bouton **⇄ PR** de la vue Git, la palette). Florm passe par
+la commande `gh` : pas de token à créer, il suffit de s'être connecté une fois avec
+`gh auth login` (connexion par le navigateur).
+
+- À gauche, les PR du dépôt (ouvertes, fusionnées, fermées, les tiennes), filtrables.
+- **Conversation** : la description, les **commentaires sur le code** (fichier:ligne
+  cliquable, le code commenté, les réponses) puis la discussion et les revues.
+- **Appliquer la suggestion** : un commentaire avec un bloc `suggestion` remplace les lignes
+  dans ton fichier et l'enregistre (Ctrl+Z dans le fichier pour annuler). Il faut d'abord
+  **⤵ Checkout** pour avoir la branche de la PR.
+- Branche de la PR active : les commentaires non résolus sont **dans l'éditeur**, une petite
+  bulle dans la marge, le texte au survol.
 - **Commits** : un clic montre les changements de ce commit seul ; **Fichiers** : tout le
   diff de la PR, les conversations **sous les lignes commentées** comme sur GitHub (répondre,
   résoudre, appliquer une suggestion), et **double-clic sur une ligne** pour la commenter.

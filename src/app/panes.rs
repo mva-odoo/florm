@@ -95,6 +95,7 @@ impl App {
                     inline_diff: s.inline_diff,
                     sticky: s.sticky_scroll,
                     rulers: &s.rulers,
+                    notes: doc.path.as_ref().and_then(|p| self.pr.notes.get(p)).map_or(&[], |v| &v[..]),
                 };
                 Some(editor_view::show(ui, doc, &self.hl, &opts, matches, id))
             }
@@ -108,6 +109,10 @@ impl App {
             }
             document::View::Welcome => {
                 egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.welcome_ui(ui));
+                None
+            }
+            document::View::PullRequests => {
+                egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.pulls_ui(ui));
                 None
             }
             document::View::Help => {

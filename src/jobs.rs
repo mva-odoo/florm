@@ -12,7 +12,15 @@ use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, Sender};
 
 pub enum JobResult {
+    /// Pull requests of a branch (repository, branch).
+    /// Pull requests containing a commit.
+    /// Pull requests of a repository (`gh pr list`).
+    PrList(PathBuf, Result<Vec<crate::github::PrSummary>, String>),
+    PrDetail(PathBuf, u64, Result<crate::github::PrDetail, String>),
     /// Diff of a commit of the pull request shown (its hash).
+    PrCommitDiff(String, Result<String, String>),
+    /// `gh pr checkout`, a comment sent…: the pull request to read again, the draft sent.
+    PrOp { label: String, result: Result<String, String>, reload: Option<u64>, draft: Option<String> },
     Analyzed {
         uid: u64,
         version: u64,

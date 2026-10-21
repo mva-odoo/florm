@@ -199,6 +199,8 @@ pub enum View {
     Help,
     /// The welcome page (logo, start actions, recent projects).
     Welcome,
+    /// The pull requests of GitHub.
+    PullRequests,
 }
 
 /// Files shown as images rather than text.

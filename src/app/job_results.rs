@@ -90,6 +90,9 @@ impl App {
                     self.repo_info.clear();
                     for (repo, st) in &statuses {
                         let Ok(st) = st else { continue };
+                        if self.pr.repo.as_ref() == Some(repo) {
+                            self.pr.branch = Some(st.branch.clone());
+                        }
                         let mut label = st.branch.clone();
                         if let Some((up, ahead, behind)) = st.upstream() {
                             // the usual origin/<same branch> is left to the tooltip
@@ -152,7 +155,13 @@ impl App {
                             Err(_) => {}
                         }
                     }
+                    // the branch may have changed: comments of the pull request in the editor or not
+                    self.pr_update_notes();
                 }
+                JobResult::PrList(repo, r) => self.pr_list_loaded(repo, r),
+                JobResult::PrDetail(repo, n, r) => self.pr_detail_loaded(repo, n, r),
+                JobResult::PrCommitDiff(sha, r) => self.pr_commit_diff_loaded(sha, r),
+                JobResult::PrOp { label, result, reload, draft } => self.pr_op_done(label, result, reload, draft),
                 JobResult::History(repo, gen, r) => {
                     if self.history.repo.as_ref() == Some(&repo) && gen == self.history.gen {
                         self.history.loading = false;

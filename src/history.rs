@@ -446,6 +446,16 @@ enum StackRow {
     Gap,
     Header(usize),
     Line(usize),
+    /// What is shown under line `i` (comments of a pull request…).
+    Note(usize),
+}
+
+/// Blocks shown under some lines of a stacked diff, like the comments on GitHub.
+pub struct Notes<'a> {
+    /// Indexes (in the diff lines) of the lines with a block under them.
+    pub at: &'a std::collections::HashSet<usize>,
+    /// Draws the block of a line.
+    pub show: &'a mut dyn FnMut(&mut Ui, usize),
 }
 
 /// Every file of a diff one under the other, like the "Files changed" page of a GitHub pull
@@ -461,6 +471,7 @@ pub fn stacked_diff_view(
     hunk_buttons: &[DiffButton],
     file_buttons: &[DiffButton],
     jump: Option<FileJump>,
+    mut notes: Option<Notes>,
 ) -> Option<DiffClick> {
     let font = egui::TextStyle::Monospace.resolve(ui.style());
     let (row_h, cw) = ui.fonts(|f| (f.row_height(&font) + 2.0, crate::editor_view::char_width(f, &font)));
@@ -485,8 +496,27 @@ pub fn stacked_diff_view(
                 continue;
             }
             rows.push(StackRow::Line(i));
+            if notes.as_ref().is_some_and(|n| n.at.contains(&i)) {
+                rows.push(StackRow::Note(i));
+            }
         }
     }
+    // the height of a block is the one it took at the last frame
+    let note_id = |i: usize| egui::Id::new(id).with(("note", i));
+    let heights: Vec<f32> = rows
+        .iter()
+        .map(|row| match row {
+            StackRow::Note(i) => ui.ctx().data(|d| d.get_temp::<f32>(note_id(*i))).unwrap_or(120.0),
+            _ => row_h,
+        })
+        .collect();
+    let mut tops = Vec::with_capacity(rows.len() + 1);
+    let mut y = 0.0;
+    for h in &heights {
+        tops.push(y);
+        y += h;
+    }
+    let total = y;
     let max_len = lines.iter().map(|l| l.text.chars().count()).max().unwrap_or(0);
     let nums_w = cw * 12.0;
     let width = nums_w + (max_len as f32 + 4.0) * cw;
@@ -501,11 +531,11 @@ pub fn stacked_diff_view(
         let view_h = ui.available_height();
         let header_rows: Vec<(usize, usize)> =
             rows.iter().enumerate().filter_map(|(r, row)| if let StackRow::Header(k) = row { Some((r, *k)) } else { None }).collect();
-        let current = (top / row_h).round() as usize;
+        let current = tops.partition_point(|t| *t < top - 1.0);
         let target = match j {
-            FileJump::Next => header_rows.iter().find(|(r, _)| *r > current).map(|(r, _)| *r as f32 * row_h),
-            FileJump::Prev => header_rows.iter().rev().find(|(r, _)| *r < current).map(|(r, _)| *r as f32 * row_h),
-            FileJump::To(k) => header_rows.iter().find(|(_, f)| *f == k).map(|(r, _)| *r as f32 * row_h),
+            FileJump::Next => header_rows.iter().find(|(r, _)| *r > current).map(|(r, _)| tops[*r]),
+            FileJump::Prev => header_rows.iter().rev().find(|(r, _)| *r < current).map(|(r, _)| tops[*r]),
+            FileJump::To(k) => header_rows.iter().find(|(_, f)| *f == k).map(|(r, _)| tops[*r]),
             FileJump::PageDown => Some(top + view_h * 0.9),
             FileJump::PageUp => Some((top - view_h * 0.9).max(0.0)),
         };
@@ -514,12 +544,40 @@ pub fn stacked_diff_view(
         }
     }
     ui.spacing_mut().item_spacing.y = 0.0;
-    area.show_rows(ui, row_h, rows.len(), |ui, range| {
+    area.show_viewport(ui, |ui, viewport| {
+        let w = width.max(ui.available_width());
+        let origin = ui.min_rect().min;
+        ui.allocate_space(egui::vec2(w, total));
         let visible = ui.clip_rect();
-        for r in range {
-            let (rect, resp) = ui.allocate_exact_size(egui::vec2(width.max(ui.available_width()), row_h), Sense::click());
+        let first = tops.partition_point(|t| *t <= viewport.min.y).saturating_sub(1);
+        for r in first..rows.len() {
+            if tops[r] > viewport.max.y {
+                break;
+            }
+            let rect = Rect::from_min_size(origin + egui::vec2(0.0, tops[r]), egui::vec2(w, heights[r]));
+            if let StackRow::Note(i) = rows[r] {
+                // the block, in the visible width (it does not scroll sideways with the code)
+                let Some(n) = notes.as_mut() else { continue };
+                let inner = Rect::from_min_size(Pos2::new(visible.left() + nums_w * 0.5, rect.top()), egui::vec2((visible.width() - nums_w * 0.5 - 12.0).max(200.0), 10_000.0));
+                let used = ui
+                    .allocate_new_ui(egui::UiBuilder::new().max_rect(inner).id_salt(note_id(i)), |ui| {
+                        ui.add_space(4.0);
+                        (n.show)(ui, i);
+                        ui.add_space(6.0);
+                    })
+                    .response
+                    .rect
+                    .height();
+                if (used - heights[r]).abs() > 0.5 {
+                    ui.ctx().data_mut(|d| d.insert_temp(note_id(i), used));
+                    ui.ctx().request_repaint();
+                }
+                continue;
+            }
+            let resp = ui.interact(rect, egui::Id::new(id).with(("row", r)), Sense::click());
             let p = ui.painter();
             match rows[r] {
+                StackRow::Note(_) => {}
                 StackRow::Gap => {}
                 StackRow::Header(k) => {
                     let f = &files[k];
@@ -798,7 +856,7 @@ mod diff_tests {
         for jump in [None, Some(FileJump::To(1)), Some(FileJump::Next), Some(FileJump::PageUp)] {
             let _ = ctx.run(Default::default(), |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
-                    let click = stacked_diff_view(ui, &lines, &files, &mut folded, "t", &[("+", "", DiffAct::Stage)], &[("Ouvrir", "", DiffAct::Open)], jump);
+                    let click = stacked_diff_view(ui, &lines, &files, &mut folded, "t", &[("+", "", DiffAct::Stage)], &[("Ouvrir", "", DiffAct::Open)], jump, None);
                     assert!(click.is_none());
                 });
             });
