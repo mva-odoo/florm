@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Florm
+Comment=Éditeur de texte léger et rapide
+Exec=florm %F
+Icon=florm
+Terminal=false
+Categories=Development;TextEditor;
+MimeType=text/plain;inode/directory;
+StartupWMClass=Florm

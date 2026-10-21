@@ -1,0 +1,21 @@
+# Paquet Arch construit à partir du binaire déjà compilé par la CI (voir .github/workflows/release.yml).
+pkgname=florm
+pkgver=0.0.0
+pkgrel=1
+pkgdesc="Éditeur de texte léger et rapide inspiré de Sublime Text"
+arch=('x86_64')
+url="https://github.com/mva-odoo/florm"
+license=('MIT')
+# OpenGL, Wayland et X11 sont chargés à l'exécution (dlopen) : à déclarer à la main.
+depends=('gcc-libs' 'glibc' 'libglvnd' 'libxkbcommon-x11' 'wayland' 'libxcursor' 'libxi' 'libxrandr')
+optdepends=('git: vue Git' 'github-cli: pull requests')
+source=('florm' 'florm.desktop' 'florm.png' 'LICENSE')
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP')
+options=('!debug' '!strip')
+
+package() {
+    install -Dm755 florm "$pkgdir/usr/bin/florm"
+    install -Dm644 florm.desktop "$pkgdir/usr/share/applications/florm.desktop"
+    install -Dm644 florm.png "$pkgdir/usr/share/icons/hicolor/512x512/apps/florm.png"
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/florm/LICENSE"
+}

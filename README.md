@@ -27,6 +27,14 @@ scripts/build-windows.sh            # compile florm.exe et le copie dans C:\User
 
 Le `.exe` est autonome (pas d'installation) : double-clic pour le lancer. Git, les linters et les serveurs de langage utilisés sont ceux installés côté Windows.
 
+### Paquets et release GitHub
+
+```bash
+gh workflow run release.yml -f version=0.2.0    # ou Actions → Release → Run workflow
+```
+
+Compile sur GitHub Actions et publie dans la release `v0.2.0` (créée si besoin) : `.deb`, `.rpm`, `.pkg.tar.zst` (Arch), binaire Linux, `.exe` Windows et `.dmg` macOS (universel Intel + Apple Silicon). Sans `version` : celle de `Cargo.toml`. Le `.dmg` n'est pas signé par un compte développeur Apple : au premier lancement, clic droit sur Florm → Ouvrir.
+
 ## Fonctionnalités
 
 | | |

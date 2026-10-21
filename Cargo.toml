@@ -34,6 +34,32 @@ codegen-units = 1
 strip = true
 panic = "abort"
 
+# Paquets .deb et .rpm (cargo deb / cargo generate-rpm, voir .github/workflows/release.yml).
+# OpenGL, Wayland et X11 sont chargés à l'exécution (dlopen) : la détection automatique ne les voit pas.
+[package.metadata.deb]
+section = "editors"
+depends = "$auto, libgl1, libegl1, libxkbcommon-x11-0, libwayland-client0, libwayland-egl1, libxcursor1, libxi6, libxrandr2"
+recommends = "git"
+assets = [
+    ["target/release/florm", "usr/bin/", "755"],
+    ["packaging/florm.desktop", "usr/share/applications/", "644"],
+    ["packaging/florm.png", "usr/share/icons/hicolor/512x512/apps/", "644"],
+]
+
+[package.metadata.generate-rpm]
+assets = [
+    { source = "target/release/florm", dest = "/usr/bin/florm", mode = "755" },
+    { source = "packaging/florm.desktop", dest = "/usr/share/applications/florm.desktop", mode = "644" },
+    { source = "packaging/florm.png", dest = "/usr/share/icons/hicolor/512x512/apps/florm.png", mode = "644" },
+]
+
+[package.metadata.generate-rpm.requires]
+"libGL.so.1()(64bit)" = "*"
+"libEGL.so.1()(64bit)" = "*"
+"libxkbcommon-x11.so.0()(64bit)" = "*"
+"libwayland-client.so.0()(64bit)" = "*"
+"libwayland-egl.so.1()(64bit)" = "*"
+
 # syntect et ropey sont très lents sans optimisation : on optimise les dépendances même en debug.
 [profile.dev.package."*"]
 opt-level = 2
