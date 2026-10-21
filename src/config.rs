@@ -72,7 +72,7 @@ impl Default for Settings {
             ui_font: String::new(),
             show_minimap: true,
             sticky_scroll: true,
-            rulers: Vec::new(),
+            rulers: vec![80],
             breadcrumbs: true,
             show_menu_bar: true,
             search_in_tab: false,
@@ -115,7 +115,7 @@ show_minimap = true
 # classe / fonction courantes figées en haut de l'éditeur pendant le défilement
 sticky_scroll = true
 # règles verticales aux colonnes données, ex. [79, 120]
-rulers = []
+rulers = [80]
 # fil d'Ariane (dossier › fichier › classe › méthode) au-dessus de l'éditeur
 breadcrumbs = true
 # barre de menus en haut (masquée : menus sous ☰ en bas à gauche)

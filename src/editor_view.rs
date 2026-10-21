@@ -385,7 +385,7 @@ fn text_area(
                         tip.push_str(info);
                     }
                     if !tip.is_empty() {
-                        resp.clone().on_hover_text(tip);
+                        tooltip_under_line(ui, &resp, p, origin.y, rh, tip);
                     }
                 } else {
                     let l = rm.line_at_row(((p.y - origin.y) / rh).floor().max(0.0) as usize, nlines);
@@ -396,7 +396,7 @@ fn text_area(
                         msgs.push("Modifié depuis le dernier commit — clic pour voir le diff".into());
                     }
                     if !msgs.is_empty() {
-                        resp.clone().on_hover_text(msgs.join("\n"));
+                        tooltip_under_line(ui, &resp, p, origin.y, rh, msgs.join("\n"));
                     }
                 }
             }
@@ -1024,4 +1024,20 @@ mod tests {
             }
         });
     }
+}
+
+/// Tooltip just under the hovered line, after the usual delay: egui places the tooltip of a
+/// widget under it, which for the whole editor means at the top or bottom of the window.
+fn tooltip_under_line(ui: &Ui, resp: &egui::Response, p: Pos2, top: f32, rh: f32, text: String) {
+    let delay = ui.style().interaction.tooltip_delay;
+    let still = ui.ctx().input(|i| i.pointer.time_since_last_movement());
+    if still < delay {
+        ui.ctx().request_repaint_after(std::time::Duration::from_secs_f32(delay - still + 0.01));
+        return;
+    }
+    let bottom = top + (((p.y - top) / rh).floor() + 1.0) * rh;
+    egui::show_tooltip_at(ui.ctx(), ui.layer_id(), resp.id.with("line_tip"), egui::pos2(p.x, bottom + 2.0), |ui| {
+        ui.set_max_width(600.0);
+        ui.label(text);
+    });
 }
