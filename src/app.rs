@@ -165,6 +165,8 @@ struct Overlay {
     items: Vec<Item>,
     filtered: Vec<usize>,
     last_query: Option<String>,
+    /// Added to the score of each item (go to file: the recent files), empty for the other lists.
+    boost: Vec<i32>,
     /// Every item matching `.0` (not only the shown ones): a longer query only filters these.
     matched: Option<(String, Vec<usize>)>,
     /// Path prompts: entries of the folder being typed, for the query they were listed for.
@@ -524,6 +526,8 @@ struct Indexes {
     symbols: Option<crate::index::Index>,
     /// The project index is being built for this folder.
     symbols_for: Option<PathBuf>,
+    /// Files of the project opened lately, most recent first (go to file puts them first).
+    recent: Vec<PathBuf>,
 }
 
 /// Language servers and what is waiting for them.
@@ -960,6 +964,11 @@ impl eframe::App for App {
         if cur != self.last_active_path {
             if let Some(r) = cur.as_deref().and_then(|p| self.repo_for(p)) {
                 self.select_repo(r);
+            }
+            if let Some(p) = cur.clone().filter(|p| self.root.as_ref().is_some_and(|r| p.starts_with(r))) {
+                self.index.recent.retain(|q| *q != p);
+                self.index.recent.insert(0, p);
+                self.index.recent.truncate(50);
             }
             self.last_active_path = cur;
         }

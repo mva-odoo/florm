@@ -32,6 +32,9 @@ pub struct Session {
     pub expanded: Vec<PathBuf>,
     #[serde(default)]
     pub files: Vec<SessionFile>,
+    /// Files opened lately, most recent first (go to file shows them first).
+    #[serde(default)]
+    pub recent: Vec<PathBuf>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]

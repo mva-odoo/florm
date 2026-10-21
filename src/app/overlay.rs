@@ -86,7 +86,14 @@ impl App {
                 .collect(),
             _ => Vec::new(),
         };
+        let files = matches!(mode, Mode::Files);
         self.open_overlay_with(mode, items, String::new());
+        if files {
+            let boost = self.recent_boost();
+            if let Some(o) = self.overlay.as_mut() {
+                o.boost = boost;
+            }
+        }
     }
 
     pub(super) fn file_items(&self) -> Vec<Item> {
@@ -100,8 +107,28 @@ impl App {
             .collect()
     }
 
+    /// Go to file: bonus of each entry of the file list, for the files opened lately (the more
+    /// recent, the higher; the current file gets none, it is already in front of you).
+    pub(super) fn recent_boost(&self) -> Vec<i32> {
+        let Some(root) = &self.root else { return Vec::new() };
+        let current = self.docs.get(self.active).and_then(|d| d.path.as_ref());
+        let rank: HashMap<&Path, i32> = self
+            .index
+            .recent
+            .iter()
+            .filter(|p| Some(*p) != current)
+            .filter_map(|p| p.strip_prefix(root).ok())
+            .enumerate()
+            .map(|(k, p)| (p, 60 - k as i32))
+            .collect();
+        if rank.is_empty() {
+            return Vec::new();
+        }
+        self.index.files.iter().map(|p| rank.get(p.as_path()).copied().unwrap_or(0)).collect()
+    }
+
     pub(super) fn open_overlay_with(&mut self, mode: Mode, items: Vec<Item>, query: String) {
-        self.overlay = Some(Overlay { mode, query, selected: 0, focus: true, items, filtered: Vec::new(), last_query: None, matched: None, paths: None });
+        self.overlay = Some(Overlay { mode, query, selected: 0, focus: true, items, filtered: Vec::new(), last_query: None, boost: Vec::new(), matched: None, paths: None });
     }
 
     pub(super) fn open_prompt(&mut self, p: Prompt) {
@@ -290,15 +317,19 @@ impl App {
                             Some((_, m)) => Box::new(m.clone().into_iter()),
                             None => Box::new(0..ov.items.len()),
                         };
-                        let mut scored: Vec<(i32, usize)> =
-                            pool.filter_map(|i| fuzzy::score(&q, &ov.items[i].label).map(|s| (s, i))).collect();
+                        let boost = &ov.boost;
+                        let mut scored: Vec<(i32, usize)> = pool
+                            .filter_map(|i| fuzzy::score(&q, &ov.items[i].label).map(|s| (s + boost.get(i).copied().unwrap_or(0), i)))
+                            .collect();
                         ov.matched = Some((q.clone(), scored.iter().map(|(_, i)| *i).collect()));
-                        if !q.is_empty() && scored.len() > 300 {
+                        // ranked by score, or (nothing typed) by boost: recent files first
+                        let ranked = !q.is_empty() || !ov.boost.is_empty();
+                        if ranked && scored.len() > 300 {
                             // only the best 300 are shown: no need to sort everything
                             scored.select_nth_unstable_by(300, |a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
                             scored.truncate(300);
                         }
-                        if !q.is_empty() {
+                        if ranked {
                             scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
                         }
                         ov.filtered = scored.into_iter().take(300).map(|(_, i)| i).collect();

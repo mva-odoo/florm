@@ -72,9 +72,10 @@ impl App {
                         self.index.files = v;
                         // "go to file" opened while the list was being made: show the new list
                         if self.overlay.as_ref().is_some_and(|o| matches!(o.mode, Mode::Files)) {
-                            let items = self.file_items();
+                            let (items, boost) = (self.file_items(), self.recent_boost());
                             if let Some(o) = self.overlay.as_mut() {
                                 o.items = items;
+                                o.boost = boost;
                                 o.last_query = None;
                                 o.matched = None;
                             }
