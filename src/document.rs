@@ -183,6 +183,10 @@ pub enum View {
     Image,
     /// Rendered Markdown of the document with this uid (updated while it is edited).
     Preview(u64),
+    /// The "find in files" panel, in a tab.
+    Search,
+    /// An integrated terminal (its session id), in a tab.
+    Terminal(u64),
 }
 
 /// Files shown as images rather than text.

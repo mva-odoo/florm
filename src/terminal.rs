@@ -28,8 +28,8 @@ pub fn shell_command(cmd: &str, shell: Option<&str>) -> Command {
     c
 }
 
-/// Focus id of the terminal grid (shortcuts other than a few global ones go to the shell).
-pub fn term_id() -> Id {
+/// Base of the focus ids of the terminal grids (shortcuts other than a few global ones go to the shell).
+fn term_id() -> Id {
     Id::new("florm_terminal")
 }
 
@@ -41,10 +41,44 @@ fn default_shell() -> String {
     }
 }
 
+/// Answers to the queries a shell sends to its terminal (fish waits 10 s for the "primary device
+/// attributes" one, then complains): device attributes, status, cursor position.
+fn replies(out: &[u8], cursor: impl Fn() -> (u16, u16)) -> Vec<u8> {
+    let mut r = Vec::new();
+    let mut i = 0;
+    while let Some(k) = out[i..].windows(2).position(|w| w == b"\x1b[") {
+        let rest = &out[i + k + 2..];
+        let reply: Option<Vec<u8>> = if rest.starts_with(b"c") || rest.starts_with(b"0c") {
+            // VT220 with ANSI colors, like xterm
+            Some(b"\x1b[?62;22c".to_vec())
+        } else if rest.starts_with(b">c") || rest.starts_with(b">0c") {
+            Some(b"\x1b[>1;10;0c".to_vec())
+        } else if rest.starts_with(b"5n") {
+            Some(b"\x1b[0n".to_vec())
+        } else if rest.starts_with(b"6n") {
+            let (row, col) = cursor();
+            Some(format!("\x1b[{};{}R", row + 1, col + 1).into_bytes())
+        } else {
+            None
+        };
+        if let Some(b) = reply {
+            r.extend(b);
+        }
+        i += k + 2;
+    }
+    r
+}
+
+type SharedWriter = Arc<Mutex<Box<dyn Write + Send>>>;
+
 struct Session {
+    /// Stable id (editor tabs refer to it).
+    id: u64,
+    /// Shown in an editor tab rather than in the bottom panel.
+    docked: bool,
     name: String,
     parser: Arc<Mutex<vt100::Parser>>,
-    writer: Box<dyn Write + Send>,
+    writer: SharedWriter,
     master: Box<dyn MasterPty + Send>,
     child: Box<dyn Child + Send + Sync>,
     exited: Arc<AtomicBool>,
@@ -70,10 +104,10 @@ impl Session {
         let child = pair.slave.spawn_command(cmd).map_err(|e| format!("{shell} : {e}"))?;
         drop(pair.slave);
         let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
-        let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
+        let writer: SharedWriter = Arc::new(Mutex::new(pair.master.take_writer().map_err(|e| e.to_string())?));
         let parser = Arc::new(Mutex::new(vt100::Parser::new(size.0, size.1, SCROLLBACK)));
         let exited = Arc::new(AtomicBool::new(false));
-        let (p, ex, ctx) = (parser.clone(), exited.clone(), ctx.clone());
+        let (p, ex, ctx, w) = (parser.clone(), exited.clone(), ctx.clone(), writer.clone());
         std::thread::spawn(move || {
             let mut buf = [0u8; 16384];
             loop {
@@ -81,6 +115,12 @@ impl Session {
                     Ok(0) | Err(_) => break,
                     Ok(n) => {
                         p.lock().unwrap().process(&buf[..n]);
+                        let answer = replies(&buf[..n], || p.lock().unwrap().screen().cursor_position());
+                        if !answer.is_empty() {
+                            let mut w = w.lock().unwrap();
+                            let _ = w.write_all(&answer);
+                            let _ = w.flush();
+                        }
                         ctx.request_repaint();
                     }
                 }
@@ -92,12 +132,15 @@ impl Session {
             .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| shell.to_string());
-        Ok(Session { name, parser, writer, master: pair.master, child, exited, cwd, size, sel: None })
+        Ok(Session { id: 0, docked: false, name, parser, writer, master: pair.master, child, exited, cwd, size, sel: None })
     }
 
     fn write(&mut self, bytes: &[u8]) {
-        let _ = self.writer.write_all(bytes);
-        let _ = self.writer.flush();
+        {
+            let mut w = self.writer.lock().unwrap();
+            let _ = w.write_all(bytes);
+            let _ = w.flush();
+        }
         // typing brings the view back to the prompt
         self.parser.lock().unwrap().set_scrollback(0);
         self.sel = None;
@@ -137,47 +180,139 @@ impl Drop for Session {
 pub struct Terminal {
     /// Folder for the next terminal (project root, or a folder chosen in the tree).
     pub cwd: Option<PathBuf>,
+    /// Give the keyboard to the terminal of the bottom panel at the next frame.
     pub want_focus: bool,
+    /// Terminal tab (session id) to give the keyboard to at the next frame.
+    pub focus_tab: Option<u64>,
+    /// Session of the bottom panel asked to move into an editor tab ("⇱").
+    pub dock_request: Option<u64>,
     sessions: Vec<Session>,
+    /// Shown session of the bottom panel (index in `sessions`, never a docked one).
     active: usize,
+    next_id: u64,
     error: Option<String>,
+}
+
+/// What the grid of a session asked for.
+enum GridAct {
+    /// The shell ended and Enter was pressed: start a new one in the same place.
+    Restart,
+    NewTerminal,
 }
 
 impl Terminal {
     pub fn new() -> Self {
-        Terminal { cwd: None, want_focus: false, sessions: Vec::new(), active: 0, error: None }
+        Terminal { cwd: None, want_focus: false, focus_tab: None, dock_request: None, sessions: Vec::new(), active: 0, next_id: 1, error: None }
     }
 
     fn cwd(&self) -> PathBuf {
         self.cwd.clone().unwrap_or_else(|| std::env::current_dir().unwrap_or_default())
     }
 
-    /// Opens a new terminal tab in `cwd` (or the current folder).
-    pub fn open(&mut self, ctx: &egui::Context, shell: Option<&str>, cwd: Option<PathBuf>) {
+    /// Focus id of the grid of session `id`.
+    fn grid_id(id: u64) -> Id {
+        term_id().with(id)
+    }
+
+    /// Whether the keyboard is in one of the terminals (keys go to the shell).
+    pub fn has_focus(&self, ctx: &egui::Context) -> bool {
+        ctx.memory(|m| m.focused()).is_some_and(|f| self.sessions.iter().any(|s| Self::grid_id(s.id) == f))
+    }
+
+    fn spawn(&mut self, ctx: &egui::Context, shell: Option<&str>, cwd: Option<PathBuf>) -> Result<Session, String> {
         let shell = shell.map(str::to_string).filter(|s| !s.trim().is_empty()).unwrap_or_else(default_shell);
         let cwd = cwd.unwrap_or_else(|| self.cwd());
-        match Session::spawn(&shell, cwd, ctx) {
+        let mut s = Session::spawn(&shell, cwd, ctx).map_err(|e| format!("Impossible de lancer le terminal : {e}"))?;
+        s.id = self.next_id;
+        self.next_id += 1;
+        Ok(s)
+    }
+
+    /// Opens a new terminal in the bottom panel, in `cwd` (or the current folder).
+    pub fn open(&mut self, ctx: &egui::Context, shell: Option<&str>, cwd: Option<PathBuf>) {
+        match self.spawn(ctx, shell, cwd) {
             Ok(s) => {
                 self.sessions.push(s);
                 self.active = self.sessions.len() - 1;
                 self.error = None;
                 self.want_focus = true;
             }
-            Err(e) => self.error = Some(format!("Impossible de lancer le terminal : {e}")),
+            Err(e) => self.error = Some(e),
         }
     }
 
+    /// Opens a new terminal meant for an editor tab; returns its id and title.
+    pub fn open_tab(&mut self, ctx: &egui::Context, shell: Option<&str>, cwd: Option<PathBuf>) -> Result<(u64, String), String> {
+        let mut s = self.spawn(ctx, shell, cwd)?;
+        s.docked = true;
+        let r = (s.id, s.title());
+        self.focus_tab = Some(s.id);
+        self.sessions.push(s);
+        self.fix_active();
+        Ok(r)
+    }
+
+    /// Moves session `id` into an editor tab (`docked`) or back into the bottom panel.
+    pub fn set_docked(&mut self, id: u64, docked: bool) {
+        if let Some(i) = self.sessions.iter().position(|s| s.id == id) {
+            self.sessions[i].docked = docked;
+            if docked {
+                self.focus_tab = Some(id);
+            } else {
+                self.active = i;
+                self.want_focus = true;
+            }
+        }
+        self.fix_active();
+    }
+
+    /// Ends session `id` (its tab was closed).
+    pub fn close(&mut self, id: u64) {
+        self.sessions.retain(|s| s.id != id);
+        self.fix_active();
+    }
+
+    pub fn title_of(&self, id: u64) -> Option<String> {
+        self.sessions.iter().find(|s| s.id == id).map(|s| s.title())
+    }
+
+    /// Keeps `active` on a session of the bottom panel.
+    fn fix_active(&mut self) {
+        if self.sessions.get(self.active).map_or(true, |s| s.docked) {
+            self.active = self.sessions.iter().rposition(|s| !s.docked).unwrap_or(0);
+        }
+    }
+
+    fn restart(&mut self, i: usize, ctx: &egui::Context, shell: Option<&str>) {
+        let (cwd, id, docked) = (self.sessions[i].cwd.clone(), self.sessions[i].id, self.sessions[i].docked);
+        match self.spawn(ctx, shell, Some(cwd)) {
+            Ok(mut s) => {
+                s.id = id;
+                s.docked = docked;
+                self.sessions[i] = s;
+                if docked {
+                    self.focus_tab = Some(id);
+                } else {
+                    self.want_focus = true;
+                }
+            }
+            Err(e) => self.error = Some(e),
+        }
+    }
+
+    /// The bottom panel: tabs of the terminals not moved into the editor, and the shown one.
     pub fn ui(&mut self, ui: &mut egui::Ui, shell: Option<&str>, colors: Colors, light: bool) {
         let ctx = ui.ctx().clone();
-        if self.sessions.is_empty() && self.error.is_none() {
+        self.fix_active();
+        if !self.sessions.iter().any(|s| !s.docked) && self.error.is_none() {
             self.open(&ctx, shell, None);
         }
         // --- tabs
-        let (mut close, mut new) = (None, false);
+        let (mut close, mut new, mut dock) = (None, false, false);
         ui.horizontal(|ui| {
-            for (i, s) in self.sessions.iter().enumerate() {
+            for (i, s) in self.sessions.iter().enumerate().filter(|(_, s)| !s.docked) {
                 let done = s.exited.load(Ordering::Relaxed);
-                let label = format!("{} {}{}", i + 1, s.title(), if done { " (terminé)" } else { "" });
+                let label = format!("{}{}", s.title(), if done { " (terminé)" } else { "" });
                 let r = ui.selectable_label(i == self.active, RichText::new(label).monospace());
                 if r.clicked() {
                     self.active = i;
@@ -196,6 +331,13 @@ impl Terminal {
             if ui.add(plus).on_hover_text("Nouveau terminal").clicked() {
                 new = true;
             }
+            if ui
+                .add_enabled(self.sessions.get(self.active).is_some_and(|s| !s.docked), egui::Button::new("⇱ Onglet"))
+                .on_hover_text("Mettre ce terminal dans un onglet de l'éditeur (il peut alors être placé à côté d'un fichier, ou en bas)")
+                .clicked()
+            {
+                dock = true;
+            }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.label(
                     RichText::new("Ctrl+C : interrompre (ou copier la sélection) · Ctrl+V : coller · clic droit : menu")
@@ -206,10 +348,15 @@ impl Terminal {
         });
         if let Some(i) = close {
             self.sessions.remove(i);
-            self.active = self.active.min(self.sessions.len().saturating_sub(1));
+            self.fix_active();
         }
         if new {
             self.open(&ctx, shell, None);
+        }
+        if dock {
+            if let Some(s) = self.sessions.get(self.active) {
+                self.dock_request = Some(s.id);
+            }
         }
         if let Some(e) = &self.error {
             ui.label(RichText::new(e).color(crate::highlight::red()));
@@ -218,32 +365,90 @@ impl Terminal {
             }
             return;
         }
-        let Some(s) = self.sessions.get_mut(self.active) else {
+        let i = self.active;
+        if self.sessions.get(i).map_or(true, |s| s.docked) {
             ui.label(RichText::new("Aucun terminal ouvert — « + » pour en ouvrir un.").weak());
             return;
-        };
+        }
+        let focus = std::mem::take(&mut self.want_focus);
+        match self.grid(ui, i, focus, colors, light) {
+            Some(GridAct::Restart) => self.restart(i, &ctx, shell),
+            Some(GridAct::NewTerminal) => self.open(&ctx, shell, None),
+            None => {}
+        }
+    }
 
-        // --- grid
+    /// A terminal shown in an editor tab.
+    pub fn tab_ui(&mut self, ui: &mut egui::Ui, id: u64, shell: Option<&str>, colors: Colors, light: bool) {
+        let ctx = ui.ctx().clone();
+        let Some(i) = self.sessions.iter().position(|s| s.id == id) else {
+            ui.label(RichText::new("Ce terminal est fermé.").weak());
+            return;
+        };
+        let focus = self.focus_tab == Some(id);
+        if focus {
+            self.focus_tab = None;
+        }
+        let mut back = false;
+        egui::TopBottomPanel::top(egui::Id::new("term_tab_bar").with(id)).show_inside(ui, |ui| {
+            ui.horizontal(|ui| {
+                let s = &self.sessions[i];
+                ui.label(RichText::new(s.cwd.display().to_string()).small().weak());
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.small_button("⇲ Panneau du bas").on_hover_text("Remettre ce terminal dans le panneau du bas").clicked() {
+                        back = true;
+                    }
+                });
+            });
+        });
+        if back {
+            self.set_docked(id, false);
+            self.dock_request = None;
+            return;
+        }
+        let bg = colors.bg;
+        egui::CentralPanel::default().frame(egui::Frame::none().fill(bg)).show_inside(ui, |ui| match self.grid(ui, i, focus, colors, light) {
+            Some(GridAct::Restart) => self.restart(i, &ctx, shell),
+            Some(GridAct::NewTerminal) => {
+                if let Ok((nid, _)) = self.open_tab(&ctx, shell, None) {
+                    // a new tab is created by the app for docked sessions without one
+                    self.dock_request = Some(nid);
+                }
+            }
+            None => {}
+        });
+    }
+
+    /// Whether some terminal is left for the bottom panel.
+    pub fn has_panel_sessions(&self) -> bool {
+        self.sessions.iter().any(|s| !s.docked)
+    }
+
+    /// Ids of the sessions in editor tabs.
+    pub fn docked_ids(&self) -> Vec<u64> {
+        self.sessions.iter().filter(|s| s.docked).map(|s| s.id).collect()
+    }
+
+    /// The grid of session `i`: drawing, mouse selection, wheel, keyboard, context menu.
+    fn grid(&mut self, ui: &mut egui::Ui, i: usize, want_focus: bool, colors: Colors, light: bool) -> Option<GridAct> {
+        let s = &mut self.sessions[i];
         let font = egui::TextStyle::Monospace.resolve(ui.style());
         let (rh, cw) = ui.fonts(|f| (f.row_height(&font), crate::editor_view::char_width(f, &font)));
         let (rect, resp) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
-        let resp = ui.interact(rect, term_id(), Sense::click_and_drag()).union(resp);
+        let gid = Self::grid_id(s.id);
+        let resp = ui.interact(rect, gid, Sense::click_and_drag()).union(resp);
         let pad = 6.0;
         let cols = (((rect.width() - 2.0 * pad) / cw).floor() as u16).max(10);
         let rows = ((rect.height() / rh).floor() as u16).max(2);
         s.resize(rows, cols);
 
-        if self.want_focus || resp.clicked() || resp.drag_started() {
+        if want_focus || resp.clicked() || resp.drag_started() {
             resp.request_focus();
-            self.want_focus = false;
         }
         let focused = resp.has_focus();
         if focused {
             ui.memory_mut(|m| {
-                m.set_focus_lock_filter(
-                    term_id(),
-                    egui::EventFilter { tab: true, horizontal_arrows: true, vertical_arrows: true, escape: true },
-                )
+                m.set_focus_lock_filter(gid, egui::EventFilter { tab: true, horizontal_arrows: true, vertical_arrows: true, escape: true })
             });
         }
         if resp.hovered() {
@@ -276,10 +481,11 @@ impl Terminal {
                 let alt = s.parser.lock().unwrap().screen().alternate_screen();
                 if alt {
                     let key: &[u8] = if dy > 0.0 { b"\x1b[A" } else { b"\x1b[B" };
+                    let mut w = s.writer.lock().unwrap();
                     for _ in 0..lines {
-                        let _ = s.writer.write_all(key);
+                        let _ = w.write_all(key);
                     }
-                    let _ = s.writer.flush();
+                    let _ = w.flush();
                 } else {
                     let mut p = s.parser.lock().unwrap();
                     let cur = p.screen().scrollback();
@@ -290,12 +496,12 @@ impl Terminal {
         }
 
         // keyboard
+        let mut outcome = None;
         if focused {
             let exited = s.exited.load(Ordering::Relaxed);
             let app_cursor = s.parser.lock().unwrap().screen().application_cursor();
             let bracketed = s.parser.lock().unwrap().screen().bracketed_paste();
             let events = ui.input(|i| i.events.clone());
-            let mut restart = false;
             for ev in events {
                 match ev {
                     Event::Text(t) if !exited => s.write(t.as_bytes()),
@@ -318,7 +524,9 @@ impl Terminal {
                     Event::Cut if !exited => s.write(b"\x18"),
                     Event::Key { key, pressed: true, modifiers, .. } => {
                         if exited {
-                            restart |= key == Key::Enter;
+                            if key == Key::Enter {
+                                outcome = Some(GridAct::Restart);
+                            }
                         } else if let Some(b) = key_bytes(key, modifiers, app_cursor) {
                             s.write(&b);
                         }
@@ -326,11 +534,8 @@ impl Terminal {
                     _ => {}
                 }
             }
-            if restart {
-                let cwd = s.cwd.clone();
-                self.sessions.remove(self.active);
-                self.open(&ctx, shell, Some(cwd));
-                return;
+            if outcome.is_some() {
+                return outcome;
             }
         }
 
@@ -368,14 +573,11 @@ impl Terminal {
                 s.write(b"\x0c");
             }
             Some(3) => s.write(b"\x03"),
-            Some(4) => {
-                self.open(&ctx, shell, None);
-                return;
-            }
+            Some(4) => return Some(GridAct::NewTerminal),
             _ => {}
         }
-        let Some(s) = self.sessions.get(self.active) else { return };
         paint(ui, rect, pad, rh, cw, &font, s, colors, light, focused);
+        None
     }
 }
 
@@ -395,29 +597,59 @@ fn paint(ui: &egui::Ui, rect: Rect, pad: f32, rh: f32, cw: f32, font: &FontId, s
             let Some(cell) = screen.cell(r, col) else { break };
             let (fg, bg) = cell_colors(cell, c, light);
             let selected = in_sel(r, col);
-            // run of cells with the same colors
+            // run of cells with the same colors (background first, then the text)
             let start = col;
-            let mut text = String::new();
             while col < cols {
                 let Some(cc) = screen.cell(r, col) else { break };
                 if cell_colors(cc, c, light) != (fg, bg) || in_sel(r, col) != selected {
                     break;
                 }
-                if !cc.is_wide_continuation() {
-                    let t = cc.contents();
-                    text.push_str(if t.is_empty() { " " } else { &t });
-                }
                 col += 1;
             }
-            let x = rect.left() + pad + start as f32 * cw;
-            let w = (col - start) as f32 * cw;
+            let end = col;
             let bg = if selected { c.selection } else { bg };
             if bg != c.bg {
-                painter.rect_filled(Rect::from_min_size(Pos2::new(x, y), egui::vec2(w, rh)), 0.0, bg);
+                let x = rect.left() + pad + start as f32 * cw;
+                painter.rect_filled(Rect::from_min_size(Pos2::new(x, y), egui::vec2((end - start) as f32 * cw, rh)), 0.0, bg);
             }
-            if !text.trim().is_empty() {
-                painter.text(Pos2::new(x, y), Align2::LEFT_TOP, &text, font.clone(), fg);
+            // ASCII text is drawn in one go, any other character (prompt icons, box drawing, wide
+            // characters…) at the position of its own cell: a glyph of another width (fallback
+            // font) must not shift the rest of the line
+            let mut text = String::new();
+            let mut text_col = start;
+            let flush = |text: &mut String, at: u16| {
+                if !text.trim().is_empty() {
+                    painter.text(Pos2::new(rect.left() + pad + at as f32 * cw, y), Align2::LEFT_TOP, text.as_str(), font.clone(), fg);
+                }
+                text.clear();
+            };
+            for k in start..end {
+                let Some(cc) = screen.cell(r, k) else { break };
+                if cc.is_wide_continuation() {
+                    continue;
+                }
+                let t = cc.contents();
+                if t.is_ascii() {
+                    if text.is_empty() {
+                        text_col = k;
+                    }
+                    text.push_str(if t.is_empty() { " " } else { &t });
+                    continue;
+                }
+                flush(&mut text, text_col);
+                let x = rect.left() + pad + k as f32 * cw;
+                let cells = if cc.is_wide() { 2.0 } else { 1.0 };
+                let g = painter.layout_no_wrap(t.to_string(), font.clone(), fg);
+                let gw = g.size().x;
+                if gw > cw * cells + 0.5 {
+                    // wider than its cell(s): shrunk to fit
+                    let f = FontId::new(font.size * cw * cells / gw, font.family.clone());
+                    painter.text(Pos2::new(x, y + rh / 2.0), Align2::LEFT_CENTER, t, f, fg);
+                } else {
+                    painter.galley(Pos2::new(x + (cw * cells - gw) / 2.0, y), g, fg);
+                }
             }
+            flush(&mut text, text_col);
         }
     }
     // cursor (only when looking at the live screen)
@@ -568,6 +800,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn answers_terminal_queries() {
+        let at = || (4u16, 9u16);
+        assert_eq!(replies(b"\x1b[c", at), b"\x1b[?62;22c");
+        assert_eq!(replies(b"prompt\x1b[?u\x1b[0c", at), b"\x1b[?62;22c");
+        assert_eq!(replies(b"\x1b[6n", at), b"\x1b[5;10R");
+        assert_eq!(replies(b"\x1b[31mrouge\x1b[0m", at), b"");
+    }
+
+    #[test]
     fn keys() {
         let none = Modifiers::NONE;
         assert_eq!(key_bytes(Key::C, Modifiers::CTRL, false), Some(vec![3]));
@@ -577,6 +818,28 @@ mod tests {
         assert_eq!(key_bytes(Key::ArrowLeft, Modifiers::CTRL, false), Some(b"\x1b[1;5D".to_vec()));
         assert_eq!(key_bytes(Key::Delete, none, false), Some(b"\x1b[3~".to_vec()));
         assert_eq!(key_bytes(Key::A, none, false), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminals_in_tabs() {
+        let ctx = egui::Context::default();
+        let mut t = Terminal::new();
+        t.cwd = Some(std::env::temp_dir());
+        t.open(&ctx, Some("sh"), None);
+        let (id, _) = t.open_tab(&ctx, Some("sh"), None).unwrap();
+        assert_eq!(t.docked_ids(), [id]);
+        assert!(t.has_panel_sessions());
+        // the panel's terminal goes into a tab too, then back
+        let panel = t.sessions[0].id;
+        t.set_docked(panel, true);
+        assert!(!t.has_panel_sessions());
+        assert_eq!(t.docked_ids().len(), 2);
+        t.set_docked(panel, false);
+        assert_eq!(t.sessions[t.active].id, panel);
+        t.close(id);
+        assert!(t.docked_ids().is_empty());
+        assert!(t.title_of(id).is_none() && t.title_of(panel).is_some());
     }
 
     #[cfg(unix)]

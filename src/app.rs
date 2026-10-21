@@ -274,6 +274,29 @@ struct SearchUi {
     collapsed: HashSet<usize>,
     /// Scroll the results so that `cursor` is visible (set when it changes, e.g. with F4).
     scroll_to_cursor: bool,
+    /// Syntax colors of the result lines, computed when first shown: (file, hit) -> spans.
+    colors: HashMap<(usize, usize), Vec<(Color32, std::ops::Range<usize>)>>,
+    /// Syntax of each result file.
+    syntaxes: HashMap<usize, String>,
+}
+
+/// Appends `text[a..b]` to `job` with the syntax colors of `spans` (byte ranges of `text`).
+fn append_colored(job: &mut LayoutJob, text: &str, a: usize, b: usize, spans: &[(Color32, std::ops::Range<usize>)], font: &egui::FontId, default: Color32) {
+    let mut pos = a;
+    for (c, r) in spans {
+        let (x, y) = (r.start.max(pos), r.end.min(b));
+        if x >= y {
+            continue;
+        }
+        if x > pos {
+            job.append(&text[pos..x], 0.0, TextFormat::simple(font.clone(), default));
+        }
+        job.append(&text[x..y], 0.0, TextFormat::simple(font.clone(), *c));
+        pos = y;
+    }
+    if pos < b {
+        job.append(&text[pos..b], 0.0, TextFormat::simple(font.clone(), default));
+    }
 }
 
 /// Something clicked in the search results, applied once the panel is drawn.
@@ -285,6 +308,8 @@ enum SearchAct {
     ReplaceAll,
     Reveal(usize),
     Copy(String),
+    /// Into an editor tab (true) or back into the bottom panel.
+    Move(bool),
 }
 
 impl SearchUi {
@@ -322,6 +347,8 @@ impl SearchUi {
             self.collapsed = self.collapsed.iter().filter(|&&c| c != fi).map(|&c| if c > fi { c - 1 } else { c }).collect();
         }
         self.cursor = None;
+        self.colors.clear();
+        self.syntaxes.clear();
         self.rebuild_rows();
     }
 }
@@ -2287,6 +2314,86 @@ impl App {
                 self.markdown_view(ui, src);
                 None
             }
+            document::View::Search => {
+                let bg = ui.visuals().panel_fill;
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::none().fill(bg).inner_margin(egui::Margin { left: 12.0, right: 12.0, top: 10.0, bottom: 4.0 }))
+                    .show_inside(ui, |ui| self.search_ui(ui, true));
+                None
+            }
+            document::View::Terminal(id) => {
+                if self.term.cwd.is_none() {
+                    self.term.cwd = self.root.clone();
+                }
+                let shell = self.term_shell();
+                self.term.tab_ui(ui, id, shell.as_deref(), self.hl.colors, self.hl.is_light());
+                None
+            }
+        }
+    }
+
+    /// Adds a read-only tab showing `view` (search, terminal) in the focused panel and shows it.
+    fn open_view_tab(&mut self, view: document::View, title: String) {
+        if let Some(i) = self.docs.iter().position(|d| d.view == view) {
+            self.activate_tab(i);
+            return;
+        }
+        let uid = self.next_uid();
+        let mut d = Document::new(uid, self.settings.tab_size, self.settings.translate_tabs_to_spaces);
+        d.view = view;
+        d.read_only = true;
+        d.title_override = Some(title);
+        self.docs.push(d);
+        self.activate_tab(self.docs.len() - 1);
+    }
+
+    /// The "find in files" panel in an editor tab (instead of the bottom panel).
+    fn open_search_tab(&mut self) {
+        if self.bottom == Some(BottomTab::Search) {
+            self.bottom = None;
+        }
+        self.open_view_tab(document::View::Search, "🔍 Recherche".into());
+        self.search.focus = true;
+    }
+
+    /// A new terminal in an editor tab (it can be split beside a file like any tab).
+    fn open_terminal_tab(&mut self) {
+        if self.term.cwd.is_none() {
+            self.term.cwd = self.root.clone();
+        }
+        let shell = self.term_shell();
+        let ctx = self.egui_ctx.clone();
+        match self.term.open_tab(&ctx, shell.as_deref(), None) {
+            Ok((id, title)) => self.open_view_tab(document::View::Terminal(id), format!(">_ {title}")),
+            Err(e) => self.set_status(e),
+        }
+    }
+
+    /// Terminals moved into the editor ("⇱ Onglet"), or started from a terminal tab, get their tab;
+    /// terminal tabs follow the title of their shell.
+    fn sync_terminal_tabs(&mut self) {
+        if let Some(id) = self.term.dock_request.take() {
+            self.term.set_docked(id, true);
+            if self.bottom == Some(BottomTab::Terminal) && !self.term.has_panel_sessions() {
+                // the panel would open a new terminal at once: close it instead
+                self.bottom = None;
+            }
+        }
+        for id in self.term.docked_ids() {
+            if !self.docs.iter().any(|d| d.view == document::View::Terminal(id)) {
+                let title = self.term.title_of(id).unwrap_or_default();
+                self.open_view_tab(document::View::Terminal(id), format!(">_ {title}"));
+            }
+        }
+        for d in self.docs.iter_mut() {
+            if let document::View::Terminal(id) = d.view {
+                if let Some(t) = self.term.title_of(id) {
+                    let t = format!(">_ {t}");
+                    if d.title_override.as_ref() != Some(&t) {
+                        d.title_override = Some(t);
+                    }
+                }
+            }
         }
     }
 
@@ -3619,10 +3726,11 @@ impl App {
         }
     }
 
-    fn search_ui(&mut self, ui: &mut egui::Ui) {
+    fn search_ui(&mut self, ui: &mut egui::Ui, in_tab: bool) {
         let (mut go, mut act) = (false, None);
         let accent = self.hl.colors.accent;
         let st = &self.state;
+        let hl = &self.hl;
         let s = &mut self.search;
         let enter = |r: &egui::Response, ui: &egui::Ui| r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
         let field_w = (ui.available_width() * 0.45).clamp(220.0, 520.0);
@@ -3667,6 +3775,15 @@ impl App {
             if s.running {
                 ui.spinner();
             }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if in_tab {
+                    if ui.small_button("⇲ Panneau du bas").on_hover_text("Afficher la recherche dans le panneau du bas").clicked() {
+                        act = Some(SearchAct::Move(false));
+                    }
+                } else if ui.small_button("⇱ Onglet").on_hover_text("Afficher la recherche dans un onglet de l'éditeur (plus de place pour les résultats)").clicked() {
+                    act = Some(SearchAct::Move(true));
+                }
+            });
         });
 
         // --- replace line
@@ -3705,13 +3822,14 @@ impl App {
             ui.add_space(22.0);
             ui.label(RichText::new("Fichiers").color(ok()));
             let inc = ui
-                .add(egui::TextEdit::singleline(&mut s.q.include).desired_width(220.0).hint_text("*.py, syndic/*.py, addons/sale"))
+                .add(egui::TextEdit::singleline(&mut s.q.include).desired_width(220.0).hint_text("*.py, models/*.py, tests"))
                 .on_hover_text(
                     "Séparés par des virgules :\n\
                      *.py — tous les fichiers Python\n\
-                     syndic/*.py — les fichiers Python du dossier syndic (où qu'il soit) et de ses sous-dossiers\n\
-                     syndic — tout le dossier syndic\n\
-                     ./addons/*.py ou /chemin/absolu/*.py — à partir de la racine du projet",
+                     models/*.py — les fichiers Python des dossiers « models » (où qu'ils soient) et de leurs sous-dossiers\n\
+                     tests — tout dossier (ou fichier) nommé « tests »\n\
+                     ./src/*.rs ou /chemin/absolu/*.py — à partir de la racine du projet\n\
+                     Aide → Guide de Florm pour plus d'exemples",
                 );
             go |= history_menu(ui, &st.include_history, &mut s.q.include, "Filtres récents");
             ui.add_space(8.0);
@@ -3917,8 +4035,10 @@ impl App {
                         }
                         Some(h) => {
                             let hit = &f.hits[h];
+                            let syntax = s.syntaxes.entry(fi).or_insert_with(|| hl.detect(Some(&f.path), ""));
+                            let spans = s.colors.entry((fi, h)).or_insert_with(|| hl.line_spans(syntax, &hit.preview));
                             let mut job = LayoutJob::default();
-                            job.append(&hit.preview[..hit.start], 0.0, TextFormat::simple(font.clone(), fg));
+                            append_colored(&mut job, &hit.preview, 0, hit.start, spans, &font, fg);
                             let matched = &hit.preview[hit.start..hit.end];
                             match &preview_re {
                                 Some(re) => {
@@ -3928,7 +4048,7 @@ impl App {
                                 }
                                 None => job.append(matched, 0.0, match_fmt.clone()),
                             }
-                            job.append(&hit.preview[hit.end..], 0.0, TextFormat::simple(font.clone(), fg));
+                            append_colored(&mut job, &hit.preview, hit.end, hit.preview.len(), spans, &font, fg);
                             let galley = ui.fonts(|fo| fo.layout_job(job));
                             let text_x = 92.0;
                             let (rect, resp) = ui.allocate_exact_size(
@@ -4028,6 +4148,20 @@ impl App {
             Some(SearchAct::Copy(t)) => {
                 ui.ctx().output_mut(|o| o.copied_text = t.clone());
                 self.set_status(format!("Copié : {t}"));
+            }
+            Some(SearchAct::Move(true)) => {
+                self.open_search_tab();
+                self.settings.search_in_tab = true;
+                self.persist("search_in_tab", "true".into());
+            }
+            Some(SearchAct::Move(false)) => {
+                if let Some(i) = self.docs.iter().position(|d| d.view == document::View::Search) {
+                    self.close_tab(i, true);
+                }
+                self.bottom = Some(BottomTab::Search);
+                self.search.focus = true;
+                self.settings.search_in_tab = false;
+                self.persist("search_in_tab", "false".into());
             }
             None => {}
         }
@@ -4185,6 +4319,9 @@ impl App {
         }
         let was_active = idx == self.active;
         let d = self.docs.remove(idx);
+        if let document::View::Terminal(id) = d.view {
+            self.term.close(id);
+        }
         if let Some(p) = d.path {
             self.closed.push(p);
         }
@@ -4704,6 +4841,8 @@ impl App {
                         s.error = out.error;
                         s.stats = Some((out.scanned, out.millis, out.truncated));
                         s.files = out.files;
+                        s.colors.clear();
+                        s.syntaxes.clear();
                         s.collapsed.clear();
                         s.rebuild_rows();
                         s.cursor = None;
@@ -4788,7 +4927,7 @@ impl App {
             return;
         }
         let editor_focused = !self.history.open && !self.prefs.open && ctx.memory(|m| m.has_focus(editor_id()));
-        let term_focused = ctx.memory(|m| m.has_focus(crate::terminal::term_id()));
+        let term_focused = self.term.has_focus(ctx);
         if let Some(t) = self.drop_alt_text {
             if Instant::now() < t {
                 ctx.input_mut(|i| i.events.retain(|e| !matches!(e, Event::Text(t) if t.chars().count() == 1)));
@@ -5003,8 +5142,12 @@ impl App {
                     }
                 }
             }
-            FindInFiles => {
-                self.bottom = Some(BottomTab::Search);
+            FindInFiles | FindInFilesTab => {
+                if cmd == FindInFilesTab || self.settings.search_in_tab {
+                    self.open_search_tab();
+                } else {
+                    self.bottom = Some(BottomTab::Search);
+                }
                 self.search.focus = true;
                 if let Some(d) = self.docs.get(self.active) {
                     let p = d.primary_sel();
@@ -5075,6 +5218,7 @@ impl App {
                     self.activate_tab(i);
                 }
             }
+            NewTerminalTab => self.open_terminal_tab(),
             ToggleTerminal => {
                 if self.bottom == Some(BottomTab::Terminal) {
                     self.bottom = None;
@@ -6466,6 +6610,15 @@ impl App {
                             _ => {}
                         }
                     }
+                    let t = ui
+                        .add(egui::Button::new(">_ Terminal").frame(false))
+                        .on_hover_text(format!("Terminal en bas ({}) · clic droit : nouveau terminal dans un onglet ({})", self.keymap.label(Cmd::ToggleTerminal), self.keymap.label(Cmd::NewTerminalTab)));
+                    if t.clicked() {
+                        self.pending.push(Cmd::ToggleTerminal);
+                    }
+                    if t.secondary_clicked() {
+                        self.pending.push(Cmd::NewTerminalTab);
+                    }
                     if let Some(st) = &self.git.status {
                         let label = match (&self.repo, self.repos.len() > 1) {
                             (Some(r), true) => format!("🔀 {} · {}", self.repo_label(r), st.branch),
@@ -7121,7 +7274,20 @@ impl App {
                 });
                 ui.separator();
                 match self.bottom {
-                    Some(BottomTab::Search) => self.search_ui(ui),
+                    // already shown in a tab: not twice
+                    Some(BottomTab::Search) if self.docs.iter().any(|d| d.view == document::View::Search) => {
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new("La recherche est dans un onglet de l'éditeur.").weak());
+                            if ui.button("La remettre ici").clicked() {
+                                if let Some(i) = self.docs.iter().position(|d| d.view == document::View::Search) {
+                                    self.close_tab(i, true);
+                                }
+                                self.settings.search_in_tab = false;
+                                self.persist("search_in_tab", "false".into());
+                            }
+                        });
+                    }
+                    Some(BottomTab::Search) => self.search_ui(ui, false),
                     Some(BottomTab::Problems) => self.problems_ui(ui),
                     Some(BottomTab::Terminal) => {
                         if self.term.cwd.is_none() {
@@ -7597,6 +7763,7 @@ impl eframe::App for App {
             self.find_bar(ctx);
         }
         self.central(ctx);
+        self.sync_terminal_tabs();
         self.completion_popup(ctx);
         let (mb, mf) = ctx.input(|i| (i.pointer.button_pressed(egui::PointerButton::Extra1), i.pointer.button_pressed(egui::PointerButton::Extra2)));
         if mb || mf {
@@ -8312,6 +8479,9 @@ impl App {
                 pref_row(ui, rc, "Serveurs de langage (LSP)", "Complétion (Ctrl+Espace), aller à la définition (F12), renommer (F2). Serveurs détectés : pyright / pylsp, typescript-language-server, rust-analyzer, gopls, clangd.", |ui| {
                     toggle_switch(ui, &mut s.lsp);
                 });
+                pref_row(ui, rc, "Recherche dans le dossier en onglet", "Ctrl+Shift+F ouvre la recherche dans un onglet de l'éditeur plutôt que dans le panneau du bas (boutons ⇱ / ⇲ pour changer).", |ui| {
+                    toggle_switch(ui, &mut s.search_in_tab);
+                });
                 pref_row(ui, rc, "Garder le travail non enregistré", "À la fermeture (ou en changeant de projet), les modifications non enregistrées sont gardées et rouvertes ensuite, sans question.", |ui| {
                     toggle_switch(ui, &mut s.hot_exit);
                 });
@@ -8644,6 +8814,7 @@ impl App {
             ("show_minimap", s.show_minimap, before.show_minimap),
             ("breadcrumbs", s.breadcrumbs, before.breadcrumbs),
             ("show_menu_bar", s.show_menu_bar, before.show_menu_bar),
+            ("search_in_tab", s.search_in_tab, before.search_in_tab),
             ("tree_git_info", s.tree_git_info, before.tree_git_info),
             ("auto_pair", s.auto_pair, before.auto_pair),
             ("trim_trailing_whitespace_on_save", s.trim_trailing_whitespace_on_save, before.trim_trailing_whitespace_on_save),

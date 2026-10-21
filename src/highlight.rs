@@ -307,6 +307,30 @@ impl Highlighting {
         v
     }
 
+    /// Colors of one line taken alone (search results): (color, byte range) spans.
+    pub fn line_spans(&self, syntax: &str, line: &str) -> Vec<(Color32, Range<usize>)> {
+        if line.len() > 2_000 {
+            return Vec::new();
+        }
+        let syn = self.ss.find_syntax_by_name(syntax).unwrap_or_else(|| self.ss.find_syntax_plain_text());
+        let highlighter = Highlighter::new(&self.theme);
+        let mut ps = ParseState::new(syn);
+        let mut hs = HighlightState::new(&highlighter, ScopeStack::new());
+        let text = format!("{line}\n");
+        let ops = ps.parse_line(&text, &self.ss).unwrap_or_default();
+        let mut off = 0;
+        let mut spans = Vec::new();
+        for (style, t) in HighlightIterator::new(&mut hs, &ops, &text, &highlighter) {
+            let f = style.foreground;
+            let end = (off + t.len()).min(line.len());
+            if off < end {
+                spans.push((self.code_color(Color32::from_rgb(f.r, f.g, f.b)), off..end));
+            }
+            off += t.len();
+        }
+        spans
+    }
+
     pub fn syntax_names(&self) -> Vec<String> {
         let mut v: Vec<String> = self.ss.syntaxes().iter().filter(|s| !s.hidden).map(|s| s.name.clone()).collect();
         v.sort();
@@ -452,5 +476,11 @@ mod tests {
         assert_eq!(color_of(0, "note"), rgb(0x008000));
         assert_eq!(color_of(1, "return"), rgb(0xaf00db));
         assert_eq!(color_of(1, "a'"), rgb(0xa31515));
+        // a line alone (search results) gets the same colors
+        let spans = hl.line_spans("Python", "return 'a'");
+        let at = |i: usize| spans.iter().find(|(_, r)| r.contains(&i)).map(|(c, _)| *c).unwrap();
+        assert_eq!(at(0), rgb(0xaf00db));
+        assert_eq!(at(8), rgb(0xa31515));
+        assert_eq!(spans.last().unwrap().1.end, "return 'a'".len());
     }
 }
