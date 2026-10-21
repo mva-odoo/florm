@@ -135,6 +135,8 @@ impl App {
             if !plugin_cmds.is_empty() {
                 ui.separator();
             }
+            item(ui, "✳ Claude", Cmd::Claude);
+            ui.separator();
             item(ui, "Insérer un modèle (vue Odoo, menu…)…", Cmd::InsertTemplate);
             item(ui, "Nouveau modèle…", Cmd::NewTemplate);
             item(ui, "Dossier des modèles", Cmd::OpenTemplatesFolder);
@@ -686,6 +688,7 @@ impl App {
                 self.bottom = Some(BottomTab::Terminal);
             }
             TreeAction::Refresh => self.exec_refresh_tree(),
+            TreeAction::Claude(p) => self.claude_attach_path(p),
         }
     }
 
@@ -1100,6 +1103,11 @@ impl App {
             item(ui, &format!("Sélectionner toutes les occurrences de « {short} »"), Cmd::SelectAllOccurrences, true);
             item(ui, &format!("Rechercher « {short} » dans le dossier"), Cmd::FindWordInFiles, has_root);
         }
+        ui.separator();
+        let what = if has_selection { "la sélection" } else { "la ligne" };
+        item(ui, &format!("✳ Demander à Claude à propos de {what}…"), Cmd::ClaudeAsk, has_path);
+        item(ui, &format!("✳ Ajouter {what} au contexte de Claude"), Cmd::ClaudeAddSelection, has_path);
+        item(ui, "✳ Ajouter le fichier au contexte de Claude", Cmd::ClaudeAddFile, has_path);
         ui.separator();
         item(ui, "Aller à la définition", Cmd::GotoDefinition, true);
         item(ui, "Rechercher les usages", Cmd::FindReferences, true);

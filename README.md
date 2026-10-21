@@ -49,6 +49,7 @@ Le `.exe` est autonome (pas d'installation) : double-clic pour le lancer. Git, l
 | Plugins | Commandes et hooks dans n'importe quel langage, voir [plugins/README.md](plugins/README.md) |
 | Modèles | Ctrl+Alt+N : vues Odoo (formulaire, liste, recherche, héritage), action, menu, modèle Python, champ calculé, `__manifest__.py`, droits d'accès… insérés au curseur avec `${model}`, `${Model}`, `${module}` remplis d'après le fichier courant. Déclencheurs comme les snippets : `ipdb` + Tab → `import ipdb; ipdb.set_trace()`, `odoo_form`, `odoo_model`… Les siens avec Outils → Nouveau modèle… (depuis la sélection, rangé tout seul dans le dossier des modèles : `log` → `log.py`, déclencheur `log`) |
 | Pull requests GitHub | Ctrl+Alt+R. Par `gh` (sans token : `gh auth login` une fois) : liste des PR, description, commits, diff, commentaires sous les lignes du diff comme sur GitHub (aussi dans la marge de l'éditeur), répondre, résoudre, commenter une ligne, **suggestions appliquées** dans les fichiers en un clic, checkout |
+| Claude | Ctrl+Alt+C : conversation avec Claude Code dans un onglet (commande `claude`, sans clé), et à côté **la revue de ce qu'il a changé, bloc par bloc : garder ou rejeter**. ✨ dans la vue Git : message de commit proposé d'après le diff et la demande |
 | Aide | Aide → Guide de Florm : exemples de filtres de recherche, Git, terminal, modèles |
 | Complétion, définition, survol, usages | Comme Sublime, sans rien installer : le projet est indexé en arrière-plan (classes, fonctions, méthodes, modèles Odoo `_name`, champs, records XML) ; F12 va à la définition (plusieurs résultats : liste des fichiers ; marche aussi sur `'sale.order'` ou `'module.xml_id'`) et les suggestions proposent les mots des fichiers ouverts et les symboles du projet. Avec un serveur de langage (pyright ou pylsp — bouton « installer pylsp » dans la barre d'état —, typescript-language-server, rust-analyzer, gopls, clangd) : complétion intelligente, définition exacte, F2 renommer dans tout le projet. Commande par langage dans `[lsp_servers]`. **Survol** d'un symbole : sa documentation (serveur de langage) ou ses définitions dans le projet. **Maj+F12** : ses usages (serveur de langage, sinon le mot entier dans le dossier) |
 | Symboles et fil d'Ariane | Ctrl+R : classes, fonctions, méthodes, records / templates Odoo, titres Markdown. Au-dessus de l'éditeur : `dossier › fichier › Classe › méthode`, cliquable |
@@ -92,6 +93,7 @@ Le `.exe` est autonome (pas d'installation) : double-clic pour le lancer. Git, l
 | Ctrl+Alt+N | Insérer un modèle (vue Odoo, menu…) |
 | Ctrl+Alt+G | Graphe des commits |
 | Ctrl+Alt+R | Pull requests GitHub |
+| Ctrl+Alt+C | Claude |
 | Ctrl+Alt+D | Diff git dans l'éditeur (vert / rouge) |
 | Ctrl+Alt+F | Formater le fichier Python, ou les lignes sélectionnées (ruff) |
 | Alt+F5 / Alt+Maj+F5 | Changement git suivant / précédent (diff en ligne) |

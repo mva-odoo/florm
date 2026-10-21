@@ -17,6 +17,8 @@ pub enum TreeAction {
     /// Show in the system file manager.
     Reveal(PathBuf),
     Terminal(PathBuf),
+    /// Give the file or folder to Claude with the next message.
+    Claude(PathBuf),
     Refresh,
 }
 
@@ -453,6 +455,9 @@ fn menu(ui: &mut Ui, path: &Path, is_dir: bool, act: &mut Option<TreeAction>) {
         pick(TreeAction::Delete(path.to_path_buf()), ui);
     }
     ui.separator();
+    if ui.button("✳ Ajouter au contexte de Claude").clicked() {
+        pick(TreeAction::Claude(path.to_path_buf()), ui);
+    }
     if ui.button("Copier le chemin").clicked() {
         pick(TreeAction::CopyPath(path.to_path_buf()), ui);
     }

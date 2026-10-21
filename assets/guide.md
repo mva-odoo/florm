@@ -146,6 +146,29 @@ la commande `gh` : pas de token à créer, il suffit de s'être connecté une fo
   diff de la PR, les conversations **sous les lignes commentées** comme sur GitHub (répondre,
   résoudre, appliquer une suggestion), et **double-clic sur une ligne** pour la commenter.
 
+## Claude
+
+**Ctrl+Alt+C** (ou Outils → ✳ Claude, la palette) : une conversation avec Claude Code, dans un
+onglet. Florm utilise la commande `claude` et ta connexion : pas de clé à configurer.
+
+- En haut : le dépôt, le modèle, et ce que Claude a le droit de faire (**Modifie les fichiers**,
+  **Plan seulement**, **Tout autoriser** pour qu'il lance aussi des commandes).
+- **Fichier ouvert et sélection** : Claude sait quel fichier tu édites et ce que tu as
+  sélectionné.
+- **Donner des lignes ou des fichiers à Claude** : au survol d'un numéro de ligne, clic sur le
+  **✳** à sa gauche (la ligne, ou les lignes sélectionnées) ; clic droit dans l'éditeur →
+  **Demander à Claude à propos de la sélection…** (**Ctrl+Alt+K**) ou **Ajouter … au contexte** ;
+  clic droit sur un fichier ou un dossier de l'arborescence → **Ajouter au contexte de Claude**.
+  Ils apparaissent en pastilles au-dessus du message (clic : retirer) et partent avec lui.
+- À droite, **ce que Claude a changé** depuis ton premier message, fichier par fichier et bloc
+  par bloc : **✔ Garder** (le bloc quitte la revue et reste dans le fichier) ou **↺ Rejeter**
+  (il est retiré du fichier). Tes propres changements d'avant ne sont pas dedans.
+- **■ Arrêter** coupe la réponse en cours ; la conversation continue.
+
+**✨ à côté du message de commit** (vue Git) : Claude propose le message d'après les changements
+indexés (sinon tous), dans le style des derniers commits du dépôt et d'après ta première demande
+dans l'onglet Claude.
+
 ## Apparence
 
 **Préférences → Apparence** : thème (aperçus cliquables), couleur d'accentuation,

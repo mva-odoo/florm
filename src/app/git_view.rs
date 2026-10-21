@@ -433,7 +433,7 @@ impl App {
             _ => Vec::new(),
         };
         let mut open_pr = None;
-        let mut do_commit = false;
+        let (mut do_commit, mut suggest_msg, suggesting) = (false, false, self.git.suggesting);
         let commit_msg = &mut self.git.commit_msg;
         let focus_commit = std::mem::take(&mut self.git.focus_commit);
         let h = &mut self.history;
@@ -512,7 +512,7 @@ impl App {
         // ------------------------------------------------ commit list, with the working tree on top
         let list = |ui: &mut egui::Ui| {
             if n_staged + n_changed > 0 || !commit_msg.is_empty() || focus_commit {
-                do_commit = commit_box(ui, commit_msg, focus_commit, n_staged, n_changed, accent);
+                (do_commit, suggest_msg) = commit_box(ui, commit_msg, focus_commit, n_staged, n_changed, suggesting, accent);
             }
             if let Some(st) = &wip {
                 let staged: Vec<&git::Entry> = st.entries.iter().filter(|e| e.staged()).collect();
@@ -921,6 +921,9 @@ impl App {
         if do_commit {
             self.commit(n_staged);
         }
+        if suggest_msg {
+            self.suggest_commit_message();
+        }
         if let (Some(n), Some(repo)) = (open_pr, self.history.repo.clone()) {
             self.open_pr(repo, n);
         }
@@ -1050,18 +1053,24 @@ impl App {
     }
 }
 
-/// Message and button of the next commit, on top of the working tree changes; true: commit now.
-fn commit_box(ui: &mut egui::Ui, msg: &mut String, focus: bool, n_staged: usize, n_changed: usize, accent: Color32) -> bool {
+/// Message and button of the next commit, and ✨ to have it written by Claude; returns
+/// (commit now, ask Claude).
+fn commit_box(ui: &mut egui::Ui, msg: &mut String, focus: bool, n_staged: usize, n_changed: usize, suggesting: bool, accent: Color32) -> (bool, bool) {
     let (label, tip) = if n_staged > 0 {
         (format!("✔ Commit ({n_staged} indexé(s))"), "Valide les fichiers indexés")
     } else {
         (format!("✔ Commit tout ({n_changed})"), "Rien d'indexé : valide toutes les modifications des fichiers suivis")
     };
     let can = !msg.trim().is_empty() && (n_staged > 0 || n_changed > 0);
-    let mut go = false;
+    let (mut go, mut suggest) = (false, false);
     egui::Frame::none().inner_margin(egui::Margin { left: 4.0, right: 4.0, top: 4.0, bottom: 6.0 }).show(ui, |ui| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
             let clicked = ui.add_enabled(can, filled_button(label, accent)).on_hover_text(tip).clicked();
+            if suggesting {
+                ui.spinner();
+            } else if ui.button("✨").on_hover_text("Claude propose le message d'après les changements (indexés, sinon tous) et ta demande dans l'onglet Claude").clicked() {
+                suggest = true;
+            }
             let resp = ui.add(egui::TextEdit::multiline(msg).hint_text("Message du commit (Ctrl+Entrée)").desired_rows(1).desired_width(f32::INFINITY));
             if focus {
                 resp.request_focus();
@@ -1070,7 +1079,7 @@ fn commit_box(ui: &mut egui::Ui, msg: &mut String, focus: bool, n_staged: usize,
             go = can && (clicked || ctrl_enter);
         });
     });
-    go
+    (go, suggest)
 }
 
 /// A changed file in the list next to the diff: status letter, name, folder, lines added / removed.

@@ -29,6 +29,7 @@ use std::time::{Duration, Instant};
 mod git_view;
 mod pulls;
 mod pr_links;
+mod claude_ui;
 mod split_commit;
 mod panes;
 mod lsp_client;
@@ -515,6 +516,8 @@ struct HistoryDiff {
 #[derive(Default)]
 struct GitUi {
     status: Option<git::Status>,
+    /// Claude is writing the commit message.
+    suggesting: bool,
     error: Option<String>,
     commit_msg: String,
     busy: usize,
@@ -622,6 +625,8 @@ pub struct App {
     pr: pulls::PrUi,
     /// Pull requests of branches and commits, creation of one.
     gh: pr_links::GhUi,
+    /// Conversation with Claude Code and review of its changes.
+    claude: claude_ui::ClaudeUi,
     /// For the places without a context at hand (prompt submission).
     egui_ctx: egui::Context,
     /// File to bring into view in the tree ("afficher dans l'arborescence").
@@ -798,6 +803,7 @@ impl App {
             md_cache: egui_commonmark::CommonMarkCache::default(),
             pr: Default::default(),
             gh: Default::default(),
+            claude: Default::default(),
             egui_ctx: cc.egui_ctx.clone(),
             tree_scroll: None,
             tree_nav: sidebar::Nav::default(),
@@ -1030,6 +1036,8 @@ impl eframe::App for App {
         }
         self.central(ctx);
         self.sync_terminal_tabs();
+        self.claude_poll();
+        self.claude_take_picks();
         self.completion_popup(ctx);
         let (mb, mf) = ctx.input(|i| (i.pointer.button_pressed(egui::PointerButton::Extra1), i.pointer.button_pressed(egui::PointerButton::Extra2)));
         if mb || mf {

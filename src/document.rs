@@ -138,6 +138,8 @@ pub struct Document {
     pub request_inline_diff: bool,
     /// Symbol under the mouse pointer (char range), set by the editor view.
     pub hover_word: Option<(usize, usize)>,
+    /// Lines (first, last) the user asked to give to Claude (✳ in the gutter).
+    pub claude_pick: Option<(usize, usize)>,
     /// What the app found about a hovered symbol (its range, the text of the tooltip).
     pub hover_info: Option<((usize, usize), String)>,
     /// Inline blame annotation: (line, document version, text).
@@ -201,6 +203,8 @@ pub enum View {
     Welcome,
     /// The pull requests of GitHub.
     PullRequests,
+    /// Conversation with Claude Code, and the review of its changes.
+    Claude,
 }
 
 /// Files shown as images rather than text.
@@ -407,6 +411,7 @@ impl Document {
             peek: None,
             request_inline_diff: false,
             hover_word: None,
+            claude_pick: None,
             hover_info: None,
             blame: None,
             mtime: None,

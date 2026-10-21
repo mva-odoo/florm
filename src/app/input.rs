@@ -318,6 +318,15 @@ impl App {
             ShowGit => self.open_git_view(),
             PullRequests => self.open_pulls(),
             CreatePr => self.start_pr_create(),
+            Claude => self.open_claude(),
+            SuggestCommit => self.suggest_commit_message(),
+            ClaudeAddSelection => self.claude_attach_selection(false),
+            ClaudeAsk => self.claude_attach_selection(true),
+            ClaudeAddFile => {
+                if let Some(p) = self.docs.get(self.active).and_then(|d| d.path.clone()) {
+                    self.claude_attach_path(p);
+                }
+            }
             ShowFiles => {
                 // a second time: back to the editor
                 if self.show_sidebar && self.side_tab == SideTab::Files && ctx.memory(|m| m.has_focus(sidebar::tree_id())) {

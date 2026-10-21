@@ -12,6 +12,11 @@ use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, Sender};
 
 pub enum JobResult {
+    /// Changes since the start of the review of Claude's work (a diff).
+    ClaudeReview(Result<String, String>),
+    /// Commit message written by Claude.
+    CommitMessage(Result<String, String>),
+    /// The repository pull requests go to, and its default branch.
     GhBase(PathBuf, Result<(String, String), String>),
     /// Pull requests of a branch (repository, branch).
     GhBranchPrs(PathBuf, String, Result<Vec<crate::github::PrSummary>, String>),

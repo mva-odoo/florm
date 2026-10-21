@@ -37,6 +37,9 @@ fn removed_bg(light: bool) -> Color32 {
     if light { Color32::from_rgba_unmultiplied(0xd0, 0x3a, 0x4c, 0x2c) } else { Color32::from_rgba_premultiplied(0x34, 0x16, 0x19, 0x38) }
 }
 
+/// Width of the ✳ of the gutter (left of the line numbers) that gives lines to Claude.
+const CLAUDE_W: f32 = 14.0;
+
 /// How the editor shows a document (from the settings).
 pub struct ViewOpts<'a> {
     pub font_size: f32,
@@ -268,7 +271,13 @@ fn text_area(
                     && p.x < gx + gutter_w - 8.0
                     && (folded.contains(&line) || doc.can_fold(line));
                 let on_pill = !in_gutter && folded.contains(&line) && p.x >= text_x + (doc.vcol(line, doc.line_len(line)) as f32 + 1.0) * cw;
-                if on_fold || on_pill {
+                // ✳ on the left of the numbers: the line, or the lines selected around it, for Claude
+                let on_claude = in_gutter && pressed && p.x < gx + CLAUDE_W;
+                if on_claude {
+                    let s = doc.primary_sel();
+                    let (a, b) = (doc.rope.char_to_line(s.start()), doc.rope.char_to_line(s.end().saturating_sub(usize::from(s.end() > s.start()))));
+                    doc.claude_pick = Some(if !s.is_empty() && (a..=b).contains(&line) { (a, b) } else { (line, line) });
+                } else if on_fold || on_pill {
                     doc.toggle_fold(line);
                 } else if on_marker {
                     // Click on a git change mark: toggle the inline diff.
@@ -394,6 +403,9 @@ fn text_area(
                     let mut msgs: Vec<String> =
                         doc.diagnostics.iter().filter(|d| d.line == l).map(|d| format!("{} : {}", d.source, d.message)).collect();
                     msgs.extend(opts.notes.iter().filter(|(n, _)| *n == l).map(|(_, t)| t.clone()));
+                    if p.x < gx + CLAUDE_W {
+                        msgs.push("✳ Clic : ajouter cette ligne (ou les lignes sélectionnées) au contexte de Claude".into());
+                    }
                     if p.x >= gx + gutter_w - 8.0 && doc.hunks.iter().any(|h| h.contains(l)) {
                         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
                         msgs.push("Modifié depuis le dernier commit — clic pour voir le diff".into());
@@ -704,6 +716,11 @@ fn text_area(
             }
         }
         let gutter_hover = ui.rect_contains_pointer(gutter);
+        let hover_line = ui
+            .ctx()
+            .pointer_hover_pos()
+            .filter(|p| gutter.contains(*p))
+            .map(|p| rm.line_at_row(((p.y - origin.y) / rh).floor().max(0.0) as usize, nlines));
         for l in first..=last {
             if rm.is_hidden(l) {
                 continue;
@@ -716,6 +733,9 @@ fn text_area(
                 None => c.gutter_fg.gamma_multiply(0.75),
             };
             painter.text(Pos2::new(gx + gutter_w - 22.0, line_y(l)), Align2::RIGHT_TOP, (l + 1).to_string(), font.clone(), color);
+            if hover_line == Some(l) {
+                painter.text(Pos2::new(gx + 2.0, line_y(l) + rh * 0.5), Align2::LEFT_CENTER, "✳", FontId::proportional(opts.font_size * 0.85), c.accent);
+            }
             if opts.notes.iter().any(|(n, _)| *n == l) {
                 // comment of a pull request: a small speech bubble
                 let r = Rect::from_min_size(Pos2::new(gx + 10.0, line_y(l) + rh * 0.5 - 4.5), egui::vec2(10.0, 7.0));
