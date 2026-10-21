@@ -255,6 +255,16 @@ impl App {
                 pref_row(ui, rc, "Minimap", "Aperçu du fichier à droite de l'éditeur.", |ui| {
                     toggle_switch(ui, &mut s.show_minimap);
                 });
+                pref_row(ui, rc, "Classe et fonction figées en haut", "En défilant, les lignes class / def (ou les titres, les records…) qui contiennent le haut de l'écran y restent ; clic : y aller.", |ui| {
+                    toggle_switch(ui, &mut s.sticky_scroll);
+                });
+                let rulers = &mut self.prefs.rulers;
+                pref_row(ui, rc, "Règles verticales", "Lignes verticales aux colonnes données, séparées par des virgules (ex. 79, 120). Vide : aucune.", |ui| {
+                    let r = ui.add(egui::TextEdit::singleline(rulers).desired_width(120.0).font(egui::TextStyle::Monospace).hint_text("79, 120"));
+                    if r.lost_focus() || r.changed() && ui.input(|i| i.key_pressed(Key::Enter)) {
+                        s.rulers = rulers.split(',').filter_map(|c| c.trim().parse().ok()).filter(|c| *c > 0).collect();
+                    }
+                });
                 pref_row(ui, rc, "Barre de menus", "Fichier, Édition, Sélection… en haut de la fenêtre. Masquée, les menus restent accessibles par ☰ en bas à gauche.", |ui| {
                     toggle_switch(ui, &mut s.show_menu_bar);
                 });
@@ -633,6 +643,7 @@ impl App {
         }
         let bools = [
             ("show_minimap", s.show_minimap, before.show_minimap),
+            ("sticky_scroll", s.sticky_scroll, before.sticky_scroll),
             ("breadcrumbs", s.breadcrumbs, before.breadcrumbs),
             ("show_menu_bar", s.show_menu_bar, before.show_menu_bar),
             ("search_in_tab", s.search_in_tab, before.search_in_tab),
@@ -666,6 +677,9 @@ impl App {
             self.lsp.manager.reset();
             self.lsp.notes.clear();
             self.lsp.completion = None;
+        }
+        if s.rulers != before.rulers {
+            self.persist("rulers", format!("[{}]", s.rulers.iter().map(|c| c.to_string()).collect::<Vec<_>>().join(", ")));
         }
         if s.exclude != before.exclude {
             self.persist("exclude", config::toml_str_array(&s.exclude));

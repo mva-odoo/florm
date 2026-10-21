@@ -88,7 +88,15 @@ impl App {
             document::View::Text => {
                 let matches: &[(usize, usize)] = if focused && self.find.open { &self.find.matches } else { &[] };
                 let doc = self.docs.get_mut(i)?;
-                Some(editor_view::show(ui, doc, &self.hl, self.settings.font_size, self.settings.show_minimap, self.settings.inline_diff, matches, id))
+                let s = &self.settings;
+                let opts = editor_view::ViewOpts {
+                    font_size: s.font_size,
+                    minimap: s.show_minimap,
+                    inline_diff: s.inline_diff,
+                    sticky: s.sticky_scroll,
+                    rulers: &s.rulers,
+                };
+                Some(editor_view::show(ui, doc, &self.hl, &opts, matches, id))
             }
             document::View::Image => {
                 self.image_view(ui, i);

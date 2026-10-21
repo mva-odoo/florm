@@ -18,6 +18,10 @@ pub struct Settings {
     /// Interface font; empty: the default one.
     pub ui_font: String,
     pub show_minimap: bool,
+    /// The class / function lines around the top of the editor stay pinned there while scrolling.
+    pub sticky_scroll: bool,
+    /// Columns of vertical rulers, e.g. [79, 120].
+    pub rulers: Vec<usize>,
     /// Path and enclosing class / function above the editor.
     pub breadcrumbs: bool,
     /// Menu bar (Fichier, Édition…) at the top; hidden, the menus are under ☰ in the status bar.
@@ -67,6 +71,8 @@ impl Default for Settings {
             editor_font: String::new(),
             ui_font: String::new(),
             show_minimap: true,
+            sticky_scroll: true,
+            rulers: Vec::new(),
             breadcrumbs: true,
             show_menu_bar: true,
             search_in_tab: false,
@@ -106,6 +112,10 @@ text_softness = 0.0
 editor_font = ""
 ui_font = ""
 show_minimap = true
+# classe / fonction courantes figées en haut de l'éditeur pendant le défilement
+sticky_scroll = true
+# règles verticales aux colonnes données, ex. [79, 120]
+rulers = []
 # fil d'Ariane (dossier › fichier › classe › méthode) au-dessus de l'éditeur
 breadcrumbs = true
 # barre de menus en haut (masquée : menus sous ☰ en bas à gauche)

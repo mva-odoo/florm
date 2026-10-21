@@ -37,20 +37,23 @@ fn removed_bg(light: bool) -> Color32 {
     if light { Color32::from_rgba_unmultiplied(0xd0, 0x3a, 0x4c, 0x2c) } else { Color32::from_rgba_premultiplied(0x34, 0x16, 0x19, 0x38) }
 }
 
-pub fn show(
-    ui: &mut Ui,
-    doc: &mut Document,
-    hl: &Highlighting,
-    font_size: f32,
-    minimap: bool,
-    inline_diff: bool,
-    matches: &[(usize, usize)],
-    id: Id,
-) -> egui::Response {
-    let font = FontId::monospace(font_size);
+/// How the editor shows a document (from the settings).
+pub struct ViewOpts<'a> {
+    pub font_size: f32,
+    pub minimap: bool,
+    /// Git changes inside the text (deleted lines in red, added in green).
+    pub inline_diff: bool,
+    /// The class / function lines around the top of the view stay pinned there.
+    pub sticky: bool,
+    /// Columns of the vertical rulers.
+    pub rulers: &'a [usize],
+}
+
+pub fn show(ui: &mut Ui, doc: &mut Document, hl: &Highlighting, opts: &ViewOpts, matches: &[(usize, usize)], id: Id) -> egui::Response {
+    let font = FontId::monospace(opts.font_size);
     let (rh, cw) = ui.fonts(|f| (f.row_height(&font), char_width(f, &font)));
     let bg = hl.colors.bg;
-    if minimap {
+    if opts.minimap {
         egui::SidePanel::right(id.with("minimap"))
             .exact_width(110.0)
             .resizable(false)
@@ -60,8 +63,79 @@ pub fn show(
     }
     egui::CentralPanel::default()
         .frame(egui::Frame::none().fill(bg))
-        .show_inside(ui, |ui| text_area(ui, doc, hl, &font, rh, cw, inline_diff, matches, id))
+        .show_inside(ui, |ui| text_area(ui, doc, hl, &font, rh, cw, opts, matches, id))
         .inner
+}
+
+/// Line `l` with its syntax colors, from visual column `vstart` to `vend` (tabs expanded):
+/// the column where it starts (None when nothing is visible) and the text to lay out.
+fn line_job(doc: &Document, l: usize, font: &FontId, fg: Color32, vstart: usize, vend: usize) -> (Option<usize>, LayoutJob) {
+    let ts = doc.tab_size;
+    let spans = doc.highlight.spans(l);
+    let mut job = LayoutJob::default();
+    let mut buf = String::new();
+    let mut cur = fg;
+    let (mut v, mut byte, mut si) = (0usize, 0usize, 0usize);
+    let mut start_v = None;
+    for ch in doc.rope.line(l).chars() {
+        if ch == '\n' || ch == '\r' {
+            break;
+        }
+        let color = spans
+            .and_then(|sp| {
+                while si < sp.len() && sp[si].1.end <= byte {
+                    si += 1;
+                }
+                sp.get(si).map(|s| s.0)
+            })
+            .unwrap_or(fg);
+        let w = if ch == '\t' { ts - v % ts } else { 1 };
+        if v >= vend {
+            break;
+        }
+        if v + w > vstart {
+            start_v.get_or_insert(v);
+            if color != cur && !buf.is_empty() {
+                job.append(&buf, 0.0, TextFormat::simple(font.clone(), cur));
+                buf.clear();
+            }
+            cur = color;
+            if ch == '\t' {
+                buf.extend(std::iter::repeat(' ').take(w));
+            } else {
+                buf.push(ch);
+            }
+        }
+        v += w;
+        byte += ch.len_utf8();
+    }
+    if !buf.is_empty() {
+        job.append(&buf, 0.0, TextFormat::simple(font.clone(), cur));
+    }
+    (start_v, job)
+}
+
+/// Lines of the classes / functions enclosing `top` whose header is above it (at most 3, the
+/// innermost): they are pinned at the top of the view, hiding the first lines under them, so
+/// the scopes are looked up again below the pinned band.
+fn sticky_lines(doc: &mut Document, top: usize) -> Vec<usize> {
+    let mut lines: Vec<usize> = Vec::new();
+    for _ in 0..3 {
+        let under = top + lines.len();
+        let mut next: Vec<usize> = crate::symbols::path_at(doc.symbols(), under)
+            .iter()
+            .filter(|s| s.line < under)
+            .map(|s| s.line)
+            .collect();
+        if next.len() > 3 {
+            next.drain(..next.len() - 3);
+        }
+        if next.len() == lines.len() {
+            return next;
+        }
+        lines = next;
+    }
+    lines
 }
 
 /// Screen rectangles covering chars a..b on the visible lines.
@@ -105,10 +179,11 @@ fn text_area(
     font: &FontId,
     rh: f32,
     cw: f32,
-    inline_diff: bool,
+    opts: &ViewOpts,
     matches: &[(usize, usize)],
     id: Id,
 ) -> egui::Response {
+    let inline_diff = opts.inline_diff;
     let c = hl.colors;
     let nlines = doc.rope.len_lines();
     let digits = nlines.to_string().len().max(3);
@@ -148,6 +223,11 @@ fn text_area(
         let vstart = ((vp.min.x - gutter_w).max(0.0) / cw).floor() as usize;
         let vend = vstart + (vp.width() / cw).ceil() as usize + 2;
         let line_y = |l: usize| origin.y + rm.row(l) as f32 * rh;
+        // sticky scroll: the class / function lines enclosing the top of the view
+        let sticky_top = origin.y + vp.min.y;
+        let top_line = rm.line_at_row((vp.min.y / rh).ceil() as usize, nlines);
+        let sticky = if opts.sticky && top_line > 0 { sticky_lines(doc, top_line) } else { Vec::new() };
+        let sticky_h = sticky.len() as f32 * rh;
 
         // ---------------------------------------------------------------- mouse
         let hit = |doc: &Document, p: Pos2| -> usize {
@@ -164,6 +244,16 @@ fn text_area(
                 i.modifiers,
             )
         });
+        // a click on a pinned line goes to it (not to the line hidden under it)
+        let on_sticky = ptr.is_some_and(|p| !sticky.is_empty() && p.y >= sticky_top && p.y < sticky_top + sticky_h);
+        if on_sticky && pressed && resp.hovered() {
+            let k = ((ptr.unwrap().y - sticky_top) / rh) as usize;
+            if let Some(&l) = sticky.get(k) {
+                resp.request_focus();
+                doc.goto_line(l, doc.indent_len(l));
+            }
+        }
+        let (pressed, middle_pressed) = (pressed && !on_sticky, middle_pressed && !on_sticky);
         if let Some(p) = ptr {
             let in_gutter = p.x < gx + gutter_w;
             if (pressed || middle_pressed) && resp.hovered() {
@@ -262,7 +352,9 @@ fn text_area(
                 }
             }
             doc.hover_word = None;
-            if resp.hovered() {
+            if on_sticky && resp.hovered() {
+                ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+            } else if resp.hovered() {
                 if !in_gutter {
                     ui.ctx().set_cursor_icon(CursorIcon::Text);
                     // tooltip on the underlined (squiggled) text
@@ -431,6 +523,12 @@ fn text_area(
             }
         }
 
+        // vertical rulers
+        for &col in opts.rulers {
+            let x = text_x + col as f32 * cw;
+            painter.line_segment([Pos2::new(x, origin.y + vp.min.y), Pos2::new(x, origin.y + vp.max.y)], Stroke::new(1.0_f32, c.guide));
+        }
+
         // indent guides
         let ts = doc.tab_size;
         for l in (first..=last).filter(|&l| !rm.is_hidden(l)) {
@@ -520,47 +618,7 @@ fn text_area(
                 painter.rect_filled(pill, 4.0, mix(c.bg, c.accent, 0.22));
                 painter.galley(Pos2::new(pill.left() + 6.0, pill.center().y - g.size().y / 2.0), g, c.fg);
             }
-            let spans = doc.highlight.spans(l);
-            let mut job = LayoutJob::default();
-            let mut buf = String::new();
-            let mut cur = c.fg;
-            let (mut v, mut byte, mut si) = (0usize, 0usize, 0usize);
-            let mut start_v = None;
-            for ch in doc.rope.line(l).chars() {
-                if ch == '\n' || ch == '\r' {
-                    break;
-                }
-                let color = spans
-                    .and_then(|sp| {
-                        while si < sp.len() && sp[si].1.end <= byte {
-                            si += 1;
-                        }
-                        sp.get(si).map(|s| s.0)
-                    })
-                    .unwrap_or(c.fg);
-                let w = if ch == '\t' { ts - v % ts } else { 1 };
-                if v >= vend {
-                    break;
-                }
-                if v + w > vstart {
-                    start_v.get_or_insert(v);
-                    if color != cur && !buf.is_empty() {
-                        job.append(&buf, 0.0, TextFormat::simple(font.clone(), cur));
-                        buf.clear();
-                    }
-                    cur = color;
-                    if ch == '\t' {
-                        buf.extend(std::iter::repeat(' ').take(w));
-                    } else {
-                        buf.push(ch);
-                    }
-                }
-                v += w;
-                byte += ch.len_utf8();
-            }
-            if !buf.is_empty() {
-                job.append(&buf, 0.0, TextFormat::simple(font.clone(), cur));
-            }
+            let (start_v, job) = line_job(doc, l, font, c.fg, vstart, vend);
             if let Some(sv) = start_v {
                 let galley = ui.fonts(|f| f.layout_job(job));
                 painter.galley(Pos2::new(text_x + sv as f32 * cw, line_y(l)), galley, c.fg);
@@ -684,6 +742,32 @@ fn text_area(
         }
         if let Some(hi) = revert_clicked {
             doc.revert_hunk(hi);
+        }
+
+        // pinned lines, over the text and the gutter
+        if !sticky.is_empty() {
+            let band = Rect::from_min_size(Pos2::new(gx, sticky_top), egui::vec2(vp.width(), sticky_h));
+            painter.rect_filled(band, 0.0, c.bg);
+            for (k, &l) in sticky.iter().enumerate() {
+                let y = sticky_top + k as f32 * rh;
+                let (start_v, job) = line_job(doc, l, font, c.fg, vstart, vend);
+                if let Some(sv) = start_v {
+                    let galley = ui.fonts(|f| f.layout_job(job));
+                    painter.galley(Pos2::new(text_x + sv as f32 * cw, y), galley, c.fg);
+                }
+                painter.rect_filled(Rect::from_min_size(Pos2::new(gx, y), egui::vec2(gutter_w, rh)), 0.0, c.bg);
+                painter.text(Pos2::new(gx + gutter_w - 22.0, y), Align2::RIGHT_TOP, (l + 1).to_string(), font.clone(), c.gutter_fg);
+            }
+            if on_sticky {
+                let k = ((ptr.unwrap().y - sticky_top) / rh) as usize;
+                let row = Rect::from_min_size(Pos2::new(gx, sticky_top + k as f32 * rh), egui::vec2(vp.width(), rh));
+                painter.rect_filled(row, 0.0, c.fg.gamma_multiply(0.06));
+            }
+            // a thin shadow under the band
+            for i in 0..4 {
+                let y = band.bottom() + i as f32;
+                painter.line_segment([Pos2::new(gx, y), Pos2::new(band.right(), y)], Stroke::new(1.0_f32, Color32::from_black_alpha(40 - i * 10)));
+            }
         }
 
         // inline diff of a git change (opened from the gutter mark or Alt+F5)
@@ -896,6 +980,20 @@ mod tests {
     use super::*;
 
     /// The cursor position (column × char_width) must match where the text is really drawn.
+    #[test]
+    fn pinned_lines_are_the_enclosing_scopes() {
+        let text = "class A:\n    x = 1\n\n    def f(self):\n        a = 1\n        b = 2\n        c = 3\n        d = 4\n\n\nclass B:\n    pass\n";
+        let mut d = Document::from_text(1, text, 4, true);
+        d.syntax = "Python".into();
+        // top of the view on "a = 1" (line 4): class A and def f are above it
+        assert_eq!(sticky_lines(&mut d, 4), [0, 3]);
+        // on "x = 1": only the class
+        assert_eq!(sticky_lines(&mut d, 1), [0]);
+        // at the class line itself, or after it: nothing
+        assert!(sticky_lines(&mut d, 0).is_empty());
+        assert_eq!(sticky_lines(&mut d, 11), [10]);
+    }
+
     #[test]
     fn cursor_matches_drawn_text() {
         let ctx = egui::Context::default();
