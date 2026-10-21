@@ -358,10 +358,223 @@ pub fn parse_diff(text: &str) -> Vec<DiffLine> {
         .collect()
 }
 
-/// What was clicked in a diff: a line (double click), or button `n` of the hunk starting at a line.
+/// What was clicked in a diff: a line (double click), button `n` of the hunk starting at a line,
+/// or button `n` of the header of the file starting at a line (stacked view).
 pub enum DiffClick {
     Line(usize),
     Hunk(usize, usize),
+    File(usize, usize),
+}
+
+/// A file of a diff with several files.
+pub struct DiffFile {
+    /// Index of its "diff --git" line.
+    pub start: usize,
+    pub path: String,
+    /// 'A' new, 'D' deleted, 'R' renamed, 'M' modified.
+    pub status: char,
+    pub adds: usize,
+    pub dels: usize,
+}
+
+pub fn diff_files(lines: &[DiffLine]) -> Vec<DiffFile> {
+    let mut files: Vec<DiffFile> = Vec::new();
+    for (i, l) in lines.iter().enumerate() {
+        if let Some(rest) = l.text.strip_prefix("diff --git ") {
+            let path = rest.split_once(" b/").map_or(rest, |(_, b)| b).to_string();
+            files.push(DiffFile { start: i, path, status: 'M', adds: 0, dels: 0 });
+            continue;
+        }
+        let Some(f) = files.last_mut() else { continue };
+        match l.kind {
+            DiffKind::Added => f.adds += 1,
+            DiffKind::Removed => f.dels += 1,
+            DiffKind::Meta if l.text.starts_with("new file mode") || l.text == "--- /dev/null" => f.status = 'A',
+            DiffKind::Meta if l.text.starts_with("deleted file mode") => f.status = 'D',
+            DiffKind::Meta if l.text.starts_with("rename from") => f.status = 'R',
+            _ => {}
+        }
+    }
+    files
+}
+
+/// Lines of a file section that are only git's bookkeeping (shown in the file header instead).
+fn is_file_header(text: &str) -> bool {
+    ["diff --git", "index ", "--- ", "+++ ", "new file mode", "deleted file mode", "old mode", "new mode", "similarity index", "rename from", "rename to"]
+        .iter()
+        .any(|p| text.starts_with(p))
+}
+
+/// Move in a stacked diff (arrow keys of the graph view).
+#[derive(Clone, Copy)]
+pub enum FileJump {
+    Next,
+    Prev,
+    /// To the file with this index in `files`.
+    To(usize),
+    PageDown,
+    PageUp,
+}
+
+enum StackRow {
+    Gap,
+    Header(usize),
+    Line(usize),
+}
+
+/// Every file of a diff one under the other, like the "Files changed" page of a GitHub pull
+/// request: a header per file (status, path, +/−, `file_buttons`, click to fold), then its hunks
+/// (with `hunk_buttons` on each "@@" line).
+#[allow(clippy::too_many_arguments)]
+pub fn stacked_diff_view(
+    ui: &mut Ui,
+    lines: &[DiffLine],
+    files: &[DiffFile],
+    collapsed: &mut std::collections::HashSet<usize>,
+    id: &str,
+    hunk_buttons: &[(&str, &str)],
+    file_buttons: &[(&str, &str)],
+    jump: Option<FileJump>,
+) -> Option<DiffClick> {
+    let font = egui::TextStyle::Monospace.resolve(ui.style());
+    let (row_h, cw) = ui.fonts(|f| (f.row_height(&font) + 2.0, crate::editor_view::char_width(f, &font)));
+    let row_h = row_h.max(24.0);
+    // rows: lines before the first file (messages), then each file
+    let mut rows: Vec<StackRow> = Vec::new();
+    let first = files.first().map_or(lines.len(), |f| f.start);
+    rows.extend((0..first).filter(|&i| !lines[i].text.trim().is_empty()).map(StackRow::Line));
+    for (k, f) in files.iter().enumerate() {
+        if k > 0 || first > 0 {
+            rows.push(StackRow::Gap);
+        }
+        rows.push(StackRow::Header(k));
+        if collapsed.contains(&f.start) {
+            continue;
+        }
+        let end = files.get(k + 1).map_or(lines.len(), |n| n.start);
+        let mut in_hunk = false;
+        for i in f.start + 1..end {
+            in_hunk |= lines[i].kind == DiffKind::Hunk;
+            if !in_hunk && is_file_header(&lines[i].text) {
+                continue;
+            }
+            rows.push(StackRow::Line(i));
+        }
+    }
+    let max_len = lines.iter().map(|l| l.text.chars().count()).max().unwrap_or(0);
+    let nums_w = cw * 12.0;
+    let width = nums_w + (max_len as f32 + 4.0) * cw;
+    let v = ui.visuals().clone();
+    let (weak, fg, light) = (v.weak_text_color(), v.text_color(), !v.dark_mode);
+    let mut click = None;
+    let mut area = egui::ScrollArea::both().id_salt(id).auto_shrink([false, false]);
+    if let Some(j) = jump {
+        let sid = ui.make_persistent_id(id);
+        let st = egui::scroll_area::State::load(ui.ctx(), sid);
+        let top = st.map_or(0.0, |s| s.offset.y);
+        let view_h = ui.available_height();
+        let header_rows: Vec<(usize, usize)> =
+            rows.iter().enumerate().filter_map(|(r, row)| if let StackRow::Header(k) = row { Some((r, *k)) } else { None }).collect();
+        let current = (top / row_h).round() as usize;
+        let target = match j {
+            FileJump::Next => header_rows.iter().find(|(r, _)| *r > current).map(|(r, _)| *r as f32 * row_h),
+            FileJump::Prev => header_rows.iter().rev().find(|(r, _)| *r < current).map(|(r, _)| *r as f32 * row_h),
+            FileJump::To(k) => header_rows.iter().find(|(_, f)| *f == k).map(|(r, _)| *r as f32 * row_h),
+            FileJump::PageDown => Some(top + view_h * 0.9),
+            FileJump::PageUp => Some((top - view_h * 0.9).max(0.0)),
+        };
+        if let Some(y) = target {
+            area = area.vertical_scroll_offset(y.max(0.0));
+        }
+    }
+    ui.spacing_mut().item_spacing.y = 0.0;
+    area.show_rows(ui, row_h, rows.len(), |ui, range| {
+        let visible = ui.clip_rect();
+        for r in range {
+            let (rect, resp) = ui.allocate_exact_size(egui::vec2(width.max(ui.available_width()), row_h), Sense::click());
+            let p = ui.painter();
+            match rows[r] {
+                StackRow::Gap => {}
+                StackRow::Header(k) => {
+                    let f = &files[k];
+                    // the header stays in the visible part when the diff is scrolled sideways
+                    let bar = Rect::from_min_max(Pos2::new(visible.left(), rect.top() + 1.0), Pos2::new(visible.right() - 2.0, rect.bottom() - 1.0));
+                    let fill = if resp.hovered() { v.widgets.hovered.bg_fill } else { v.faint_bg_color };
+                    p.rect_filled(bar, 6.0, fill);
+                    p.rect_stroke(bar, 6.0, Stroke::new(1.0_f32, v.widgets.noninteractive.bg_stroke.color.gamma_multiply(2.0)));
+                    let cy = bar.center().y;
+                    let folded = collapsed.contains(&f.start);
+                    crate::icons::paint_chevron(p, Pos2::new(bar.left() + 12.0, cy), !folded, weak);
+                    let (letter_c, letter) = match f.status {
+                        'A' => (crate::highlight::green(), "A"),
+                        'D' => (crate::highlight::red(), "D"),
+                        'R' => (crate::highlight::blue(), "R"),
+                        _ => (crate::highlight::yellow(), "M"),
+                    };
+                    p.text(Pos2::new(bar.left() + 26.0, cy), Align2::LEFT_CENTER, letter, FontId::monospace(12.5), letter_c);
+                    let name = p.text(Pos2::new(bar.left() + 42.0, cy), Align2::LEFT_CENTER, &f.path, FontId::proportional(13.5), v.strong_text_color());
+                    let a = p.text(Pos2::new(name.right() + 12.0, cy), Align2::LEFT_CENTER, format!("+{}", f.adds), FontId::monospace(12.0), crate::highlight::green());
+                    p.text(Pos2::new(a.right() + 6.0, cy), Align2::LEFT_CENTER, format!("−{}", f.dels), FontId::monospace(12.0), crate::highlight::red());
+                    let mut right = bar.right() - 6.0;
+                    let mut on_button = false;
+                    for (b, (label, tip)) in file_buttons.iter().enumerate().rev() {
+                        let w = ui.fonts(|fo| fo.layout_no_wrap(label.to_string(), FontId::proportional(12.5), fg).size().x) + 14.0;
+                        let br = Rect::from_min_max(Pos2::new(right - w, bar.top() + 2.0), Pos2::new(right, bar.bottom() - 2.0));
+                        right -= w + 4.0;
+                        let bresp = ui.put(br, egui::Button::new(egui::RichText::new(*label).size(12.5))).on_hover_text(*tip);
+                        on_button |= bresp.hovered();
+                        if bresp.clicked() {
+                            click = Some(DiffClick::File(f.start, b));
+                        }
+                    }
+                    if resp.clicked() && !on_button {
+                        if folded {
+                            collapsed.remove(&f.start);
+                        } else {
+                            collapsed.insert(f.start);
+                        }
+                    }
+                }
+                StackRow::Line(i) => {
+                    let l = &lines[i];
+                    let (bg, color) = match l.kind {
+                        DiffKind::Added if light => (Some(Color32::from_rgba_unmultiplied(0x2e, 0xa0, 0x43, 34)), crate::highlight::green()),
+                        DiffKind::Removed if light => (Some(Color32::from_rgba_unmultiplied(0xd0, 0x3a, 0x4c, 34)), crate::highlight::red()),
+                        DiffKind::Added => (Some(Color32::from_rgba_unmultiplied(0x5e, 0xe6, 0xc4, 28)), Color32::from_rgb(0x9f, 0xf0, 0xd8)),
+                        DiffKind::Removed => (Some(Color32::from_rgba_unmultiplied(0xff, 0x6b, 0x81, 30)), Color32::from_rgb(0xff, 0xb0, 0xbc)),
+                        DiffKind::Hunk => (Some(Color32::from_rgba_unmultiplied(0x5b, 0x8c, 0xf8, 22)), crate::highlight::blue()),
+                        DiffKind::Meta => (None, weak),
+                        DiffKind::Context => (None, fg),
+                    };
+                    if let Some(bg) = bg {
+                        p.rect_filled(rect, 0.0, bg);
+                    }
+                    if resp.hovered() && l.kind != DiffKind::Hunk {
+                        p.rect_stroke(rect, 0.0, Stroke::new(1.0_f32, weak.gamma_multiply(0.4)));
+                    }
+                    let y = rect.center().y;
+                    let n = |v: Option<usize>| v.map(|v| v.to_string()).unwrap_or_default();
+                    p.text(Pos2::new(rect.left() + cw * 5.0, y), Align2::RIGHT_CENTER, n(l.old), font.clone(), weak);
+                    p.text(Pos2::new(rect.left() + cw * 10.5, y), Align2::RIGHT_CENTER, n(l.new), font.clone(), weak);
+                    p.text(Pos2::new(rect.left() + nums_w, y), Align2::LEFT_CENTER, &l.text, font.clone(), color);
+                    if l.kind == DiffKind::Hunk && !hunk_buttons.is_empty() {
+                        let mut right = rect.right().min(visible.right()) - 6.0;
+                        for (b, (label, tip)) in hunk_buttons.iter().enumerate().rev() {
+                            let w = ui.fonts(|fo| fo.layout_no_wrap(label.to_string(), FontId::proportional(12.5), fg).size().x) + 14.0;
+                            let br = Rect::from_min_max(Pos2::new(right - w, rect.top() + 2.0), Pos2::new(right, rect.bottom() - 2.0));
+                            right -= w + 4.0;
+                            if ui.put(br, egui::Button::new(egui::RichText::new(*label).size(12.5))).on_hover_text(*tip).clicked() {
+                                click = Some(DiffClick::Hunk(i, b));
+                            }
+                        }
+                    } else if l.kind != DiffKind::Hunk && resp.on_hover_text_at_pointer("Double-clic : ouvrir le fichier à cette ligne").double_clicked() {
+                        click = Some(DiffClick::Line(i));
+                    }
+                }
+            }
+        }
+    });
+    click
 }
 
 /// Unified diff with green / red line backgrounds and old / new line numbers. `hunk_buttons`
@@ -483,6 +696,34 @@ mod diff_tests {
         assert_eq!((d[5].kind, d[5].old), (DiffKind::Removed, Some(11)));
         assert_eq!((d[6].kind, d[6].new), (DiffKind::Added, Some(11)));
         assert_eq!((d[7].old, d[7].new), (Some(12), Some(12)));
+    }
+
+    #[test]
+    fn files_of_a_diff() {
+        let text = "diff --git a/x b/x\nindex 1..2 100644\n--- a/x\n+++ b/x\n@@ -1,2 +1,2 @@\n-a\n+A\n b\ndiff --git a/n b/n\nnew file mode 100644\n--- /dev/null\n+++ b/n\n@@ -0,0 +1 @@\n+n\n";
+        let lines = parse_diff(text);
+        let f = diff_files(&lines);
+        assert_eq!(f.iter().map(|f| (f.start, f.path.as_str(), f.status, f.adds, f.dels)).collect::<Vec<_>>(), [(0, "x", 'M', 1, 1), (8, "n", 'A', 1, 0)]);
+        assert!(is_file_header("index 1..2 100644") && !is_file_header(" b"));
+    }
+
+    #[test]
+    fn stacked_view_draws_and_jumps() {
+        let text = "diff --git a/x b/x\nindex 1..2 100644\n--- a/x\n+++ b/x\n@@ -1,2 +1,2 @@\n-a\n+A\n b\ndiff --git a/n b/n\nnew file mode 100644\n--- /dev/null\n+++ b/n\n@@ -0,0 +1 @@\n+n\n";
+        let lines = parse_diff(text);
+        let files = diff_files(&lines);
+        let mut folded = std::collections::HashSet::new();
+        folded.insert(0);
+        let ctx = egui::Context::default();
+        for jump in [None, Some(FileJump::To(1)), Some(FileJump::Next), Some(FileJump::PageUp)] {
+            let _ = ctx.run(Default::default(), |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    let click = stacked_diff_view(ui, &lines, &files, &mut folded, "t", &[("+", "")], &[("Ouvrir", "")], jump);
+                    assert!(click.is_none());
+                });
+            });
+        }
+        assert!(folded.contains(&0));
     }
 
     #[test]

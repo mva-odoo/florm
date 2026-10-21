@@ -377,6 +377,12 @@ struct HistoryUi {
     compare: Option<(String, String, String)>,
     /// Interactive rebase being prepared.
     rebase: Option<RebaseUi>,
+    /// Folded files of the diff (index of their "diff --git" line).
+    collapsed: HashSet<usize>,
+    /// Scroll the diff to a file / by a page at the next frame (arrow keys, file list).
+    jump: Option<history::FileJump>,
+    /// File to scroll to once the diff is loaded (a file clicked in the Git panel).
+    jump_path: Option<String>,
 }
 
 /// A place in a document, for the cursor history (Alt+- / Alt++).
@@ -420,8 +426,8 @@ struct SplitUi {
     repo: PathBuf,
     info: split::Info,
     files: Vec<split::FileChange>,
-    /// Chosen hunks for the current part, per file.
-    sel: Vec<Vec<bool>>,
+    /// Chosen lines for the current part: per file, per hunk, per line of the hunk (only +/- lines count).
+    sel: Vec<Vec<Vec<bool>>>,
     folded: HashSet<String>,
     message: String,
     /// Commits made so far: (short hash, subject).
@@ -435,7 +441,7 @@ struct SplitUi {
 
 impl SplitUi {
     fn set_files(&mut self, files: Vec<split::FileChange>) {
-        self.sel = files.iter().map(|f| vec![false; f.hunks.len()]).collect();
+        self.sel = files.iter().map(|f| f.empty_selection()).collect();
         self.files = files;
     }
 }
@@ -454,6 +460,8 @@ struct HistoryDiff {
     path: Option<String>,
     text: String,
     lines: Vec<history::DiffLine>,
+    /// Files of the diff, in order.
+    files: Vec<history::DiffFile>,
 }
 
 #[derive(Default)]
@@ -910,6 +918,10 @@ impl App {
         }
         self.history.repo = Some(repo.clone());
         self.history.loading = true;
+        // a reload (refresh, change made in a terminal…) keeps the selected commit
+        if self.history.select_hash.is_none() && self.history.wip_sel.is_none() && self.history.compare.is_none() {
+            self.history.select_hash = self.history.selected.and_then(|i| self.history.graph.as_ref().and_then(|g| g.commits.get(i)).map(|c| c.hash.clone()));
+        }
         self.history.selected = None;
         self.history.details = None;
         let all = self.history.all;
@@ -925,10 +937,13 @@ impl App {
         let hash = c.hash.clone();
         self.history.selected = Some(i);
         self.history.details = None;
+        let h2 = hash.clone();
         self.jobs.spawn(move || {
-            let r = history::details(&repo, &hash);
-            JobResult::HistoryDetails(hash, r)
+            let r = history::details(&repo, &h2);
+            JobResult::HistoryDetails(h2, r)
         });
+        // its changes under the list
+        self.load_commit_diff(hash, None);
     }
 
     /// Loads a commit diff (whole commit or one file) into the pane under the commit list.
@@ -939,7 +954,7 @@ impl App {
             let result = match &path {
                 // -m --first-parent: merges are shown against their first parent (what the merge brought)
                 Some(p) => git::run(&repo, &["show", "--format=", "-m", "--first-parent", &hash, "--", p]),
-                None => git::run(&repo, &["show", "--stat", "--patch", "-m", "--first-parent", &hash]),
+                None => git::run(&repo, &["show", "--format=", "--patch", "-m", "--first-parent", &hash]),
             };
             JobResult::HistoryDiff { hash, path, result }
         });
@@ -1139,36 +1154,49 @@ impl App {
         self.jobs.spawn(move || JobResult::HistoryDetails(key, history::compare(&repo, &a, &b)));
     }
 
-    fn load_range_diff(&mut self, a: String, b: String, path: String) {
+    /// Diff between two commits (all files, or one).
+    fn load_range_diff(&mut self, a: String, b: String, path: Option<String>) {
         let Some(repo) = self.history.repo.clone() else { return };
         self.history.diff_loading = true;
         self.jobs.spawn(move || {
-            let result = git::run(&repo, &["diff", &a, &b, "--", &path]);
-            JobResult::HistoryDiff { hash: format!("{a}..{b}"), path: Some(path), result }
+            let result = match &path {
+                Some(p) => git::run(&repo, &["diff", &a, &b, "--", p]),
+                None => git::run(&repo, &["diff", &a, &b]),
+            };
+            JobResult::HistoryDiff { hash: format!("{a}..{b}"), path, result }
         });
     }
 
-    /// Diff of one file of the staged (`staged`) or unstaged changes.
-    fn load_wip_diff(&mut self, staged: bool, path: String) {
+    /// Diff of all the staged (`staged`) or unstaged changes, new files included.
+    fn load_wip_all(&mut self, staged: bool) {
         let Some(repo) = self.history.repo.clone() else { return };
         self.history.diff_loading = true;
         self.jobs.spawn(move || {
-            let untracked = !staged
-                && repo.join(&path).is_file()
-                && git::stdout(&repo, &["ls-files", "--", &path]).is_ok_and(|s| s.trim().is_empty());
-            let result = if untracked {
-                // exits with 1 when the files differ: the diff is in the "error"
-                match git::run(&repo, &["diff", "--no-index", "--", "/dev/null", &path]) {
-                    Err(e) if e.starts_with("diff --git") => Ok(e),
-                    r => r,
-                }
-            } else if staged {
-                git::run(&repo, &["diff", "--cached", "--", &path])
+            let result = if staged {
+                git::run(&repo, &["diff", "--cached"])
             } else {
-                git::run(&repo, &["diff", "--", &path])
+                git::run(&repo, &["diff"]).map(|mut text| {
+                    // new files are not in `git diff`: compared with nothing, one by one
+                    let others = git::stdout(&repo, &["-c", "core.quotePath=false", "ls-files", "--others", "--exclude-standard"]).unwrap_or_default();
+                    for p in others.lines().filter(|p| !p.is_empty()).take(200) {
+                        if std::fs::metadata(repo.join(p)).is_ok_and(|m| m.len() > 2_000_000) {
+                            continue;
+                        }
+                        let d = match git::run(&repo, &["diff", "--no-index", "--", "/dev/null", p]) {
+                            Err(e) if e.starts_with("diff --git") => e,
+                            Ok(o) => o,
+                            Err(_) => continue,
+                        };
+                        if !text.is_empty() {
+                            text.push('\n');
+                        }
+                        text.push_str(&d);
+                    }
+                    text
+                })
             };
             let hash = if staged { "INDEX" } else { "WORKTREE" }.to_string();
-            JobResult::HistoryDiff { hash, path: Some(path), result }
+            JobResult::HistoryDiff { hash, path: None, result }
         });
     }
 
@@ -1177,20 +1205,21 @@ impl App {
         let Some(d) = &self.history.diff else { return };
         let Some(repo) = self.history.repo.clone() else { return };
         let (text, lines) = (d.text.clone(), &d.lines);
-        // a new file not yet known to git (only in the unstaged changes)
-        let untracked = source == DiffSource::Worktree && text.contains("\n--- /dev/null");
         let first = lines.iter().position(|l| l.kind == history::DiffKind::Hunk).unwrap_or(0);
         let (idx, hunk_button) = match click {
             Some(history::DiffClick::Line(i)) => (i, None),
             Some(history::DiffClick::Hunk(i, b)) => (i, Some(b)),
+            Some(history::DiffClick::File(i, _)) => (i, None),
             None => (first, None),
         };
+        // a new file not yet known to git (only in the unstaged changes)
+        let untracked = source == DiffSource::Worktree && history::file_patch(&text, idx).is_some_and(|f| f.contains("\n--- /dev/null"));
         let Some(path) = history::file_at(&text, idx).or_else(|| d.path.clone()) else { return };
         let line = history::target_line(lines, idx);
         let lose = |what: &str| format!("{what}\n\nCe changement n'est pas encore dans un commit : il sera perdu.");
         let stage_file = DiffOp::Git(vec!["add".into(), "--".into(), path.clone()]);
         let (label, op, confirm) = match (click, file_act, hunk_button) {
-            (Some(history::DiffClick::Line(_)), _, _) | (None, Some("open"), _) => {
+            (Some(history::DiffClick::Line(_)), _, _) | (_, Some("open"), _) => {
                 self.jump_to_file(&repo, &path, line);
                 return;
             }
@@ -1205,7 +1234,7 @@ impl App {
                 Some(lose(&format!("Annuler toutes les modifications non indexées de « {path} » ?"))),
             ),
             (_, Some("revert"), _) => {
-                let Some(patch) = history::file_patch(&text, first) else { return };
+                let Some(patch) = history::file_patch(&text, idx) else { return };
                 ("apply", DiffOp::Apply { patch, flags: vec!["-R"] }, None)
             }
             (_, _, Some(b)) => {
@@ -1272,8 +1301,7 @@ impl App {
     }
 
     fn history_ui(&mut self, ui: &mut egui::Ui) {
-        let (mut reload, mut close, mut select, mut file_diff) = (false, false, None, None);
-        let (mut full_diff, mut back, mut diff_to_tab) = (false, false, false);
+        let (mut reload, mut close, mut select, mut diff_to_tab) = (false, false, None, false);
         let (mut diff_click, mut file_act): (Option<history::DiffClick>, Option<&str>) = (None, None);
         let source = match (self.history.wip_sel, &self.history.compare) {
             (_, Some(_)) => DiffSource::Compare,
@@ -1281,7 +1309,7 @@ impl App {
             (Some(true), _) => DiffSource::Index,
             (None, _) => DiffSource::Commit,
         };
-        let (mut rb_run, mut rb_cancel, mut cmp_diff) = (false, false, None);
+        let (mut rb_run, mut rb_cancel) = (false, false);
         let op_banner = self
             .git
             .status
@@ -1290,7 +1318,7 @@ impl App {
             .and_then(|st| st.operation.map(|o| (o, st.entries.iter().filter(|e| e.conflicted()).count())));
         let mut op_cmd: Option<Vec<String>> = None;
         let (mut menu_act, mut clear_notice, mut resume, mut abort_rebase) = (None, false, false, false);
-        let (mut wip_pick, mut wip_diff, mut wip_ops): (Option<bool>, Option<(String, bool)>, Vec<Vec<String>>) = (None, None, Vec::new());
+        let (mut wip_pick, mut wip_ops): (Option<bool>, Vec<Vec<String>>) = (None, Vec::new());
         let split_hidden = self.split.as_ref().map(|s| s.info.short.clone());
         let repo_name = self.history.repo.as_deref().map(|r| self.repo_label(r)).unwrap_or_default();
         let accent = self.hl.colors.accent;
@@ -1317,6 +1345,7 @@ impl App {
                     if ui.button("×").on_hover_text("Fermer (Échap)").clicked() {
                         close = true;
                     }
+                    ui.label(RichText::new("↑ ↓ commits · ← → fichiers · Page ↑ ↓ défiler").small().weak());
                 });
             });
             if let Some((n, color)) = &h.notice {
@@ -1365,293 +1394,31 @@ impl App {
             ui.add_space(2.0);
         });
 
-        // ------------------------------------------------ right side: details, or the diff of one file
-        let selected_commit = h.selected.zip(h.graph.as_ref()).map(|(i, g)| g.commits[i].clone());
-        if selected_commit.is_some() || h.wip_sel.is_some() || h.compare.is_some() || h.rebase.is_some() {
-            let w = ui.available_width() * 0.5;
-            egui::SidePanel::right("history_side").resizable(true).default_width(w).min_width(320.0).show_inside(ui, |ui| {
-                ui.add_space(6.0);
-                if h.diff.is_some() || h.diff_loading {
-                    // diff of one file (or of the whole commit)
-                    ui.horizontal(|ui| {
-                        if ui.button("← Fichiers").on_hover_text("Revenir à la liste (Échap)").clicked() {
-                            back = true;
-                        }
-                        if let Some(d) = &h.diff {
-                            let what = d.path.clone().unwrap_or_else(|| "commit complet".into());
-                            ui.label(RichText::new(what).strong());
-                            let adds = d.lines.iter().filter(|l| l.kind == history::DiffKind::Added).count();
-                            let dels = d.lines.iter().filter(|l| l.kind == history::DiffKind::Removed).count();
-                            ui.label(RichText::new(format!("+{adds}")).color(ok()).monospace());
-                            ui.label(RichText::new(format!("−{dels}")).color(err()).monospace());
-                        }
-                        if h.diff_loading {
-                            ui.spinner();
-                        }
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if h.diff.is_some() && ui.small_button("Ouvrir dans un onglet").on_hover_text("Le diff dans un onglet de l'éditeur").clicked() {
-                                diff_to_tab = true;
-                            }
-                        });
-                    });
-                    // actions on the whole file
-                    if let Some(d) = &h.diff {
-                        ui.horizontal_wrapped(|ui| {
-                            ui.spacing_mut().item_spacing.x = 4.0;
-                            if d.path.is_some() && ui.button("Ouvrir le fichier").on_hover_text("Aller au fichier, au premier changement (double-clic sur une ligne : à cette ligne)").clicked() {
-                                file_act = Some("open");
-                            }
-                            match source {
-                                DiffSource::Worktree => {
-                                    if ui.button("+ Indexer le fichier").clicked() {
-                                        file_act = Some("stage");
-                                    }
-                                    if ui.button(RichText::new("↺ Annuler les modifications du fichier").color(err()))
-                                        .on_hover_text("Remet le fichier comme au dernier commit (demande confirmation)")
-                                        .clicked()
-                                    {
-                                        file_act = Some("discard");
-                                    }
-                                }
-                                DiffSource::Index => {
-                                    if ui.button("− Désindexer le fichier").on_hover_text("Le retire du prochain commit ; tes modifications restent dans le fichier").clicked() {
-                                        file_act = Some("unstage");
-                                    }
-                                }
-                                DiffSource::Commit if d.path.is_some() => {
-                                    if ui.button("↺ Annuler ce changement dans le fichier")
-                                        .on_hover_text("Défait ce que ce commit a changé dans le fichier, dans tes fichiers actuels (à valider ensuite)")
-                                        .clicked()
-                                    {
-                                        file_act = Some("revert");
-                                    }
-                                }
-                                DiffSource::Commit | DiffSource::Compare => {}
-                            }
-                        });
-                    }
-                    ui.separator();
-                    if let Some(d) = &h.diff {
-                        let buttons: &[(&str, &str)] = match source {
-                            DiffSource::Worktree => &[
-                                ("+ Indexer ce bloc", "Ajouter ce bloc au prochain commit"),
-                                ("↺ Annuler ce bloc", "Supprimer ce changement du fichier (demande confirmation)"),
-                            ],
-                            DiffSource::Index => &[("− Désindexer ce bloc", "Retirer ce bloc du prochain commit (le changement reste dans le fichier)")],
-                            DiffSource::Commit => &[("↺ Annuler ce changement", "Défaire ce bloc dans tes fichiers actuels (à valider ensuite)")],
-                            DiffSource::Compare => &[],
-                        };
-                        diff_click = history::diff_view(ui, &d.lines, "history_diff_view", buttons);
-                    }
-                    return;
-                }
-                if let Some(rb) = h.rebase.as_mut() {
-                    ui.label(RichText::new("Rebase interactif").size(16.0).strong());
-                    ui.label(
-                        RichText::new(
-                            "Du plus ancien (en haut) au plus récent. Change l'ordre avec ↑ ↓ et choisis quoi faire de chaque commit. \
-                             Les commits sont réécrits : si la branche est déjà poussée, il faudra un push --force.",
-                        )
-                        .weak()
-                        .small(),
-                    );
-                    ui.add_space(4.0);
-                    let n = rb.steps.len();
-                    let mut swap = None;
-                    egui::ScrollArea::vertical().id_salt("rebase_steps").max_height(ui.available_height() - 70.0).show(ui, |ui| {
-                        for (k, st) in rb.steps.iter_mut().enumerate() {
-                            egui::Frame::none()
-                                .fill(ui.visuals().faint_bg_color)
-                                .rounding(6.0)
-                                .inner_margin(egui::Margin::symmetric(6.0, 4.0))
-                                .outer_margin(egui::Margin { bottom: 3.0, ..Default::default() })
-                                .show(ui, |ui| {
-                                    ui.set_width(ui.available_width());
-                                    ui.horizontal(|ui| {
-                                        if ui.add_enabled(k > 0, egui::Button::new("↑").small()).on_hover_text("Plus tôt").clicked() {
-                                            swap = Some((k, k - 1));
-                                        }
-                                        if ui.add_enabled(k + 1 < n, egui::Button::new("↓").small()).on_hover_text("Plus tard").clicked() {
-                                            swap = Some((k, k + 1));
-                                        }
-                                        egui::ComboBox::from_id_salt(("rebase_action", k)).selected_text(st.action.label()).width(200.0).show_ui(ui, |ui| {
-                                            for a in crate::rebase::Action::ALL {
-                                                ui.selectable_value(&mut st.action, a, a.label());
-                                            }
-                                        });
-                                        ui.label(RichText::new(&st.short).monospace().color(accent));
-                                        let mut subj = RichText::new(&st.subject);
-                                        if st.action == crate::rebase::Action::Drop {
-                                            subj = subj.strikethrough().weak();
-                                        }
-                                        ui.add(egui::Label::new(subj).truncate());
-                                    });
-                                    match st.action {
-                                        crate::rebase::Action::Reword => {
-                                            ui.add(egui::TextEdit::multiline(&mut st.message).desired_rows(2).desired_width(f32::INFINITY));
-                                        }
-                                        crate::rebase::Action::Squash => {
-                                            ui.label(RichText::new("↳ fusionné dans le commit gardé au-dessus (messages mis bout à bout)").small().weak());
-                                        }
-                                        crate::rebase::Action::Fixup => {
-                                            ui.label(RichText::new("↳ fusionné dans le commit gardé au-dessus (son message est oublié)").small().weak());
-                                        }
-                                        _ => {}
-                                    }
-                                });
-                        }
-                    });
-                    if let Some((a, b)) = swap {
-                        rb.steps.swap(a, b);
-                    }
-                    ui.separator();
-                    let check = crate::rebase::check(&rb.steps);
-                    if let Err(e) = &check {
-                        ui.label(RichText::new(e).color(err()));
-                    }
-                    ui.horizontal(|ui| {
-                        if ui.add_enabled(check.is_ok(), filled_button("Lancer le rebase", accent)).clicked() {
-                            rb_run = true;
-                        }
-                        if ui.button("Annuler").clicked() {
-                            rb_cancel = true;
-                        }
-                    });
-                    return;
-                }
-                if let Some((_, _, title)) = &h.compare {
-                    ui.label(RichText::new(title).size(16.0).strong());
-                    let Some(d) = &h.details else {
-                        ui.spinner();
-                        return;
-                    };
-                    if !d.message.is_empty() {
-                        ui.label(RichText::new(&d.message).weak().small());
-                    }
-                    ui.separator();
-                    let (adds, dels) = d.files.iter().fold((0u32, 0u32), |(a, r), (_, _, s)| match s {
-                        Some((Some(x), Some(y))) => (a + x, r + y),
-                        _ => (a, r),
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new(format!("FICHIERS DIFFÉRENTS · {}", d.files.len())).small().strong().color(accent));
-                        ui.label(RichText::new(format!("+{adds}")).small().monospace().color(ok()));
-                        ui.label(RichText::new(format!("−{dels}")).small().monospace().color(err()));
-                    });
-                    if d.files.is_empty() {
-                        ui.label(RichText::new("Aucune différence.").weak());
-                    }
-                    egui::ScrollArea::vertical().id_salt("compare_files").auto_shrink([false, false]).show(ui, |ui| {
-                        for (st, path, stats) in &d.files {
-                            if matches!(git_file_row(ui, path, *st, *stats, ""), RowClick::Row | RowClick::Open) {
-                                cmp_diff = Some(path.clone());
-                            }
-                        }
-                    });
-                    return;
-                }
-                if let Some(staged) = h.wip_sel {
-                    // staged / unstaged changes, with stage / unstage buttons
-                    let (title, color) = if staged { ("Modifications indexées", ok()) } else { ("Modifications non indexées", warn()) };
-                    ui.label(RichText::new(title).size(16.0).strong().color(color));
-                    ui.label(
-                        RichText::new(if staged {
-                            "Elles iront dans le prochain commit. « − » pour en retirer un fichier."
-                        } else {
-                            "Pas encore indexées. « + » pour les ajouter au prochain commit."
-                        })
-                        .weak(),
-                    );
-                    let Some(st) = &wip else { return };
-                    let list: Vec<&git::Entry> = st.entries.iter().filter(|e| if staged { e.staged() } else { e.unstaged() }).collect();
-                    ui.horizontal(|ui| {
-                        if staged {
-                            if ui.button("Tout désindexer").clicked() {
-                                wip_ops.push(vec!["restore".into(), "--staged".into(), ".".into()]);
-                            }
-                        } else if ui.button("Tout indexer").clicked() {
-                            wip_ops.push(vec!["add".into(), "-A".into()]);
-                        }
-                    });
-                    ui.add_space(4.0);
-                    if list.is_empty() {
-                        ui.label(RichText::new("Aucun fichier.").weak());
-                    }
-                    egui::ScrollArea::vertical().id_salt("wip_files").auto_shrink([false, false]).show(ui, |ui| {
-                        for e in list {
-                            let stats = if staged { st.staged_stats.get(&e.path) } else { st.unstaged_stats.get(&e.path) };
-                            let letter = if staged { e.x } else { e.label() };
-                            match git_file_row(ui, &e.path, letter, stats.copied(), if staged { "−" } else { "+" }) {
-                                RowClick::Button if staged => {
-                                    wip_ops.push(vec!["restore".into(), "--staged".into(), "--".into(), e.path.clone()])
-                                }
-                                RowClick::Button => wip_ops.push(vec!["add".into(), "--".into(), e.path.clone()]),
-                                RowClick::Row | RowClick::Open => wip_diff = Some((e.path.clone(), e.x == '?')),
-                                RowClick::None => {}
-                            }
-                        }
-                    });
-                    return;
-                }
-                let Some(c) = &selected_commit else { return };
-                let Some(d) = &h.details else {
-                    ui.spinner();
-                    return;
-                };
-                // header: subject, then one line of metadata
-                let (subject, body) = d.message.split_once('\n').unwrap_or((&d.message, ""));
-                ui.add(egui::Label::new(RichText::new(subject).size(16.0).strong()).wrap());
-                ui.horizontal_wrapped(|ui| {
-                    ui.spacing_mut().item_spacing.x = 4.0;
-                    ui.label(RichText::new(&c.hash[..c.hash.len().min(8)]).monospace().color(accent));
-                    ui.label(RichText::new(format!("· {} · {}", d.author.split(" <").next().unwrap_or(&d.author), d.date)).weak());
-                    for r in &c.refs {
-                        ui.label(RichText::new(r.strip_prefix("HEAD -> ").unwrap_or(r)).small().color(accent).background_color(icons::mix(ui.visuals().panel_fill, accent, 0.15)));
-                    }
-                });
-                ui.add_space(2.0);
-                ui.horizontal(|ui| {
-                    if ui.button("Diff complet").clicked() {
-                        full_diff = true;
-                    }
-                    ui.menu_button("Actions ▾", |ui| {
-                        commit_menu(ui, c, h.graph.as_ref().map_or(&[][..], |g| &g.local[..]), None, &mut menu_act);
-                    });
-                });
-                let body = body.trim();
-                if !body.is_empty() {
-                    ui.add_space(4.0);
-                    egui::CollapsingHeader::new(RichText::new("Message complet").small().weak())
-                        .default_open(body.lines().count() <= 6)
-                        .show(ui, |ui| {
-                            egui::ScrollArea::vertical().id_salt("commit_msg").max_height(140.0).show(ui, |ui| {
-                                ui.label(RichText::new(body).weak());
-                            });
-                        });
-                }
-                ui.separator();
-                let (adds, dels) = d.files.iter().fold((0u32, 0u32), |(a, r), (_, _, s)| match s {
-                    Some((Some(x), Some(y))) => (a + x, r + y),
-                    _ => (a, r),
-                });
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(format!("FICHIERS · {}", d.files.len())).small().strong().color(accent));
-                    ui.label(RichText::new(format!("+{adds}")).small().monospace().color(ok()));
-                    ui.label(RichText::new(format!("−{dels}")).small().monospace().color(err()));
-                    ui.label(RichText::new("· clic : voir le diff").small().weak());
-                });
-                egui::ScrollArea::vertical().id_salt("commit_files").auto_shrink([false, false]).show(ui, |ui| {
-                    for (st, path, stats) in &d.files {
-                        if matches!(git_file_row(ui, path, *st, *stats, ""), RowClick::Row | RowClick::Open) {
-                            file_diff = Some(path.clone());
-                        }
-                    }
-                });
-            });
+        // keyboard (when no text field has it): ↑ ↓ commits, ← → files of the diff, Page ↑ ↓ scroll the diff
+        let free = ui.ctx().memory(|m| m.focused().is_none());
+        let keys = if free {
+            ui.input(|i| {
+                (
+                    i.key_pressed(Key::ArrowDown) as i32 - i.key_pressed(Key::ArrowUp) as i32,
+                    i.key_pressed(Key::ArrowRight) as i32 - i.key_pressed(Key::ArrowLeft) as i32,
+                    i.key_pressed(Key::PageDown) as i32 - i.key_pressed(Key::PageUp) as i32,
+                )
+            })
+        } else {
+            (0, 0, 0)
+        };
+        match keys {
+            (_, 1, _) => h.jump = Some(history::FileJump::Next),
+            (_, -1, _) => h.jump = Some(history::FileJump::Prev),
+            (_, _, 1) => h.jump = Some(history::FileJump::PageDown),
+            (_, _, -1) => h.jump = Some(history::FileJump::PageUp),
+            _ => {}
         }
+        let selected_commit = h.selected.zip(h.graph.as_ref()).map(|(i, g)| g.commits[i].clone());
+        let has_detail = selected_commit.is_some() || h.wip_sel.is_some() || h.compare.is_some() || h.rebase.is_some();
 
         // ------------------------------------------------ commit list, with the working tree on top
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        let list = |ui: &mut egui::Ui| {
             if let Some(st) = &wip {
                 let staged: Vec<&git::Entry> = st.entries.iter().filter(|e| e.staged()).collect();
                 let unstaged: Vec<&git::Entry> = st.entries.iter().filter(|e| e.unstaged()).collect();
@@ -1682,7 +1449,7 @@ impl App {
                     let r = p.text(egui::pos2(r.right() + 10.0, rect.center().y), Align2::LEFT_CENTER, info, egui::FontId::proportional(12.0), ui.visuals().weak_text_color());
                     let r = p.text(egui::pos2(r.right() + 10.0, rect.center().y), Align2::LEFT_CENTER, format!("+{a}"), egui::FontId::monospace(11.5), ok());
                     p.text(egui::pos2(r.right() + 6.0, rect.center().y), Align2::LEFT_CENTER, format!("−{d}"), egui::FontId::monospace(11.5), err());
-                    if resp.on_hover_text("Voir les fichiers, indexer / désindexer").clicked() {
+                    if resp.on_hover_text("Voir les changements, indexer / désindexer").clicked() {
                         wip_pick = Some(is_staged);
                     }
                 }
@@ -1715,41 +1482,324 @@ impl App {
                 ui.label(RichText::new("Aucun commit").weak());
                 return;
             }
-            // Arrow keys move the selection when no text field has focus.
-            if ui.ctx().memory(|m| m.focused().is_none()) {
-                let (down, up) = ui.input(|i| (i.key_pressed(Key::ArrowDown), i.key_pressed(Key::ArrowUp)));
-                let pos = h.selected.and_then(|s| idx.iter().position(|&i| i == s));
-                if down {
-                    select = Some(idx[pos.map_or(0, |p| (p + 1).min(idx.len() - 1))]);
-                } else if up {
-                    select = Some(idx[pos.map_or(0, |p| p.saturating_sub(1))]);
-                }
+            // ↑ / ↓ move the selection (and keep it in view)
+            let pos = h.selected.filter(|_| h.wip_sel.is_none()).and_then(|s| idx.iter().position(|&i| i == s));
+            let moved = match keys.0 {
+                1 => Some(pos.map_or(0, |p| (p + 1).min(idx.len() - 1))),
+                -1 => Some(pos.map_or(0, |p| p.saturating_sub(1))),
+                _ => None,
+            };
+            if let Some(k) = moved {
+                select = Some(idx[k]);
             }
             let graph_w = g.lanes.clamp(1, 24) as f32 * history::LANE_W + 6.0;
+            let row_h = 22.0;
             ui.spacing_mut().item_spacing.y = 0.0;
-            egui::ScrollArea::vertical().id_salt("history_list").auto_shrink([false, false]).show_rows(
-                ui,
-                22.0,
-                idx.len(),
-                |ui, range| {
-                    for k in range {
-                        let i = idx[k];
-                        let c = &g.commits[i];
-                        let r = history::row_ui(ui, c, &g.rows[i], graph_w, h.selected == Some(i) && h.wip_sel.is_none(), f.is_empty());
-                        if r.clicked() || r.secondary_clicked() {
-                            select = Some(i);
+            let mut area = egui::ScrollArea::vertical().id_salt("history_list").auto_shrink([false, false]);
+            if let Some(k) = moved {
+                let id = ui.make_persistent_id("history_list");
+                let top = egui::scroll_area::State::load(ui.ctx(), id).map_or(0.0, |st| st.offset.y);
+                let (y, view_h) = (k as f32 * row_h, ui.available_height());
+                if y < top {
+                    area = area.vertical_scroll_offset(y);
+                } else if y + row_h > top + view_h {
+                    area = area.vertical_scroll_offset(y + row_h - view_h);
+                }
+            }
+            area.show_rows(ui, row_h, idx.len(), |ui, range| {
+                for k in range {
+                    let i = idx[k];
+                    let c = &g.commits[i];
+                    let r = history::row_ui(ui, c, &g.rows[i], graph_w, h.selected == Some(i) && h.wip_sel.is_none() && h.compare.is_none(), f.is_empty());
+                    if r.clicked() || r.secondary_clicked() {
+                        select = Some(i);
+                    }
+                    if r.double_clicked() {
+                        diff_to_tab = true;
+                    }
+                    let sel = h.selected.filter(|&s| s != i).map(|s| g.commits[s].hash.as_str());
+                    r.context_menu(|ui| {
+                        commit_menu(ui, c, &g.local, sel, &mut menu_act);
+                    });
+                }
+            });
+        };
+        if !has_detail {
+            egui::CentralPanel::default().show_inside(ui, list);
+        } else {
+            let avail = ui.available_height();
+            egui::TopBottomPanel::top("history_list_panel")
+                .resizable(true)
+                .default_height((avail * 0.36).max(140.0))
+                .height_range(100.0..=(avail - 160.0).max(120.0))
+                .show_inside(ui, list);
+
+            // ------------------------------------------------ below: what is selected, then its changes (like a pull request)
+            egui::CentralPanel::default().show_inside(ui, |ui| {
+                ui.add_space(4.0);
+                if let Some(rb) = h.rebase.as_mut() {
+                    ui.label(RichText::new("Rebase interactif").size(16.0).strong());
+                    ui.label(
+                        RichText::new(
+                            "Du plus ancien (en haut) au plus récent. Change l'ordre avec ↑ ↓ et choisis quoi faire de chaque commit. \
+                             « Découper » s'arrête sur le commit et ouvre l'assistant de découpage. \
+                             Les commits sont réécrits : si la branche est déjà poussée, il faudra un push --force.",
+                        )
+                        .weak()
+                        .small(),
+                    );
+                    ui.add_space(4.0);
+                    let n = rb.steps.len();
+                    let mut swap = None;
+                    egui::ScrollArea::vertical().id_salt("rebase_steps").max_height(ui.available_height() - 70.0).show(ui, |ui| {
+                        for (k, st) in rb.steps.iter_mut().enumerate() {
+                            egui::Frame::none()
+                                .fill(ui.visuals().faint_bg_color)
+                                .rounding(6.0)
+                                .inner_margin(egui::Margin::symmetric(6.0, 4.0))
+                                .outer_margin(egui::Margin { bottom: 3.0, ..Default::default() })
+                                .show(ui, |ui| {
+                                    ui.set_width(ui.available_width());
+                                    ui.horizontal(|ui| {
+                                        if ui.add_enabled(k > 0, egui::Button::new("↑").small()).on_hover_text("Plus tôt").clicked() {
+                                            swap = Some((k, k - 1));
+                                        }
+                                        if ui.add_enabled(k + 1 < n, egui::Button::new("↓").small()).on_hover_text("Plus tard").clicked() {
+                                            swap = Some((k, k + 1));
+                                        }
+                                        egui::ComboBox::from_id_salt(("rebase_action", k)).selected_text(st.action.label()).width(220.0).show_ui(ui, |ui| {
+                                            for a in crate::rebase::Action::ALL {
+                                                ui.selectable_value(&mut st.action, a, a.label());
+                                            }
+                                        });
+                                        ui.label(RichText::new(&st.short).monospace().color(accent));
+                                        let mut subj = RichText::new(&st.subject);
+                                        if st.action == crate::rebase::Action::Drop {
+                                            subj = subj.strikethrough().weak();
+                                        }
+                                        ui.add(egui::Label::new(subj).truncate());
+                                    });
+                                    match st.action {
+                                        crate::rebase::Action::Reword => {
+                                            ui.add(egui::TextEdit::multiline(&mut st.message).desired_rows(2).desired_width(f32::INFINITY));
+                                        }
+                                        crate::rebase::Action::Squash => {
+                                            ui.label(RichText::new("↳ fusionné dans le commit gardé au-dessus (messages mis bout à bout)").small().weak());
+                                        }
+                                        crate::rebase::Action::Fixup => {
+                                            ui.label(RichText::new("↳ fusionné dans le commit gardé au-dessus (son message est oublié)").small().weak());
+                                        }
+                                        crate::rebase::Action::Split => {
+                                            ui.label(RichText::new("↳ le rebase s'arrête ici : tu répartis ses changements (blocs ou lignes) en plusieurs commits").small().weak());
+                                        }
+                                        _ => {}
+                                    }
+                                });
                         }
-                        if r.double_clicked() {
-                            full_diff = true;
+                    });
+                    if let Some((a, b)) = swap {
+                        rb.steps.swap(a, b);
+                    }
+                    ui.separator();
+                    let check = crate::rebase::check(&rb.steps);
+                    if let Err(e) = &check {
+                        ui.label(RichText::new(e).color(err()));
+                    }
+                    ui.horizontal(|ui| {
+                        if ui.add_enabled(check.is_ok(), filled_button("Lancer le rebase", accent)).clicked() {
+                            rb_run = true;
                         }
-                        let sel = h.selected.filter(|&s| s != i).map(|s| g.commits[s].hash.as_str());
-                        r.context_menu(|ui| {
-                            commit_menu(ui, c, &g.local, sel, &mut menu_act);
+                        if ui.button("Annuler").clicked() {
+                            rb_cancel = true;
+                        }
+                    });
+                    return;
+                }
+                // --- header of what is selected
+                let (mut chips, mut file_buttons): (Vec<(char, String, Option<(Option<u32>, Option<u32>)>)>, &[(&str, &str)]) = (Vec::new(), &[]);
+                if let Some((_, _, title)) = &h.compare {
+                    ui.label(RichText::new(title).size(16.0).strong());
+                    if let Some(d) = &h.details {
+                        if !d.message.is_empty() {
+                            ui.label(RichText::new(&d.message).weak().small());
+                        }
+                        chips = d.files.clone();
+                    }
+                    file_buttons = &[("Ouvrir", "Ouvrir le fichier (tel qu'il est dans tes fichiers)")];
+                } else if let Some(staged) = h.wip_sel {
+                    let (title, color) = if staged { ("Modifications indexées", ok()) } else { ("Modifications non indexées", warn()) };
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(title).size(16.0).strong().color(color));
+                        ui.label(
+                            RichText::new(if staged {
+                                "elles iront dans le prochain commit"
+                            } else {
+                                "pas encore indexées : « + Indexer » pour les ajouter au prochain commit"
+                            })
+                            .weak(),
+                        );
+                    });
+                    if let Some(st) = &wip {
+                        ui.horizontal(|ui| {
+                            if staged {
+                                if ui.button("Tout désindexer").clicked() {
+                                    wip_ops.push(vec!["restore".into(), "--staged".into(), ".".into()]);
+                                }
+                            } else if ui.button("Tout indexer").clicked() {
+                                wip_ops.push(vec!["add".into(), "-A".into()]);
+                            }
+                        });
+                        chips = st
+                            .entries
+                            .iter()
+                            .filter(|e| if staged { e.staged() } else { e.unstaged() })
+                            .map(|e| {
+                                let stats = if staged { st.staged_stats.get(&e.path) } else { st.unstaged_stats.get(&e.path) };
+                                (if staged { e.x } else { e.label() }, e.path.clone(), stats.copied())
+                            })
+                            .collect();
+                    }
+                    file_buttons = if staged {
+                        &[("Ouvrir", "Ouvrir le fichier"), ("− Désindexer", "Le retirer du prochain commit (les modifications restent dans le fichier)")]
+                    } else {
+                        &[
+                            ("Ouvrir", "Ouvrir le fichier"),
+                            ("+ Indexer", "Ajouter tout le fichier au prochain commit"),
+                            ("↺ Annuler", "Remettre le fichier comme au dernier commit (demande confirmation)"),
+                        ]
+                    };
+                } else if let Some(c) = &selected_commit {
+                    match &h.details {
+                        None => {
+                            ui.spinner();
+                        }
+                        Some(d) => {
+                            let (subject, body) = d.message.split_once('\n').unwrap_or((&d.message, ""));
+                            ui.horizontal(|ui| {
+                                ui.add(egui::Label::new(RichText::new(subject).size(16.0).strong()).truncate());
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    ui.menu_button("Actions ▾", |ui| {
+                                        commit_menu(ui, c, h.graph.as_ref().map_or(&[][..], |g| &g.local[..]), None, &mut menu_act);
+                                    });
+                                    if ui.button("Diff dans un onglet").on_hover_text("Tout le diff du commit dans un onglet de l'éditeur (double-clic sur le commit)").clicked() {
+                                        diff_to_tab = true;
+                                    }
+                                });
+                            });
+                            ui.horizontal_wrapped(|ui| {
+                                ui.spacing_mut().item_spacing.x = 4.0;
+                                ui.label(RichText::new(&c.hash[..c.hash.len().min(8)]).monospace().color(accent));
+                                ui.label(RichText::new(format!("· {} · {}", d.author.split(" <").next().unwrap_or(&d.author), d.date)).weak());
+                                for r in &c.refs {
+                                    ui.label(RichText::new(r.strip_prefix("HEAD -> ").unwrap_or(r)).small().color(accent).background_color(icons::mix(ui.visuals().panel_fill, accent, 0.15)));
+                                }
+                            });
+                            let body = body.trim();
+                            if !body.is_empty() {
+                                egui::CollapsingHeader::new(RichText::new("Message complet").small().weak())
+                                    .default_open(body.lines().count() <= 6)
+                                    .show(ui, |ui| {
+                                        egui::ScrollArea::vertical().id_salt("commit_msg").max_height(120.0).show(ui, |ui| {
+                                            ui.label(RichText::new(body).weak());
+                                        });
+                                    });
+                            }
+                            chips = d.files.clone();
+                        }
+                    }
+                    file_buttons = &[
+                        ("Ouvrir", "Ouvrir le fichier (tel qu'il est dans tes fichiers)"),
+                        ("↺ Annuler dans mes fichiers", "Défaire ce que ce commit a changé dans ce fichier, dans tes fichiers actuels (à valider ensuite)"),
+                    ];
+                }
+                // --- files: summary, then a chip per file (click: go to its diff)
+                let (adds, dels) = chips.iter().fold((0u32, 0u32), |(a, r), (_, _, s)| match s {
+                    Some((x, y)) => (a + x.unwrap_or(0), r + y.unwrap_or(0)),
+                    _ => (a, r),
+                });
+                ui.add_space(2.0);
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(format!("FICHIERS MODIFIÉS · {}", chips.len())).small().strong().color(accent));
+                    ui.label(RichText::new(format!("+{adds}")).small().monospace().color(ok()));
+                    ui.label(RichText::new(format!("−{dels}")).small().monospace().color(err()));
+                    if h.diff_loading {
+                        ui.spinner();
+                    }
+                    if let Some(d) = &h.diff {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if !d.files.is_empty() {
+                                if ui.small_button("Tout déplier").clicked() {
+                                    h.collapsed.clear();
+                                }
+                                if ui.small_button("Tout replier").clicked() {
+                                    h.collapsed = d.files.iter().map(|f| f.start).collect();
+                                }
+                            }
                         });
                     }
-                },
-            );
-        });
+                });
+                if !chips.is_empty() {
+                    egui::ScrollArea::vertical().id_salt("diff_chips").max_height(64.0).show(ui, |ui| {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
+                            for (letter, path, _) in &chips {
+                                let name = path.rsplit('/').next().unwrap_or(path);
+                                let c = match letter {
+                                    'A' | '?' => ok(),
+                                    'D' => err(),
+                                    _ => warn(),
+                                };
+                                let text = RichText::new(format!("{letter} {name}")).small().color(c);
+                                if ui.add(egui::Button::new(text).small()).on_hover_text(path.as_str()).clicked() {
+                                    if let Some(k) = h.diff.as_ref().and_then(|d| d.files.iter().position(|f| f.path == *path)) {
+                                        if let Some(start) = h.diff.as_ref().map(|d| d.files[k].start) {
+                                            h.collapsed.remove(&start);
+                                        }
+                                        h.jump = Some(history::FileJump::To(k));
+                                    }
+                                }
+                            }
+                        });
+                    });
+                }
+                ui.separator();
+                // --- every file with its diff, one under the other
+                match &h.diff {
+                    Some(d) => {
+                        let hunk_buttons: &[(&str, &str)] = match source {
+                            DiffSource::Worktree => &[
+                                ("+ Indexer ce bloc", "Ajouter ce bloc au prochain commit"),
+                                ("↺ Annuler ce bloc", "Supprimer ce changement du fichier (demande confirmation)"),
+                            ],
+                            DiffSource::Index => &[("− Désindexer ce bloc", "Retirer ce bloc du prochain commit (le changement reste dans le fichier)")],
+                            DiffSource::Commit => &[("↺ Annuler ce changement", "Défaire ce bloc dans tes fichiers actuels (à valider ensuite)")],
+                            DiffSource::Compare => &[],
+                        };
+                        let jump = h.jump.take();
+                        if let Some(c) = history::stacked_diff_view(ui, &d.lines, &d.files, &mut h.collapsed, "history_stacked", hunk_buttons, file_buttons, jump) {
+                            if let history::DiffClick::File(_, b) = c {
+                                file_act = match (source, b) {
+                                    (_, 0) => Some("open"),
+                                    (DiffSource::Worktree, 1) => Some("stage"),
+                                    (DiffSource::Worktree, _) => Some("discard"),
+                                    (DiffSource::Index, _) => Some("unstage"),
+                                    (DiffSource::Commit, _) => Some("revert"),
+                                    (DiffSource::Compare, _) => None,
+                                };
+                            }
+                            diff_click = Some(c);
+                        }
+                    }
+                    None if h.diff_loading => {
+                        ui.horizontal(|ui| {
+                            ui.spinner();
+                            ui.label(RichText::new("Chargement du diff…").weak());
+                        });
+                    }
+                    None => {}
+                }
+            });
+        }
 
         if close {
             self.history.open = false;
@@ -1757,23 +1807,22 @@ impl App {
         if clear_notice {
             self.history.notice = None;
         }
-        if back {
-            self.history.diff = None;
-            self.history.diff_loading = false;
-        }
         if diff_click.is_some() || file_act.is_some() {
             self.diff_action(source, diff_click, file_act);
         }
         if diff_to_tab {
-            if let Some(d) = &self.history.diff {
-                let short = &d.hash[..d.hash.len().min(8)];
-                let title = match &d.path {
-                    Some(p) => format!("{short} : {p}"),
-                    None => format!("commit {short}"),
-                };
-                let text = d.text.clone();
-                self.history.open = false;
-                self.new_scratch(title, text, "Diff", true);
+            match &self.history.diff {
+                Some(d) => {
+                    let short = &d.hash[..d.hash.len().min(8)];
+                    let title = match &d.path {
+                        Some(p) => format!("{short} : {p}"),
+                        None => format!("diff {short}"),
+                    };
+                    let text = d.text.clone();
+                    self.history.open = false;
+                    self.new_scratch(title, text, "Diff", true);
+                }
+                None => self.set_status("Le diff est en cours de chargement"),
             }
         }
         if resume {
@@ -1798,11 +1847,18 @@ impl App {
                     ui.ctx().output_mut(|o| o.copied_text = text.clone());
                     self.set_status(format!("Copié : {text}"));
                 }
-                (HistAct::Diff(hash), _) => self.load_commit_diff(hash, None),
+                (HistAct::Diff(hash), _) => {
+                    if let Some(i) = self.history.graph.as_ref().and_then(|g| g.commits.iter().position(|c| c.hash == hash)) {
+                        select = Some(i);
+                    }
+                }
                 (HistAct::Split(hash), _) => self.start_split(hash),
                 (HistAct::CherryPick(hash), Some(repo)) => self.git_job_at(repo, "cherry-pick", &["-c", "core.editor=true", "cherry-pick", &hash]),
                 (HistAct::Revert(hash), Some(repo)) => self.git_job_at(repo, "revert", &["-c", "core.editor=true", "revert", "--no-edit", &hash]),
-                (HistAct::Compare(a, b, title), _) => self.start_compare(a, b, title),
+                (HistAct::Compare(a, b, title), _) => {
+                    self.start_compare(a.clone(), b.clone(), title);
+                    self.load_range_diff(a, b, None);
+                }
                 (HistAct::Rebase(hash), Some(repo)) => match crate::rebase::load(&repo, &hash) {
                     Ok(steps) => {
                         let h = &mut self.history;
@@ -1834,25 +1890,19 @@ impl App {
                 self.git.busy += 1;
                 self.set_status("Rebase en cours…");
                 self.jobs.spawn(move || JobResult::GitOp {
-                    label: "rebase".into(),
+                    label: if crate::rebase::splits(&rb.steps) { "rebase (découpage)".into() } else { "rebase".into() },
                     result: crate::rebase::run(&repo, &rb.from, &rb.steps, crate::rebase::self_editor),
                 });
             }
         }
-        if let (Some(p), Some((a, b, _))) = (cmp_diff, self.history.compare.clone()) {
-            self.load_range_diff(a, b, p);
-        }
         if let Some(staged) = wip_pick {
-            self.history.compare = None;
-            self.history.rebase = None;
-            self.history.wip_sel = Some(staged);
-            self.history.diff = None;
-            self.history.diff_loading = false;
-        }
-        if let Some((p, _)) = wip_diff {
-            if let Some(staged) = self.history.wip_sel {
-                self.load_wip_diff(staged, p);
-            }
+            let h = &mut self.history;
+            h.compare = None;
+            h.rebase = None;
+            h.wip_sel = Some(staged);
+            h.diff = None;
+            h.diff_loading = false;
+            self.load_wip_all(staged);
         }
         if !wip_ops.is_empty() {
             if let Some(repo) = self.history.repo.clone() {
@@ -1864,23 +1914,14 @@ impl App {
             }
         }
         if let Some(i) = select {
-            if Some(i) != self.history.selected || self.history.wip_sel.is_some() || self.history.compare.is_some() {
-                self.history.wip_sel = None;
-                self.history.compare = None;
-                self.history.rebase = None;
-                self.history.diff = None;
-                self.history.diff_loading = false;
+            if Some(i) != self.history.selected || self.history.wip_sel.is_some() || self.history.compare.is_some() || self.history.rebase.is_some() {
+                let h = &mut self.history;
+                h.wip_sel = None;
+                h.compare = None;
+                h.rebase = None;
+                h.diff = None;
+                h.diff_loading = false;
                 self.select_commit(i);
-            }
-        }
-        if let Some(hash) = self.history.selected.and_then(|i| self.history.graph.as_ref().map(|g| g.commits[i].hash.clone())) {
-            if self.history.wip_sel.is_none() {
-                if full_diff {
-                    self.load_commit_diff(hash.clone(), None);
-                }
-                if let Some(p) = file_diff {
-                    self.load_commit_diff(hash, Some(p));
-                }
             }
         }
     }
@@ -1962,7 +2003,13 @@ impl App {
         let accent = self.hl.colors.accent;
         let Some(s) = self.split.as_mut() else { return };
         let part = s.parts.len() + 1;
-        let n_sel: usize = s.sel.iter().map(|v| v.iter().filter(|&&b| b).count()).sum();
+        // hunks with at least one chosen line
+        let n_sel: usize = s
+            .files
+            .iter()
+            .zip(&s.sel)
+            .map(|(f, fs)| f.hunks.iter().zip(fs).filter(|(h, hs)| split::hunk_flags(h, hs).iter().any(|&b| b)).count())
+            .sum();
         let n_hunks: usize = s.sel.iter().map(Vec::len).sum();
         let (mut commit, mut finish, mut abort) = (false, false, false);
         let bg = ui.visuals().panel_fill;
@@ -2000,7 +2047,7 @@ impl App {
                     ui.label(RichText::new(t).color(if on { ui.visuals().strong_text_color() } else { c }));
                 };
                 let left = !s.files.is_empty();
-                step(ui, "1.", &format!("Coche ce qui va dans la partie {part}"), left && n_sel == 0);
+                step(ui, "1.", &format!("Coche les blocs (ou les lignes + / −) de la partie {part}"), left && n_sel == 0);
                 ui.label(RichText::new("›").weak());
                 step(ui, "2.", "Écris son message", left && n_sel > 0 && s.message.trim().is_empty());
                 ui.label(RichText::new("›").weak());
@@ -2083,10 +2130,10 @@ impl App {
                     }
                     ui.add_space(12.0);
                     if ui.button("Tout cocher").on_hover_text("Le reste va dans cette partie (la dernière)").clicked() {
-                        s.sel.iter_mut().flatten().for_each(|b| *b = true);
+                        s.sel.iter_mut().flatten().flatten().for_each(|b| *b = true);
                     }
                     if ui.button("Rien").clicked() {
-                        s.sel.iter_mut().flatten().for_each(|b| *b = false);
+                        s.sel.iter_mut().flatten().flatten().for_each(|b| *b = false);
                     }
                 });
             }
@@ -2111,13 +2158,16 @@ impl App {
             egui::ScrollArea::vertical().id_salt("split_changes").auto_shrink([false, false]).show(ui, |ui| {
                 for (fi, f) in s.files.iter().enumerate() {
                     let sel = &mut s.sel[fi];
-                    let all = sel.iter().all(|&b| b);
-                    let any = sel.iter().any(|&b| b);
+                    let chosen = split::hunk_flags;
+                    let flags: Vec<bool> = f.hunks.iter().zip(sel.iter()).flat_map(|(h, hs)| chosen(h, hs)).collect();
+                    let all = !flags.is_empty() && flags.iter().all(|&b| b);
+                    let any = flags.iter().any(|&b| b);
                     let folded = s.folded.contains(&f.path);
+                    let partial = f.partial_ok();
                     ui.horizontal(|ui| {
                         let mut v = all;
                         if ui.add(egui::Checkbox::new(&mut v, "").indeterminate(any && !all)).changed() {
-                            sel.iter_mut().for_each(|b| *b = v);
+                            sel.iter_mut().flatten().for_each(|b| *b = v);
                         }
                         let arrow = if folded { "⏵" } else { "⏷" };
                         if ui.add(egui::Button::new(arrow).frame(false)).clicked() {
@@ -2137,7 +2187,7 @@ impl App {
                         if f.binary {
                             ui.label(RichText::new("binaire").small().weak());
                         }
-                        if !f.partial_ok() && f.hunks.len() > 1 {
+                        if !partial {
                             ui.label(RichText::new("(se valide en entier)").small().weak());
                         } else if f.hunks.len() > 1 {
                             ui.label(RichText::new(format!("{} blocs", f.hunks.len())).small().weak());
@@ -2146,11 +2196,14 @@ impl App {
                     if folded {
                         continue;
                     }
-                    let partial = f.partial_ok();
                     for (hi, h) in f.hunks.iter().enumerate() {
-                        let on = sel[hi];
+                        let hflags = chosen(h, &sel[hi]);
+                        let on = hflags.iter().any(|&b| b);
+                        let whole = !hflags.is_empty() && hflags.iter().all(|&b| b);
                         let stroke = if on { egui::Stroke::new(2.0_f32, accent) } else { ui.visuals().widgets.noninteractive.bg_stroke };
                         let fill = if on { icons::mix(bg, accent, 0.10) } else { ui.visuals().faint_bg_color };
+                        let mut set_all: Option<bool> = None;
+                        let mut toggle_line: Option<usize> = None;
                         let resp = egui::Frame::none()
                             .fill(fill)
                             .stroke(stroke)
@@ -2159,45 +2212,65 @@ impl App {
                             .outer_margin(egui::Margin { left: 26.0, right: 4.0, top: 2.0, bottom: 4.0 })
                             .show(ui, |ui| {
                                 ui.set_width(ui.available_width());
-                                let mut v = on;
                                 ui.horizontal(|ui| {
-                                    let label = if on { "dans cette partie" } else { "pas dans cette partie" };
-                                    if ui.checkbox(&mut v, RichText::new(label).small()).changed() {
-                                        if partial {
-                                            sel[hi] = v;
-                                        } else {
-                                            sel.iter_mut().for_each(|b| *b = v);
-                                        }
+                                    let mut v = whole;
+                                    let label = match (whole, on) {
+                                        (true, _) => "tout le bloc dans cette partie",
+                                        (false, true) => "une partie des lignes dans cette partie",
+                                        _ => "pas dans cette partie",
+                                    };
+                                    if ui.add(egui::Checkbox::new(&mut v, RichText::new(label).small()).indeterminate(on && !whole)).changed() {
+                                        set_all = Some(v);
                                     }
                                     ui.label(RichText::new(&h.lines[0]).monospace().small().color(accent));
+                                    if partial {
+                                        ui.label(RichText::new("· clic sur une ligne + / − pour la prendre ou la laisser").small().weak());
+                                    }
                                 });
                                 let shown = h.lines.len().min(300);
-                                for l in &h.lines[1..shown] {
-                                    let (c, lbg) = match l.chars().next() {
-                                        Some('+') => (fg, Some(icons::mix(fill, ok(), 0.22))),
-                                        Some('-') => (fg, Some(icons::mix(fill, err(), 0.22))),
-                                        _ => (ui.visuals().weak_text_color(), None),
+                                for (li, l) in h.lines.iter().enumerate().take(shown).skip(1) {
+                                    let change = h.is_change(li);
+                                    let line_on = sel[hi][li];
+                                    let (c, lbg, mark) = match l.chars().next() {
+                                        Some('+') if line_on => (fg, Some(icons::mix(fill, ok(), 0.22)), "☑ "),
+                                        Some('-') if line_on => (fg, Some(icons::mix(fill, err(), 0.22)), "☑ "),
+                                        // not chosen: an added line is left out, a removed one stays as it is
+                                        Some('+') | Some('-') => (ui.visuals().weak_text_color(), None, "☐ "),
+                                        _ => (ui.visuals().weak_text_color(), None, "   "),
                                     };
                                     let mut fmt = TextFormat::simple(mono.clone(), c);
                                     if let Some(b) = lbg {
                                         fmt.background = b;
                                     }
-                                    let mut job = LayoutJob::single_section(l.replace('\t', "    "), fmt);
+                                    if change && !line_on && l.starts_with('+') {
+                                        fmt.strikethrough = egui::Stroke::new(1.0_f32, c);
+                                    }
+                                    let text = if partial && change { format!("{mark}{}", l.replace('\t', "    ")) } else { l.replace('\t', "    ") };
+                                    let mut job = LayoutJob::single_section(text, fmt);
                                     job.wrap.max_rows = 1;
-                                    ui.label(job);
+                                    let sense = if partial && change { Sense::click() } else { Sense::hover() };
+                                    let r = ui.add(egui::Label::new(job).sense(sense));
+                                    if partial && change && r.clicked() {
+                                        toggle_line = Some(li);
+                                    }
                                 }
                                 if h.lines.len() > shown {
                                     ui.label(RichText::new(format!("… {} ligne(s) de plus", h.lines.len() - shown)).weak().small());
                                 }
                             })
                             .response;
-                        // clicking anywhere on the block toggles it
-                        if resp.interact(Sense::click()).clicked() {
+                        // clicking the block elsewhere than on a line toggles it whole
+                        if toggle_line.is_none() && set_all.is_none() && resp.interact(Sense::click()).clicked() {
+                            set_all = Some(!on);
+                        }
+                        if let Some(li) = toggle_line {
+                            sel[hi][li] = !sel[hi][li];
+                        }
+                        if let Some(v) = set_all {
                             if partial {
-                                sel[hi] = !on;
+                                sel[hi].iter_mut().for_each(|b| *b = v);
                             } else {
-                                let v = !on;
-                                sel.iter_mut().for_each(|b| *b = v);
+                                sel.iter_mut().flatten().for_each(|b| *b = v);
                             }
                         }
                     }
@@ -4461,6 +4534,34 @@ impl App {
         });
     }
 
+    /// The graph view on the staged / unstaged changes, scrolled to the diff of `rel`.
+    fn show_wip_file(&mut self, rel: String, staged: bool) {
+        let Some(repo) = self.repo.clone() else { return };
+        self.prefs.open = false;
+        if let Some(sp) = self.split.as_mut() {
+            sp.shown = false;
+        }
+        let reload = !self.history.open || self.history.repo.as_ref() != Some(&repo) || self.history.graph.is_none();
+        self.history.open = true;
+        let h = &mut self.history;
+        h.compare = None;
+        h.rebase = None;
+        let key = if staged { "INDEX" } else { "WORKTREE" };
+        let shown = h.wip_sel == Some(staged) && h.diff.as_ref().is_some_and(|d| d.hash == key);
+        h.wip_sel = Some(staged);
+        match h.diff.as_ref().filter(|_| shown).and_then(|d| d.files.iter().position(|f| f.path == rel)) {
+            Some(k) => h.jump = Some(history::FileJump::To(k)),
+            None => {
+                h.diff = None;
+                h.jump_path = Some(rel);
+                self.load_wip_all(staged);
+            }
+        }
+        if reload {
+            self.load_history();
+        }
+    }
+
     fn show_diff(&mut self, rel: String, untracked: bool) {
         let Some(repo) = self.repo.clone() else { return };
         if untracked {
@@ -4671,7 +4772,18 @@ impl App {
                         let text = result.unwrap_or_else(|e| e);
                         let text = if text.trim().is_empty() { "(aucune différence)".to_string() } else { text };
                         let lines = history::parse_diff(&text);
-                        self.history.diff = Some(HistoryDiff { hash, path, text, lines });
+                        let files = history::diff_files(&lines);
+                        // a reload of the same diff (after staging…) keeps the folded files
+                        let same = self.history.diff.as_ref().is_some_and(|d| d.hash == hash);
+                        if !same {
+                            self.history.collapsed.clear();
+                        }
+                        if let Some(p) = self.history.jump_path.take() {
+                            if let Some(k) = files.iter().position(|f| f.path == p) {
+                                self.history.jump = Some(history::FileJump::To(k));
+                            }
+                        }
+                        self.history.diff = Some(HistoryDiff { hash, path, text, lines, files });
                     }
                 }
                 JobResult::HistoryDetails(hash, r) => {
@@ -4705,16 +4817,18 @@ impl App {
                             self.set_status(format!("git {label} : échec (détail dans le panneau Git)"));
                         }
                     }
+                    // the rebase stopped on the commit to split: open the assistant on it
+                    if label == "rebase (découpage)" && self.split.is_none() && self.history.repo.as_deref().is_some_and(crate::split::rebase_in_progress) {
+                        self.resume_split();
+                    }
                     self.git_refresh();
                     // staging, unstaging or discarding does not move branches: keep the selection
                     let refs = !matches!(label.as_str(), "add" | "restore" | "apply" | "rm");
                     if self.history.open && refs {
                         self.load_history();
                     }
-                    if let (true, Some(staged), Some(p)) =
-                        (self.history.open, self.history.wip_sel, self.history.diff.as_ref().and_then(|d| d.path.clone()))
-                    {
-                        self.load_wip_diff(staged, p);
+                    if let (true, Some(staged)) = (self.history.open, self.history.wip_sel) {
+                        self.load_wip_all(staged);
                     }
                     if let Some(t) = self.tree.as_mut() {
                         t.refresh();
@@ -5096,9 +5210,6 @@ impl App {
                 if self.overlay.take().is_some() || self.confirm.take().is_some() || self.line_history.take().is_some() {
                 } else if let Some(sp) = self.split.as_mut().filter(|sp| sp.shown && !self.prefs.open) {
                     sp.shown = false;
-                } else if self.history.open && (self.history.diff.is_some() || self.history.diff_loading) {
-                    self.history.diff = None;
-                    self.history.diff_loading = false;
                 } else if self.history.open {
                     self.history.open = false;
                 } else if self.prefs.open {
@@ -7094,7 +7205,7 @@ impl App {
                             }
                         }
                         RowClick::Open => open = Some(e.path.clone()),
-                        RowClick::Row => diff = Some((e.path.clone(), e.x == '?')),
+                        RowClick::Row => diff = Some((e.path.clone(), is_staged)),
                         RowClick::None => {}
                     }
                 }
@@ -7229,8 +7340,8 @@ impl App {
             let a: Vec<&str> = args.iter().map(String::as_str).collect();
             self.git_job(label, &a);
         }
-        if let Some((p, untracked)) = diff {
-            self.show_diff(p, untracked);
+        if let Some((p, staged)) = diff {
+            self.show_wip_file(p, staged);
         }
         if let (Some(p), Some(repo)) = (open, self.repo.clone()) {
             self.open_path(repo.join(p));
@@ -7623,6 +7734,9 @@ impl App {
         self.git_refresh();
         if self.history.open && self.history.repo.as_ref().is_some_and(|r| changed.contains(r)) && self.history.rebase.is_none() {
             self.load_history();
+            if let Some(staged) = self.history.wip_sel {
+                self.load_wip_all(staged);
+            }
         }
         for i in 0..self.docs.len() {
             let in_repo = self.docs[i].path.as_deref().and_then(|p| self.repo_for(p)).is_some_and(|r| changed.contains(&r));

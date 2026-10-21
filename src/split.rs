@@ -63,9 +63,46 @@ pub struct FileChange {
 }
 
 impl FileChange {
-    /// Whether hunks can be committed separately.
+    /// Whether hunks (and lines of hunks) can be committed separately.
     pub fn partial_ok(&self) -> bool {
-        self.kind == 'M' && !self.binary && !self.untracked && self.hunks.len() > 1
+        self.kind == 'M' && !self.binary && !self.untracked
+    }
+
+    /// Selection with nothing chosen: one flag per line of each hunk (only +/- lines matter).
+    pub fn empty_selection(&self) -> Vec<Vec<bool>> {
+        self.hunks.iter().map(|h| vec![false; h.lines.len()]).collect()
+    }
+}
+
+impl Hunk {
+    /// Whether line `i` (index in `lines`) is an added or removed line.
+    pub fn is_change(&self, i: usize) -> bool {
+        i > 0 && self.lines.get(i).is_some_and(|l| l.starts_with('+') || l.starts_with('-'))
+    }
+
+    /// The hunk restricted to the chosen lines, like editing it in `git add -p` (e): an added line
+    /// not chosen is dropped, a removed line not chosen stays as context. None if nothing is chosen.
+    pub fn restricted(&self, chosen: &[bool]) -> Option<String> {
+        if !(1..self.lines.len()).any(|i| self.is_change(i) && chosen.get(i).copied().unwrap_or(false)) {
+            return None;
+        }
+        let mut out = vec![self.lines[0].clone()];
+        let mut dropped = false;
+        for (i, l) in self.lines.iter().enumerate().skip(1) {
+            let on = chosen.get(i).copied().unwrap_or(false);
+            match l.chars().next() {
+                Some('+') if !on => {
+                    dropped = true;
+                    continue;
+                }
+                Some('-') if !on => out.push(format!(" {}", &l[1..])),
+                // "\ No newline at end of file" belongs to the line before
+                Some('\\') if dropped => {}
+                _ => out.push(l.clone()),
+            }
+            dropped = false;
+        }
+        Some(out.join("\n"))
     }
 }
 
@@ -187,22 +224,47 @@ pub fn changes(repo: &Path, added: &[String]) -> Result<Vec<FileChange>, String>
     Ok(files)
 }
 
-/// Stages the chosen hunks (`sel[i][h]`), whole files when everything or a non-splittable file is chosen.
-/// The index is reset first, so hunks (computed against HEAD) apply to it as they are.
-pub fn stage(repo: &Path, files: &[FileChange], sel: &[Vec<bool>]) -> Result<(), String> {
+/// Choice of each +/- line of hunk `h` in `chosen`; a hunk without such lines (binary file) has one
+/// flag, the one of its header line.
+pub fn hunk_flags(h: &Hunk, chosen: &[bool]) -> Vec<bool> {
+    let flag = |i: usize| chosen.get(i).copied().unwrap_or(false);
+    let v: Vec<bool> = (1..h.lines.len()).filter(|&i| h.is_change(i)).map(flag).collect();
+    if v.is_empty() {
+        vec![flag(0)]
+    } else {
+        v
+    }
+}
+
+/// Whether something of file `f` is chosen in `sel` (its lines, per hunk).
+pub fn any_chosen(f: &FileChange, sel: &[Vec<bool>]) -> bool {
+    f.hunks.iter().zip(sel).any(|(h, s)| hunk_flags(h, s).iter().any(|&b| b))
+}
+
+/// Whether every change of file `f` is chosen.
+pub fn all_chosen(f: &FileChange, sel: &[Vec<bool>]) -> bool {
+    f.hunks.iter().zip(sel).all(|(h, s)| hunk_flags(h, s).iter().all(|&b| b))
+}
+
+/// Stages the chosen lines (`sel[file][hunk][line]`), whole files when everything or a
+/// non-splittable file is chosen. The index is reset first, so hunks (computed against HEAD)
+/// apply to it as they are.
+pub fn stage(repo: &Path, files: &[FileChange], sel: &[Vec<Vec<bool>>]) -> Result<(), String> {
     git::run(repo, &["reset", "-q"])?;
     for (f, s) in files.iter().zip(sel) {
-        if !s.iter().any(|&b| b) {
+        if !any_chosen(f, s) {
             continue;
         }
-        if !f.partial_ok() || s.iter().all(|&b| b) {
+        if !f.partial_ok() || all_chosen(f, s) {
             git::run(repo, &["add", "-A", "--", &f.path])?;
             continue;
         }
         let mut patch = f.header.join("\n") + "\n";
-        for (h, _) in f.hunks.iter().zip(s).filter(|(_, &on)| on) {
-            patch.push_str(&h.lines.join("\n"));
-            patch.push('\n');
+        for (h, chosen) in f.hunks.iter().zip(s) {
+            if let Some(text) = h.restricted(chosen) {
+                patch.push_str(&text);
+                patch.push('\n');
+            }
         }
         git::run_with(repo, &["apply", "--cached", "--recount", "-"], &[], Some(&patch))
             .map_err(|e| format!("{} : {e}", f.path))?;
@@ -211,7 +273,7 @@ pub fn stage(repo: &Path, files: &[FileChange], sel: &[Vec<bool>]) -> Result<(),
 }
 
 /// Stages the selection and commits it; returns (short hash, subject). On failure nothing stays staged.
-pub fn commit_part(repo: &Path, files: &[FileChange], sel: &[Vec<bool>], message: &str) -> Result<(String, String), String> {
+pub fn commit_part(repo: &Path, files: &[FileChange], sel: &[Vec<Vec<bool>>], message: &str) -> Result<(String, String), String> {
     let r = stage(repo, files, sel).and_then(|()| commit(repo, message));
     if r.is_err() {
         let _ = git::run(repo, &["reset", "-q"]);
@@ -232,6 +294,15 @@ pub fn finish(repo: &Path) -> Result<String, String> {
 }
 
 pub fn abort(repo: &Path) -> Result<String, String> {
+    // the files created by the commit being split are untracked after the reset: `rebase --abort`
+    // refuses to overwrite them, and puts them back itself
+    if let Some(hash) = stopped_commit(repo) {
+        let added = git::stdout(repo, &["-c", "core.quotePath=false", "diff-tree", "-r", "--no-commit-id", "--name-only", "--diff-filter=A", &hash]).unwrap_or_default();
+        let untracked = git::stdout(repo, &["-c", "core.quotePath=false", "ls-files", "--others", "--exclude-standard"]).unwrap_or_default();
+        for p in added.lines().filter(|p| !p.is_empty() && untracked.lines().any(|u| u == *p)) {
+            let _ = std::fs::remove_file(repo.join(p));
+        }
+    }
     git::run(repo, &["rebase", "--abort"])
 }
 
@@ -276,18 +347,25 @@ mod tests {
 
         let files = changes(&repo, &info.added).unwrap();
         assert_eq!(files.iter().map(|f| (f.path.as_str(), f.kind, f.hunks.len())).collect::<Vec<_>>(), [("a.txt", 'M', 2), ("b.txt", 'A', 1)]);
+        let pick = |files: &[FileChange], chosen: &[&[bool]]| -> Vec<Vec<Vec<bool>>> {
+            files
+                .iter()
+                .zip(chosen)
+                .map(|(f, c)| f.hunks.iter().zip(c.iter()).map(|(h, &on)| vec![on; h.lines.len()]).collect())
+                .collect()
+        };
         // part 1: top hunk only
-        stage(&repo, &files, &[vec![true, false], vec![false]]).unwrap();
+        stage(&repo, &files, &pick(&files, &[&[true, false], &[false]])).unwrap();
         commit(&repo, "part 1").unwrap();
         // part 2: the new file
         let files = changes(&repo, &info.added).unwrap();
         assert_eq!(files.len(), 2);
-        stage(&repo, &files, &[vec![false], vec![true]]).unwrap();
+        stage(&repo, &files, &pick(&files, &[&[false], &[true]])).unwrap();
         commit(&repo, "part 2").unwrap();
         // part 3: the rest
         let files = changes(&repo, &info.added).unwrap();
         assert_eq!(files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), ["a.txt"]);
-        stage(&repo, &files, &[vec![true]]).unwrap();
+        stage(&repo, &files, &pick(&files, &[&[true]])).unwrap();
         commit(&repo, "part 3").unwrap();
         assert!(changes(&repo, &info.added).unwrap().is_empty());
         finish(&repo).unwrap();
@@ -297,6 +375,61 @@ mod tests {
         assert_eq!(g(&repo, &["rev-parse", "HEAD^{tree}"]), tree_before);
         assert!(g(&repo, &["show", "HEAD~3"]).contains("+CHANGED top"));
         assert!(!g(&repo, &["show", "HEAD~3"]).contains("CHANGED bottom"));
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn chosen_lines_of_a_hunk() {
+        let h = Hunk { lines: ["@@ -1,3 +1,3 @@", " a", "-b", "-c", "+B", "+C", " d"].iter().map(|s| s.to_string()).collect() };
+        // nothing chosen
+        assert_eq!(h.restricted(&[false; 7]), None);
+        // only "-b" and "+B": c stays, C is not added
+        let mut on = vec![false; 7];
+        on[2] = true;
+        on[4] = true;
+        assert_eq!(h.restricted(&on).unwrap(), "@@ -1,3 +1,3 @@\n a\n-b\n c\n+B\n d");
+        // an added line without newline at the end of the file: its marker goes with it
+        let h = Hunk { lines: ["@@ -1 +1,2 @@", " a", "+b", "\\ No newline at end of file"].iter().map(|s| s.to_string()).collect() };
+        assert_eq!(h.restricted(&[false, false, false, false]), None);
+        assert_eq!(h.restricted(&[false, false, true, false]).unwrap(), "@@ -1 +1,2 @@\n a\n+b\n\\ No newline at end of file");
+    }
+
+    #[test]
+    fn splits_one_hunk_line_by_line() {
+        let repo = std::env::temp_dir().join(format!("florm_split_lines_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&repo);
+        std::fs::create_dir_all(&repo).unwrap();
+        g(&repo, &["init", "-q", "-b", "main"]);
+        g(&repo, &["config", "user.name", "t"]);
+        g(&repo, &["config", "user.email", "t@t"]);
+        std::fs::write(repo.join("a.txt"), "1\n2\n3\n").unwrap();
+        g(&repo, &["add", "."]);
+        g(&repo, &["commit", "-qm", "base"]);
+        std::fs::write(repo.join("a.txt"), "1\ndeux\n3\nquatre\n").unwrap();
+        g(&repo, &["commit", "-qam", "two changes"]);
+        let head = g(&repo, &["rev-parse", "HEAD"]);
+        let info = start(&repo, &head, "sed -i -e '1s/^pick/edit/'").unwrap();
+        let files = changes(&repo, &info.added).unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].hunks.len(), 1);
+        // part 1: "2" → "deux" only (its - and + lines)
+        let mut sel = vec![files[0].empty_selection()];
+        for (i, l) in files[0].hunks[0].lines.iter().enumerate() {
+            if l == "-2" || l == "+deux" {
+                sel[0][0][i] = true;
+            }
+        }
+        stage(&repo, &files, &sel).unwrap();
+        commit(&repo, "deux").unwrap();
+        assert_eq!(g(&repo, &["show", "HEAD:a.txt"]), "1\ndeux\n3");
+        // part 2: the rest
+        let files = changes(&repo, &info.added).unwrap();
+        let sel: Vec<Vec<Vec<bool>>> = files.iter().map(|f| f.hunks.iter().map(|h| vec![true; h.lines.len()]).collect()).collect();
+        stage(&repo, &files, &sel).unwrap();
+        commit(&repo, "quatre").unwrap();
+        finish(&repo).unwrap();
+        assert_eq!(g(&repo, &["log", "--format=%s"]), "quatre\ndeux\nbase");
+        assert_eq!(std::fs::read_to_string(repo.join("a.txt")).unwrap(), "1\ndeux\n3\nquatre\n");
         let _ = std::fs::remove_dir_all(&repo);
     }
 
