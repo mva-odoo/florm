@@ -47,6 +47,10 @@ pub struct Settings {
     pub lsp: bool,
     /// Server command per language family ("python", "typescript", "rust", "go", "c"); else detected.
     pub lsp_servers: HashMap<String, String>,
+    /// Left out of go to file, the symbol index and find in files (gitignore syntax).
+    pub exclude: Vec<String>,
+    /// Most source files in the symbol index (the repositories of the open files come first).
+    pub index_max_files: usize,
 }
 
 impl Default for Settings {
@@ -77,6 +81,8 @@ impl Default for Settings {
             keys: HashMap::new(),
             lsp: true,
             lsp_servers: HashMap::new(),
+            exclude: ["__pycache__/", "*.pyc", "node_modules/", ".venv/", "*.egg-info/"].map(String::from).to_vec(),
+            index_max_files: 150_000,
         }
     }
 }
@@ -121,6 +127,10 @@ hot_exit = true
 # shell = "/bin/bash"
 # Serveurs de langage (complétion Ctrl+Espace, définition F12, renommer F2)
 lsp = true
+# Exclus de « aller au fichier » (Ctrl+P), de l'index des symboles et de la recherche (syntaxe .gitignore)
+exclude = ["__pycache__/", "*.pyc", "node_modules/", ".venv/", "*.egg-info/"]
+# Fichiers source au plus dans l'index des symboles (les dépôts des fichiers ouverts d'abord)
+index_max_files = 150000
 
 [keys]
 # Raccourcis personnalisés : "combinaison" = "id_de_commande"

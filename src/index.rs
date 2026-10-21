@@ -2,11 +2,13 @@
 //! file is saved; used by "go to definition" and the completion when no language server answers.
 
 use crate::symbols::{self, Kind};
+use crate::walk::{self, Exclusions};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
 
 const MAX_FILE: u64 = 1_500_000;
-const MAX_FILES: usize = 60_000;
 
 #[derive(Clone, Debug)]
 pub struct Entry {
@@ -33,21 +35,48 @@ fn entries(text: &str, syntax: &str) -> Vec<Entry> {
 }
 
 impl Index {
-    pub fn build(root: &Path) -> Index {
-        let mut idx = Index::default();
-        let walker = ignore::WalkBuilder::new(root).hidden(false).filter_entry(|e| e.file_name() != ".git").build();
-        for e in walker.flatten().filter(|e| e.file_type().is_some_and(|t| t.is_file())).take(MAX_FILES) {
-            let p = e.path();
-            let Some(syntax) = symbols::syntax_for(p).filter(|s| *s != "Markdown") else { continue };
-            if e.metadata().map_or(true, |m| m.len() > MAX_FILE) {
-                continue;
+    /// Indexes the source files of `root` (several threads), the folders of `first` before the
+    /// rest (the repositories being worked on), at most `max_files` files: in a folder holding
+    /// many repositories, only the ones far from the work are left out.
+    pub fn build(root: &Path, first: &[PathBuf], ex: &Exclusions, max_files: usize) -> Index {
+        let files = Mutex::new(HashMap::new());
+        let count = AtomicUsize::new(0);
+        let mut first: Vec<PathBuf> = first.iter().filter(|d| d.starts_with(root) && d.as_path() != root).cloned().collect();
+        first.sort();
+        first.dedup();
+        // a folder inside another one of the list is walked with it
+        let outer: Vec<PathBuf> = first.iter().filter(|d| !first.iter().any(|o| o != *d && d.starts_with(o))).cloned().collect();
+        let walks = outer.iter().map(|d| (d.clone(), Vec::new())).chain([(root.to_path_buf(), outer.clone())]);
+        for (dir, skip) in walks {
+            if count.load(Ordering::Relaxed) >= max_files {
+                break;
             }
-            let Ok(text) = std::fs::read_to_string(p) else { continue };
-            let v = entries(&text, syntax);
-            if !v.is_empty() {
-                idx.files.insert(p.to_path_buf(), v);
-            }
+            walk::walker(&dir, ex, skip).build_parallel().run(|| {
+                let (files, count) = (&files, &count);
+                Box::new(move |e| {
+                    let Ok(e) = e else { return ignore::WalkState::Continue };
+                    if count.load(Ordering::Relaxed) >= max_files {
+                        return ignore::WalkState::Quit;
+                    }
+                    if !e.file_type().is_some_and(|t| t.is_file()) {
+                        return ignore::WalkState::Continue;
+                    }
+                    let p = e.path();
+                    let Some(syntax) = symbols::syntax_for(p).filter(|s| *s != "Markdown") else { return ignore::WalkState::Continue };
+                    if e.metadata().map_or(true, |m| m.len() > MAX_FILE) {
+                        return ignore::WalkState::Continue;
+                    }
+                    count.fetch_add(1, Ordering::Relaxed);
+                    let Ok(text) = std::fs::read_to_string(p) else { return ignore::WalkState::Continue };
+                    let v = entries(&text, syntax);
+                    if !v.is_empty() {
+                        files.lock().unwrap().insert(p.to_path_buf(), v);
+                    }
+                    ignore::WalkState::Continue
+                })
+            });
         }
+        let mut idx = Index { files: files.into_inner().unwrap(), ..Default::default() };
         idx.rebuild_names();
         idx
     }
@@ -119,7 +148,7 @@ mod tests {
         )
         .unwrap();
         std::fs::write(root.join("syndic/views/budget.xml"), "<odoo>\n    <record id=\"view_budget_form\" model=\"ir.ui.view\">\n    </record>\n</odoo>\n").unwrap();
-        let mut idx = Index::build(&root);
+        let mut idx = Index::build(&root, &[], &Exclusions::none(), usize::MAX);
         let one = |n: &str| idx.lookup(n).into_iter().map(|(p, e)| (p.file_name().unwrap().to_string_lossy().into_owned(), e.line)).collect::<Vec<_>>();
         assert_eq!(one("compute_total"), [("budget.py".to_string(), 8)]);
         assert_eq!(one("SyndicBudget"), [("budget.py".to_string(), 3)]);
@@ -135,12 +164,29 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    #[test]
+    fn repositories_being_worked_on_first() {
+        let root = std::env::temp_dir().join(format!("florm_index_first_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        for (dir, name) in [("a", "alpha"), ("b", "beta"), ("c", "gamma")] {
+            std::fs::create_dir_all(root.join(dir)).unwrap();
+            std::fs::write(root.join(dir).join("m.py"), format!("def {name}():\n    pass\n")).unwrap();
+        }
+        // room for one file: the one of the repository given first
+        let idx = Index::build(&root, &[root.join("b")], &Exclusions::none(), 1);
+        assert_eq!(idx.files.len(), 1);
+        assert_eq!(idx.lookup("beta").len(), 1);
+        let all = Index::build(&root, &[root.join("b")], &Exclusions::new(&root, &["c/".into()]), usize::MAX);
+        assert_eq!((all.lookup("alpha").len(), all.lookup("beta").len(), all.lookup("gamma").len()), (1, 1, 0));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     /// `FLORM_BENCH_INDEX=<folder> cargo test --release bench_index -- --nocapture`
     #[test]
     fn bench_index() {
         let Ok(dir) = std::env::var("FLORM_BENCH_INDEX") else { return };
         let t = std::time::Instant::now();
-        let idx = Index::build(Path::new(&dir));
+        let idx = Index::build(Path::new(&dir), &[], &Exclusions::none(), usize::MAX);
         eprintln!("{} symboles, {} fichiers, {:?}", idx.len(), idx.files.len(), t.elapsed());
         let t = std::time::Instant::now();
         let n = idx.lookup("sale.order").len();

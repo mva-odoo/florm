@@ -29,6 +29,7 @@ mod split;
 mod symbols;
 mod templates;
 mod terminal;
+mod walk;
 
 use eframe::egui;
 use std::path::PathBuf;

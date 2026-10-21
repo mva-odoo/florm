@@ -2,7 +2,7 @@
 
 use crate::document::build_regex;
 use ignore::overrides::OverrideBuilder;
-use ignore::{WalkBuilder, WalkState};
+use ignore::WalkState;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -113,7 +113,7 @@ fn normalize(root: &Path, glob: &str, include: bool) -> Result<Vec<String>, Stri
 }
 
 /// Searches `root`; stops early when `current` no longer equals `gen` (a newer search started).
-pub fn run(root: &Path, q: &Query, gen: u64, current: &Arc<AtomicU64>) -> Outcome {
+pub fn run(root: &Path, q: &Query, ex: &crate::walk::Exclusions, gen: u64, current: &Arc<AtomicU64>) -> Outcome {
     let start = Instant::now();
     let fail = |e: String| Outcome { error: Some(e), ..Default::default() };
     let re = match build_regex(&q.pattern, q.case, q.regex, q.whole) {
@@ -150,10 +150,8 @@ pub fn run(root: &Path, q: &Query, gen: u64, current: &Arc<AtomicU64>) -> Outcom
     let results = Mutex::new(Vec::new());
     let total = AtomicUsize::new(0);
     let scanned = AtomicUsize::new(0);
-    WalkBuilder::new(root)
-        .hidden(false)
+    crate::walk::walker(root, ex, Vec::new())
         .overrides(overrides)
-        .filter_entry(|e| e.file_name() != ".git")
         .build_parallel()
         .run(|| {
             let (re, results, total, scanned) = (&re, &results, &total, &scanned);
@@ -337,7 +335,7 @@ mod tests {
         std::fs::write(dir.join("node_modules/c.py"), "foo\n").unwrap();
         let gen = Arc::new(AtomicU64::new(1));
         let q = Query { pattern: "foo".into(), exclude: "node_modules".into(), ..Default::default() };
-        let out = run(&dir, &q, 1, &gen);
+        let out = run(&dir, &q, &crate::walk::Exclusions::none(), 1, &gen);
         assert_eq!(out.files.len(), 2, "{:?}", out.files.iter().map(|f| &f.rel).collect::<Vec<_>>());
         assert_eq!(out.files.iter().map(|f| f.hits.len()).sum::<usize>(), 3);
         let a = &out.files[0];
@@ -345,10 +343,10 @@ mod tests {
         assert_eq!((a.hits[1].line, a.hits[1].col), (2, 4));
         assert_eq!(&a.hits[1].preview[a.hits[1].start..a.hits[1].end], "foo");
         let q = Query { pattern: "foo".into(), include: "*.xml".into(), ..Default::default() };
-        assert_eq!(run(&dir, &q, 1, &gen).files.len(), 1);
+        assert_eq!(run(&dir, &q, &crate::walk::Exclusions::none(), 1, &gen).files.len(), 1);
         let rels = |inc: &str| {
             let q = Query { pattern: "foo".into(), include: inc.into(), ..Default::default() };
-            run(&dir, &q, 1, &gen).files.into_iter().map(|f| f.rel).collect::<Vec<_>>()
+            run(&dir, &q, &crate::walk::Exclusions::none(), 1, &gen).files.into_iter().map(|f| f.rel).collect::<Vec<_>>()
         };
         assert_eq!(rels("sub"), ["sub/b.xml"]);
         assert_eq!(rels(&format!("{}/sub/", dir.display())), ["sub/b.xml"]);
@@ -356,7 +354,7 @@ mod tests {
         assert_eq!(rels("./**/*.xml"), ["sub/b.xml"]);
         assert_eq!(rels("./*.py"), ["a.py"]);
         let q = Query { pattern: "foo".into(), include: "/elsewhere/*.py".into(), ..Default::default() };
-        assert!(run(&dir, &q, 1, &gen).error.is_some());
+        assert!(run(&dir, &q, &crate::walk::Exclusions::none(), 1, &gen).error.is_some());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -393,7 +391,7 @@ mod tests {
         let gen = Arc::new(AtomicU64::new(1));
         let rels = |inc: &str, exc: &str| {
             let q = Query { pattern: "budget".into(), include: inc.into(), exclude: exc.into(), ..Default::default() };
-            let out = run(&dir, &q, 1, &gen);
+            let out = run(&dir, &q, &crate::walk::Exclusions::none(), 1, &gen);
             assert!(out.error.is_none(), "{:?}", out.error);
             out.files.into_iter().map(|f| f.rel.replace('\\', "/")).collect::<Vec<_>>()
         };

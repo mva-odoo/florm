@@ -258,9 +258,10 @@ impl App {
     pub(super) fn refresh_index(&mut self) {
         let Some(root) = self.root.clone() else { return };
         self.index.files_at = Some(Instant::now());
+        let ex = crate::walk::Exclusions::new(&root, &self.settings.exclude);
         self.jobs.spawn(move || {
             let mut v = Vec::new();
-            let walker = ignore::WalkBuilder::new(&root).hidden(false).filter_entry(|e| e.file_name() != ".git").build();
+            let walker = crate::walk::walker(&root, &ex, Vec::new()).build();
             for e in walker.flatten() {
                 if e.file_type().is_some_and(|t| t.is_file()) {
                     if let Ok(rel) = e.path().strip_prefix(&root) {

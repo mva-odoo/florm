@@ -58,8 +58,13 @@ impl App {
                     if self.root.as_ref() == Some(&root) && self.index.symbols_for.as_ref() != Some(&root) {
                         self.index.symbols_for = Some(root.clone());
                         let r = root.clone();
+                        // the repositories being worked on first
+                        let mut first: Vec<PathBuf> = self.docs.iter().filter_map(|d| d.path.as_deref()).filter_map(|p| self.repo_for(p)).collect();
+                        first.extend(self.repo.clone());
+                        let ex = crate::walk::Exclusions::new(&root, &self.settings.exclude);
+                        let max = self.settings.index_max_files;
                         self.jobs.spawn(move || {
-                            let idx = crate::index::Index::build(&r);
+                            let idx = crate::index::Index::build(&r, &first, &ex, max);
                             JobResult::SymbolIndex(r, idx)
                         });
                     }
