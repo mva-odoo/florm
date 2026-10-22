@@ -244,29 +244,7 @@ impl App {
         let Some(repo) = self.history.repo.clone() else { return };
         self.history.diff_loading = true;
         self.jobs.spawn(move || {
-            let result = if staged {
-                git::run(&repo, &["diff", "--cached"])
-            } else {
-                git::run(&repo, &["diff"]).map(|mut text| {
-                    // new files are not in `git diff`: compared with nothing, one by one
-                    let others = git::stdout(&repo, &["-c", "core.quotePath=false", "ls-files", "--others", "--exclude-standard"]).unwrap_or_default();
-                    for p in others.lines().filter(|p| !p.is_empty()).take(200) {
-                        if std::fs::metadata(repo.join(p)).is_ok_and(|m| m.len() > 2_000_000) {
-                            continue;
-                        }
-                        let d = match git::run(&repo, &["diff", "--no-index", "--", "/dev/null", p]) {
-                            Err(e) if e.starts_with("diff --git") => e,
-                            Ok(o) => o,
-                            Err(_) => continue,
-                        };
-                        if !text.is_empty() {
-                            text.push('\n');
-                        }
-                        text.push_str(&d);
-                    }
-                    text
-                })
-            };
+            let result = if staged { git::run(&repo, &["diff", "--cached"]) } else { worktree_diff(&repo, &["diff"]) };
             let hash = if staged { "INDEX" } else { "WORKTREE" }.to_string();
             JobResult::HistoryDiff { hash, path: None, result }
         });
@@ -1051,6 +1029,29 @@ impl App {
             }
         }
     }
+}
+
+/// `git <args>` (a diff of the working tree), followed by the new files compared with nothing.
+pub(super) fn worktree_diff(repo: &Path, args: &[&str]) -> Result<String, String> {
+    git::run(repo, args).map(|mut text| {
+        // new files are not in `git diff`: compared with nothing, one by one
+        let others = git::stdout(repo, &["-c", "core.quotePath=false", "ls-files", "--others", "--exclude-standard"]).unwrap_or_default();
+        for p in others.lines().filter(|p| !p.is_empty()).take(200) {
+            if std::fs::metadata(repo.join(p)).is_ok_and(|m| m.len() > 2_000_000) {
+                continue;
+            }
+            let d = match git::run(repo, &["diff", "--no-index", "--", "/dev/null", p]) {
+                Err(e) if e.starts_with("diff --git") => e,
+                Ok(o) => o,
+                Err(_) => continue,
+            };
+            if !text.is_empty() {
+                text.push('\n');
+            }
+            text.push_str(&d);
+        }
+        text
+    })
 }
 
 /// Message and button of the next commit, and ✨ to have it written by Claude; returns

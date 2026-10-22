@@ -9,16 +9,22 @@ use crate::claude::{self, Event};
 use serde::{Deserialize, Serialize};
 use history::{DiffAct, DiffClick};
 
-/// Something given to Claude with the next message: lines of a file, or a file / folder.
+/// Something given to Claude with the next message: lines of a file, a file / folder, or a text
+/// (the changes not committed, the problems of a file…).
 #[derive(Clone)]
 pub(super) struct Attach {
     path: PathBuf,
     /// Lines (1-based, first and last) and their text; None: the whole file or folder.
     lines: Option<(usize, usize, String)>,
+    /// A text and what it is (instead of a file).
+    note: Option<(String, String)>,
 }
 
 impl Attach {
     fn label(&self, dir: Option<&Path>) -> String {
+        if let Some((label, _)) = &self.note {
+            return label.clone();
+        }
         let rel = dir.and_then(|d| self.path.strip_prefix(d).ok()).unwrap_or(&self.path).display().to_string();
         match &self.lines {
             Some((a, b, _)) if a == b => format!("{rel}:{a}"),
@@ -30,6 +36,9 @@ impl Attach {
     /// How it is said to Claude.
     fn prompt(&self, dir: Option<&Path>) -> String {
         let label = self.label(dir);
+        if let Some((_, text)) = &self.note {
+            return format!("{label} :\n```\n{text}\n```");
+        }
         match &self.lines {
             Some((_, _, text)) => {
                 let lang = self.path.extension().and_then(|e| e.to_str()).unwrap_or("");
@@ -39,6 +48,16 @@ impl Attach {
             None => format!("Fichier à prendre en compte : {label}"),
         }
     }
+}
+
+/// What can be added to the context from the chat (« + Contexte »).
+#[derive(Clone, Copy)]
+enum CtxAdd {
+    File,
+    Selection,
+    Tabs,
+    Diff,
+    Problems,
 }
 
 /// A line of the conversation.
@@ -378,11 +397,79 @@ impl App {
         };
         let b = b.min(d.rope.len_lines().saturating_sub(1));
         let text: String = (a..=b).map(|l| d.line_text(l)).collect::<Vec<_>>().join("\n");
-        self.claude_attach(Attach { path, lines: Some((a + 1, b + 1, text)) });
+        self.claude_attach(Attach { path, lines: Some((a + 1, b + 1, text)), note: None });
     }
 
     pub(super) fn claude_attach_path(&mut self, path: PathBuf) {
-        self.claude_attach(Attach { path, lines: None });
+        self.claude_attach(Attach { path, lines: None, note: None });
+    }
+
+    /// A text given to Claude with the next message (`label`: what it is).
+    fn claude_attach_note(&mut self, label: String, text: String) {
+        let path = self.claude.dir.clone().unwrap_or_default();
+        self.claude_attach(Attach { path, lines: None, note: Some((label, text)) });
+    }
+
+    /// The text document Claude's context is about: the active one, else the last one opened.
+    fn claude_editor_doc(&self) -> Option<usize> {
+        let ok = |d: &Document| d.view == document::View::Text && d.path.is_some();
+        self.docs.get(self.active).filter(|d| ok(*d)).map(|_| self.active).or_else(|| self.docs.iter().rposition(ok))
+    }
+
+    /// What the « + Contexte » menu of the chat asked for.
+    fn claude_add_context(&mut self, what: CtxAdd) {
+        let doc = self.claude_editor_doc();
+        match what {
+            CtxAdd::File => match doc.and_then(|i| self.docs[i].path.clone()) {
+                Some(p) => self.claude_attach_path(p),
+                None => self.set_status("Aucun fichier ouvert"),
+            },
+            CtxAdd::Selection => match doc {
+                Some(i) => {
+                    let d = &self.docs[i];
+                    let s = d.primary_sel();
+                    let a = d.rope.char_to_line(s.start());
+                    let b = d.rope.char_to_line(s.end().saturating_sub(usize::from(s.end() > s.start())));
+                    self.claude_attach_lines(i, a, b.max(a));
+                }
+                None => self.set_status("Aucun fichier ouvert"),
+            },
+            CtxAdd::Tabs => {
+                let paths: Vec<PathBuf> = self.docs.iter().filter(|d| d.view == document::View::Text).filter_map(|d| d.path.clone()).collect();
+                for p in paths {
+                    self.claude_attach_path(p);
+                }
+            }
+            CtxAdd::Diff => {
+                let Some(dir) = self.claude.dir.clone() else { return };
+                match super::git_view::worktree_diff(&dir, &["diff", "HEAD"]) {
+                    Ok(d) if !d.trim().is_empty() => {
+                        let d: String = d.chars().take(60_000).collect();
+                        self.claude_attach_note("Changements non commités".into(), d);
+                    }
+                    Ok(_) => self.set_status("Aucun changement non commité"),
+                    Err(e) => self.set_status(format!("git diff : {}", e.lines().next().unwrap_or(""))),
+                }
+            }
+            CtxAdd::Problems => {
+                let Some(i) = doc else {
+                    self.set_status("Aucun fichier ouvert");
+                    return;
+                };
+                let d = &self.docs[i];
+                let name = d.path.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                let list: Vec<String> = d
+                    .diagnostics
+                    .iter()
+                    .map(|g| format!("ligne {} : {}{} ({})", g.line + 1, g.code.as_ref().map(|c| format!("{c} ")).unwrap_or_default(), g.message, g.source))
+                    .collect();
+                if list.is_empty() {
+                    self.set_status(format!("Aucun problème dans {name}"));
+                } else {
+                    self.claude_attach_note(format!("Problèmes de {name}"), list.join("\n"));
+                }
+            }
+        }
     }
 
     fn claude_attach(&mut self, a: Attach) {
@@ -390,7 +477,13 @@ impl App {
             self.claude.dir = self.repo_for(&a.path).or_else(|| self.repo.clone()).or_else(|| self.root.clone());
         }
         let label = a.label(self.claude.dir.as_deref());
-        if !self.claude.attach.iter().any(|x| x.path == a.path && x.lines.as_ref().map(|l| (l.0, l.1)) == a.lines.as_ref().map(|l| (l.0, l.1))) {
+        let same = |x: &Attach| {
+            x.path == a.path && x.lines.as_ref().map(|l| (l.0, l.1)) == a.lines.as_ref().map(|l| (l.0, l.1)) && x.note.as_ref().map(|n| &n.0) == a.note.as_ref().map(|n| &n.0)
+        };
+        if let Some(x) = self.claude.attach.iter_mut().find(|x| same(x)) {
+            // the same diff or problems again: the newest text
+            x.note = a.note;
+        } else {
             self.claude.attach.push(a);
         }
         self.set_status(format!("✳ {label} ajouté au contexte de Claude ({} élément(s)) — Ctrl+Alt+C pour lui écrire", self.claude.attach.len()));
@@ -771,7 +864,7 @@ impl App {
         let dir_name = self.claude.dir.as_deref().map(|d| self.repo_label(d)).unwrap_or_default();
         let dirs: Vec<(PathBuf, String)> = self.repos.iter().map(|r| (r.clone(), self.repo_label(r))).collect();
         let (mut send, mut stop, mut new_conv, mut review_click, mut all) = (false, false, false, None, None);
-        let (mut chosen_dir, mut move_to) = (None, None);
+        let (mut chosen_dir, mut move_to, mut ctx_add) = (None, None, None);
         // the kept conversations: (key, title, folder and date)
         let history: Vec<(u64, String, String)> = self
             .claude_saved
@@ -987,7 +1080,10 @@ impl App {
                             let chip = egui::Button::new(RichText::new(format!("✳ {}  ×", a.label(c.dir.as_deref()))).small().color(accent))
                                 .fill(icons::mix(fill, accent, 0.12))
                                 .rounding(10.0);
-                            let tip = a.lines.as_ref().map_or_else(|| a.path.display().to_string(), |(_, _, t)| t.lines().take(20).collect::<Vec<_>>().join("\n"));
+                            let tip = match (&a.note, &a.lines) {
+                                (Some((_, t)), _) | (None, Some((_, _, t))) => t.lines().take(20).collect::<Vec<_>>().join("\n"),
+                                (None, None) => a.path.display().to_string(),
+                            };
                             if ui.add(chip).on_hover_text(format!("{tip}\n\nClic : retirer")).clicked() {
                                 remove = Some(k);
                             }
@@ -1025,6 +1121,25 @@ impl App {
                     } else if ui.add_enabled(!c.input.trim().is_empty(), filled_button("Envoyer", accent)).clicked() {
                         send = true;
                     }
+                    ui.menu_button("+ Contexte", |ui| {
+                        ui.set_min_width(260.0);
+                        for (label, tip, what) in [
+                            ("Fichier ouvert", "Le fichier en entier (Claude le lit)", CtxAdd::File),
+                            ("Sélection (ou ligne du curseur)", "Les lignes sélectionnées dans l'éditeur, avec leur texte", CtxAdd::Selection),
+                            ("Tous les onglets ouverts", "Chaque fichier ouvert dans l'éditeur", CtxAdd::Tabs),
+                            ("Changements non commités", "Le diff de ce qui n'est pas commité (git diff HEAD, nouveaux fichiers compris)", CtxAdd::Diff),
+                            ("Problèmes du fichier", "Les erreurs et avertissements du linter dans le fichier ouvert", CtxAdd::Problems),
+                        ] {
+                            if ui.button(label).on_hover_text(tip).clicked() {
+                                ctx_add = Some(what);
+                                ui.close_menu();
+                            }
+                        }
+                        ui.separator();
+                        ui.label(RichText::new("Aussi : clic droit dans l'éditeur, ou ✳ dans la marge pour des lignes").small().weak());
+                    })
+                    .response
+                    .on_hover_text("Donner à Claude un fichier, la sélection, le diff, les problèmes…");
                     ui.checkbox(&mut c.with_context, "Fichier ouvert et sélection").on_hover_text("Dit à Claude quel fichier tu édites, la ligne du curseur et le texte sélectionné");
                 });
                 ui.add_space(4.0);
@@ -1122,6 +1237,9 @@ impl App {
         if let Some(t) = move_to {
             self.move_claude(t);
         }
+        if let Some(w) = ctx_add {
+            self.claude_add_context(w);
+        }
         if let Some(k) = open_saved {
             self.claude_open_saved(k);
         }
@@ -1217,11 +1335,14 @@ mod tests {
     #[test]
     fn what_is_given_to_claude() {
         let dir = Path::new("/p");
-        let a = Attach { path: "/p/src/m.py".into(), lines: Some((3, 4, "a\nb".into())) };
+        let a = Attach { path: "/p/src/m.py".into(), lines: Some((3, 4, "a\nb".into())), note: None };
         assert_eq!(a.label(Some(dir)), "src/m.py:3-4");
         assert_eq!(a.prompt(Some(dir)), "Extrait de src/m.py:3-4 :\n```py\na\nb\n```");
-        let f = Attach { path: "/p/src/m.py".into(), lines: None };
+        let f = Attach { path: "/p/src/m.py".into(), lines: None, note: None };
         assert_eq!(f.prompt(Some(dir)), "Fichier à prendre en compte : src/m.py");
+        let n = Attach { path: "/p".into(), lines: None, note: Some(("Changements non commités".into(), "diff".into())) };
+        assert_eq!(n.label(Some(dir)), "Changements non commités");
+        assert_eq!(n.prompt(Some(dir)), "Changements non commités :\n```\ndiff\n```");
     }
 
     #[test]
