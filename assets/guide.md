@@ -14,6 +14,8 @@ Tous les raccourcis se changent dans **Préférences → Raccourcis** (Ctrl+,).
 | **Ctrl+R** | Aller à une classe, une fonction, un record Odoo du fichier |
 | **Ctrl+O** / **Ctrl+Shift+S** | Ouvrir / enregistrer sous : **Tab complète le chemin** comme dans un terminal |
 | **F12** | Aller à la définition (aussi sur `'sale.order'` ou `'module.xml_id'`) |
+| **Ctrl+.** | Corrections rapides du problème sous le curseur (aussi l'ampoule en bout de ligne) : importer un nom du projet, ignorer (`# noqa`), `ruff --fix`, corriger avec Claude, et les actions du serveur de langage |
+| **Alt+Z** | Retour à la ligne automatique des lignes trop longues (l'affichage seulement ; ↑ ↓ suivent les rangées) |
 
 Le fil d'Ariane au-dessus du code est cliquable : un dossier montre son contenu, le fichier
 liste ses symboles, une classe ou une fonction y emmène.
@@ -92,6 +94,10 @@ Le `.gitignore` est respecté.
     **+ Indexer**, **− Désindexer**, **↺ Annuler**
   - double-clic sur une ligne : ouvrir le fichier à cette ligne
 - Les changements faits ailleurs (commit dans un terminal…) sont repris tout seuls.
+- **Stash ▾** dans la barre : mettre les changements de côté (avec un message, nouveaux
+  fichiers compris ou non), puis pour chaque stash **Voir**, **Appliquer** (il reste),
+  **Reprendre** (appliqué puis supprimé) ou **Supprimer**. Aussi dans la palette :
+  « Git : mettre les changements de côté », « Git : reprendre le dernier stash ».
 
 ### Découper un commit
 
