@@ -6,6 +6,7 @@ use crate::document::{Document, Drag, GitMark, Sel};
 use crate::highlight::{self, Highlighting};
 use crate::icons::mix;
 use crate::lint::Severity;
+use crate::wrap::Wraps;
 use eframe::egui::{
     self, text::LayoutJob, Align, Align2, Color32, CursorIcon, FontId, Id, Pos2, Rect, RichText, Sense, Shape,
     Stroke, TextFormat, Ui,
@@ -44,6 +45,8 @@ const CLAUDE_W: f32 = 14.0;
 pub struct ViewOpts<'a> {
     pub font_size: f32,
     pub minimap: bool,
+    /// Soft wrap: the long lines continue on the rows under them.
+    pub wrap: bool,
     /// Git changes inside the text (deleted lines in red, added in green).
     pub inline_diff: bool,
     /// The class / function lines around the top of the view stay pinned there.
@@ -148,6 +151,7 @@ fn sticky_lines(doc: &mut Document, top: usize) -> Vec<usize> {
 fn span_rects(
     doc: &Document,
     rm: &RowMap,
+    wraps: &Wraps,
     a: usize,
     b: usize,
     first: usize,
@@ -165,13 +169,17 @@ fn span_rects(
         let ll = doc.line_len(l);
         let c0 = if l == la { a - ls } else { 0 };
         let (c1, newline) = if l == lb { (b - ls, false) } else { (ll, true) };
-        let x0 = text_x + doc.vcol(l, c0.min(ll)) as f32 * cw;
-        let mut x1 = text_x + doc.vcol(l, c1.min(ll)) as f32 * cw;
-        if newline {
-            x1 += cw * 0.6;
+        let pieces = wraps.spans(l, doc.vcol(l, c0.min(ll)), doc.vcol(l, c1.min(ll)));
+        let last_row = pieces.last().map_or(0, |p| p.0);
+        for (k, a, b) in pieces {
+            let x0 = text_x + a as f32 * cw;
+            let mut x1 = text_x + b as f32 * cw;
+            if newline && k == last_row {
+                x1 += cw * 0.6;
+            }
+            let y = top + (rm.row(l) + k) as f32 * rh;
+            v.push(Rect::from_min_max(Pos2::new(x0, y), Pos2::new(x1, y + rh)));
         }
-        let y = top + rm.row(l) as f32 * rh;
-        v.push(Rect::from_min_max(Pos2::new(x0, y), Pos2::new(x1, y + rh)));
     }
     v
 }
@@ -197,7 +205,14 @@ fn text_area(
     doc.update_max_cols();
     doc.reveal_cursors(); // whatever placed a cursor in a folded block, open it
     let hidden = doc.hidden_ranges();
-    let rm = RowMap::with_folds(if inline_diff { &doc.hunks } else { &[] }, &hidden);
+    // soft wrap: the lines cut to the width of the editor (no horizontal scrolling then)
+    let wrap_cols = opts.wrap.then(|| ((ui.available_width() - gutter_w - 6.0 - 18.0) / cw).floor().max(20.0) as usize);
+    let mut wraps = std::mem::take(&mut doc.wraps);
+    match wrap_cols {
+        Some(w) => wraps.update(doc, w),
+        None => wraps = Wraps::default(),
+    }
+    let rm = RowMap::with_folds(if inline_diff { &doc.hunks } else { &[] }, &hidden).with_wraps(wraps.extra_rows());
     let folded: HashSet<usize> = hidden.iter().map(|&(s, _)| s - 1).collect();
     let focused = ui.memory(|m| m.has_focus(id));
 
@@ -206,7 +221,7 @@ fn text_area(
         sa = sa.vertical_scroll_offset(y.max(0.0));
     }
     let out = sa.show_viewport(ui, |ui, vp| {
-        let content_w = gutter_w + (doc.max_cols as f32 + 8.0) * cw;
+        let content_w = if wrap_cols.is_some() { 0.0 } else { gutter_w + (doc.max_cols as f32 + 8.0) * cw };
         let content_h = rm.rows(nlines) as f32 * rh + (vp.height() - 3.0 * rh).max(0.0);
         let (rect, _) = ui.allocate_exact_size(egui::vec2(content_w.max(ui.available_width()), content_h), Sense::hover());
         let resp = ui.interact(rect, id, Sense::click_and_drag());
@@ -228,6 +243,21 @@ fn text_area(
         let vstart = ((vp.min.x - gutter_w).max(0.0) / cw).floor() as usize;
         let vend = vstart + (vp.width() / cw).ceil() as usize + 2;
         let line_y = |l: usize| origin.y + rm.row(l) as f32 * rh;
+        // height of line `l` (several rows when it is wrapped)
+        let line_h = |l: usize| wraps.rows(l) as f32 * rh;
+        // screen point (top of the row) of visual column `v` of line `l`
+        let at = |l: usize, v: usize| {
+            let (k, x) = wraps.place(l, v);
+            Pos2::new(text_x + x as f32 * cw, line_y(l) + k as f32 * rh)
+        };
+        // (line, visual column) under screen point `p`, the column rounded or not
+        let point = |p: Pos2, round: bool| {
+            let r = ((p.y - origin.y) / rh).floor().max(0.0) as usize;
+            let line = rm.line_at_row(r, nlines);
+            let x = ((p.x - text_x) / cw).max(0.0);
+            let x = if round { x.round() } else { x.floor() } as usize;
+            (line, wraps.unplace(line, r.saturating_sub(rm.row(line)), x))
+        };
         // sticky scroll: the class / function lines enclosing the top of the view
         let sticky_top = origin.y + vp.min.y;
         let top_line = rm.line_at_row((vp.min.y / rh).ceil() as usize, nlines);
@@ -236,8 +266,7 @@ fn text_area(
 
         // ---------------------------------------------------------------- mouse
         let hit = |doc: &Document, p: Pos2| -> usize {
-            let line = rm.line_at_row(((p.y - origin.y) / rh).floor().max(0.0) as usize, nlines);
-            let vx = ((p.x - text_x) / cw).round().max(0.0) as usize;
+            let (line, vx) = point(p, true);
             doc.pos_of(line, doc.col_at_vcol(line, vx))
         };
         let (pressed, middle_pressed, down, ptr, mods) = ui.input(|i| {
@@ -279,7 +308,8 @@ fn text_area(
                     && p.x >= gx + gutter_w - 21.0
                     && p.x < gx + gutter_w - 8.0
                     && (folded.contains(&line) || doc.can_fold(line));
-                let on_pill = !in_gutter && folded.contains(&line) && p.x >= text_x + (doc.vcol(line, doc.line_len(line)) as f32 + 1.0) * cw;
+                let end = at(line, doc.vcol(line, doc.line_len(line)));
+                let on_pill = !in_gutter && folded.contains(&line) && p.x >= end.x + cw && p.y >= end.y;
                 // ✳ on the left of the numbers: the line, or the lines selected around it, for Claude
                 let on_claude = in_gutter && pressed && p.x < gx + CLAUDE_W;
                 if on_claude {
@@ -378,8 +408,8 @@ fn text_area(
                 if !in_gutter {
                     ui.ctx().set_cursor_icon(CursorIcon::Text);
                     // tooltip on the underlined (squiggled) text
-                    let l = rm.line_at_row(((p.y - origin.y) / rh).floor().max(0.0) as usize, nlines);
-                    let col = doc.col_at_vcol(l, ((p.x - text_x) / cw).max(0.0) as usize);
+                    let (l, v) = point(p, false);
+                    let col = doc.col_at_vcol(l, v);
                     let ls = doc.rope.line_to_char(l);
                     // the symbol under the pointer (not past the end of the line): the app looks it up
                     if col < doc.line_len(l) {
@@ -459,7 +489,7 @@ fn text_area(
             if s.is_empty() {
                 let l = doc.rope.char_to_line(s.head);
                 if (first..=last).contains(&l) {
-                    let r = Rect::from_min_size(Pos2::new(gx, line_y(l)), egui::vec2(vp.width(), rh));
+                    let r = Rect::from_min_size(Pos2::new(gx, line_y(l)), egui::vec2(vp.width(), line_h(l)));
                     painter.rect_filled(r, 0.0, c.line_hl);
                 }
             }
@@ -480,7 +510,7 @@ fn text_area(
                     blue
                 };
                 let bg = mix(c.bg, col, if marker { 0.32 } else { 0.12 });
-                painter.rect_filled(Rect::from_min_size(Pos2::new(gx, line_y(l)), egui::vec2(vp.width(), rh)), 0.0, bg);
+                painter.rect_filled(Rect::from_min_size(Pos2::new(gx, line_y(l)), egui::vec2(vp.width(), line_h(l))), 0.0, bg);
             }
             conflict_labels.push((cf.start, "  ← ta version (actuelle)"));
             conflict_labels.push((cf.end, "  ← version entrante"));
@@ -498,7 +528,7 @@ fn text_area(
                     _ => None,
                 };
                 if let Some(bg) = bg {
-                    painter.rect_filled(Rect::from_min_size(Pos2::new(gx, line_y(l)), egui::vec2(vp.width(), rh)), 0.0, bg);
+                    painter.rect_filled(Rect::from_min_size(Pos2::new(gx, line_y(l)), egui::vec2(vp.width(), line_h(l))), 0.0, bg);
                 }
             }
         }
@@ -512,7 +542,7 @@ fn text_area(
                     continue;
                 }
                 for l in (h.new_start.max(first)..h.new_end.min(last + 1)).filter(|&l| !rm.is_hidden(l)) {
-                    painter.rect_filled(Rect::from_min_size(Pos2::new(gx, line_y(l)), egui::vec2(text_w, rh)), 0.0, added_bg(hl.is_light()));
+                    painter.rect_filled(Rect::from_min_size(Pos2::new(gx, line_y(l)), egui::vec2(text_w, line_h(l))), 0.0, added_bg(hl.is_light()));
                 }
                 let n_old = h.old_lines.len();
                 let top_row = rm.row(h.new_start) - n_old;
@@ -579,7 +609,7 @@ fn text_area(
             let lead = doc.vcol(l, ind);
             for g in (ts..lead).step_by(ts) {
                 let x = text_x + g as f32 * cw;
-                painter.line_segment([Pos2::new(x, line_y(l)), Pos2::new(x, line_y(l) + rh)], Stroke::new(1.0_f32, c.guide));
+                painter.line_segment([Pos2::new(x, line_y(l)), Pos2::new(x, line_y(l) + line_h(l))], Stroke::new(1.0_f32, c.guide));
             }
         }
 
@@ -595,7 +625,7 @@ fn text_area(
                 let l = doc.rope.char_to_line(a);
                 if (first..=last).contains(&l) {
                     let y = line_y(l);
-                    let band = Rect::from_min_size(Pos2::new(gx, y), egui::vec2(vp.width(), rh));
+                    let band = Rect::from_min_size(Pos2::new(gx, y), egui::vec2(vp.width(), line_h(l)));
                     painter.rect_filled(band, 0.0, mix(c.bg, c.accent, 0.14 + 0.3 * pulse));
                     painter.rect_filled(Rect::from_min_size(Pos2::new(text_x - 5.0, y), egui::vec2(3.0, rh)), 1.0, c.accent);
                     flash_rect = Some((a, b, pulse));
@@ -607,7 +637,7 @@ fn text_area(
 
         // Ctrl+F "dans la sélection": the searched range
         if let Some((a, b)) = doc.find_scope {
-            for r in span_rects(doc, &rm, a.min(doc.len()), b.min(doc.len()), first, last, text_x, origin.y, rh, cw) {
+            for r in span_rects(doc, &rm, &wraps, a.min(doc.len()), b.min(doc.len()), first, last, text_x, origin.y, rh, cw) {
                 painter.rect_filled(r, 0.0, mix(c.bg, c.accent, 0.09));
             }
         }
@@ -615,7 +645,7 @@ fn text_area(
         // find matches
         let i0 = matches.partition_point(|m| m.1 < vis_start);
         for &(a, b) in matches[i0..].iter().take_while(|m| m.0 <= vis_end) {
-            for r in span_rects(doc, &rm, a, b, first, last, text_x, origin.y, rh, cw) {
+            for r in span_rects(doc, &rm, &wraps, a, b, first, last, text_x, origin.y, rh, cw) {
                 painter.rect_stroke(r, 2.0, Stroke::new(1.0_f32, c.find));
             }
         }
@@ -625,13 +655,13 @@ fn text_area(
             if s.is_empty() || s.end() < vis_start || s.start() > vis_end {
                 continue;
             }
-            for r in span_rects(doc, &rm, s.start(), s.end(), first, last, text_x, origin.y, rh, cw) {
+            for r in span_rects(doc, &rm, &wraps, s.start(), s.end(), first, last, text_x, origin.y, rh, cw) {
                 painter.rect_filled(r, 2.0, c.selection);
             }
         }
 
         if let Some((a, b, pulse)) = flash_rect {
-            for r in span_rects(doc, &rm, a, b, first, last, text_x, origin.y, rh, cw) {
+            for r in span_rects(doc, &rm, &wraps, a, b, first, last, text_x, origin.y, rh, cw) {
                 let r = r.expand(1.0 + 3.0 * pulse);
                 painter.rect_filled(r, 3.0, mix(c.bg, c.accent, 0.35 + 0.25 * pulse));
                 painter.rect_stroke(r, 3.0, Stroke::new(2.0_f32, c.accent));
@@ -639,8 +669,8 @@ fn text_area(
         }
 
         for &(l, label) in conflict_labels.iter().filter(|(l, _)| (first..=last).contains(l) && !rm.is_hidden(*l)) {
-            let x = text_x + (doc.vcol(l, doc.line_len(l)) as f32 + 1.0) * cw;
-            painter.text(Pos2::new(x, line_y(l) + rh / 2.0), Align2::LEFT_CENTER, label, FontId::proportional(font.size * 0.85), c.gutter_fg);
+            let end = at(l, doc.vcol(l, doc.line_len(l)));
+            painter.text(Pos2::new(end.x + cw, end.y + rh / 2.0), Align2::LEFT_CENTER, label, FontId::proportional(font.size * 0.85), c.gutter_fg);
         }
 
         // text
@@ -651,26 +681,42 @@ fn text_area(
             if folded.contains(&l) {
                 // "⋯ N lignes" after a folded line
                 let n = hidden.iter().find(|h| h.0 == l + 1).map_or(0, |h| h.1 - h.0 + 1);
-                let x = text_x + (doc.vcol(l, doc.line_len(l)) as f32 + 1.0) * cw;
+                let end = at(l, doc.vcol(l, doc.line_len(l)));
                 let label = format!("⋯ {n} ligne{}", if n > 1 { "s" } else { "" });
                 let g = painter.layout_no_wrap(label, FontId::proportional(font.size * 0.8), c.fg);
-                let pill = Rect::from_min_size(Pos2::new(x, line_y(l) + 2.0), egui::vec2(g.size().x + 12.0, rh - 4.0));
+                let pill = Rect::from_min_size(Pos2::new(end.x + cw, end.y + 2.0), egui::vec2(g.size().x + 12.0, rh - 4.0));
                 painter.rect_filled(pill, 4.0, mix(c.bg, c.accent, 0.22));
                 painter.galley(Pos2::new(pill.left() + 6.0, pill.center().y - g.size().y / 2.0), g, c.fg);
             }
-            let (start_v, job) = line_job(doc, l, font, c.fg, vstart, vend);
-            if let Some(sv) = start_v {
-                let galley = ui.fonts(|f| f.layout_job(job));
-                painter.galley(Pos2::new(text_x + sv as f32 * cw, line_y(l)), galley, c.fg);
+            match wraps.of(l) {
+                None => {
+                    let (start_v, job) = line_job(doc, l, font, c.fg, vstart, vend);
+                    if let Some(sv) = start_v {
+                        let galley = ui.fonts(|f| f.layout_job(job));
+                        painter.galley(Pos2::new(text_x + sv as f32 * cw, line_y(l)), galley, c.fg);
+                    }
+                }
+                // one row after the other, each with its part of the line
+                Some(w) => {
+                    for k in 0..=w.starts.len() {
+                        let (a, b) = w.row_span(k);
+                        let (start_v, job) = line_job(doc, l, font, c.fg, a, b);
+                        if let Some(sv) = start_v {
+                            let galley = ui.fonts(|f| f.layout_job(job));
+                            let x = (sv.saturating_sub(a) + if k > 0 { w.indent } else { 0 }) as f32 * cw;
+                            painter.galley(Pos2::new(text_x + x, line_y(l) + k as f32 * rh), galley, c.fg);
+                        }
+                    }
+                }
             }
         }
 
         // inline blame at the end of its line
         if let Some((bl, _, text)) = &doc.blame {
             if (first..=last).contains(bl) {
-                let x = text_x + (doc.vcol(*bl, doc.line_len(*bl)) as f32 + 4.0) * cw;
+                let end = at(*bl, doc.vcol(*bl, doc.line_len(*bl)));
                 painter.text(
-                    Pos2::new(x, line_y(*bl) + rh / 2.0),
+                    Pos2::new(end.x + 4.0 * cw, end.y + rh / 2.0),
                     Align2::LEFT_CENTER,
                     text,
                     FontId::proportional(font.size * 0.9),
@@ -686,19 +732,22 @@ fn text_area(
             let ls = doc.rope.line_to_char(d.line);
             let (_, we) = doc.word_at(ls + col);
             let end = if we > ls + col { we - ls } else { (col + 1).min(ll.max(col + 1)) };
-            let x0 = text_x + doc.vcol(d.line, col) as f32 * cw;
-            let x1 = (text_x + doc.vcol(d.line, end.min(ll)) as f32 * cw).max(x0 + cw);
-            let y = line_y(d.line) + rh - 2.0;
             let color = if d.severity == Severity::Error { highlight::red() } else { highlight::yellow() };
-            let mut pts = Vec::new();
-            let mut x = x0;
-            let mut up = true;
-            while x <= x1 {
-                pts.push(Pos2::new(x, if up { y - 1.5 } else { y + 1.0 }));
-                x += 2.5;
-                up = !up;
+            let (v0, v1) = (doc.vcol(d.line, col), doc.vcol(d.line, end.min(ll)));
+            for (k, a, b) in wraps.spans(d.line, v0, v1.max(v0 + 1)) {
+                let x0 = text_x + a as f32 * cw;
+                let x1 = (text_x + b as f32 * cw).max(x0 + cw);
+                let y = line_y(d.line) + (k + 1) as f32 * rh - 2.0;
+                let mut pts = Vec::new();
+                let mut x = x0;
+                let mut up = true;
+                while x <= x1 {
+                    pts.push(Pos2::new(x, if up { y - 1.5 } else { y + 1.0 }));
+                    x += 2.5;
+                    up = !up;
+                }
+                painter.add(Shape::line(pts, Stroke::new(1.0_f32, color)));
             }
-            painter.add(Shape::line(pts, Stroke::new(1.0_f32, color)));
         }
 
         // matching brackets
@@ -706,7 +755,7 @@ fn text_area(
         if prim.is_empty() {
             if let Some((a, b)) = doc.matching_bracket(prim.head) {
                 for p in [a, b] {
-                    for r in span_rects(doc, &rm, p, p + 1, first, last, text_x, origin.y, rh, cw) {
+                    for r in span_rects(doc, &rm, &wraps, p, p + 1, first, last, text_x, origin.y, rh, cw) {
                         painter.line_segment([r.left_bottom(), r.right_bottom()], Stroke::new(1.5_f32, c.caret));
                     }
                 }
@@ -719,10 +768,10 @@ fn text_area(
         for (k, s) in doc.sels.iter().enumerate() {
             let (l, col) = doc.line_col(s.head);
             if (first..=last).contains(&l) {
-                let x = text_x + doc.vcol(l, col) as f32 * cw;
-                painter.line_segment([Pos2::new(x, line_y(l)), Pos2::new(x, line_y(l) + rh)], Stroke::new(2.0_f32, caret));
+                let p = at(l, doc.vcol(l, col));
+                painter.line_segment([p, Pos2::new(p.x, p.y + rh)], Stroke::new(2.0_f32, caret));
                 if k == doc.primary && focused {
-                    caret_screen = Some((x, line_y(l) + rh));
+                    caret_screen = Some((p.x, p.y + rh));
                 }
             }
         }
@@ -791,7 +840,7 @@ fn text_area(
                 let r = if *m == GitMark::Deleted {
                     Rect::from_min_size(Pos2::new(gx + gutter_w - 6.0, line_y(l) + rh - 2.0), egui::vec2(5.0, 3.0))
                 } else {
-                    Rect::from_min_size(Pos2::new(gx + gutter_w - 5.0, line_y(l)), egui::vec2(3.0, rh))
+                    Rect::from_min_size(Pos2::new(gx + gutter_w - 5.0, line_y(l)), egui::vec2(3.0, line_h(l)))
                 };
                 painter.rect_filled(r, 0.0, col);
             }
@@ -872,16 +921,14 @@ fn text_area(
         if doc.scroll_to_cursor {
             doc.scroll_to_cursor = false;
             let (l, col) = doc.line_col(prim.head);
-            let x = text_x + doc.vcol(l, col) as f32 * cw;
-            let r = Rect::from_min_max(
-                Pos2::new(x - gutter_w - 2.0 * cw, line_y(l) - rh),
-                Pos2::new(x + 4.0 * cw, line_y(l) + 2.0 * rh),
-            );
+            let p = at(l, doc.vcol(l, col));
+            let r = Rect::from_min_max(Pos2::new(p.x - gutter_w - 2.0 * cw, p.y - rh), Pos2::new(p.x + 4.0 * cw, p.y + 2.0 * rh));
             ui.scroll_to_rect(r, if doc.center_cursor { Some(Align::Center) } else { None });
             doc.center_cursor = false;
         }
         resp
     });
+    doc.wraps = wraps;
     doc.scroll_y = out.state.offset.y;
     doc.view_h = out.inner_rect.height();
     doc.page_lines = ((doc.view_h / rh) as usize).saturating_sub(1).max(1);

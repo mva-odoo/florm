@@ -102,6 +102,7 @@ impl App {
             item(ui, "Problèmes", Cmd::ShowProblems);
             item(ui, "Sortie", Cmd::ShowOutput);
             item(ui, "Minimap", Cmd::ToggleMinimap);
+            item(ui, "Retour à la ligne automatique", Cmd::ToggleWordWrap);
             item(ui, "Barre de menus", Cmd::ToggleMenuBar);
             ui.separator();
             item(ui, "Syntaxe…", Cmd::SetSyntax);

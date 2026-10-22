@@ -145,6 +145,8 @@ pub struct Document {
     /// Where the hovered symbol is defined in the project (like Sublime Text): its range, the
     /// definitions (file, 0-based line, what, where) and how many more there are.
     pub hover_defs: Option<((usize, usize), Vec<(PathBuf, usize, String, String)>, usize)>,
+    /// How the long lines are cut when the soft wrap is on.
+    pub wraps: crate::wrap::Wraps,
     /// A definition clicked in the hover popup: the app opens it.
     pub goto_request: Option<(PathBuf, usize)>,
     /// Inline blame annotation: (line, document version, text).
@@ -410,6 +412,7 @@ impl Document {
             claude_pick: None,
             hover_info: None,
             hover_defs: None,
+            wraps: Default::default(),
             goto_request: None,
             blame: None,
             mtime: None,
@@ -1070,6 +1073,32 @@ impl Document {
                     Motion::Right if !extend && !s.is_empty() => (s.end(), None),
                     Motion::Left => (s.head.saturating_sub(1), None),
                     Motion::Right => ((s.head + 1).min(len), None),
+                    // one row of the screen: inside a wrapped line, or to the next / previous line
+                    // (`goal`: the column on the screen, the same as the visual one without wrap)
+                    Motion::Up | Motion::Down if !self.wraps.is_empty() => {
+                        let (line, col) = self.line_col(s.head);
+                        let (k, x) = self.wraps.place(line, self.vcol(line, col));
+                        let goal = s.goal.unwrap_or(x);
+                        let down = matches!(m, Motion::Down);
+                        let mut target = if down && k + 1 < self.wraps.rows(line) {
+                            Some((line, k + 1))
+                        } else if !down && k > 0 {
+                            Some((line, k - 1))
+                        } else {
+                            let mut nl = line as isize + if down { 1 } else { -1 };
+                            if let Some(&(s, e)) = hidden.iter().find(|(s, e)| (*s as isize..=*e as isize).contains(&nl)) {
+                                nl = if down { e as isize + 1 } else { s as isize - 1 };
+                            }
+                            (nl >= 0 && (nl as usize) < nlines).then(|| (nl as usize, if down { 0 } else { self.wraps.rows(nl as usize) - 1 }))
+                        };
+                        match target.take() {
+                            Some((tl, tk)) => {
+                                let v = self.wraps.unplace(tl, tk, goal);
+                                (self.pos_of(tl, self.col_at_vcol(tl, v)), Some(goal))
+                            }
+                            None => (if down { len } else { 0 }, Some(goal)),
+                        }
+                    }
                     Motion::Up | Motion::Down | Motion::PageUp | Motion::PageDown => {
                         let (line, col) = self.line_col(s.head);
                         let goal = s.goal.unwrap_or_else(|| self.vcol(line, col));

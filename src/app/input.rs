@@ -424,6 +424,11 @@ impl App {
                 self.settings.breadcrumbs = !self.settings.breadcrumbs;
                 self.persist("breadcrumbs", self.settings.breadcrumbs.to_string());
             }
+            ToggleWordWrap => {
+                self.settings.word_wrap = !self.settings.word_wrap;
+                self.persist("word_wrap", self.settings.word_wrap.to_string());
+                self.set_status(if self.settings.word_wrap { "Retour à la ligne automatique activé (Alt+Z)" } else { "Retour à la ligne automatique désactivé (Alt+Z)" });
+            }
             ToggleMinimap => {
                 self.settings.show_minimap = !self.settings.show_minimap;
                 self.persist("show_minimap", self.settings.show_minimap.to_string());

@@ -92,6 +92,7 @@ impl App {
                 let opts = editor_view::ViewOpts {
                     font_size: s.font_size,
                     minimap: s.show_minimap,
+                    wrap: s.word_wrap,
                     inline_diff: s.inline_diff,
                     sticky: s.sticky_scroll,
                     rulers: &s.rulers,

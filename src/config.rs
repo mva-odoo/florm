@@ -18,6 +18,8 @@ pub struct Settings {
     /// Interface font; empty: the default one.
     pub ui_font: String,
     pub show_minimap: bool,
+    /// Lines longer than the editor shown on several rows (Alt+Z).
+    pub word_wrap: bool,
     /// The class / function lines around the top of the editor stay pinned there while scrolling.
     pub sticky_scroll: bool,
     /// Columns of vertical rulers, e.g. [79, 120].
@@ -97,6 +99,7 @@ impl Default for Settings {
             editor_font: String::new(),
             ui_font: String::new(),
             show_minimap: true,
+            word_wrap: false,
             sticky_scroll: true,
             rulers: vec![80],
             breadcrumbs: true,
@@ -146,6 +149,8 @@ text_softness = 0.0
 editor_font = ""
 ui_font = ""
 show_minimap = true
+# retour à la ligne automatique des lignes trop longues pour l'éditeur (Alt+Z)
+word_wrap = false
 # classe / fonction courantes figées en haut de l'éditeur pendant le défilement
 sticky_scroll = true
 # règles verticales aux colonnes données, ex. [79, 120]

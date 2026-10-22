@@ -282,6 +282,9 @@ impl App {
                 pref_row(ui, rc, "Minimap", "Aperçu du fichier à droite de l'éditeur.", |ui| {
                     toggle_switch(ui, &mut s.show_minimap);
                 });
+                pref_row(ui, rc, "Retour à la ligne automatique", "Les lignes plus longues que l'éditeur continuent sur les rangées suivantes, coupées après un espace et indentées comme la ligne (Alt+Z). Le fichier n'est pas modifié.", |ui| {
+                    toggle_switch(ui, &mut s.word_wrap);
+                });
                 pref_row(ui, rc, "Classe et fonction figées en haut", "En défilant, les lignes class / def (ou les titres, les records…) qui contiennent le haut de l'écran y restent ; clic : y aller.", |ui| {
                     toggle_switch(ui, &mut s.sticky_scroll);
                 });
@@ -707,6 +710,7 @@ impl App {
         }
         let bools = [
             ("show_minimap", s.show_minimap, before.show_minimap),
+            ("word_wrap", s.word_wrap, before.word_wrap),
             ("sticky_scroll", s.sticky_scroll, before.sticky_scroll),
             ("breadcrumbs", s.breadcrumbs, before.breadcrumbs),
             ("show_menu_bar", s.show_menu_bar, before.show_menu_bar),

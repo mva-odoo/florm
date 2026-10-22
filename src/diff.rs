@@ -78,7 +78,8 @@ pub fn compute(base: &str, current: &str) -> Vec<Hunk> {
 }
 
 /// Display rows of the buffer lines: deleted HEAD lines shown inline ("phantom" rows placed above
-/// the buffer line where they used to be) add rows, folded blocks remove theirs.
+/// the buffer line where they used to be) and the rows of wrapped lines add rows, folded blocks
+/// remove theirs.
 #[derive(Default, Clone)]
 pub struct RowMap {
     /// (buffer line the block sits above, number of phantom rows), sorted by line
@@ -89,6 +90,10 @@ pub struct RowMap {
     hidden: Vec<(usize, usize)>,
     /// hcum[i] = hidden lines in hidden[..=i]
     hcum: Vec<usize>,
+    /// (wrapped line, rows added under it), sorted by line
+    wraps: Vec<(usize, usize)>,
+    /// wcum[i] = rows added by wraps[..=i]
+    wcum: Vec<usize>,
 }
 
 impl RowMap {
@@ -113,12 +118,26 @@ impl RowMap {
                 Some(*acc)
             })
             .collect();
-        RowMap { blocks, cum, hidden: hidden.to_vec(), hcum }
+        RowMap { blocks, cum, hidden: hidden.to_vec(), hcum, wraps: Vec::new(), wcum: Vec::new() }
+    }
+
+    /// The same, with the rows added under the wrapped lines (`(line, rows)`, sorted by line).
+    pub fn with_wraps(mut self, wraps: Vec<(usize, usize)>) -> Self {
+        self.wraps = wraps.into_iter().filter(|(l, _)| !self.is_hidden(*l)).collect();
+        self.wcum = self
+            .wraps
+            .iter()
+            .scan(0, |acc, w| {
+                *acc += w.1;
+                Some(*acc)
+            })
+            .collect();
+        self
     }
 
     /// Phantom rows minus hidden lines (display rows = buffer lines + this).
     pub fn total(&self) -> isize {
-        self.cum.last().copied().unwrap_or(0) as isize - self.hcum.last().copied().unwrap_or(0) as isize
+        (self.cum.last().copied().unwrap_or(0) + self.wcum.last().copied().unwrap_or(0)) as isize - self.hcum.last().copied().unwrap_or(0) as isize
     }
 
     pub fn rows(&self, nlines: usize) -> usize {
@@ -144,7 +163,10 @@ impl RowMap {
         let phantom = if i == 0 { 0 } else { self.cum[i - 1] };
         let h = self.hidden.partition_point(|h| h.1 < l);
         let hidden = if h == 0 { 0 } else { self.hcum[h - 1] };
-        l + phantom - hidden
+        // the rows of the wrapped lines above it
+        let w = self.wraps.partition_point(|w| w.0 < l);
+        let wrapped = if w == 0 { 0 } else { self.wcum[w - 1] };
+        l + phantom + wrapped - hidden
     }
 
     /// Buffer line shown at display row `r` (a phantom row maps to the line above it).
@@ -213,6 +235,17 @@ mod tests {
         let h = compute("a\nb\nc\nd\ne\nf\nX\ng\n", "a\nb\nc\nd\ne\nf\ng\n");
         let rm = RowMap::with_folds(&h, &[(2, 4)]);
         assert_eq!(rm.row(6), 6 + 1 - 3);
+    }
+
+    #[test]
+    fn wrapped_rows() {
+        // line 1 on 3 rows, line 4 on 2 (hidden: folded with 3..=4, its rows do not count)
+        let rm = RowMap::with_folds(&[], &[]).with_wraps(vec![(1, 2), (5, 1)]);
+        assert_eq!(rm.rows(7), 10);
+        assert_eq!((rm.row(0), rm.row(1), rm.row(2), rm.row(5), rm.row(6)), (0, 1, 4, 7, 9));
+        assert_eq!((rm.line_at_row(2, 7), rm.line_at_row(3, 7), rm.line_at_row(4, 7), rm.line_at_row(8, 7)), (1, 1, 2, 5));
+        let rm = RowMap::with_folds(&[], &[(3, 4)]).with_wraps(vec![(1, 2), (4, 1)]);
+        assert_eq!(rm.row(5), 5 + 2 - 2);
     }
 
     #[test]

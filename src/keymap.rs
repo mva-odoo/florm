@@ -97,6 +97,7 @@ const DEFAULTS: &[(&str, &str)] = &[
     ("f3", "find_next"),
     ("shift+f3", "find_prev"),
     ("alt+f3", "select_all_occurrences"),
+    ("alt+z", "toggle_word_wrap"),
     ("ctrl+s", "save"),
     ("ctrl+shift+s", "save_as"),
     ("ctrl+alt+s", "save_all"),

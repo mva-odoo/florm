@@ -34,6 +34,7 @@ mod symbols;
 mod templates;
 mod terminal;
 mod walk;
+mod wrap;
 
 use eframe::egui;
 use std::path::PathBuf;
