@@ -139,7 +139,7 @@ impl App {
             }
             item(ui, "✳ Claude", Cmd::Claude);
             ui.separator();
-            item(ui, "Insérer un modèle (vue Odoo, menu…)…", Cmd::InsertTemplate);
+            item(ui, "Insérer un modèle…", Cmd::InsertTemplate);
             item(ui, "Nouveau modèle…", Cmd::NewTemplate);
             item(ui, "Dossier des modèles", Cmd::OpenTemplatesFolder);
             ui.separator();

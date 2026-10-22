@@ -121,11 +121,10 @@ interactif** (clic droit → « Rebase interactif à partir d'ici… »), l'acti
 - **⇱ Onglet** dans le panneau du bas y envoie le terminal courant, **⇲ Panneau du bas** le
   ramène.
 
-## Modèles (vues Odoo, menus…)
+## Modèles
 
-**Ctrl+Alt+N** (ou Outils → Insérer un modèle) : vue formulaire, liste, recherche, héritage de
-vue, action, menu, modèle Python, champ calculé, `__manifest__.py`, droits d'accès…
-Les modèles du type du fichier courant sont proposés en premier.
+**Ctrl+Alt+N** (ou Outils → Insérer un modèle) : les modèles du type du fichier courant sont
+proposés en premier. Florm n'en livre aucun : ajoutez les vôtres (voir plus bas).
 
 Les variables sont remplies d'après le fichier : dans `estate/views/estate_property_views.xml`,
 `${model}` = `estate.property`, `${model_}` = `estate_property`, `${Model}` = `EstateProperty`,
@@ -137,8 +136,7 @@ d'un modèle intégré le remplace.
 
 **Déclencheurs**, comme les snippets de Sublime : taper `ipdb` dans un fichier Python le
 propose dans les suggestions, **Tab** (ou Entrée) le remplace par
-`import ipdb; ipdb.set_trace()`. Aussi `pdb`, et `odoo_` pour tous les modèles Odoo
-(`odoo_form`, `odoo_model`, `odoo_menu`…). Un modèle perso dont le nom est un seul mot
+`import ipdb; ipdb.set_trace()`. Aussi `pdb`. Un modèle perso dont le nom est un seul mot
 (`log.py`, `ifmain.py`) a ce mot pour déclencheur.
 
 **Préférences → Modèles** : la liste des tiens et des intégrés ; un clic en ouvre un pour

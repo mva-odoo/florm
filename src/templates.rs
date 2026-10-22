@@ -1,4 +1,4 @@
-//! Templates (snippets): blocks of code inserted at the cursor, e.g. an Odoo form view or menu.
+//! Templates (snippets): blocks of code inserted at the cursor, e.g. a Python breakpoint.
 //! Built-in ones plus the files of the `templates` folder of the configuration (file name = name
 //! of the template, extension = language). Variables are filled from the current file:
 //! `${model}` (sale.order), `${model_}` (sale_order), `${Model}` (SaleOrder), `${name}` (Sale
@@ -24,205 +24,6 @@ pub struct Template {
 const BUILTIN: &[(&str, &str, &str, &str)] = &[
     ("Python : ipdb", "py", "ipdb", "import ipdb; ipdb.set_trace()$0"),
     ("Python : pdb", "py", "pdb", "import pdb; pdb.set_trace()$0"),
-    (
-        "Odoo : vue formulaire",
-        "xml",
-        "odoo_form",
-        r#"<record id="${model_}_view_form" model="ir.ui.view">
-    <field name="name">${model}.view.form</field>
-    <field name="model">${model}</field>
-    <field name="arch" type="xml">
-        <form string="${name}">
-            <sheet>
-                <group>
-                    <field name="name"/>$0
-                </group>
-            </sheet>
-        </form>
-    </field>
-</record>
-"#,
-    ),
-    (
-        "Odoo : vue liste",
-        "xml",
-        "odoo_list",
-        r#"<record id="${model_}_view_list" model="ir.ui.view">
-    <field name="name">${model}.view.list</field>
-    <field name="model">${model}</field>
-    <field name="arch" type="xml">
-        <list string="${name}">
-            <field name="name"/>$0
-        </list>
-    </field>
-</record>
-"#,
-    ),
-    (
-        "Odoo : vue recherche",
-        "xml",
-        "odoo_search",
-        r#"<record id="${model_}_view_search" model="ir.ui.view">
-    <field name="name">${model}.view.search</field>
-    <field name="model">${model}</field>
-    <field name="arch" type="xml">
-        <search string="${name}">
-            <field name="name"/>$0
-        </search>
-    </field>
-</record>
-"#,
-    ),
-    (
-        "Odoo : héritage de vue",
-        "xml",
-        "odoo_view_inherit",
-        r#"<record id="${model_}_view_form_inherit_${module}" model="ir.ui.view">
-    <field name="name">${model}.view.form.inherit.${module}</field>
-    <field name="model">${model}</field>
-    <field name="inherit_id" ref="$0"/>
-    <field name="arch" type="xml">
-        <xpath expr="//field[@name='name']" position="after">
-        </xpath>
-    </field>
-</record>
-"#,
-    ),
-    (
-        "Odoo : action de fenêtre",
-        "xml",
-        "odoo_action",
-        r#"<record id="${model_}_action" model="ir.actions.act_window">
-    <field name="name">${name}</field>
-    <field name="res_model">${model}</field>
-    <field name="view_mode">list,form</field>
-    <field name="help" type="html">
-        <p class="o_view_nocontent_smiling_face">$0</p>
-    </field>
-</record>
-"#,
-    ),
-    (
-        "Odoo : menu",
-        "xml",
-        "odoo_menu",
-        r#"<menuitem id="${model_}_menu"
-          name="${name}"
-          parent="$0"
-          action="${model_}_action"
-          sequence="10"/>
-"#,
-    ),
-    (
-        "Odoo : vues + action + menu",
-        "xml",
-        "odoo_views",
-        r#"<record id="${model_}_view_list" model="ir.ui.view">
-    <field name="name">${model}.view.list</field>
-    <field name="model">${model}</field>
-    <field name="arch" type="xml">
-        <list string="${name}">
-            <field name="name"/>
-        </list>
-    </field>
-</record>
-
-<record id="${model_}_view_form" model="ir.ui.view">
-    <field name="name">${model}.view.form</field>
-    <field name="model">${model}</field>
-    <field name="arch" type="xml">
-        <form string="${name}">
-            <sheet>
-                <group>
-                    <field name="name"/>$0
-                </group>
-            </sheet>
-        </form>
-    </field>
-</record>
-
-<record id="${model_}_action" model="ir.actions.act_window">
-    <field name="name">${name}</field>
-    <field name="res_model">${model}</field>
-    <field name="view_mode">list,form</field>
-</record>
-
-<menuitem id="${model_}_menu" name="${name}" action="${model_}_action" sequence="10"/>
-"#,
-    ),
-    (
-        "Odoo : fichier de données XML",
-        "xml",
-        "odoo_xml",
-        r#"<?xml version="1.0" encoding="utf-8"?>
-<odoo>
-    $0
-</odoo>
-"#,
-    ),
-    (
-        "Odoo : modèle",
-        "py",
-        "odoo_model",
-        r#"from odoo import api, fields, models
-
-
-class ${Model}(models.Model):
-    _name = '${model}'
-    _description = "${name}"
-
-    name = fields.Char(required=True)$0
-"#,
-    ),
-    (
-        "Odoo : héritage de modèle",
-        "py",
-        "odoo_inherit",
-        r#"from odoo import api, fields, models
-
-
-class ${Model}(models.Model):
-    _inherit = '${model}'
-
-    $0
-"#,
-    ),
-    (
-        "Odoo : champ calculé",
-        "py",
-        "odoo_compute",
-        r#"total = fields.Float(compute='_compute_total', store=True)
-
-@api.depends($0)
-def _compute_total(self):
-    for record in self:
-        record.total = 0
-"#,
-    ),
-    (
-        "Odoo : __manifest__.py",
-        "py",
-        "odoo_manifest",
-        r#"{
-    'name': "${name}",
-    'version': '1.0',
-    'depends': ['base'],
-    'data': [
-        'security/ir.model.access.csv',
-        $0
-    ],
-    'license': 'LGPL-3',
-}
-"#,
-    ),
-    (
-        "Odoo : droits d'accès (ir.model.access.csv)",
-        "csv",
-        "odoo_access",
-        r#"id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
-access_${model_}_user,${model}.user,model_${model_},base.group_user,1,1,1,1$0
-"#,
-    ),
 ];
 
 const README: &str = "# Modèles Florm\n\n\
@@ -385,11 +186,11 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("florm_tpl_user_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         install_readme(&dir);
-        std::fs::write(dir.join("Odoo : menu.xml"), "<menuitem/>").unwrap();
+        std::fs::write(dir.join("Python : pdb.py"), "breakpoint()").unwrap();
         std::fs::write(dir.join("Kanban.xml"), "<kanban/>").unwrap();
         let all = load(&dir);
-        assert_eq!(all.iter().filter(|t| t.name == "Odoo : menu").count(), 1);
-        assert_eq!(all.iter().find(|t| t.name == "Odoo : menu").unwrap().body, "<menuitem/>");
+        assert_eq!(all.iter().filter(|t| t.name == "Python : pdb").count(), 1);
+        assert_eq!(all.iter().find(|t| t.name == "Python : pdb").unwrap().body, "breakpoint()");
         assert!(all.iter().any(|t| t.name == "Kanban" && t.ext == "xml"));
         assert!(!all.iter().any(|t| t.name == "README"));
         assert_eq!(all.iter().find(|t| t.name == "Kanban").unwrap().trigger, "Kanban");
@@ -399,7 +200,6 @@ mod tests {
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].body, "breakpoint()");
         assert_eq!(with_trigger(&all, "xml", "ipdb").count(), 0);
-        assert_eq!(with_trigger(&all, "py", "odoo_").filter(|t| t.ext != "py").count(), 0);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

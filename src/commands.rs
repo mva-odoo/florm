@@ -297,7 +297,7 @@ pub const ALL: &[(&str, &str, Cmd)] = &[
     ("open_settings", "Préférences", OpenSettings),
     ("open_settings_file", "Préférences : ouvrir settings.toml", OpenSettingsFile),
     ("reload_plugins", "Recharger les plugins", ReloadPlugins),
-    ("insert_template", "Insérer un modèle / snippet (vue Odoo, menu, action…)…", InsertTemplate),
+    ("insert_template", "Insérer un modèle / snippet…", InsertTemplate),
     ("show_guide", "Aide : guide de Florm (exemples de recherche, Git, terminal…)", ShowGuide),
     ("check_update", "Aide : rechercher une mise à jour de Florm", CheckUpdate),
     ("open_templates_folder", "Ouvrir le dossier des modèles", OpenTemplatesFolder),

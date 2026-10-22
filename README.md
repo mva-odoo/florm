@@ -305,7 +305,7 @@ flake8 --version || ruff --version
 | Ctrl+Alt+P | Changer de projet |
 | Ctrl+Shift+E | Le clavier dans l'arborescence (↑ ↓ ← → Entrée) |
 | Ctrl+Shift+` | Nouveau terminal dans un onglet |
-| Ctrl+Alt+N | Insérer un modèle (vue Odoo, menu…) |
+| Ctrl+Alt+N | Insérer un modèle |
 | Ctrl+Alt+G | Graphe des commits |
 | Ctrl+Alt+R | Pull requests GitHub |
 | Ctrl+Alt+C | Claude |
