@@ -13,9 +13,13 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 
 pub enum JobResult {
     /// Changes since the start of the review of Claude's work (a diff).
-    ClaudeReview(Result<String, String>),
+    ClaudeReview(u64, Result<String, String>),
     /// Commit message written by Claude.
     CommitMessage(Result<String, String>),
+    /// Remarks of an AI review (key of what was reviewed: a pull request, the changes not committed).
+    AiReview(String, Result<Vec<crate::claude::ReviewNote>, String>),
+    /// Answer of Claude on a selection in the editor (number of the question).
+    InlineAi(u64, Result<crate::claude::Inline, String>),
     /// The repository pull requests go to, and its default branch.
     GhBase(PathBuf, Result<(String, String), String>),
     /// Pull requests of a branch (repository, branch).

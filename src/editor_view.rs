@@ -259,6 +259,8 @@ fn text_area(
             }
         }
         let (pressed, middle_pressed) = (pressed && !on_sticky, middle_pressed && !on_sticky);
+        // the popup of the definitions of the hovered symbol, opened this frame: (where, text above them)
+        let mut defs_popup: Option<(Pos2, String)> = None;
         if let Some(p) = ptr {
             let in_gutter = p.x < gx + gutter_w;
             if (pressed || middle_pressed) && resp.hovered() {
@@ -395,7 +397,19 @@ fn text_area(
                         }
                         tip.push_str(info);
                     }
-                    if !tip.is_empty() {
+                    // the symbol is defined in the project: a popup the mouse can go into, to click
+                    let ready = doc.hover_info.as_ref().is_some_and(|(r, _)| Some(*r) == doc.hover_word);
+                    let has_defs = doc.hover_defs.as_ref().is_some_and(|(r, d, _)| Some(*r) == doc.hover_word && !d.is_empty());
+                    if ready && has_defs {
+                        let delay = ui.style().interaction.tooltip_delay;
+                        let still = ui.ctx().input(|i| i.pointer.time_since_last_movement());
+                        if still < delay {
+                            ui.ctx().request_repaint_after(std::time::Duration::from_secs_f32(delay - still + 0.01));
+                        } else {
+                            let bottom = origin.y + (((p.y - origin.y) / rh).floor() + 1.0) * rh;
+                            defs_popup = Some((egui::pos2(p.x, bottom + 2.0), tip));
+                        }
+                    } else if !tip.is_empty() {
                         tooltip_under_line(ui, &resp, p, origin.y, rh, tip);
                     }
                 } else {
@@ -419,6 +433,7 @@ fn text_area(
         if !down {
             doc.drag = None;
         }
+        definitions_popup(ui, doc, id, defs_popup);
 
         // ---------------------------------------------------------------- highlighting
         if !doc.highlight.ensure(hl, &doc.syntax, &doc.rope, last, 20_000) {
@@ -1061,6 +1076,49 @@ mod tests {
 
 /// Tooltip just under the hovered line, after the usual delay: egui places the tooltip of a
 /// widget under it, which for the whole editor means at the top or bottom of the window.
+/// Where the hovered symbol is defined (like Sublime Text), each place a link to open it. Opened
+/// by `new` (where, text above the list); it stays while the mouse is over it.
+fn definitions_popup(ui: &Ui, doc: &mut Document, id: Id, new: Option<(Pos2, String)>) {
+    let pid = id.with("defs_popup");
+    let ctx = ui.ctx().clone();
+    // (where, text) and the rect of the popup shown at the last frame
+    let last: Option<(Pos2, String, Rect)> = ctx.data(|d| d.get_temp(pid));
+    let over = last.as_ref().zip(ctx.pointer_hover_pos()).is_some_and(|((_, _, r), p)| r.expand(10.0).contains(p));
+    let shown = new.or_else(|| last.filter(|_| over).map(|(at, tip, _)| (at, tip)));
+    let (Some((at, tip)), Some((_, defs, more))) = (shown, doc.hover_defs.as_ref()) else {
+        ctx.data_mut(|d| d.remove::<(Pos2, String, Rect)>(pid));
+        return;
+    };
+    let mut clicked = None;
+    let area = egui::Area::new(pid.with("area")).order(egui::Order::Foreground).fixed_pos(at).show(&ctx, |ui| {
+        egui::Frame::popup(ui.style()).show(ui, |ui| {
+            ui.set_max_width(640.0);
+            if !tip.is_empty() {
+                ui.label(tip.as_str());
+                ui.separator();
+            }
+            ui.label(RichText::new(if defs.len() + more > 1 { "Définitions" } else { "Définition" }).small().strong());
+            for (k, (_, _, what, place)) in defs.iter().enumerate() {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(what).monospace());
+                    if ui.link(RichText::new(place).small()).on_hover_text("Ouvrir à cette ligne").clicked() {
+                        clicked = Some(k);
+                    }
+                });
+            }
+            if *more > 0 {
+                ui.label(RichText::new(format!("… et {more} autre(s) — F12 pour la liste")).small().weak());
+            }
+        });
+    });
+    if let Some(k) = clicked {
+        doc.goto_request = doc.hover_defs.as_ref().and_then(|(_, d, _)| d.get(k)).map(|(p, l, _, _)| (p.clone(), *l));
+        ctx.data_mut(|d| d.remove::<(Pos2, String, Rect)>(pid));
+    } else {
+        ctx.data_mut(|d| d.insert_temp(pid, (at, tip, area.response.rect)));
+    }
+}
+
 fn tooltip_under_line(ui: &Ui, resp: &egui::Response, p: Pos2, top: f32, rh: f32, text: String) {
     let delay = ui.style().interaction.tooltip_delay;
     let still = ui.ctx().input(|i| i.pointer.time_since_last_movement());

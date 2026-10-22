@@ -13,12 +13,71 @@ pub const NOT_INSTALLED: &str = "La commande claude (Claude Code) est introuvabl
 /// Models offered: (value of --model, label). Empty: the default of Claude Code.
 pub const MODELS: [(&str, &str); 5] = [("", "Modèle par défaut"), ("opus", "Opus"), ("sonnet", "Sonnet"), ("haiku", "Haiku (rapide)"), ("fable", "Fable")];
 
-/// Permission modes: (value of --permission-mode, label, explanation).
+/// Permission modes: (value of --permission-mode, label, explanation). "custom": what is checked
+/// in the permissions.
 pub const MODES: [(&str, &str, &str); 3] = [
-    ("acceptEdits", "Modifie les fichiers", "Claude modifie les fichiers sans demander (tu gardes ou rejettes ensuite dans la revue) ; les autres commandes sont refusées"),
+    ("custom", "Selon les permissions", "Claude fait seulement ce qui est coché dans 🔒 Permissions ; tu gardes ou rejettes ses changements dans la revue"),
     ("plan", "Plan seulement", "Claude lit et propose un plan, sans rien modifier"),
-    ("bypassPermissions", "Tout autoriser", "Claude peut aussi lancer des commandes (tests, git…) sans demander"),
+    ("bypassPermissions", "Tout autoriser", "Claude peut tout faire sans demander (le bac à sable, s'il est coché, isole quand même ses commandes)"),
 ];
+
+/// The permissions that can be checked: (key in the settings, label, explanation).
+pub const PERMS: [(&str, &str, &str); 6] = [
+    ("edit", "Modifier les fichiers", "Créer et modifier des fichiers (tu gardes ou rejettes chaque bloc dans la revue)"),
+    ("bash", "Lancer des commandes", "Tests, git, scripts… dans un terminal caché"),
+    ("web", "Accès à internet", "Lire des pages web et faire des recherches"),
+    ("agents", "Sous-agents", "Confier des recherches à d'autres instances de Claude"),
+    ("sandbox", "Bac à sable pour les commandes", "Les commandes tournent isolées (bubblewrap) : écriture seulement dans le projet, réseau filtré"),
+    ("confine", "Rester dans le projet", "Les fichiers hors du dossier du projet sont inaccessibles, et tes réglages Claude Code personnels sont ignorés"),
+];
+
+/// Tools of each permission: those named in the allowed / denied lists (old names included) and
+/// those of `--tools` (current names only, an unknown one is an error).
+fn perm_tools(perm: &str) -> (&'static [&'static str], &'static [&'static str]) {
+    match perm {
+        "edit" => (&["Edit", "MultiEdit", "Write", "NotebookEdit"], &["Edit", "Write"]),
+        "bash" => (&["Bash"], &["Bash"]),
+        "web" => (&["WebFetch", "WebSearch"], &["WebFetch", "WebSearch"]),
+        "agents" => (&["Agent", "Task"], &["Agent"]),
+        _ => (&[], &[]),
+    }
+}
+
+/// Arguments of `claude` for mode `mode` (index in `MODES`), the permissions checked and the
+/// budget (0: none). Nothing is ever asked: what is not allowed is refused.
+pub fn permission_args(mode: usize, perms: &[String], budget: f64) -> Vec<String> {
+    let has = |p: &str| perms.iter().any(|x| x == p);
+    let mut a: Vec<String> = vec!["--permission-prompts".into(), "none".into()];
+    match MODES.get(mode).map_or("custom", |m| m.0) {
+        "custom" => {
+            let (mut allowed, mut denied, mut tools) = (vec!["Read", "Grep", "Glob"], Vec::<&str>::new(), vec!["Read", "Grep", "Glob"]);
+            for p in ["edit", "bash", "web", "agents"] {
+                let (names, current) = perm_tools(p);
+                if has(p) {
+                    allowed.extend(names);
+                    tools.extend(current);
+                } else {
+                    denied.extend(names);
+                }
+            }
+            a.extend(["--permission-mode".into(), "dontAsk".into(), "--allowedTools".into(), allowed.join(",")]);
+            if !denied.is_empty() {
+                a.extend(["--disallowedTools".into(), denied.join(",")]);
+            }
+            if has("confine") {
+                a.extend(["--restricted".into(), "--tools".into(), tools.join(",")]);
+            }
+        }
+        m => a.extend(["--permission-mode".into(), m.to_string()]),
+    }
+    if has("sandbox") {
+        a.extend(["--settings".into(), r#"{"sandbox":{"enabled":true}}"#.into()]);
+    }
+    if budget > 0.0 {
+        a.extend(["--max-budget-usd".into(), format!("{budget}")]);
+    }
+    a
+}
 
 /// What Claude sends during a conversation.
 #[derive(Clone, Debug, PartialEq)]
@@ -155,8 +214,14 @@ pub struct Session {
 
 impl Session {
     /// Starts `claude` in `dir`; `repaint` is called when something arrives.
-    pub fn start(dir: &Path, model: &str, mode: &str, repaint: impl Fn() + Send + 'static) -> Result<Session, String> {
-        let mut args = vec!["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", mode];
+    /// `perms`: the arguments of `permission_args`.
+    /// `resume`: the id of an earlier session to continue (its context is kept).
+    pub fn start(dir: &Path, model: &str, perms: &[String], resume: Option<&str>, repaint: impl Fn() + Send + 'static) -> Result<Session, String> {
+        let mut args = vec!["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages"];
+        args.extend(perms.iter().map(String::as_str));
+        if let Some(id) = resume {
+            args.extend(["--resume", id]);
+        }
         if !model.is_empty() {
             args.extend(["--model", model]);
         }
@@ -242,8 +307,14 @@ pub fn commit_message(dir: &Path, diff: &str, recent: &str, wish: &str) -> Resul
     }
     // a very large diff is cut: the beginning says enough
     let diff: String = diff.chars().take(120_000).collect();
+    run_once(dir, &["-p", &prompt, "--output-format", "text", "--model", "haiku", "--tools", "", "--no-session-persistence"], diff).map(|t| clean_message(&t))
+}
+
+/// Runs `claude` once with `args`, `input` on its standard input; returns its answer (its
+/// spaces at the start kept: the indentation of code).
+fn run_once(dir: &Path, args: &[&str], input: String) -> Result<String, String> {
     let mut child = crate::os::command("claude")
-        .args(["-p", &prompt, "--output-format", "text", "--model", "haiku", "--tools", "", "--no-session-persistence"])
+        .args(args)
         .current_dir(dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -252,16 +323,141 @@ pub fn commit_message(dir: &Path, diff: &str, recent: &str, wish: &str) -> Resul
         .map_err(|_| NOT_INSTALLED.to_string())?;
     if let Some(mut stdin) = child.stdin.take() {
         std::thread::spawn(move || {
-            let _ = stdin.write_all(diff.as_bytes());
+            let _ = stdin.write_all(input.as_bytes());
         });
     }
     let out = child.wait_with_output().map_err(|e| e.to_string())?;
-    let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    if out.status.success() && !text.is_empty() {
-        Ok(clean_message(&text))
+    let text = String::from_utf8_lossy(&out.stdout).trim_end().to_string();
+    if out.status.success() && !text.trim().is_empty() {
+        Ok(text)
     } else {
         Err(format!("{text}{}", String::from_utf8_lossy(&out.stderr)).trim().to_string())
     }
+}
+
+/// The answer of Claude about a selection: the code replacing it, or an explanation.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Inline {
+    Code(String),
+    Explain(String),
+}
+
+/// Claude on a piece of a file (`selection`, with the code `before` and `after` it for the
+/// context): the new code for `ask`, or an explanation if it is a question.
+pub fn inline(dir: &Path, file: &str, before: &str, selection: &str, after: &str, ask: &str) -> Result<Inline, String> {
+    let prompt = format!(
+        "Tu travailles sur un extrait du fichier {file}. L'entrée standard contient le code autour, pour le contexte, \
+         et l'extrait lui-même entre les lignes <extrait> et </extrait>.\n\
+         Demande : {ask}\n\n\
+         Si la demande est de modifier, réponds uniquement par le nouveau code qui remplace l'extrait (lui seul, pas le code \
+         autour), avec la même indentation, sans bloc de code, sans balise, sans explication.\n\
+         Si c'est une question (expliquer, trouver un bug…), réponds par la ligne EXPLICATION: puis ta réponse, courte, en \
+         Markdown, en français."
+    );
+    let input = format!("{before}\n<extrait>\n{selection}\n</extrait>\n{after}");
+    let text = run_once(dir,&["-p", &prompt, "--output-format", "text", "--model", "sonnet", "--tools", "", "--no-session-persistence"], input)?;
+    Ok(parse_inline(&text))
+}
+
+/// Code (its fence or tags removed) or explanation.
+fn parse_inline(text: &str) -> Inline {
+    let t = text.trim_start();
+    if let Some(rest) = t.strip_prefix("EXPLICATION:").or_else(|| t.strip_prefix("EXPLICATION :")) {
+        return Inline::Explain(rest.trim().to_string());
+    }
+    // the indentation of the first line is kept: only blank lines are taken off
+    let blank = |s: &str| s.trim_matches(['\n', '\r']).to_string();
+    let mut code = blank(text.trim_end());
+    if let Some(r) = code.trim_start().strip_prefix("<extrait>").and_then(|r| r.strip_suffix("</extrait>")) {
+        code = blank(r);
+    }
+    if let Some(r) = code.trim_start().strip_prefix("```") {
+        let body = r.split_once('\n').map_or("", |(_, b)| b);
+        code = blank(body.trim_end().strip_suffix("```").unwrap_or(body));
+    }
+    Inline::Code(code)
+}
+
+/// A remark of an AI review, about a line of the diff (`line` 0 / `path` empty: about the whole).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReviewNote {
+    pub path: String,
+    pub line: usize,
+    /// "RIGHT": the new version of the file, "LEFT": the old one (a removed line).
+    pub side: String,
+    /// "bug", "risk", "suggestion" or "nit".
+    pub severity: String,
+    pub body: String,
+}
+
+/// Remarks of Claude on `diff`: nothing is sent anywhere, the user picks the ones to keep.
+/// `about`: what the changes are (title and description of the pull request…); `language`: of
+/// the remarks. Claude may read the files of `dir` (only read) for the context.
+pub fn review(dir: &Path, diff: &str, about: &str, language: &str) -> Result<Vec<ReviewNote>, String> {
+    let mut prompt = String::from(
+        "Fais la revue de code de ce diff (reçu sur l'entrée standard). Chaque ligne du diff commence par sa position : \
+         [R12] = ligne 12 de la nouvelle version du fichier (lignes ajoutées « + » et lignes de contexte), \
+         [L7] = ligne 7 de l'ancienne version (lignes supprimées « - »). Tu peux lire les fichiers du dépôt pour \
+         comprendre le contexte (ils ne sont pas forcément dans la version du diff).\n\
+         Relève seulement ce qui mérite vraiment un commentaire : bugs, cas oubliés, risques (sécurité, performance, \
+         données), incohérences avec le reste du code, puis les améliorations nettes. Pas de compliments, pas de \
+         remarques de style quand le code suit celui du fichier. Au plus 15 remarques, les plus importantes d'abord.\n\
+         Réponds uniquement par un tableau JSON, sans texte autour ni bloc de code : \
+         [{\"path\": \"chemin/du/fichier\", \"line\": 12, \"side\": \"RIGHT\", \"severity\": \"bug\", \"body\": \"…\"}] \
+         où line et side viennent de la position de la ligne commentée (R → \"RIGHT\", L → \"LEFT\"), severity est \
+         \"bug\", \"risk\", \"suggestion\" ou \"nit\", et body la remarque en Markdown, courte, adressée à l'auteur ; \
+         quand c'est utile, un bloc ```suggestion avec le code qui remplace la ligne commentée (une seule ligne, côté RIGHT). \
+         Une remarque sur l'ensemble : path \"\" et line 0. [] s'il n'y a rien à redire.",
+    );
+    prompt.push_str(&format!("\nLangue des remarques : {language}."));
+    if !about.trim().is_empty() {
+        prompt.push_str("\n\nCe que font ces changements :\n");
+        prompt.push_str(about.trim());
+    }
+    let numbered: String = number_diff(diff).chars().take(200_000).collect();
+    let text = run_once(dir, &["-p", &prompt, "--output-format", "text", "--tools", "Read,Grep,Glob", "--no-session-persistence"], numbered)?;
+    parse_review(&text)
+}
+
+/// The diff with the position of each line in front of it, so the model does not count lines.
+fn number_diff(diff: &str) -> String {
+    let mut out = String::with_capacity(diff.len() + diff.len() / 4);
+    for l in crate::history::parse_diff(diff) {
+        match (l.kind, l.old, l.new) {
+            (crate::history::DiffKind::Removed, Some(o), _) => out.push_str(&format!("[L{o}] ")),
+            (_, _, Some(n)) => out.push_str(&format!("[R{n}] ")),
+            _ => {}
+        }
+        out.push_str(&l.text);
+        out.push('\n');
+    }
+    out
+}
+
+/// The JSON array of the answer (the model sometimes puts text or a code fence around it).
+fn parse_review(text: &str) -> Result<Vec<ReviewNote>, String> {
+    let end = text.rfind(']').unwrap_or(0);
+    // the first '[' starting a valid array up to the last ']' (a "[R12]" may come before it)
+    let v = text
+        .match_indices('[')
+        .filter(|(a, _)| *a < end)
+        .find_map(|(a, _)| serde_json::from_str::<Value>(&text[a..=end]).ok())
+        .ok_or_else(|| format!("Réponse inattendue de Claude : {}", text.chars().take(300).collect::<String>()))?;
+    let s = |x: &Value| x.as_str().unwrap_or("").trim().to_string();
+    Ok(v.as_array()
+        .map(|a| {
+            a.iter()
+                .map(|n| ReviewNote {
+                    path: s(&n["path"]),
+                    line: n["line"].as_u64().or_else(|| n["line"].as_str().and_then(|l| l.trim_start_matches(['R', 'L']).parse().ok())).unwrap_or(0) as usize,
+                    side: if s(&n["side"]).eq_ignore_ascii_case("LEFT") { "LEFT".into() } else { "RIGHT".into() },
+                    severity: s(&n["severity"]).to_lowercase(),
+                    body: s(&n["body"]),
+                })
+                .filter(|n| !n.body.is_empty())
+                .collect()
+        })
+        .unwrap_or_default())
 }
 
 /// Without the code fence or quotes a model sometimes puts around the message.
@@ -315,5 +511,45 @@ mod tests {
         assert_eq!(tool_summary("Grep", &json!({"pattern": "fn main"})), "fn main");
         assert_eq!(clean_message("```\n[FIX] a: b\n```"), "[FIX] a: b");
         assert_eq!(clean_message("\"[IMP] x\""), "[IMP] x");
+    }
+
+    #[test]
+    fn permissions() {
+        let p = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let a = permission_args(0, &p(&["edit", "sandbox"]), 0.0).join(" ");
+        assert!(a.contains("--permission-mode dontAsk"), "{a}");
+        assert!(a.contains("--allowedTools Read,Grep,Glob,Edit,MultiEdit,Write,NotebookEdit"), "{a}");
+        assert!(a.contains("--disallowedTools Bash,WebFetch,WebSearch,Agent,Task"), "{a}");
+        assert!(a.contains(r#"--settings {"sandbox":{"enabled":true}}"#), "{a}");
+        assert!(!a.contains("--restricted") && !a.contains("--max-budget-usd"), "{a}");
+        let a = permission_args(0, &p(&["edit", "bash", "web", "agents", "confine"]), 2.5).join(" ");
+        assert!(!a.contains("--disallowedTools") && !a.contains("--settings"), "{a}");
+        assert!(a.contains("--restricted --tools Read,Grep,Glob,Edit,Write,Bash,WebFetch,WebSearch,Agent"), "{a}");
+        assert!(a.ends_with("--max-budget-usd 2.5"), "{a}");
+        assert_eq!(permission_args(1, &[], 0.0), p(&["--permission-prompts", "none", "--permission-mode", "plan"]));
+        assert!(permission_args(2, &p(&["sandbox"]), 0.0).join(" ").contains("bypassPermissions --settings"));
+    }
+
+    #[test]
+    fn review_answers() {
+        let diff = "diff --git a/x.py b/x.py\n--- a/x.py\n+++ b/x.py\n@@ -1,3 +1,3 @@\n a = 1\n-b = 2\n+b = 3\n c = 4";
+        let n = number_diff(diff);
+        assert!(n.contains("[R1]  a = 1\n[L2] -b = 2\n[R2] +b = 3\n[R3]  c = 4"), "{n}");
+        assert!(n.starts_with("diff --git"), "{n}");
+        let t = "Voici :\n```json\n[{\"path\":\"x.py\",\"line\":2,\"side\":\"RIGHT\",\"severity\":\"Bug\",\"body\":\"b vaut 3 ?\"},\
+                 {\"path\":\"x.py\",\"line\":\"L2\",\"side\":\"left\",\"severity\":\"nit\",\"body\":\"ok\"},{\"path\":\"\",\"line\":0,\"body\":\"\"}]\n```";
+        assert_eq!(
+            parse_review(t).unwrap(),
+            vec![
+                ReviewNote { path: "x.py".into(), line: 2, side: "RIGHT".into(), severity: "bug".into(), body: "b vaut 3 ?".into() },
+                ReviewNote { path: "x.py".into(), line: 2, side: "LEFT".into(), severity: "nit".into(), body: "ok".into() },
+            ]
+        );
+        assert_eq!(parse_inline("    x = 1\n    y = 2\n"), Inline::Code("    x = 1\n    y = 2".into()));
+        assert_eq!(parse_inline("```python\n    x = 1\n```"), Inline::Code("    x = 1".into()));
+        assert_eq!(parse_inline("<extrait>\n  a\n</extrait>"), Inline::Code("  a".into()));
+        assert_eq!(parse_inline("EXPLICATION: Ça trie la liste."), Inline::Explain("Ça trie la liste.".into()));
+        assert_eq!(parse_review("Rien à redire (voir [R12]) : []").unwrap(), vec![]);
+        assert!(parse_review("désolé").is_err());
     }
 }

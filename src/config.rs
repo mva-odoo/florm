@@ -30,6 +30,11 @@ pub struct Settings {
     pub search_in_tab: bool,
     /// Claude in an editor tab instead of the bottom panel.
     pub claude_in_tab: bool,
+    /// What Claude may do: "edit", "bash", "web", "agents", and "sandbox" (commands isolated),
+    /// "confine" (files of the project only).
+    pub claude_perms: Vec<String>,
+    /// Most dollars a conversation may spend (0: no limit).
+    pub claude_budget: f64,
     /// Branch and upstream of git repositories on their folder in the tree.
     pub tree_git_info: bool,
     /// Show git changes inside the editor (deleted lines in red, added in green).
@@ -81,6 +86,8 @@ impl Default for Settings {
             show_menu_bar: true,
             search_in_tab: false,
             claude_in_tab: false,
+            claude_perms: ["edit", "agents", "sandbox"].map(String::from).to_vec(),
+            claude_budget: 0.0,
             tree_git_info: true,
             inline_diff: false,
             auto_pair: true,
@@ -130,6 +137,11 @@ show_menu_bar = true
 search_in_tab = false
 # Claude (Ctrl+Alt+C) dans un onglet plutôt que dans le panneau du bas
 claude_in_tab = false
+# Ce que Claude a le droit de faire : "edit" (modifier les fichiers), "bash" (lancer des commandes),
+# "web" (internet), "agents" (sous-agents), "sandbox" (commandes isolées), "confine" (fichiers du projet seulement)
+claude_perms = ["edit", "agents", "sandbox"]
+# dépense maximale d'une conversation en dollars (0 = sans limite)
+claude_budget = 0.0
 # branche et branche distante des dépôts git sur leur dossier dans l'arborescence
 tree_git_info = true
 # diff git dans l'éditeur : lignes supprimées en rouge, ajoutées en vert (Ctrl+Alt+D)

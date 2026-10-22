@@ -112,6 +112,7 @@ impl App {
         ui.menu_button("Git", |ui| {
             item(ui, "Panneau Git", Cmd::ShowGit);
             item(ui, "Commit…", Cmd::GitCommit);
+            item(ui, "Revue IA des changements", Cmd::GitAiReview);
             item(ui, "Pull", Cmd::GitPull);
             item(ui, "Push", Cmd::GitPush);
             item(ui, "Fetch", Cmd::GitFetch);
@@ -194,8 +195,14 @@ impl App {
                             };
                             let active = shown && !special;
                             let error = d.diagnostics.iter().any(|g| g.severity == Severity::Error);
+                            // a Claude conversation: working, or finished and not seen yet
+                            let tint = if error { Some(err()) } else { self.claude_tab_tint(d.uid) };
                             let (icon, title) = doc_tab(d);
-                            let (body, closed) = tab_widget(ui, &title, icon, d.is_dirty(), active, error, &tc);
+                            let (body, closed) = tab_widget(ui, &title, icon, d.is_dirty(), active, tint, &tc);
+                            if tint.is_some() && !error {
+                                let tip = if self.claude_tab_tint(d.uid) == Some(ok()) { "Claude a fini" } else { "Claude travaille…" };
+                                let _ = body.clone().on_hover_text(tip);
+                            }
                             strip.1.push((body.rect, i));
                             if body.drag_started() {
                                 drag_start = Some(i);
@@ -218,7 +225,7 @@ impl App {
                         // the Git tab stays like a file tab (in the first panel when split)
                         if self.history.tab && pane.unwrap_or(0) == 0 {
                             let on = self.history.open && !split_on && !self.prefs.open;
-                            let (body, closed) = tab_widget(ui, "Historique Git", TabIcon::View(icons::ViewIcon::Git), false, on, false, &tc);
+                            let (body, closed) = tab_widget(ui, "Historique Git", TabIcon::View(icons::ViewIcon::Git), false, on, None, &tc);
                             close_history = closed || body.middle_clicked();
                             show_history = body.clicked() && !closed;
                         }
@@ -227,7 +234,7 @@ impl App {
                         }
                         if let Some(sp) = &self.split {
                             let title = format!("Découpage {}", sp.info.short);
-                            let (body, closed) = tab_widget(ui, &title, TabIcon::View(icons::ViewIcon::Split), false, split_on, false, &tc);
+                            let (body, closed) = tab_widget(ui, &title, TabIcon::View(icons::ViewIcon::Split), false, split_on, None, &tc);
                             // the split stays in progress: × only switches away from it
                             if closed {
                                 activate = activate.or(Some(self.active));
@@ -237,7 +244,7 @@ impl App {
                             body.on_hover_text("Découpage en cours — « Terminer » ou « Annuler le découpage » dans l'onglet");
                         }
                         if self.prefs.open {
-                            let (_, closed) = tab_widget(ui, "Préférences", TabIcon::View(icons::ViewIcon::Settings), false, true, false, &tc);
+                            let (_, closed) = tab_widget(ui, "Préférences", TabIcon::View(icons::ViewIcon::Settings), false, true, None, &tc);
                             close_prefs = closed;
                         }
                     });
@@ -843,13 +850,11 @@ impl App {
                 ui.add(egui::TextEdit::singleline(&mut h.filter).hint_text("🔍 Filtrer : message, auteur, hash, branche…").desired_width(220.0))
                     .on_hover_text("↑ ↓ commits · ← → fichiers du diff · Page ↑ ↓ défiler");
                 if repo_choices.len() > 1 {
-                    egui::ComboBox::from_id_salt("history_repo").selected_text(&repo_name).show_ui(ui, |ui| {
-                        for (r, label) in &repo_choices {
-                            if ui.selectable_label(h.repo.as_ref() == Some(r), label).clicked() {
-                                chosen_repo = Some(r.clone());
-                            }
-                        }
-                    });
+                    let labels: Vec<String> = repo_choices.iter().map(|(_, l)| l.clone()).collect();
+                    let current = repo_choices.iter().position(|(r, _)| h.repo.as_ref() == Some(r));
+                    if let Some(k) = crate::pick::combo(ui, "history_repo", &repo_name, &labels, current) {
+                        chosen_repo = Some(repo_choices[k].0.clone());
+                    }
                 }
             });
         });
@@ -920,7 +925,7 @@ impl App {
         let in_editor = |v: document::View| move |d: &Document| d.view == v;
         let tab_of = match tab {
             BottomTab::Search => self.docs.iter().position(in_editor(document::View::Search)),
-            BottomTab::Claude => self.docs.iter().position(in_editor(document::View::Claude)),
+            // each Claude tab is a conversation of its own: it stays
             BottomTab::Pulls => self.docs.iter().position(in_editor(document::View::PullRequests)),
             _ => None,
         };
@@ -951,8 +956,7 @@ impl App {
                 if self.bottom == Some(BottomTab::Claude) {
                     self.bottom = None;
                 }
-                self.open_view_tab(document::View::Claude, "Claude".into());
-                self.claude_prepare();
+                self.move_claude(true);
             }
             BottomTab::Git => self.open_git_view(),
             BottomTab::Pulls => self.open_pulls(),
@@ -1004,7 +1008,7 @@ impl App {
                             }
                         });
                     }
-                    Some(BottomTab::Claude) if self.docs.iter().any(|d| d.view == document::View::Claude) => {
+                    Some(BottomTab::Claude) if !self.claude_has_bottom() => {
                         ui.horizontal(|ui| {
                             ui.label(RichText::new("Claude est dans un onglet de l'éditeur.").weak());
                             if ui.button("Le remettre ici").clicked() {
@@ -1012,7 +1016,7 @@ impl App {
                             }
                         });
                     }
-                    Some(BottomTab::Claude) => self.claude_ui(ui, false),
+                    Some(BottomTab::Claude) => self.claude_show(ui, None),
                     Some(BottomTab::Git) if self.history.open => {
                         ui.horizontal(|ui| {
                             ui.label(RichText::new("Git est ouvert en grand dans l'éditeur.").weak());
@@ -1246,6 +1250,7 @@ impl App {
         }
         ui.separator();
         let what = if has_selection { "la sélection" } else { "la ligne" };
+        item(ui, &format!("✳ Modifier ou expliquer {what} avec Claude, ici…"), Cmd::ClaudeInline, true);
         item(ui, &format!("✳ Demander à Claude à propos de {what}…"), Cmd::ClaudeAsk, has_path);
         item(ui, &format!("✳ Ajouter {what} au contexte de Claude"), Cmd::ClaudeAddSelection, has_path);
         item(ui, "✳ Ajouter le fichier au contexte de Claude", Cmd::ClaudeAddFile, has_path);

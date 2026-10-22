@@ -307,7 +307,7 @@ impl App {
                 });
                 let status: Vec<(&str, bool)> =
                     ["flake8", "ruff", "pyflakes", "pylint"].iter().map(|n| (*n, lint::is_installed(n))).collect();
-                pref_row(ui, rc, "Linter Python", "« Automatique » prend flake8, sinon ruff, sinon pyflakes. La configuration du projet (setup.cfg, .flake8, tox.ini, pyproject.toml) est lue.", |ui| {
+                pref_row(ui, rc, "Linter Python", "« Automatique » prend flake8, sinon ruff, sinon pyflakes ; un linter qui plante est signalé en ligne 1 et le suivant prend le relais. ruff est le plus rapide et le plus léger (quelques Mo, en Rust). La configuration du projet (setup.cfg, .flake8, tox.ini, pyproject.toml) est lue.", |ui| {
                     let label = |n: &str| match n {
                         "auto" => "Automatique".to_string(),
                         n => {

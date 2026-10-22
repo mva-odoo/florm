@@ -338,6 +338,7 @@ impl App {
             SuggestCommit => self.suggest_commit_message(),
             ClaudeAddSelection => self.claude_attach_selection(false),
             ClaudeAsk => self.claude_attach_selection(true),
+            ClaudeInline => self.inline_ai_open(),
             ClaudeAddFile => {
                 if let Some(p) = self.docs.get(self.active).and_then(|d| d.path.clone()) {
                     self.claude_attach_path(p);
@@ -611,6 +612,11 @@ impl App {
             GitCommit => {
                 self.open_git_view();
                 self.git.focus_commit = true;
+            }
+            GitAiReview => {
+                self.open_git_view();
+                self.show_wip(false);
+                self.ai_review_wip();
             }
             GitCheckout => {
                 if let Some(repo) = self.repo.clone() {

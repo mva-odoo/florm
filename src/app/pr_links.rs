@@ -26,7 +26,6 @@ pub(super) struct PrCreate {
     /// Branches of the repository pull requests go to, and the one chosen.
     bases: Vec<String>,
     base: String,
-    filter: String,
     /// Remotes the branch can be pushed to: (name, GitHub owner).
     remotes: Vec<(String, String)>,
     remote: usize,
@@ -166,7 +165,6 @@ impl App {
             body,
             bases: Vec::new(),
             base: String::new(),
-            filter: String::new(),
             remotes,
             remote,
             draft: false,
@@ -242,13 +240,10 @@ impl App {
                         Some((full, _)) => {
                             ui.label(RichText::new(full).strong());
                             ui.label(RichText::new("branche").weak());
-                            egui::ComboBox::from_id_salt("pr_create_base").selected_text(RichText::new(&c.base).monospace().color(accent)).height(320.0).show_ui(ui, |ui| {
-                                ui.add(egui::TextEdit::singleline(&mut c.filter).hint_text("🔍 filtrer…").desired_width(220.0));
-                                let f = c.filter.to_lowercase();
-                                for b in c.bases.iter().filter(|b| f.is_empty() || b.to_lowercase().contains(&f)).take(300) {
-                                    ui.selectable_value(&mut c.base, b.clone(), b);
-                                }
-                            });
+                            let current = c.bases.iter().position(|b| *b == c.base);
+                            if let Some(k) = crate::pick::combo(ui, "pr_create_base", RichText::new(&c.base).monospace().color(accent), &c.bases, current) {
+                                c.base = c.bases[k].clone();
+                            }
                         }
                     });
                     ui.end_row();

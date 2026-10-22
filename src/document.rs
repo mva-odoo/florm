@@ -142,6 +142,11 @@ pub struct Document {
     pub claude_pick: Option<(usize, usize)>,
     /// What the app found about a hovered symbol (its range, the text of the tooltip).
     pub hover_info: Option<((usize, usize), String)>,
+    /// Where the hovered symbol is defined in the project (like Sublime Text): its range, the
+    /// definitions (file, 0-based line, what, where) and how many more there are.
+    pub hover_defs: Option<((usize, usize), Vec<(PathBuf, usize, String, String)>, usize)>,
+    /// A definition clicked in the hover popup: the app opens it.
+    pub goto_request: Option<(PathBuf, usize)>,
     /// Inline blame annotation: (line, document version, text).
     pub blame: Option<(usize, u64, String)>,
     pub mtime: Option<SystemTime>,
@@ -413,6 +418,8 @@ impl Document {
             hover_word: None,
             claude_pick: None,
             hover_info: None,
+            hover_defs: None,
+            goto_request: None,
             blame: None,
             mtime: None,
             crlf: false,
@@ -816,6 +823,7 @@ impl Document {
     fn touch(&mut self, from_line: usize) {
         self.version += 1;
         self.hover_info = None;
+        self.hover_defs = None;
         self.content_id = next_content_id();
         self.highlight.invalidate(from_line);
         self.scroll_to_cursor = true;

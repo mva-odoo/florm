@@ -111,6 +111,11 @@ impl App {
     /// Tooltip of the symbol under the mouse: the language server's documentation, else (or
     /// when it has nothing) its definitions in the project index.
     pub(super) fn update_hover(&mut self, ctx: &egui::Context) {
+        // a definition clicked in the hover popup
+        if let Some((p, l)) = self.docs.iter_mut().find_map(|d| d.goto_request.take()) {
+            self.open_at(p, l);
+            return;
+        }
         let i = self.active;
         let Some(d) = self.docs.get(i) else { return };
         let Some(range) = d.hover_word else { return };
@@ -119,40 +124,45 @@ impl App {
             return;
         }
         let word = d.slice(range.0, range.1);
+        // where it is defined, from the project index (one look per symbol hovered)
+        if d.hover_defs.as_ref().map(|h| h.0) != Some(range) {
+            let (defs, more) = self.index_defs(&word);
+            self.docs[i].hover_defs = Some((range, defs, more));
+        }
+        let d = &self.docs[i];
         let pos = lsp::to_position(&d.rope, range.0);
         let uri = d.path.as_ref().map(|p| lsp::path_to_uri(p));
         if let (Some((ci, _)), Some(uri)) = (self.lsp_for(i, ctx, false), uri) {
             if let Some(cl) = self.lsp.manager.client(ci) {
                 let id = cl.request("textDocument/hover", serde_json::json!({ "textDocument": { "uri": uri }, "position": pos }));
-                self.lsp.requests.insert((ci, id), LspReq::Hover { uid, range, word });
+                self.lsp.requests.insert((ci, id), LspReq::Hover { uid, range });
                 self.lsp.hover_pending = Some((uid, range));
                 return;
             }
         }
-        let text = self.index_hover(&word);
-        self.docs[i].hover_info = Some((range, text));
+        // without a language server, the popup only shows the definitions
+        self.docs[i].hover_info = Some((range, String::new()));
     }
 
-    /// Definitions of `word` in the project index, for a tooltip ("" when none).
-    pub(super) fn index_hover(&self, word: &str) -> String {
+    /// Definitions of `word` in the project index: (file, 0-based line, what, where) for the
+    /// first ones, and how many more there are.
+    pub(super) fn index_defs(&self, word: &str) -> (Vec<(PathBuf, usize, String, String)>, usize) {
+        const SHOWN: usize = 8;
         if word.chars().count() < 2 || word.chars().all(|c| c.is_ascii_digit()) {
-            return String::new();
+            return (Vec::new(), 0);
         }
-        let Some(ix) = &self.index.symbols else { return String::new() };
+        let Some(ix) = &self.index.symbols else { return (Vec::new(), 0) };
         let found = ix.lookup(word);
-        let mut lines: Vec<String> = found
+        let defs = found
             .iter()
-            .take(6)
+            .take(SHOWN)
             .map(|(p, e)| {
                 let rel = self.root.as_ref().and_then(|r| p.strip_prefix(r).ok()).unwrap_or(p).display().to_string();
                 let what = if e.detail.is_empty() { format!("{} {}", e.kind.icon(), e.name) } else { format!("{} {}", e.kind.icon(), e.detail.trim()) };
-                format!("{what}\n    {rel}:{}", e.line + 1)
+                (p.clone(), e.line, what, format!("{rel}:{}", e.line + 1))
             })
             .collect();
-        if found.len() > 6 {
-            lines.push(format!("… et {} autre(s) (F12 pour la liste)", found.len() - 6));
-        }
-        lines.join("\n")
+        (defs, found.len().saturating_sub(SHOWN))
     }
 
     /// Where the symbol under the cursor is used: the language server's list, else a whole word
@@ -338,14 +348,12 @@ impl App {
                 }
                 None => self.index_definition(&word),
             },
-            LspReq::Hover { uid, range, word } => {
+            LspReq::Hover { uid, range } => {
                 if self.lsp.hover_pending == Some((uid, range)) {
                     self.lsp.hover_pending = None;
                 }
-                let mut text = lsp::parse_hover(&v);
-                if text.is_empty() {
-                    text = self.index_hover(&word);
-                }
+                // the definitions of the index are shown under it, in the popup
+                let text = lsp::parse_hover(&v);
                 if let Some(d) = self.docs.iter_mut().find(|d| d.uid == uid) {
                     d.hover_info = Some((range, text.lines().take(30).collect::<Vec<_>>().join("\n")));
                 }

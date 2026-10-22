@@ -22,6 +22,7 @@ mod lint;
 mod logo;
 mod lsp;
 mod os;
+mod pick;
 mod plugins;
 mod project;
 mod rebase;

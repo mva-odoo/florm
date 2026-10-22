@@ -6,18 +6,25 @@
 
 use super::*;
 use crate::claude::{self, Event};
+use serde::{Deserialize, Serialize};
 use history::{DiffAct, DiffClick};
 
-/// Something given to Claude with the next message: lines of a file, or a file / folder.
+/// Something given to Claude with the next message: lines of a file, a file / folder, or a text
+/// (the changes not committed, the problems of a file…).
 #[derive(Clone)]
 pub(super) struct Attach {
     path: PathBuf,
     /// Lines (1-based, first and last) and their text; None: the whole file or folder.
     lines: Option<(usize, usize, String)>,
+    /// A text and what it is (instead of a file).
+    note: Option<(String, String)>,
 }
 
 impl Attach {
     fn label(&self, dir: Option<&Path>) -> String {
+        if let Some((label, _)) = &self.note {
+            return label.clone();
+        }
         let rel = dir.and_then(|d| self.path.strip_prefix(d).ok()).unwrap_or(&self.path).display().to_string();
         match &self.lines {
             Some((a, b, _)) if a == b => format!("{rel}:{a}"),
@@ -29,6 +36,9 @@ impl Attach {
     /// How it is said to Claude.
     fn prompt(&self, dir: Option<&Path>) -> String {
         let label = self.label(dir);
+        if let Some((_, text)) = &self.note {
+            return format!("{label} :\n```\n{text}\n```");
+        }
         match &self.lines {
             Some((_, _, text)) => {
                 let lang = self.path.extension().and_then(|e| e.to_str()).unwrap_or("");
@@ -40,7 +50,18 @@ impl Attach {
     }
 }
 
+/// What can be added to the context from the chat (« + Contexte »).
+#[derive(Clone, Copy)]
+enum CtxAdd {
+    File,
+    Selection,
+    Tabs,
+    Diff,
+    Problems,
+}
+
 /// A line of the conversation.
+#[derive(Clone, Serialize, Deserialize)]
 enum Item {
     /// A message, with what was given with it.
     User(String, Vec<String>),
@@ -54,8 +75,20 @@ enum Item {
 
 #[derive(Default)]
 pub(super) struct ClaudeUi {
+    /// Number of the conversation (0: the first one), and the editor tab showing it (document
+    /// uid; None: the bottom panel).
+    id: u64,
+    tab: Option<u64>,
+    /// It finished answering while it was not shown: its tab is colored until seen.
+    unseen: bool,
+    /// Key of the conversation in the saved ones (0: not saved yet).
+    saved_key: u64,
+    /// Session of Claude Code, continued (`--resume`) when the process is started again (after
+    /// a restart of Florm), and whether the running process confirmed it.
+    session_id: Option<String>,
+    started: bool,
     /// Folder of the conversation (the selected repository, else the project).
-    dir: Option<PathBuf>,
+    pub(super) dir: Option<PathBuf>,
     session: Option<claude::Session>,
     items: Vec<Item>,
     input: String,
@@ -84,9 +117,55 @@ pub(super) struct ClaudeUi {
     pub(super) focus: bool,
 }
 
-/// Review index of a repository (inside .git: not seen by git status, not committed).
-fn review_index_of(repo: &Path) -> PathBuf {
-    let p = git::stdout(repo, &["rev-parse", "--git-path", "florm-review-index"]).unwrap_or_default();
+/// A conversation kept between sessions of Florm: what was said, and the Claude Code session to
+/// continue it with its context.
+#[derive(Clone, Serialize, Deserialize)]
+pub(super) struct SavedConv {
+    key: u64,
+    title: String,
+    dir: Option<PathBuf>,
+    model: usize,
+    mode: usize,
+    session_id: Option<String>,
+    wish: Option<String>,
+    cost: f64,
+    /// Last change, in unix seconds.
+    updated: i64,
+    items: Vec<Item>,
+}
+
+/// Most conversations kept.
+const SAVED_MAX: usize = 50;
+
+fn saved_path() -> PathBuf {
+    config::data_dir().join("claude_conversations.json")
+}
+
+/// The saved conversations, newest first.
+pub(super) fn load_saved() -> Vec<SavedConv> {
+    std::fs::read_to_string(saved_path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+}
+
+fn write_saved(list: &[SavedConv]) -> Result<(), String> {
+    let p = saved_path();
+    if let Some(d) = p.parent() {
+        let _ = std::fs::create_dir_all(d);
+    }
+    let text = serde_json::to_string(list).map_err(|e| e.to_string())?;
+    // written aside then renamed: a crash never leaves half a file
+    let tmp = p.with_extension("json.tmp");
+    std::fs::write(&tmp, text).and_then(|_| std::fs::rename(&tmp, &p)).map_err(|e| e.to_string())
+}
+
+fn now_secs() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64)
+}
+
+/// Review index of a repository for conversation `conv` (inside .git: not seen by git status,
+/// not committed); each conversation has its own.
+fn review_index_of(repo: &Path, conv: u64) -> PathBuf {
+    let name = if conv == 0 { "florm-review-index".to_string() } else { format!("florm-review-index-{conv}") };
+    let p = git::stdout(repo, &["rev-parse", "--git-path", &name]).unwrap_or_default();
     let p = PathBuf::from(p.trim());
     if p.is_absolute() {
         p
@@ -128,15 +207,35 @@ impl App {
             if self.bottom == Some(BottomTab::Claude) {
                 self.bottom = None;
             }
-            self.open_view_tab(document::View::Claude, "Claude".into());
+            // the tab of the current conversation, else the first one (or a new one)
+            match self.claude.tab.and_then(|u| self.docs.iter().position(|d| d.uid == u)) {
+                Some(i) => self.activate_tab(i),
+                None => self.open_view_tab(document::View::Claude, "Claude".into()),
+            }
         } else {
             self.bottom = Some(BottomTab::Claude);
         }
         self.claude_prepare();
     }
 
+    /// Shows Claude with `text` written in its field (not sent: to read and send), in `dir`
+    /// when no conversation runs elsewhere.
+    pub(super) fn claude_prefill(&mut self, dir: PathBuf, text: String) {
+        if self.claude.session.is_none() && self.claude.dir.as_ref() != Some(&dir) {
+            self.claude.dir = Some(dir);
+            self.claude.review_index = None;
+            self.claude.review = None;
+        }
+        if !self.claude.input.trim().is_empty() {
+            self.claude.input.push_str("\n\n");
+        }
+        self.claude.input.push_str(&text);
+        self.open_claude();
+    }
+
     /// Its folder, the keyboard and the review, wherever Claude is shown.
     pub(super) fn claude_prepare(&mut self) {
+        self.claude_restore_last();
         if self.claude.dir.is_none() {
             self.claude.dir = self.repo.clone().or_else(|| self.root.clone());
         }
@@ -151,11 +250,17 @@ impl App {
         if events.is_empty() {
             return;
         }
-        let mut reload = false;
+        let (mut reload, mut save) = (false, false);
         for e in events {
             let items = &mut self.claude.items;
             match e {
-                Event::Init { .. } => {}
+                // its session: continued after a restart of Florm
+                Event::Init { session, .. } => {
+                    if !session.is_empty() {
+                        self.claude.session_id = Some(session);
+                    }
+                    self.claude.started = true;
+                }
                 Event::Delta(t) => match items.last_mut() {
                     Some(Item::Streaming(s)) => s.push_str(&t),
                     _ => items.push(Item::Streaming(t)),
@@ -186,6 +291,7 @@ impl App {
                 Event::Limits(l) => self.claude.limits = l,
                 Event::Done { error, text, cost, window } => {
                     self.claude.busy = false;
+                    self.claude.unseen = true;
                     self.claude.cost += cost;
                     if window > 0 {
                         self.claude.context.1 = window;
@@ -198,15 +304,30 @@ impl App {
                         items.push(Item::Error(text));
                     }
                     reload = true;
+                    save = true;
                 }
                 Event::Exited(err) => {
                     self.claude.busy = false;
+                    self.claude.unseen = true;
                     self.claude.session = None;
-                    let msg = if err.is_empty() { "Claude s'est arrêté : un nouveau message démarre une nouvelle conversation.".to_string() } else { err };
+                    if !self.claude.started && self.claude.session_id.is_some() {
+                        // the session to continue could not be found: the next message starts afresh
+                        self.claude.session_id = None;
+                        items.push(Item::Info("La session d'avant n'a pas pu être reprise : le prochain message repart sans son contexte.".into()));
+                    }
+                    let msg = match (err.is_empty(), self.claude.session_id.is_some()) {
+                        (false, _) => err,
+                        (true, true) => "Claude s'est arrêté : le prochain message reprend la conversation.".to_string(),
+                        (true, false) => "Claude s'est arrêté : un nouveau message démarre une nouvelle conversation.".to_string(),
+                    };
                     items.push(Item::Error(msg));
+                    save = true;
                     break;
                 }
             }
+        }
+        if save {
+            self.claude_save();
         }
         if reload {
             self.claude_reload_review();
@@ -242,9 +363,13 @@ impl App {
             }
         }
         if self.claude.session.is_none() {
-            let (model, mode) = (claude::MODELS[self.claude.model].0, claude::MODES[self.claude.mode].0);
+            let model = claude::MODELS[self.claude.model].0;
+            let perms = claude::permission_args(self.claude.mode, &self.settings.claude_perms, self.settings.claude_budget);
             let ctx = self.egui_ctx.clone();
-            match claude::Session::start(&dir, model, mode, move || ctx.request_repaint()) {
+            // a conversation of before (restart of Florm, process stopped): continued with its context
+            let resume = self.claude.session_id.clone();
+            self.claude.started = false;
+            match claude::Session::start(&dir, model, &perms, resume.as_deref(), move || ctx.request_repaint()) {
                 Ok(s) => self.claude.session = Some(s),
                 Err(e) => {
                     self.claude.items.push(Item::Error(e));
@@ -257,9 +382,18 @@ impl App {
         match s.send(&message) {
             Ok(()) => {
                 self.claude.items.push(Item::User(text.clone(), given));
+                let first = self.claude.wish.is_none();
                 self.claude.wish.get_or_insert(text);
                 self.claude.input.clear();
                 self.claude.busy = true;
+                // its tab is named after the first message
+                if let (true, Some(uid)) = (first, self.claude.tab) {
+                    let title = self.claude_title();
+                    if let Some(d) = self.docs.iter_mut().find(|d| d.uid == uid) {
+                        d.title_override = Some(title);
+                    }
+                }
+                self.claude_save();
             }
             Err(e) => {
                 self.claude.session = None;
@@ -278,11 +412,79 @@ impl App {
         };
         let b = b.min(d.rope.len_lines().saturating_sub(1));
         let text: String = (a..=b).map(|l| d.line_text(l)).collect::<Vec<_>>().join("\n");
-        self.claude_attach(Attach { path, lines: Some((a + 1, b + 1, text)) });
+        self.claude_attach(Attach { path, lines: Some((a + 1, b + 1, text)), note: None });
     }
 
     pub(super) fn claude_attach_path(&mut self, path: PathBuf) {
-        self.claude_attach(Attach { path, lines: None });
+        self.claude_attach(Attach { path, lines: None, note: None });
+    }
+
+    /// A text given to Claude with the next message (`label`: what it is).
+    fn claude_attach_note(&mut self, label: String, text: String) {
+        let path = self.claude.dir.clone().unwrap_or_default();
+        self.claude_attach(Attach { path, lines: None, note: Some((label, text)) });
+    }
+
+    /// The text document Claude's context is about: the active one, else the last one opened.
+    fn claude_editor_doc(&self) -> Option<usize> {
+        let ok = |d: &Document| d.view == document::View::Text && d.path.is_some();
+        self.docs.get(self.active).filter(|d| ok(*d)).map(|_| self.active).or_else(|| self.docs.iter().rposition(ok))
+    }
+
+    /// What the « + Contexte » menu of the chat asked for.
+    fn claude_add_context(&mut self, what: CtxAdd) {
+        let doc = self.claude_editor_doc();
+        match what {
+            CtxAdd::File => match doc.and_then(|i| self.docs[i].path.clone()) {
+                Some(p) => self.claude_attach_path(p),
+                None => self.set_status("Aucun fichier ouvert"),
+            },
+            CtxAdd::Selection => match doc {
+                Some(i) => {
+                    let d = &self.docs[i];
+                    let s = d.primary_sel();
+                    let a = d.rope.char_to_line(s.start());
+                    let b = d.rope.char_to_line(s.end().saturating_sub(usize::from(s.end() > s.start())));
+                    self.claude_attach_lines(i, a, b.max(a));
+                }
+                None => self.set_status("Aucun fichier ouvert"),
+            },
+            CtxAdd::Tabs => {
+                let paths: Vec<PathBuf> = self.docs.iter().filter(|d| d.view == document::View::Text).filter_map(|d| d.path.clone()).collect();
+                for p in paths {
+                    self.claude_attach_path(p);
+                }
+            }
+            CtxAdd::Diff => {
+                let Some(dir) = self.claude.dir.clone() else { return };
+                match super::git_view::worktree_diff(&dir, &["diff", "HEAD"]) {
+                    Ok(d) if !d.trim().is_empty() => {
+                        let d: String = d.chars().take(60_000).collect();
+                        self.claude_attach_note("Changements non commités".into(), d);
+                    }
+                    Ok(_) => self.set_status("Aucun changement non commité"),
+                    Err(e) => self.set_status(format!("git diff : {}", e.lines().next().unwrap_or(""))),
+                }
+            }
+            CtxAdd::Problems => {
+                let Some(i) = doc else {
+                    self.set_status("Aucun fichier ouvert");
+                    return;
+                };
+                let d = &self.docs[i];
+                let name = d.path.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                let list: Vec<String> = d
+                    .diagnostics
+                    .iter()
+                    .map(|g| format!("ligne {} : {}{} ({})", g.line + 1, g.code.as_ref().map(|c| format!("{c} ")).unwrap_or_default(), g.message, g.source))
+                    .collect();
+                if list.is_empty() {
+                    self.set_status(format!("Aucun problème dans {name}"));
+                } else {
+                    self.claude_attach_note(format!("Problèmes de {name}"), list.join("\n"));
+                }
+            }
+        }
     }
 
     fn claude_attach(&mut self, a: Attach) {
@@ -290,7 +492,13 @@ impl App {
             self.claude.dir = self.repo_for(&a.path).or_else(|| self.repo.clone()).or_else(|| self.root.clone());
         }
         let label = a.label(self.claude.dir.as_deref());
-        if !self.claude.attach.iter().any(|x| x.path == a.path && x.lines.as_ref().map(|l| (l.0, l.1)) == a.lines.as_ref().map(|l| (l.0, l.1))) {
+        let same = |x: &Attach| {
+            x.path == a.path && x.lines.as_ref().map(|l| (l.0, l.1)) == a.lines.as_ref().map(|l| (l.0, l.1)) && x.note.as_ref().map(|n| &n.0) == a.note.as_ref().map(|n| &n.0)
+        };
+        if let Some(x) = self.claude.attach.iter_mut().find(|x| same(x)) {
+            // the same diff or problems again: the newest text
+            x.note = a.note;
+        } else {
             self.claude.attach.push(a);
         }
         self.set_status(format!("✳ {label} ajouté au contexte de Claude ({} élément(s)) — Ctrl+Alt+C pour lui écrire", self.claude.attach.len()));
@@ -336,7 +544,7 @@ impl App {
     /// The review starts from the files as they are now.
     fn claude_start_review(&mut self) {
         let Some(repo) = self.claude.dir.clone().filter(|d| d.join(".git").exists()) else { return };
-        let index = review_index_of(&repo);
+        let index = review_index_of(&repo, self.claude.id);
         let r = rgit(&repo, &index, &["read-tree", "HEAD"], None).and_then(|_| rgit(&repo, &index, &["add", "-A"], None));
         match r {
             Ok(_) => {
@@ -351,15 +559,18 @@ impl App {
     fn claude_reload_review(&mut self) {
         let (Some(repo), Some(index)) = (self.claude.dir.clone(), self.claude.review_index.clone()) else { return };
         self.claude.review_loading = true;
-        self.jobs.spawn(move || JobResult::ClaudeReview(review_diff(&repo, &index)));
+        let id = self.claude.id;
+        self.jobs.spawn(move || JobResult::ClaudeReview(id, review_diff(&repo, &index)));
     }
 
-    pub(super) fn claude_review_loaded(&mut self, r: Result<String, String>) {
-        self.claude.review_loading = false;
+    /// The review of conversation `id` read again (wherever the conversation is now).
+    pub(super) fn claude_review_loaded(&mut self, id: u64, r: Result<String, String>) {
+        let Some(c) = std::iter::once(&mut self.claude).chain(self.claude_others.iter_mut()).find(|c| c.id == id) else { return };
+        c.review_loading = false;
         let text = r.unwrap_or_else(|e| e);
         let lines = history::parse_diff(&text);
         let files = history::diff_files(&lines);
-        self.claude.review = Some(HistoryDiff { hash: String::new(), path: None, text, lines, files });
+        c.review = Some(HistoryDiff { hash: String::new(), path: None, text, lines, files });
     }
 
     /// Keeps or rejects a block or a file of the review.
@@ -439,14 +650,227 @@ impl App {
 
     /// Claude into an editor tab (⇱, more room) or back into the bottom panel (⇲), remembered.
     pub(super) fn move_claude(&mut self, to_tab: bool) {
-        if !to_tab {
-            if let Some(i) = self.docs.iter().position(|d| d.view == document::View::Claude) {
-                self.close_tab(i, true);
+        if to_tab {
+            if self.claude.tab.is_none() {
+                let uid = self.new_claude_tab(self.claude_title());
+                self.claude.tab = Some(uid);
+            }
+        } else if let Some(uid) = self.claude.tab.take() {
+            // the conversation of the bottom panel until now takes its tab
+            match self.claude_others.iter_mut().find(|o| o.tab.is_none()) {
+                Some(o) => o.tab = Some(uid),
+                None => {
+                    if let Some(i) = self.docs.iter().position(|d| d.uid == uid) {
+                        self.close_tab(i, true);
+                    }
+                }
             }
         }
         self.settings.claude_in_tab = to_tab;
         self.persist("claude_in_tab", to_tab.to_string());
         self.open_claude();
+    }
+
+    /// A new editor tab for a conversation; returns its uid.
+    fn new_claude_tab(&mut self, title: String) -> u64 {
+        let uid = self.next_uid();
+        let mut d = Document::new(uid, self.settings.tab_size, self.settings.translate_tabs_to_spaces);
+        d.view = document::View::Claude;
+        d.read_only = true;
+        d.title_override = Some(title);
+        self.docs.push(d);
+        self.activate_tab(self.docs.len() - 1);
+        uid
+    }
+
+    /// Title of the tab of the current conversation: its first message, short.
+    fn claude_title(&self) -> String {
+        match self.claude.wish.as_deref().and_then(|w| w.lines().find(|l| !l.trim().is_empty())) {
+            Some(l) if l.chars().count() > 28 => format!("{}…", l.trim().chars().take(27).collect::<String>()),
+            Some(l) => l.trim().to_string(),
+            None => "Claude".into(),
+        }
+    }
+
+    /// An empty conversation with the settings of the current one, shown in `tab`.
+    fn claude_fresh(&self, tab: Option<u64>) -> ClaudeUi {
+        static N: AtomicU64 = AtomicU64::new(1);
+        let c = &self.claude;
+        ClaudeUi {
+            id: N.fetch_add(1, Ordering::Relaxed),
+            tab,
+            dir: c.dir.clone(),
+            model: c.model,
+            mode: c.mode,
+            limits: c.limits.clone(),
+            with_context: c.with_context,
+            focus: true,
+            ..Default::default()
+        }
+    }
+
+    /// « Nouvelle conversation »: in a new tab, the current one goes on in its place.
+    fn claude_new_conversation(&mut self) {
+        let empty = self.claude.session.is_none() && self.claude.items.iter().all(|i| matches!(i, Item::Info(_)));
+        if empty {
+            self.claude.focus = true;
+            return;
+        }
+        let uid = self.new_claude_tab("Claude".into());
+        let fresh = self.claude_fresh(Some(uid));
+        let old = std::mem::replace(&mut self.claude, fresh);
+        self.claude_others.push(old);
+        if self.bottom == Some(BottomTab::Claude) && !self.claude_has_bottom() {
+            self.bottom = None;
+        }
+        self.claude_prepare();
+    }
+
+    /// A conversation is meant for the bottom panel.
+    pub(super) fn claude_has_bottom(&self) -> bool {
+        self.claude.tab.is_none() || self.claude_others.iter().any(|o| o.tab.is_none())
+    }
+
+    /// The conversation of `tab` (None: the bottom panel), made the current one, and shown.
+    pub(super) fn claude_show(&mut self, ui: &mut egui::Ui, tab: Option<u64>) {
+        self.claude_restore_last();
+        if self.claude.tab != tab {
+            if let Some(k) = self.claude_others.iter().position(|o| o.tab == tab) {
+                std::mem::swap(&mut self.claude, &mut self.claude_others[k]);
+            } else if tab.is_some() && self.claude.tab.is_none() && self.bottom != Some(BottomTab::Claude) {
+                // a Claude tab without a conversation (from the menu, a restored session): the
+                // current one, shown nowhere, goes there
+                self.claude.tab = tab;
+            } else {
+                let fresh = self.claude_fresh(tab);
+                let old = std::mem::replace(&mut self.claude, fresh);
+                self.claude_others.push(old);
+                self.claude_prepare();
+            }
+        }
+        self.claude.unseen = false;
+        self.claude_ui(ui, tab.is_some());
+    }
+
+    /// What every conversation received; those whose tab was closed are over.
+    pub(super) fn claude_poll_all(&mut self) {
+        self.claude_poll();
+        for k in 0..self.claude_others.len() {
+            if self.claude_others[k].session.is_some() {
+                std::mem::swap(&mut self.claude, &mut self.claude_others[k]);
+                self.claude_poll();
+                std::mem::swap(&mut self.claude, &mut self.claude_others[k]);
+            }
+        }
+        let docs = &self.docs;
+        let alive = |c: &ClaudeUi| c.tab.map_or(true, |u| docs.iter().any(|d| d.uid == u));
+        self.claude_others.retain(alive);
+        if !alive(&self.claude) {
+            self.claude = match self.claude_others.iter().position(|o| o.tab.is_none()) {
+                Some(k) => self.claude_others.remove(k),
+                None => self.claude_fresh(None),
+            };
+        }
+    }
+
+    /// The current conversation written to disk (after each message and each answer).
+    fn claude_save(&mut self) {
+        let c = &self.claude;
+        if !c.items.iter().any(|i| matches!(i, Item::User(..))) {
+            return;
+        }
+        let key = match c.saved_key {
+            0 => std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.as_millis() as u64),
+            k => k,
+        };
+        let items = c.items.iter().map(|i| if let Item::Streaming(t) = i { Item::Text(t.clone()) } else { i.clone() }).collect();
+        let saved = SavedConv {
+            key,
+            title: self.claude_title(),
+            dir: c.dir.clone(),
+            model: c.model,
+            mode: c.mode,
+            session_id: c.session_id.clone(),
+            wish: c.wish.clone(),
+            cost: c.cost,
+            updated: now_secs(),
+            items,
+        };
+        self.claude.saved_key = key;
+        self.claude_saved.retain(|s| s.key != key);
+        self.claude_saved.insert(0, saved);
+        self.claude_saved.truncate(SAVED_MAX);
+        if let Err(e) = write_saved(&self.claude_saved) {
+            self.log(format!("Conversations Claude non enregistrées : {e}"));
+        }
+    }
+
+    /// A saved conversation, ready to go on (shown in `tab`).
+    fn claude_from_saved(&self, s: &SavedConv, tab: Option<u64>) -> ClaudeUi {
+        let mut c = self.claude_fresh(tab);
+        c.saved_key = s.key;
+        c.dir = s.dir.clone().or(c.dir);
+        c.model = s.model.min(claude::MODELS.len() - 1);
+        c.mode = s.mode.min(claude::MODES.len() - 1);
+        c.session_id = s.session_id.clone();
+        c.wish = s.wish.clone();
+        c.cost = s.cost;
+        c.items = s.items.clone();
+        c.items.push(Item::Info("— conversation reprise : le prochain message continue avec son contexte —".into()));
+        c
+    }
+
+    /// At the first showing of Claude after a start: the last conversation is back.
+    fn claude_restore_last(&mut self) {
+        if std::mem::replace(&mut self.claude_loaded, true) {
+            return;
+        }
+        if self.claude.items.is_empty() && self.claude.session.is_none() {
+            if let Some(s) = self.claude_saved.first().cloned() {
+                let tab = self.claude.tab;
+                self.claude = self.claude_from_saved(&s, tab);
+            }
+        }
+    }
+
+    /// A conversation of the history: shown where it is open, else in a new tab.
+    fn claude_open_saved(&mut self, key: u64) {
+        if self.claude.saved_key == key {
+            self.open_claude();
+            return;
+        }
+        if let Some(o) = self.claude_others.iter().find(|o| o.saved_key == key) {
+            match o.tab.and_then(|u| self.docs.iter().position(|d| d.uid == u)) {
+                Some(i) => self.activate_tab(i),
+                None => self.bottom = Some(BottomTab::Claude),
+            }
+            return;
+        }
+        let Some(s) = self.claude_saved.iter().find(|s| s.key == key).cloned() else { return };
+        let uid = self.new_claude_tab(s.title.clone());
+        let conv = self.claude_from_saved(&s, Some(uid));
+        let old = std::mem::replace(&mut self.claude, conv);
+        self.claude_others.push(old);
+    }
+
+    /// A conversation taken out of the history (not the open ones).
+    fn claude_forget_saved(&mut self, key: u64) {
+        self.claude_saved.retain(|s| s.key != key);
+        if let Err(e) = write_saved(&self.claude_saved) {
+            self.log(format!("Conversations Claude non enregistrées : {e}"));
+        }
+    }
+
+    /// Color of the title of a Claude tab: working (accent), finished and not seen yet (green).
+    pub(super) fn claude_tab_tint(&self, uid: u64) -> Option<Color32> {
+        let c = std::iter::once(&self.claude).chain(self.claude_others.iter()).find(|c| c.tab == Some(uid))?;
+        if c.busy {
+            Some(self.hl.colors.accent)
+        } else if c.unseen {
+            Some(ok())
+        } else {
+            None
+        }
     }
 
     pub(super) fn claude_ui(&mut self, ui: &mut egui::Ui, in_tab: bool) {
@@ -455,12 +879,27 @@ impl App {
         let dir_name = self.claude.dir.as_deref().map(|d| self.repo_label(d)).unwrap_or_default();
         let dirs: Vec<(PathBuf, String)> = self.repos.iter().map(|r| (r.clone(), self.repo_label(r))).collect();
         let (mut send, mut stop, mut new_conv, mut review_click, mut all) = (false, false, false, None, None);
-        let (mut chosen_dir, mut move_to) = (None, None);
+        let (mut chosen_dir, mut move_to, mut ctx_add) = (None, None, None);
+        // the kept conversations: (key, title, folder and date)
+        let history: Vec<(u64, String, String)> = self
+            .claude_saved
+            .iter()
+            .map(|s| {
+                let place = s.dir.as_deref().map(|d| self.repo_label(d)).unwrap_or_default();
+                (s.key, s.title.clone(), format!("{place} · {}", git::ago(s.updated)))
+            })
+            .collect();
+        let (mut open_saved, mut forget_saved) = (None, None);
+        let (perms, budget, mut perms_changed) = (&mut self.settings.claude_perms, &mut self.settings.claude_budget, false);
         let c = &mut self.claude;
         let cache = &mut self.md_cache;
+        // ids of their own: two conversations can be shown at once (bottom panel and a tab)
+        let cid = |name: &str| egui::Id::new(name).with(c.id);
+        let (bar_id, review_id, input_id, chat_id) = (cid("claude_bar"), cid("claude_review"), cid("claude_input"), cid("claude_chat"));
+        let conv = c.id;
 
         // ------------------------------------------------ settings of the conversation
-        egui::TopBottomPanel::top("claude_bar")
+        egui::TopBottomPanel::top(bar_id)
             .frame(egui::Frame::none().fill(fill).inner_margin(egui::Margin { left: 10.0, right: 10.0, top: 8.0, bottom: 6.0 }))
             .show_inside(ui, |ui| {
                 ui.horizontal(|ui| {
@@ -468,22 +907,20 @@ impl App {
                     let running = c.session.is_some();
                     ui.add_enabled_ui(!running, |ui| {
                         if dirs.len() > 1 {
-                            egui::ComboBox::from_id_salt("claude_dir").selected_text(&dir_name).show_ui(ui, |ui| {
-                                for (d, label) in &dirs {
-                                    if ui.selectable_label(c.dir.as_ref() == Some(d), label).clicked() {
-                                        chosen_dir = Some(d.clone());
-                                    }
-                                }
-                            });
+                            let labels: Vec<String> = dirs.iter().map(|(_, l)| l.clone()).collect();
+                            let current = dirs.iter().position(|(d, _)| c.dir.as_ref() == Some(d));
+                            if let Some(k) = crate::pick::combo(ui, ("claude_dir", conv), &dir_name, &labels, current) {
+                                chosen_dir = Some(dirs[k].0.clone());
+                            }
                         } else {
                             ui.label(RichText::new(&dir_name).weak());
                         }
-                        egui::ComboBox::from_id_salt("claude_model").selected_text(claude::MODELS[c.model].1).show_ui(ui, |ui| {
+                        egui::ComboBox::from_id_salt(("claude_model", conv)).selected_text(claude::MODELS[c.model].1).show_ui(ui, |ui| {
                             for (k, (_, label)) in claude::MODELS.iter().enumerate() {
                                 ui.selectable_value(&mut c.model, k, *label);
                             }
                         });
-                        egui::ComboBox::from_id_salt("claude_mode").selected_text(claude::MODES[c.mode].1).show_ui(ui, |ui| {
+                        egui::ComboBox::from_id_salt(("claude_mode", conv)).selected_text(claude::MODES[c.mode].1).show_ui(ui, |ui| {
                             for (k, (_, label, tip)) in claude::MODES.iter().enumerate() {
                                 ui.selectable_value(&mut c.mode, k, *label).on_hover_text(*tip);
                             }
@@ -491,9 +928,71 @@ impl App {
                     })
                     .response
                     .on_disabled_hover_text("Pour changer : « Nouvelle conversation »");
-                    if ui.button("Nouvelle conversation").on_hover_text("Oublie la conversation (la revue des changements reste)").clicked() {
+                    let n_perms = perms.iter().filter(|p| claude::PERMS.iter().any(|(k, ..)| k == p)).count();
+                    ui.menu_button(format!("🔒 Permissions ({n_perms})"), |ui| {
+                        ui.set_min_width(330.0);
+                        if running {
+                            ui.label(RichText::new("S'applique à la prochaine conversation").small().color(warn()));
+                        }
+                        if c.mode != 0 {
+                            ui.label(RichText::new(format!("Mode « {} » : seules les deux dernières cases comptent", claude::MODES[c.mode].1)).small().weak());
+                        }
+                        ui.add_enabled(false, egui::Checkbox::new(&mut true, "Lire les fichiers du projet")).on_disabled_hover_text("Toujours : Claude doit lire pour aider");
+                        for (key, label, tip) in claude::PERMS {
+                            let mut on = perms.iter().any(|p| p == key);
+                            if key == "sandbox" {
+                                ui.separator();
+                            }
+                            if ui.checkbox(&mut on, label).on_hover_text(tip).changed() {
+                                perms.retain(|p| p != key);
+                                if on {
+                                    perms.push(key.to_string());
+                                }
+                                perms_changed = true;
+                            }
+                        }
+                        if perms.iter().any(|p| p == "sandbox") && crate::lsp::in_path("bwrap").is_none() {
+                            ui.label(RichText::new("⚠ Le bac à sable demande bubblewrap (paquet bubblewrap) et socat").small().color(warn()));
+                        }
+                        ui.separator();
+                        ui.horizontal(|ui| {
+                            ui.label("Budget max par conversation");
+                            let r = ui.add(egui::DragValue::new(budget).speed(0.1).range(0.0..=100.0).prefix("$ ").max_decimals(2));
+                            if r.changed() {
+                                perms_changed = true;
+                            }
+                            r.on_hover_text("La conversation s'arrête au-delà (0 : sans limite)");
+                        });
+                    })
+                    .response
+                    .on_hover_text("Ce que Claude a le droit de faire");
+                    if ui.button("Nouvelle conversation").on_hover_text("Dans un nouvel onglet : celle-ci continue dans le sien (l'onglet devient vert quand Claude a fini)").clicked() {
                         new_conv = true;
                     }
+                    ui.menu_button(format!("Historique ({})", history.len()), |ui| {
+                        ui.set_min_width(420.0);
+                        if history.is_empty() {
+                            ui.label(RichText::new("Les conversations sont gardées ici, même après avoir fermé Florm (50 au plus).").weak());
+                        }
+                        egui::ScrollArea::vertical().max_height(420.0).show(ui, |ui| {
+                            for (key, title, info) in &history {
+                                ui.horizontal(|ui| {
+                                    if ui.button(title).on_hover_text("La rouvrir : la suite continue avec son contexte").clicked() {
+                                        open_saved = Some(*key);
+                                        ui.close_menu();
+                                    }
+                                    ui.label(RichText::new(info).small().weak());
+                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                        if ui.small_button("×").on_hover_text("L'oublier").clicked() {
+                                            forget_saved = Some(*key);
+                                        }
+                                    });
+                                });
+                            }
+                        });
+                    })
+                    .response
+                    .on_hover_text("Les conversations d'avant, gardées entre les sessions");
                     if c.cost > 0.0 {
                         ui.label(RichText::new(format!("{:.2} $", c.cost)).weak().small()).on_hover_text("Coût estimé de la conversation");
                     }
@@ -530,7 +1029,7 @@ impl App {
             });
 
         // ------------------------------------------------ the review, on the right
-        egui::SidePanel::right("claude_review").resizable(true).default_width(ui.available_width() * 0.5).width_range(320.0..=1400.0).show_inside(ui, |ui| {
+        egui::SidePanel::right(review_id).resizable(true).default_width(ui.available_width() * 0.5).width_range(320.0..=1400.0).show_inside(ui, |ui| {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 ui.label(RichText::new("CE QUE CLAUDE A CHANGÉ").small().strong().color(accent));
@@ -586,7 +1085,7 @@ impl App {
 
         // ------------------------------------------------ the conversation
         egui::CentralPanel::default().show_inside(ui, |ui| {
-            egui::TopBottomPanel::bottom("claude_input").show_inside(ui, |ui| {
+            egui::TopBottomPanel::bottom(input_id).show_inside(ui, |ui| {
                 ui.add_space(6.0);
                 if !c.attach.is_empty() {
                     let mut remove = None;
@@ -596,7 +1095,10 @@ impl App {
                             let chip = egui::Button::new(RichText::new(format!("✳ {}  ×", a.label(c.dir.as_deref()))).small().color(accent))
                                 .fill(icons::mix(fill, accent, 0.12))
                                 .rounding(10.0);
-                            let tip = a.lines.as_ref().map_or_else(|| a.path.display().to_string(), |(_, _, t)| t.lines().take(20).collect::<Vec<_>>().join("\n"));
+                            let tip = match (&a.note, &a.lines) {
+                                (Some((_, t)), _) | (None, Some((_, _, t))) => t.lines().take(20).collect::<Vec<_>>().join("\n"),
+                                (None, None) => a.path.display().to_string(),
+                            };
                             if ui.add(chip).on_hover_text(format!("{tip}\n\nClic : retirer")).clicked() {
                                 remove = Some(k);
                             }
@@ -634,11 +1136,30 @@ impl App {
                     } else if ui.add_enabled(!c.input.trim().is_empty(), filled_button("Envoyer", accent)).clicked() {
                         send = true;
                     }
+                    ui.menu_button("+ Contexte", |ui| {
+                        ui.set_min_width(260.0);
+                        for (label, tip, what) in [
+                            ("Fichier ouvert", "Le fichier en entier (Claude le lit)", CtxAdd::File),
+                            ("Sélection (ou ligne du curseur)", "Les lignes sélectionnées dans l'éditeur, avec leur texte", CtxAdd::Selection),
+                            ("Tous les onglets ouverts", "Chaque fichier ouvert dans l'éditeur", CtxAdd::Tabs),
+                            ("Changements non commités", "Le diff de ce qui n'est pas commité (git diff HEAD, nouveaux fichiers compris)", CtxAdd::Diff),
+                            ("Problèmes du fichier", "Les erreurs et avertissements du linter dans le fichier ouvert", CtxAdd::Problems),
+                        ] {
+                            if ui.button(label).on_hover_text(tip).clicked() {
+                                ctx_add = Some(what);
+                                ui.close_menu();
+                            }
+                        }
+                        ui.separator();
+                        ui.label(RichText::new("Aussi : clic droit dans l'éditeur, ou ✳ dans la marge pour des lignes").small().weak());
+                    })
+                    .response
+                    .on_hover_text("Donner à Claude un fichier, la sélection, le diff, les problèmes…");
                     ui.checkbox(&mut c.with_context, "Fichier ouvert et sélection").on_hover_text("Dit à Claude quel fichier tu édites, la ligne du curseur et le texte sélectionné");
                 });
                 ui.add_space(4.0);
             });
-            egui::ScrollArea::vertical().id_salt("claude_chat").stick_to_bottom(true).auto_shrink([false, false]).show(ui, |ui| {
+            egui::ScrollArea::vertical().id_salt(chat_id).stick_to_bottom(true).auto_shrink([false, false]).show(ui, |ui| {
                 ui.set_max_width(ui.available_width().min(900.0));
                 if c.items.is_empty() {
                     ui.add_space(20.0);
@@ -646,28 +1167,40 @@ impl App {
                     ui.add_space(6.0);
                     ui.label(RichText::new("Florm utilise la commande claude (Claude Code) et ta connexion : pas de clé à configurer.").weak().small());
                 }
+                // who speaks is said once, at the start of their turn
+                let mut claude_said = true;
                 for it in &c.items {
                     ui.add_space(6.0);
                     match it {
                         Item::User(t, given) => {
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
-                                egui::Frame::none()
-                                    .fill(icons::mix(fill, accent, 0.16))
-                                    .rounding(egui::Rounding { nw: 10.0, ne: 2.0, sw: 10.0, se: 10.0 })
-                                    .inner_margin(egui::Margin::symmetric(10.0, 6.0))
-                                    .show(ui, |ui| {
-                                        ui.set_max_width(ui.available_width() * 0.8);
-                                        ui.vertical(|ui| {
-                                            ui.add(egui::Label::new(t.as_str()).wrap());
-                                            if !given.is_empty() {
-                                                ui.label(RichText::new(format!("✳ {}", given.join(", "))).small().weak());
-                                            }
+                            claude_said = false;
+                            ui.add_space(6.0);
+                            // on the left like the answers, set apart by its color and its edge
+                            egui::Frame::none()
+                                .fill(icons::mix(fill, accent, 0.10))
+                                .stroke(egui::Stroke::new(1.0_f32, icons::mix(fill, accent, 0.35)))
+                                .rounding(8.0)
+                                .inner_margin(egui::Margin::symmetric(12.0, 8.0))
+                                .show(ui, |ui| {
+                                    ui.set_width(ui.available_width());
+                                    ui.horizontal(|ui| {
+                                        ui.label(RichText::new("Toi").small().strong().color(accent));
+                                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                            super::md::copy_button(ui, t, "Copier");
                                         });
                                     });
-                            });
+                                    ui.add(egui::Label::new(t.as_str()).wrap());
+                                    if !given.is_empty() {
+                                        ui.label(RichText::new(format!("✳ {}", given.join(", "))).small().weak());
+                                    }
+                                });
                         }
                         Item::Text(t) | Item::Streaming(t) => {
-                            egui_commonmark::CommonMarkViewer::new().show(ui, cache, t);
+                            if !claude_said {
+                                claude_said = true;
+                                ui.label(RichText::new("✳ Claude").small().strong().color(accent));
+                            }
+                            super::md::markdown(ui, cache, t);
                         }
                         Item::Tool { name, summary, result, .. } => {
                             let (icon, color) = match name.as_str() {
@@ -677,11 +1210,18 @@ impl App {
                             };
                             let error = result.as_ref().is_some_and(|(_, e)| *e);
                             let head = RichText::new(format!("{icon} {name}  {summary}")).monospace().size(12.0).color(if error { err() } else { color });
+                            // a command: copied to run it again in a terminal
+                            let command = (name == "Bash" && !summary.is_empty()).then_some(summary.as_str());
                             match result.as_ref().filter(|(t, _)| !t.trim().is_empty() && (name == "Bash" || error)) {
                                 Some((t, _)) => {
-                                    egui::CollapsingHeader::new(head).id_salt(ui.next_auto_id()).show(ui, |ui| {
-                                        let t: String = t.lines().take(80).collect::<Vec<_>>().join("\n");
-                                        ui.label(RichText::new(t).monospace().size(11.5).weak());
+                                    ui.horizontal(|ui| {
+                                        egui::CollapsingHeader::new(head).id_salt(ui.next_auto_id()).show(ui, |ui| {
+                                            let t: String = t.lines().take(80).collect::<Vec<_>>().join("\n");
+                                            ui.label(RichText::new(t).monospace().size(11.5).weak());
+                                        });
+                                        if let Some(cmd) = command {
+                                            super::md::copy_button(ui, cmd, "Copier");
+                                        }
                                     });
                                 }
                                 None => {
@@ -689,6 +1229,9 @@ impl App {
                                         ui.label(head);
                                         if result.is_none() {
                                             ui.spinner();
+                                        }
+                                        if let Some(cmd) = command {
+                                            super::md::copy_button(ui, cmd, "Copier");
                                         }
                                     });
                                 }
@@ -709,18 +1252,27 @@ impl App {
         if let Some(t) = move_to {
             self.move_claude(t);
         }
+        if let Some(w) = ctx_add {
+            self.claude_add_context(w);
+        }
+        if let Some(k) = open_saved {
+            self.claude_open_saved(k);
+        }
+        if let Some(k) = forget_saved {
+            self.claude_forget_saved(k);
+        }
+        if perms_changed {
+            let (p, b) = (config::toml_str_array(&self.settings.claude_perms), format!("{:?}", self.settings.claude_budget));
+            self.persist("claude_perms", p);
+            self.persist("claude_budget", b);
+        }
         if let Some(d) = chosen_dir {
             self.claude.dir = Some(d);
             self.claude.review_index = None;
             self.claude.review = None;
         }
         if new_conv {
-            self.claude.session = None;
-            self.claude.busy = false;
-            self.claude.wish = None;
-            self.claude.cost = 0.0;
-            self.claude.context.0 = 0;
-            self.claude.items.push(Item::Info("— nouvelle conversation —".into()));
+            self.claude_new_conversation();
         }
         if stop {
             if let Some(s) = self.claude.session.as_mut() {
@@ -773,13 +1325,39 @@ mod tests {
     }
 
     #[test]
+    fn conversations_are_kept() {
+        let s = SavedConv {
+            key: 7,
+            title: "Corrige le bug".into(),
+            dir: Some("/p".into()),
+            model: 1,
+            mode: 0,
+            session_id: Some("abc".into()),
+            wish: None,
+            cost: 0.5,
+            updated: 1,
+            items: vec![
+                Item::User("Corrige".into(), vec!["a.py".into()]),
+                Item::Tool { id: "t".into(), name: "Bash".into(), summary: "ls".into(), result: Some(("ok".into(), false)) },
+                Item::Text("Fait.".into()),
+            ],
+        };
+        let back: Vec<SavedConv> = serde_json::from_str(&serde_json::to_string(&vec![s]).unwrap()).unwrap();
+        assert_eq!((back[0].key, back[0].session_id.as_deref(), back[0].items.len()), (7, Some("abc"), 3));
+        assert!(matches!(&back[0].items[1], Item::Tool { result: Some((r, false)), .. } if r == "ok"));
+    }
+
+    #[test]
     fn what_is_given_to_claude() {
         let dir = Path::new("/p");
-        let a = Attach { path: "/p/src/m.py".into(), lines: Some((3, 4, "a\nb".into())) };
+        let a = Attach { path: "/p/src/m.py".into(), lines: Some((3, 4, "a\nb".into())), note: None };
         assert_eq!(a.label(Some(dir)), "src/m.py:3-4");
         assert_eq!(a.prompt(Some(dir)), "Extrait de src/m.py:3-4 :\n```py\na\nb\n```");
-        let f = Attach { path: "/p/src/m.py".into(), lines: None };
+        let f = Attach { path: "/p/src/m.py".into(), lines: None, note: None };
         assert_eq!(f.prompt(Some(dir)), "Fichier à prendre en compte : src/m.py");
+        let n = Attach { path: "/p".into(), lines: None, note: Some(("Changements non commités".into(), "diff".into())) };
+        assert_eq!(n.label(Some(dir)), "Changements non commités");
+        assert_eq!(n.prompt(Some(dir)), "Changements non commités :\n```\ndiff\n```");
     }
 
     #[test]
@@ -794,7 +1372,8 @@ mod tests {
         sh(&dir, &["-c", "user.email=a@b", "-c", "user.name=a", "commit", "-qm", "init"]);
         // a change of the user before the review: not Claude's
         std::fs::write(dir.join("mine.txt"), "à moi\n").unwrap();
-        let index = review_index_of(&dir);
+        let index = review_index_of(&dir, 0);
+        assert!(review_index_of(&dir, 3).ends_with("florm-review-index-3"));
         rgit(&dir, &index, &["read-tree", "HEAD"], None).unwrap();
         rgit(&dir, &index, &["add", "-A"], None).unwrap();
         assert_eq!(review_diff(&dir, &index).unwrap(), "");

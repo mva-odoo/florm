@@ -34,6 +34,30 @@ pub fn in_path(name: &str) -> Option<PathBuf> {
     })
 }
 
+/// Settings given to the servers. Florm shows the problems of its linters (flake8, ruff…), not
+/// the servers' own: they are asked not to compute them (less CPU and memory, no duplicates).
+pub fn light_settings() -> Value {
+    let off = json!({"enabled": false});
+    let analysis = json!({"diagnosticMode": "openFilesOnly", "typeCheckingMode": "off", "autoSearchPaths": true});
+    json!({
+        "pylsp": {"plugins": {
+            "pycodestyle": off, "pyflakes": off, "mccabe": off, "pylint": off, "flake8": off,
+            "pydocstyle": off, "autopep8": off, "yapf": off
+        }},
+        "python": {"analysis": analysis},
+        "basedpyright": {"analysis": analysis}
+    })
+}
+
+/// The value of a section ("python.analysis") of `light_settings`, for `workspace/configuration`.
+fn setting(section: &str) -> Value {
+    let mut v = light_settings();
+    for key in section.split('.').filter(|k| !k.is_empty()) {
+        v = v.get(key).cloned().unwrap_or(Value::Null);
+    }
+    v
+}
+
 /// Command line (program, args, extra env) of the server for a family.
 pub struct ServerSpec {
     pub name: String,
@@ -200,8 +224,8 @@ impl Client {
                     (Some(id), Some(m)) => {
                         let result = match m.as_str().unwrap_or("") {
                             "workspace/configuration" => {
-                                let n = v["params"]["items"].as_array().map_or(0, |a| a.len());
-                                Value::Array(vec![Value::Null; n])
+                                let items = v["params"]["items"].as_array().cloned().unwrap_or_default();
+                                Value::Array(items.iter().map(|it| setting(it["section"].as_str().unwrap_or(""))).collect())
                             }
                             "workspace/workspaceFolders" => Value::Null,
                             _ => Value::Null,
@@ -399,6 +423,8 @@ impl Manager {
                         if *id == c.init_id {
                             c.ready = true;
                             let _ = c.out.send(json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}).to_string());
+                            let settings = json!({"jsonrpc": "2.0", "method": "workspace/didChangeConfiguration", "params": {"settings": light_settings()}});
+                            let _ = c.out.send(settings.to_string());
                             for m in std::mem::take(&mut c.queue) {
                                 let _ = c.out.send(m);
                             }

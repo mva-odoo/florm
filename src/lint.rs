@@ -353,6 +353,23 @@ fn run_with_stdin(runner: &Runner, args: &[String], input: &str, cwd: &Path) -> 
     Some(format!("{}{}", String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr)))
 }
 
+/// The flake8 arguments ruff understands too (the line length); the others would make it fail.
+fn flake8_to_ruff(args: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        let n = match a.strip_prefix("--max-line-length") {
+            Some(rest) if rest.starts_with('=') => Some(rest[1..].to_string()),
+            Some("") => it.next().cloned(),
+            _ => None,
+        };
+        if let Some(n) = n.filter(|n| n.parse::<u32>().is_ok()) {
+            out.push(format!("--line-length={n}"));
+        }
+    }
+    out
+}
+
 /// Lints Python source `text` (the buffer) as if it were `path`. Runs in the project /
 /// repository root so the project configuration (setup.cfg, .flake8, tox.ini,
 /// pyproject.toml) applies. Returns the diagnostics and the linter used.
@@ -363,9 +380,13 @@ pub fn lint_python(path: &Path, text: &str, root: Option<&Path>, cfg: &LintConfi
         "" | "auto" => vec!["flake8", "ruff", "pyflakes"],
         other => vec![other],
     };
-    let extra = cfg.python_args.iter().cloned();
+    let auto = wanted.len() > 1;
+    // linters that ran but failed (broken install, invalid configuration…): shown on line 1
+    let mut failed: Vec<Diagnostic> = Vec::new();
     for name in wanted {
         let Some(runner) = find_runner(name) else { continue };
+        // the arguments are written for flake8: in automatic mode ruff only gets the line length
+        let extra = if auto && name == "ruff" { flake8_to_ruff(&cfg.python_args) } else { cfg.python_args.clone() }.into_iter();
         let args: Vec<String> = match name {
             // JSON: the rule code is always there (in preview mode, the text formats show the
             // rule name instead, e.g. "undefined-name:" for F821)
@@ -389,21 +410,35 @@ pub fn lint_python(path: &Path, text: &str, root: Option<&Path>, cfg: &LintConfi
             _ => continue,
         };
         if let Some(out) = run_with_stdin(&runner, &args, text, cwd) {
-            let mut diags = match name {
-                "ruff" => parse_ruff_json(&out).unwrap_or_else(|| parse_colon_format(&out, name)),
-                _ => parse_colon_format(&out, name),
-            };
+            let json = if name == "ruff" { parse_ruff_json(&out) } else { None };
+            let parsed = json.is_some();
+            let mut diags = json.unwrap_or_else(|| parse_colon_format(&out, name));
+            if diags.is_empty() && !parsed && !out.trim().is_empty() {
+                // not a diagnostic: the linter failed, try the next one
+                let last = out.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
+                failed.push(Diagnostic {
+                    line: 0,
+                    col: 0,
+                    severity: Severity::Warning,
+                    message: format!("{name} a échoué : {last}"),
+                    source: name.into(),
+                    code: None,
+                });
+                continue;
+            }
             if name == "pylint" {
                 for d in &mut diags {
                     d.col += 1; // pylint columns are 0-based
                 }
             }
-            return (diags, name.to_string());
+            failed.extend(diags);
+            return (failed, name.to_string());
         }
     }
     let args = vec!["-c".to_string(), PY_SYNTAX.to_string(), display];
     let out = run_with_stdin(&Runner::Bin(PathBuf::from(python())), &args, text, cwd).unwrap_or_default();
-    (parse_colon_format(&out, "python"), "syntaxe".into())
+    failed.extend(parse_colon_format(&out, "python"));
+    (failed, "syntaxe".into())
 }
 
 /// Installs a linter into the private tools folder (`pip install --target`).
@@ -552,6 +587,30 @@ mod tests {
         assert_eq!(used, "syntaxe");
         assert!(!d.is_empty(), "no diagnostic");
         assert_eq!((d[0].line, d[0].severity), (0, Severity::Error));
+    }
+
+    #[test]
+    fn python_linter_failure_is_reported() {
+        if !is_installed("flake8") {
+            return;
+        }
+        let p = std::env::temp_dir().join("florm_lint_fail.py");
+        // single dash: flake8 rejects the option and lints nothing
+        let cfg = LintConfig { python_linter: "flake8".into(), python_args: vec!["-max-line-length=120".into()] };
+        let (d, used) = lint_python(&p, "def f(:\n    pass\n", None, &cfg);
+        assert_eq!(used, "syntaxe");
+        assert_eq!(d[0].line, 0);
+        assert!(d[0].message.starts_with("flake8 a échoué : ") && d[0].message.contains("unrecognized arguments"), "{}", d[0].message);
+        // the syntax check still runs after the failure
+        assert!(d.iter().any(|d| d.source == "python" && d.severity == Severity::Error));
+    }
+
+    #[test]
+    fn flake8_args_for_ruff() {
+        let a = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(flake8_to_ruff(&a(&["--max-line-length=120", "--ignore=E203,W503"])), a(&["--line-length=120"]));
+        assert_eq!(flake8_to_ruff(&a(&["--max-line-length", "100"])), a(&["--line-length=100"]));
+        assert!(flake8_to_ruff(&a(&["--select=E", "--max-line-length=x"])).is_empty());
     }
 
     #[test]
