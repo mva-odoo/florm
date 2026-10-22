@@ -175,6 +175,7 @@ impl App {
                 JobResult::PrList(repo, r) => self.pr_list_loaded(repo, r),
                 JobResult::ClaudeReview(id, r) => self.claude_review_loaded(id, r),
                 JobResult::CommitMessage(r) => self.commit_message_ready(r),
+                JobResult::QueueCommit(id, r) => self.queue_commit_loaded(id, r),
                 JobResult::AiReview(key, r) => self.ai_review_loaded(key, r),
                 JobResult::InlineAi(n, r) => self.inline_ai_loaded(n, r),
                 JobResult::GhBase(repo, r) => self.gh_base_loaded(repo, r),

@@ -8,6 +8,7 @@ use super::*;
 use crate::claude::{self, Event};
 use serde::{Deserialize, Serialize};
 use history::{DiffAct, DiffClick};
+use super::claude_queue::{self, Queue, QueueAct, TaskState};
 
 /// Something given to Claude with the next message: lines of a file, a file / folder, or a text
 /// (the changes not committed, the problems of a file…).
@@ -115,6 +116,8 @@ pub(super) struct ClaudeUi {
     /// "Tout rejeter" clicked once: a second click does it.
     confirm_reject: bool,
     pub(super) focus: bool,
+    /// The to-do list: tasks sent one by one.
+    queue: Queue,
 }
 
 /// A conversation kept between sessions of Florm: what was said, and the Claude Code session to
@@ -132,6 +135,8 @@ pub(super) struct SavedConv {
     /// Last change, in unix seconds.
     updated: i64,
     items: Vec<Item>,
+    #[serde(default)]
+    queue: Queue,
 }
 
 /// Most conversations kept.
@@ -251,6 +256,8 @@ impl App {
             return;
         }
         let (mut reload, mut save) = (false, false);
+        // the answer ended: the task of the queue being done is finished (or failed)
+        let mut task_done: Option<Result<(), String>> = None;
         for e in events {
             let items = &mut self.claude.items;
             match e {
@@ -301,10 +308,11 @@ impl App {
                         *items.last_mut().unwrap() = Item::Text(s);
                     }
                     if error && !text.is_empty() {
-                        items.push(Item::Error(text));
+                        items.push(Item::Error(text.clone()));
                     }
                     reload = true;
                     save = true;
+                    task_done = Some(if error { Err(if text.is_empty() { "Claude s'est arrêté sur une erreur".to_string() } else { text }) } else { Ok(()) });
                 }
                 Event::Exited(err) => {
                     self.claude.busy = false;
@@ -320,11 +328,15 @@ impl App {
                         (true, true) => "Claude s'est arrêté : le prochain message reprend la conversation.".to_string(),
                         (true, false) => "Claude s'est arrêté : un nouveau message démarre une nouvelle conversation.".to_string(),
                     };
-                    items.push(Item::Error(msg));
+                    items.push(Item::Error(msg.clone()));
                     save = true;
+                    task_done = Some(Err(msg));
                     break;
                 }
             }
+        }
+        if let Some(r) = task_done {
+            self.claude_task_finished(r);
         }
         if save {
             self.claude_save();
@@ -337,14 +349,22 @@ impl App {
         }
     }
 
+    /// The message written in the field of the chat.
     fn claude_send(&mut self) {
         let text = self.claude.input.trim().to_string();
+        if self.claude_send_text(text) {
+            self.claude.input.clear();
+        }
+    }
+
+    /// Sends `text` (with the context given) to Claude; false when it could not be sent.
+    fn claude_send_text(&mut self, text: String) -> bool {
         let Some(dir) = self.claude.dir.clone() else {
             self.set_status("Aucun dossier ouvert");
-            return;
+            return false;
         };
         if text.is_empty() || self.claude.busy {
-            return;
+            return false;
         }
         // the review starts with the first message: everything changed since is Claude's
         if self.claude.review_index.is_none() {
@@ -374,17 +394,16 @@ impl App {
                 Err(e) => {
                     self.claude.items.push(Item::Error(e));
                     self.claude.attach = attach;
-                    return;
+                    return false;
                 }
             }
         }
-        let Some(s) = self.claude.session.as_mut() else { return };
+        let Some(s) = self.claude.session.as_mut() else { return false };
         match s.send(&message) {
             Ok(()) => {
                 self.claude.items.push(Item::User(text.clone(), given));
                 let first = self.claude.wish.is_none();
                 self.claude.wish.get_or_insert(text);
-                self.claude.input.clear();
                 self.claude.busy = true;
                 // its tab is named after the first message
                 if let (true, Some(uid)) = (first, self.claude.tab) {
@@ -394,13 +413,116 @@ impl App {
                     }
                 }
                 self.claude_save();
+                true
             }
             Err(e) => {
                 self.claude.session = None;
                 self.claude.items.push(Item::Error(e));
                 self.claude.attach = attach;
+                false
             }
         }
+    }
+
+    /// The task of the queue being done is finished: committed if asked, then the next one.
+    fn claude_task_finished(&mut self, r: Result<(), String>) {
+        let q = &mut self.claude.queue;
+        let Some(k) = q.current().filter(|k| q.tasks[*k].state == TaskState::Running) else { return };
+        match r {
+            Err(e) => {
+                q.tasks[k].state = TaskState::Failed;
+                q.tasks[k].note = e;
+                q.running = false;
+                self.set_status("File de tâches en pause : une tâche a échoué");
+            }
+            Ok(()) if q.commit_each => {
+                q.tasks[k].state = TaskState::Committing;
+                let (dir, wish, id) = (self.claude.dir.clone(), q.tasks[k].text.clone(), self.claude.id);
+                let Some(dir) = dir else { return };
+                self.jobs.spawn(move || JobResult::QueueCommit(id, claude_queue::commit_task(&dir, &wish)));
+            }
+            Ok(()) => {
+                q.tasks[k].state = TaskState::Done;
+                self.claude_queue_next();
+            }
+        }
+    }
+
+    /// The commit after a task of conversation `id` is made: the next task goes.
+    pub(super) fn queue_commit_loaded(&mut self, id: u64, r: Result<String, String>) {
+        let Some(k) = self.claude_others.iter().position(|c| c.id == id) else {
+            if self.claude.id == id {
+                self.queue_commit_done(r);
+            }
+            return;
+        };
+        // a conversation not shown: made the current one the time to send its next task
+        std::mem::swap(&mut self.claude, &mut self.claude_others[k]);
+        self.queue_commit_done(r);
+        std::mem::swap(&mut self.claude, &mut self.claude_others[k]);
+    }
+
+    fn queue_commit_done(&mut self, r: Result<String, String>) {
+        let q = &mut self.claude.queue;
+        let Some(k) = q.current().filter(|k| q.tasks[*k].state == TaskState::Committing) else { return };
+        match r {
+            Ok(first) => {
+                q.tasks[k].state = TaskState::Done;
+                q.tasks[k].note = format!("Commit : {first}");
+                self.claude.items.push(Item::Info(format!("— commit : {first} —")));
+                self.git_refresh();
+                self.claude_queue_next();
+            }
+            Err(e) => {
+                q.tasks[k].state = TaskState::Failed;
+                q.tasks[k].note = format!("Le commit a échoué : {e}");
+                q.running = false;
+                self.claude.items.push(Item::Error(format!("Commit après la tâche : {e}")));
+            }
+        }
+        self.claude_save();
+    }
+
+    /// The next waiting task, if the queue runs and Claude is free.
+    fn claude_queue_next(&mut self) {
+        let q = &self.claude.queue;
+        if !q.running || self.claude.busy || q.current().is_some() {
+            return;
+        }
+        let Some(k) = q.next_waiting() else {
+            self.claude.queue.running = false;
+            self.set_status("File de tâches terminée");
+            return;
+        };
+        let text = q.tasks[k].text.trim().to_string();
+        self.claude.queue.tasks[k].state = TaskState::Running;
+        if !self.claude_send_text(text) {
+            let q = &mut self.claude.queue;
+            q.tasks[k].state = TaskState::Failed;
+            q.tasks[k].note = "Pas pu être envoyée".into();
+            q.running = false;
+        }
+    }
+
+    fn claude_queue_act(&mut self, act: QueueAct) {
+        let q = &mut self.claude.queue;
+        match act {
+            QueueAct::Start => {
+                q.running = true;
+                self.claude_queue_next();
+            }
+            QueueAct::Pause => q.running = false,
+            QueueAct::Remove(k) => {
+                q.tasks.remove(k);
+            }
+            QueueAct::Up(k) => q.tasks.swap(k, k - 1),
+            QueueAct::Retry(k) => {
+                q.tasks[k].state = TaskState::Waiting;
+                q.tasks[k].note.clear();
+            }
+            QueueAct::ClearDone => q.tasks.retain(|t| t.state != TaskState::Done),
+        }
+        self.claude_save();
     }
 
     /// Lines `a..=b` (0-based) of document `i` given to Claude with the next message.
@@ -795,6 +917,7 @@ impl App {
             cost: c.cost,
             updated: now_secs(),
             items,
+            queue: c.queue.clone(),
         };
         self.claude.saved_key = key;
         self.claude_saved.retain(|s| s.key != key);
@@ -816,6 +939,8 @@ impl App {
         c.wish = s.wish.clone();
         c.cost = s.cost;
         c.items = s.items.clone();
+        c.queue = s.queue.clone();
+        c.queue.settle();
         c.items.push(Item::Info("— conversation reprise : le prochain message continue avec son contexte —".into()));
         c
     }
@@ -880,6 +1005,7 @@ impl App {
         let dirs: Vec<(PathBuf, String)> = self.repos.iter().map(|r| (r.clone(), self.repo_label(r))).collect();
         let (mut send, mut stop, mut new_conv, mut review_click, mut all) = (false, false, false, None, None);
         let (mut chosen_dir, mut move_to, mut ctx_add) = (None, None, None);
+        let (mut queue_act, mut queued) = (None, None);
         // the kept conversations: (key, title, folder and date)
         let history: Vec<(u64, String, String)> = self
             .claude_saved
@@ -1087,6 +1213,9 @@ impl App {
         egui::CentralPanel::default().show_inside(ui, |ui| {
             egui::TopBottomPanel::bottom(input_id).show_inside(ui, |ui| {
                 ui.add_space(6.0);
+                if !c.queue.tasks.is_empty() {
+                    queue_act = claude_queue::queue_ui(ui, &mut c.queue, c.busy, accent);
+                }
                 if !c.attach.is_empty() {
                     let mut remove = None;
                     ui.horizontal_wrapped(|ui| {
@@ -1135,6 +1264,12 @@ impl App {
                         ui.label(RichText::new("Claude travaille…").weak());
                     } else if ui.add_enabled(!c.input.trim().is_empty(), filled_button("Envoyer", accent)).clicked() {
                         send = true;
+                    }
+                    let tip = "Ajoute la demande à la file de tâches au lieu de l'envoyer.\nUne liste (- …, * …, 1. …) donne une tâche par élément ; la phrase avant la liste va avec chacune.\n« Lancer » les envoie une à une, chacune quand Claude a fini la précédente.";
+                    if ui.add_enabled(!c.input.trim().is_empty(), egui::Button::new("+ File")).on_hover_text(tip).clicked() {
+                        let n = c.queue.add(&c.input);
+                        c.input.clear();
+                        queued = Some(n);
                     }
                     ui.menu_button("+ Contexte", |ui| {
                         ui.set_min_width(260.0);
@@ -1278,9 +1413,23 @@ impl App {
             if let Some(s) = self.claude.session.as_mut() {
                 let _ = s.interrupt();
             }
+            // stopped by hand: the queue waits (the task can be tried again)
+            let q = &mut self.claude.queue;
+            if let Some(k) = q.current().filter(|k| q.tasks[*k].state == TaskState::Running) {
+                q.tasks[k].state = TaskState::Failed;
+                q.tasks[k].note = "Arrêtée".into();
+            }
+            q.running = false;
         }
         if send {
             self.claude_send();
+        }
+        if let Some(n) = queued {
+            self.set_status(format!("{n} tâche(s) ajoutée(s) à la file — « Lancer » pour les envoyer une à une"));
+            self.claude_save();
+        }
+        if let Some(a) = queue_act {
+            self.claude_queue_act(a);
         }
         if let Some(c) = review_click {
             self.claude_review_action(c);
@@ -1341,10 +1490,22 @@ mod tests {
                 Item::Tool { id: "t".into(), name: "Bash".into(), summary: "ls".into(), result: Some(("ok".into(), false)) },
                 Item::Text("Fait.".into()),
             ],
+            queue: {
+                let mut q = Queue::default();
+                q.add("- a\n- b");
+                q.running = true;
+                q
+            },
         };
         let back: Vec<SavedConv> = serde_json::from_str(&serde_json::to_string(&vec![s]).unwrap()).unwrap();
         assert_eq!((back[0].key, back[0].session_id.as_deref(), back[0].items.len()), (7, Some("abc"), 3));
         assert!(matches!(&back[0].items[1], Item::Tool { result: Some((r, false)), .. } if r == "ok"));
+        // the tasks are kept, not the run (it is started again by hand)
+        assert_eq!((back[0].queue.tasks.len(), back[0].queue.running), (2, false));
+        // a conversation saved before the queue existed
+        let old = r#"[{"key":1,"title":"t","dir":null,"model":0,"mode":0,"session_id":null,"wish":null,"cost":0.0,"updated":1,"items":[]}]"#;
+        let old: Vec<SavedConv> = serde_json::from_str(old).unwrap();
+        assert!(old[0].queue.tasks.is_empty());
     }
 
     #[test]

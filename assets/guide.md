@@ -181,6 +181,12 @@ panneau du bas (⇱ Onglet pour lui donner tout un onglet de l'éditeur, ⇲ pou
   par bloc : **✔ Garder** (le bloc quitte la revue et reste dans le fichier) ou **↺ Rejeter**
   (il est retiré du fichier). Tes propres changements d'avant ne sont pas dedans.
 - **■ Arrêter** coupe la réponse en cours ; la conversation continue.
+- **File de tâches** : écris plusieurs demandes en liste (`- …`, `1. …`) et clique **+ File**
+  au lieu d'Envoyer : chaque élément devient une tâche (la phrase avant la liste va avec
+  chacune). **Lancer** les envoie une à une dans la même conversation, chacune quand Claude a
+  fini la précédente ; **Commit après chaque tâche** fait un commit (message écrit par Claude)
+  entre deux. Une erreur ou **■ Arrêter** met la file en pause ; une tâche en attente se
+  modifie, se remonte (↑) ou se retire (×).
 
 **✨ à côté du message de commit** (vue Git) : Claude propose le message d'après les changements
 indexés (sinon tous), dans le style des derniers commits du dépôt et d'après ta première demande

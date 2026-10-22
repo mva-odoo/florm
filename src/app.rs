@@ -34,6 +34,7 @@ mod quick_fix;
 mod pulls;
 mod pr_links;
 mod claude_ui;
+mod claude_queue;
 mod split_commit;
 mod panes;
 mod lsp_client;
@@ -1603,6 +1604,7 @@ mod font_tests {
             include_str!("app/panes.rs"),
             include_str!("app/prefs.rs"),
             include_str!("app/projects.rs"),
+            include_str!("app/claude_queue.rs"),
             include_str!("app/quick_fix.rs"),
             include_str!("app/save_lint.rs"),
             include_str!("app/search_panel.rs"),
