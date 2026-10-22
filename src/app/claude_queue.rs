@@ -12,6 +12,13 @@ pub(super) struct Queue {
     pub(super) running: bool,
     /// A commit of all the changes after each task, its message written by Claude.
     pub(super) commit_each: bool,
+    /// Each task in a conversation of its own (the history is not read again: fewer tokens),
+    /// with what the one before did said in a few lines.
+    #[serde(default)]
+    pub(super) fresh_each: bool,
+    /// Model of the conversation when the queue was started: the tasks without a model of their own.
+    #[serde(skip)]
+    pub(super) base_model: Option<usize>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -21,6 +28,9 @@ pub(super) struct Task {
     /// What went wrong, or the first line of its commit.
     #[serde(default)]
     pub(super) note: String,
+    /// Model for this task (index in `claude::MODELS`); None: the one of the conversation.
+    #[serde(default)]
+    pub(super) model: Option<usize>,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
@@ -87,7 +97,7 @@ impl Queue {
     pub(super) fn add(&mut self, text: &str) -> usize {
         let new = split_tasks(text);
         let n = new.len();
-        self.tasks.extend(new.into_iter().map(|text| Task { text, state: TaskState::Waiting, note: String::new() }));
+        self.tasks.extend(new.into_iter().map(|text| Task { text, state: TaskState::Waiting, note: String::new(), model: None }));
         n
     }
 
@@ -130,6 +140,9 @@ pub(super) fn queue_ui(ui: &mut egui::Ui, q: &mut Queue, busy: bool, accent: Col
         }
         ui.checkbox(&mut q.commit_each, RichText::new("Commit après chaque tâche").small())
             .on_hover_text("Quand une tâche est finie : git add -A, message écrit par Claude, git commit, puis la tâche suivante.\nTout ce qui est modifié dans le dépôt part dans le commit.");
+        ui.checkbox(&mut q.fresh_each, RichText::new("Conversation neuve par tâche").small()).on_hover_text(
+            "Chaque tâche repart d'une conversation vide : Claude ne relit pas tout ce qui a été dit avant (beaucoup moins de tokens sur une longue file).\nLa dernière réponse de la tâche d'avant lui est donnée en quelques lignes.",
+        );
         if done > 0 && ui.small_button("Retirer les terminées").clicked() {
             act = Some(QueueAct::ClearDone);
         }
@@ -152,7 +165,7 @@ pub(super) fn queue_ui(ui: &mut egui::Ui, q: &mut Queue, busy: bool, accent: Col
                     }
                 }
                 let editable = t.state == TaskState::Waiting;
-                let w = (ui.available_width() - 90.0).max(120.0);
+                let w = (ui.available_width() - 190.0).max(120.0);
                 if editable {
                     ui.add(egui::TextEdit::multiline(&mut t.text).desired_rows(1).desired_width(w));
                 } else {
@@ -170,6 +183,14 @@ pub(super) fn queue_ui(ui: &mut egui::Ui, q: &mut Queue, busy: bool, accent: Col
                     act = Some(QueueAct::Retry(k));
                 }
                 if editable {
+                    // a smaller model for a small task: cheaper and faster
+                    let shown = t.model.map_or("Modèle de la conversation", |m| crate::claude::MODELS[m.min(crate::claude::MODELS.len() - 1)].1);
+                    egui::ComboBox::from_id_salt(("task_model", k)).selected_text(RichText::new(shown).small()).width(96.0).show_ui(ui, |ui| {
+                        ui.selectable_value(&mut t.model, None, "Modèle de la conversation");
+                        for (m, (_, label)) in crate::claude::MODELS.iter().enumerate().skip(1) {
+                            ui.selectable_value(&mut t.model, Some(m), *label);
+                        }
+                    });
                     if k > 0 && ui.small_button("↑").on_hover_text("Plus tôt").clicked() {
                         act = Some(QueueAct::Up(k));
                     }
@@ -210,6 +231,9 @@ mod tests {
         // one item only: the whole text
         assert_eq!(split_tasks("Fais ceci :\n- une chose"), ["Fais ceci :\n- une chose"]);
         assert!(split_tasks("  \n").is_empty());
+        // a queue saved before the models and the fresh conversations
+        let old: Queue = serde_json::from_str(r#"{"tasks":[{"text":"a","state":"Waiting"}],"commit_each":true}"#).unwrap();
+        assert_eq!((old.tasks[0].model, old.fresh_each, old.commit_each), (None, false, true));
         let mut q = Queue::default();
         assert_eq!(q.add("- a\n- b"), 2);
         q.tasks[0].state = TaskState::Running;

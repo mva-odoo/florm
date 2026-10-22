@@ -498,7 +498,31 @@ impl App {
             self.set_status("File de tâches terminée");
             return;
         };
-        let text = q.tasks[k].text.trim().to_string();
+        let mut text = q.tasks[k].text.trim().to_string();
+        let model = q.tasks[k].model.or(q.base_model);
+        let previous = q.tasks[..k].iter().rev().find(|t| t.state == TaskState::Done).map(|t| t.text.lines().next().unwrap_or("").to_string());
+        let fresh = q.fresh_each;
+        let c = &mut self.claude;
+        // a conversation of its own: the history is not sent again, only what was just done
+        if fresh && c.items.iter().any(|i| matches!(i, Item::User(..))) {
+            let last: Option<String> = c.items.iter().rev().find_map(|i| if let Item::Text(t) = i { Some(t.clone()) } else { None });
+            c.session = None;
+            c.session_id = None;
+            c.context.0 = 0;
+            c.items.push(Item::Info("— conversation neuve pour cette tâche —".into()));
+            if let (Some(prev), Some(last)) = (previous, last) {
+                let mut said: String = last.chars().take(1200).collect();
+                if said.len() < last.len() {
+                    said.push('…');
+                }
+                text = format!("Pour info, la tâche d'avant (« {prev} ») vient d'être faite ; sa conclusion :\n{said}\n\nTâche :\n{text}");
+            }
+        }
+        // another model: the process starts again, the conversation goes on (--resume)
+        if let Some(m) = model.filter(|m| *m != c.model && *m < claude::MODELS.len()) {
+            c.model = m;
+            c.session = None;
+        }
         self.claude.queue.tasks[k].state = TaskState::Running;
         if !self.claude_send_text(text) {
             let q = &mut self.claude.queue;
@@ -513,6 +537,7 @@ impl App {
         match act {
             QueueAct::Start => {
                 q.running = true;
+                q.base_model = Some(self.claude.model);
                 self.claude_queue_next();
             }
             QueueAct::Pause => q.running = false,
