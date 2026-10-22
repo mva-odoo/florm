@@ -260,7 +260,14 @@ fn text_area(
         }
         let (pressed, middle_pressed) = (pressed && !on_sticky, middle_pressed && !on_sticky);
         // the popup of the definitions of the hovered symbol, opened this frame: (where, text above them)
-        let mut defs_popup: Option<(Pos2, String)> = None;
+        let mut defs_popup: Option<(TipAt, String)> = None;
+        // the mouse has not moved since the text changed: no tooltip over what is being typed
+        let typed_id = id.with("hover_version");
+        if ui.ctx().input(|i| i.pointer.delta() != egui::Vec2::ZERO) {
+            ui.ctx().data_mut(|d| d.insert_temp(typed_id, doc.version));
+        }
+        let typing = ui.ctx().data(|d| d.get_temp::<u64>(typed_id)) != Some(doc.version);
+        let caret = doc.rope.char_to_line(doc.primary_sel().head.min(doc.rope.len_chars()));
         if let Some(p) = ptr {
             let in_gutter = p.x < gx + gutter_w;
             if (pressed || middle_pressed) && resp.hovered() {
@@ -400,17 +407,19 @@ fn text_area(
                     // the symbol is defined in the project: a popup the mouse can go into, to click
                     let ready = doc.hover_info.as_ref().is_some_and(|(r, _)| Some(*r) == doc.hover_word);
                     let has_defs = doc.hover_defs.as_ref().is_some_and(|(r, d, _)| Some(*r) == doc.hover_word && !d.is_empty());
-                    if ready && has_defs {
+                    let at = tip_at(p.x, origin.y + ((p.y - origin.y) / rh).floor() * rh, rh, l, caret);
+                    if typing {
+                        // nothing until the mouse moves again
+                    } else if ready && has_defs {
                         let delay = ui.style().interaction.tooltip_delay;
                         let still = ui.ctx().input(|i| i.pointer.time_since_last_movement());
                         if still < delay {
                             ui.ctx().request_repaint_after(std::time::Duration::from_secs_f32(delay - still + 0.01));
                         } else {
-                            let bottom = origin.y + (((p.y - origin.y) / rh).floor() + 1.0) * rh;
-                            defs_popup = Some((egui::pos2(p.x, bottom + 2.0), tip));
+                            defs_popup = Some((at, tip));
                         }
                     } else if !tip.is_empty() {
-                        tooltip_under_line(ui, &resp, p, origin.y, rh, tip);
+                        tooltip_by_line(ui, &resp, at, tip);
                     }
                 } else {
                     let l = rm.line_at_row(((p.y - origin.y) / rh).floor().max(0.0) as usize, nlines);
@@ -425,7 +434,8 @@ fn text_area(
                         msgs.push("Modifié depuis le dernier commit — clic pour voir le diff".into());
                     }
                     if !msgs.is_empty() {
-                        tooltip_under_line(ui, &resp, p, origin.y, rh, msgs.join("\n"));
+                        let at = tip_at(p.x, origin.y + ((p.y - origin.y) / rh).floor() * rh, rh, l, caret);
+                        tooltip_by_line(ui, &resp, at, msgs.join("\n"));
                     }
                 }
             }
@@ -1074,23 +1084,21 @@ mod tests {
     }
 }
 
-/// Tooltip just under the hovered line, after the usual delay: egui places the tooltip of a
-/// widget under it, which for the whole editor means at the top or bottom of the window.
 /// Where the hovered symbol is defined (like Sublime Text), each place a link to open it. Opened
 /// by `new` (where, text above the list); it stays while the mouse is over it.
-fn definitions_popup(ui: &Ui, doc: &mut Document, id: Id, new: Option<(Pos2, String)>) {
+fn definitions_popup(ui: &Ui, doc: &mut Document, id: Id, new: Option<(TipAt, String)>) {
     let pid = id.with("defs_popup");
     let ctx = ui.ctx().clone();
     // (where, text) and the rect of the popup shown at the last frame
-    let last: Option<(Pos2, String, Rect)> = ctx.data(|d| d.get_temp(pid));
+    let last: Option<(TipAt, String, Rect)> = ctx.data(|d| d.get_temp(pid));
     let over = last.as_ref().zip(ctx.pointer_hover_pos()).is_some_and(|((_, _, r), p)| r.expand(10.0).contains(p));
     let shown = new.or_else(|| last.filter(|_| over).map(|(at, tip, _)| (at, tip)));
     let (Some((at, tip)), Some((_, defs, more))) = (shown, doc.hover_defs.as_ref()) else {
-        ctx.data_mut(|d| d.remove::<(Pos2, String, Rect)>(pid));
+        ctx.data_mut(|d| d.remove::<(TipAt, String, Rect)>(pid));
         return;
     };
     let mut clicked = None;
-    let area = egui::Area::new(pid.with("area")).order(egui::Order::Foreground).fixed_pos(at).show(&ctx, |ui| {
+    let area = egui::Area::new(pid.with("area")).order(egui::Order::Foreground).fixed_pos(at.0).pivot(at.1).show(&ctx, |ui| {
         egui::Frame::popup(ui.style()).show(ui, |ui| {
             ui.set_max_width(640.0);
             if !tip.is_empty() {
@@ -1113,22 +1121,38 @@ fn definitions_popup(ui: &Ui, doc: &mut Document, id: Id, new: Option<(Pos2, Str
     });
     if let Some(k) = clicked {
         doc.goto_request = doc.hover_defs.as_ref().and_then(|(_, d, _)| d.get(k)).map(|(p, l, _, _)| (p.clone(), *l));
-        ctx.data_mut(|d| d.remove::<(Pos2, String, Rect)>(pid));
+        ctx.data_mut(|d| d.remove::<(TipAt, String, Rect)>(pid));
     } else {
         ctx.data_mut(|d| d.insert_temp(pid, (at, tip, area.response.rect)));
     }
 }
 
-fn tooltip_under_line(ui: &Ui, resp: &egui::Response, p: Pos2, top: f32, rh: f32, text: String) {
+/// Where a tooltip about a hovered line goes: (point, corner of the tooltip on it).
+type TipAt = (Pos2, Align2);
+
+/// Just under the hovered line (`row_top`: the top of its row), or just above it when the cursor
+/// is in the lines below: the tooltip would hide what is being written.
+fn tip_at(x: f32, row_top: f32, rh: f32, hovered: usize, caret: usize) -> TipAt {
+    if caret > hovered && caret <= hovered + 12 {
+        (egui::pos2(x, row_top - 2.0), Align2::LEFT_BOTTOM)
+    } else {
+        (egui::pos2(x, row_top + rh + 2.0), Align2::LEFT_TOP)
+    }
+}
+
+/// Tooltip next to the hovered line, after the usual delay: egui places the tooltip of a widget
+/// under it, which for the whole editor means at the top or bottom of the window.
+fn tooltip_by_line(ui: &Ui, resp: &egui::Response, at: TipAt, text: String) {
     let delay = ui.style().interaction.tooltip_delay;
     let still = ui.ctx().input(|i| i.pointer.time_since_last_movement());
     if still < delay {
         ui.ctx().request_repaint_after(std::time::Duration::from_secs_f32(delay - still + 0.01));
         return;
     }
-    let bottom = top + (((p.y - top) / rh).floor() + 1.0) * rh;
-    egui::show_tooltip_at(ui.ctx(), ui.layer_id(), resp.id.with("line_tip"), egui::pos2(p.x, bottom + 2.0), |ui| {
-        ui.set_max_width(600.0);
-        ui.label(text);
+    egui::Area::new(resp.id.with("line_tip")).order(egui::Order::Tooltip).fixed_pos(at.0).pivot(at.1).interactable(false).show(ui.ctx(), |ui| {
+        egui::Frame::popup(ui.style()).show(ui, |ui| {
+            ui.set_max_width(600.0);
+            ui.label(text);
+        });
     });
 }
