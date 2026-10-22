@@ -526,7 +526,7 @@ impl App {
             return;
         };
         let mut text = q.tasks[k].text.trim().to_string();
-        let model = q.tasks[k].model.or(q.base_model);
+        let model = q.model.or(q.base_model);
         let previous = q.tasks[..k].iter().rev().find(|t| t.state == TaskState::Done).map(|t| t.text.lines().next().unwrap_or("").to_string());
         let fresh = q.fresh_each;
         let c = &mut self.claude;
@@ -578,6 +578,7 @@ impl App {
                 q.tasks[k].note.clear();
             }
             QueueAct::ClearDone => q.tasks.retain(|t| t.state != TaskState::Done),
+            QueueAct::Close => q.tasks.clear(),
         }
         self.claude_save();
     }
@@ -1134,6 +1135,7 @@ impl App {
         // ids of their own: two conversations can be shown at once (bottom panel and a tab)
         let cid = |name: &str| egui::Id::new(name).with(c.id);
         let (bar_id, review_id, input_id, chat_id) = (cid("claude_bar"), cid("claude_review"), cid("claude_input"), cid("claude_chat"));
+        let queue_id = cid("claude_queue");
         let conv = c.id;
 
         // ------------------------------------------------ settings of the conversation
@@ -1326,7 +1328,7 @@ impl App {
             egui::TopBottomPanel::bottom(input_id).show_inside(ui, |ui| {
                 ui.add_space(6.0);
                 if !c.queue.tasks.is_empty() {
-                    queue_act = claude_queue::queue_ui(ui, &mut c.queue, c.busy, accent);
+                    queue_act = claude_queue::queue_ui(ui, &mut c.queue, c.busy, accent, queue_id);
                 }
                 if !c.attach.is_empty() {
                     let mut remove = None;

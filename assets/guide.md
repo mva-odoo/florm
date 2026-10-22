@@ -198,10 +198,11 @@ panneau du bas (⇱ Onglet pour lui donner tout un onglet de l'éditeur, ⇲ pou
   chacune). **Lancer** les envoie une à une dans la même conversation, chacune quand Claude a
   fini la précédente ; **Commit après chaque tâche** fait un commit (message écrit par Claude)
   entre deux. Une erreur ou **■ Arrêter** met la file en pause ; une tâche en attente se
-  modifie, se remonte (↑) ou se retire (×).
+  modifie ou se remonte (↑) ; toute tâche sauf celle en cours se retire (×), et le **×** de la
+  file la ferme.
   Pour moins de tokens : **Conversation neuve par tâche** (Claude ne relit pas tout l'historique,
-  la conclusion de la tâche d'avant lui est donnée) et un **modèle par tâche** (Haiku ou Sonnet
-  pour les petites, le modèle de la conversation sinon).
+  la conclusion de la tâche d'avant lui est donnée) et un **modèle pour la file** (Haiku ou
+  Sonnet pour des petites tâches, le modèle de la conversation sinon).
 
 **✨ à côté du message de commit** (vue Git) : Claude propose le message d'après les changements
 indexés (sinon tous), dans le style des derniers commits du dépôt et d'après ta première demande
