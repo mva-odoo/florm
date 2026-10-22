@@ -47,6 +47,10 @@ impl App {
                         Err(e) => self.set_status(format!("Serveur de langage : {e}")),
                     }
                 }
+                lsp::Incoming::ApplyEdit(edit) => {
+                    let (n, files) = self.apply_workspace_edit(&edit);
+                    self.set_status(format!("Serveur de langage : {n} modification(s) dans {files} fichier(s)"));
+                }
                 lsp::Incoming::Exited(name) => {
                     self.set_status(format!("Le serveur de langage {name} s'est arrêté (LSP : redémarrer pour réessayer)"));
                 }
@@ -382,34 +386,47 @@ impl App {
                 self.open_overlay_with(Mode::References(word), items, String::new());
             }
             LspReq::Rename { name } => {
-                let edits = lsp::parse_workspace_edit(&v);
-                if edits.is_empty() {
+                let (n, files) = self.apply_workspace_edit(&v);
+                if n == 0 {
                     self.set_status("Rien à renommer ici");
                     return;
                 }
-                let back = self.docs.get(self.active).map(|d| d.uid);
-                let (mut n, files) = (0, edits.len());
-                for (path, list) in edits {
-                    let i = match self.docs.iter().position(|d| d.path.as_ref() == Some(&path)) {
-                        Some(i) => i,
-                        None if self.open_path(path.clone()) => self.active,
-                        None => continue,
-                    };
-                    let d = &mut self.docs[i];
-                    let changes: Vec<(usize, usize, String)> = list
-                        .iter()
-                        .map(|(range, t)| (lsp::from_position(&d.rope, &range["start"]), lsp::from_position(&d.rope, &range["end"]), t.clone()))
-                        .collect();
-                    n += changes.len();
-                    d.replace_keep(EditKind::Other, changes);
-                }
-                if let Some(i) = back.and_then(|u| self.docs.iter().position(|d| d.uid == u)) {
-                    self.active = i;
-                }
                 self.set_status(format!("Renommé en « {name} » : {n} endroit(s) dans {files} fichier(s) — à enregistrer (Ctrl+Alt+S : tout enregistrer)"));
-                let _ = ctx;
             }
+            LspReq::CodeActions { uid } => self.code_actions_loaded(ci, uid, v),
+            LspReq::ResolveAction => {
+                if v.get("edit").is_some() || v.get("command").is_some() {
+                    self.run_code_action(ci, v, ctx);
+                }
+            }
+            LspReq::Command => {}
         }
+    }
+
+    /// Makes the text edits of a workspace edit (files not open are opened, the active tab stays);
+    /// returns (edits, files).
+    pub(super) fn apply_workspace_edit(&mut self, v: &serde_json::Value) -> (usize, usize) {
+        let edits = lsp::parse_workspace_edit(v);
+        let back = self.docs.get(self.active).map(|d| d.uid);
+        let (mut n, files) = (0, edits.len());
+        for (path, list) in edits {
+            let i = match self.docs.iter().position(|d| d.path.as_ref() == Some(&path)) {
+                Some(i) => i,
+                None if self.open_path(path.clone()) => self.active,
+                None => continue,
+            };
+            let d = &mut self.docs[i];
+            let changes: Vec<(usize, usize, String)> = list
+                .iter()
+                .map(|(range, t)| (lsp::from_position(&d.rope, &range["start"]), lsp::from_position(&d.rope, &range["end"]), t.clone()))
+                .collect();
+            n += changes.len();
+            d.replace_keep(EditKind::Other, changes);
+        }
+        if let Some(i) = back.and_then(|u| self.docs.iter().position(|d| d.uid == u)) {
+            self.active = i;
+        }
+        (n, files)
     }
 
     /// Keeps the suggestions matching the word being typed; closes the list when it no longer applies.

@@ -375,6 +375,7 @@ impl App {
             NavForward => self.nav_go(false),
             Complete => self.request_completion(ctx),
             GotoDefinition => self.goto_definition(ctx),
+            QuickFix => self.quick_fix_open(ctx),
             RenameSymbol => {
                 let i = self.active;
                 match self.lsp_for(i, ctx, true) {

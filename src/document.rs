@@ -149,6 +149,8 @@ pub struct Document {
     pub wraps: crate::wrap::Wraps,
     /// A definition clicked in the hover popup: the app opens it.
     pub goto_request: Option<(PathBuf, usize)>,
+    /// The bulb of the cursor line was clicked: the app opens the corrections rapides.
+    pub quick_fix_request: bool,
     /// Inline blame annotation: (line, document version, text).
     pub blame: Option<(usize, u64, String)>,
     pub mtime: Option<SystemTime>,
@@ -414,6 +416,7 @@ impl Document {
             hover_defs: None,
             wraps: Default::default(),
             goto_request: None,
+            quick_fix_request: false,
             blame: None,
             mtime: None,
             crlf: false,

@@ -166,6 +166,8 @@ pub fn from_position(rope: &Rope, pos: &Value) -> usize {
 /// Message from a server, for the UI thread.
 pub enum Incoming {
     Response { id: i64, result: Result<Value, String> },
+    /// The server asks for a workspace edit to be made (after a command of a code action).
+    ApplyEdit(Value),
     Exited(String),
 }
 
@@ -228,6 +230,11 @@ impl Client {
                                 Value::Array(items.iter().map(|it| setting(it["section"].as_str().unwrap_or(""))).collect())
                             }
                             "workspace/workspaceFolders" => Value::Null,
+                            "workspace/applyEdit" => {
+                                let _ = events.send((idx, Incoming::ApplyEdit(v["params"]["edit"].clone())));
+                                repaint();
+                                json!({"applied": true})
+                            }
                             _ => Value::Null,
                         };
                         let _ = reply.send(json!({"jsonrpc": "2.0", "id": id, "result": result}).to_string());
@@ -268,7 +275,7 @@ impl Client {
             "clientInfo": { "name": "florm" },
             "capabilities": {
                 "general": { "positionEncodings": ["utf-16"] },
-                "workspace": { "workspaceEdit": { "documentChanges": true }, "configuration": true, "workspaceFolders": true },
+                "workspace": { "workspaceEdit": { "documentChanges": true }, "configuration": true, "workspaceFolders": true, "applyEdit": true, "executeCommand": {} },
                 "textDocument": {
                     "synchronization": { "didSave": true },
                     "completion": {
@@ -276,7 +283,13 @@ impl Client {
                         "contextSupport": true
                     },
                     "definition": { "linkSupport": true },
-                    "rename": { "prepareSupport": false }
+                    "rename": { "prepareSupport": false },
+                    "codeAction": {
+                        "codeActionLiteralSupport": { "codeActionKind": { "valueSet": ["", "quickfix", "refactor", "refactor.extract", "refactor.inline", "refactor.rewrite", "source", "source.organizeImports", "source.fixAll"] } },
+                        "resolveSupport": { "properties": ["edit"] },
+                        "dataSupport": true,
+                        "isPreferredSupport": true
+                    }
                 }
             }
         });
@@ -432,6 +445,7 @@ impl Manager {
                         }
                     }
                 }
+                Incoming::ApplyEdit(_) => {}
                 Incoming::Exited(_) => {
                     if let Some(c) = self.clients.get_mut(i).and_then(|c| c.take()) {
                         self.failed.insert((c.family.clone(), c.root.clone()));

@@ -16,7 +16,7 @@ pub(super) struct InlineAsk {
     original: String,
     /// Lines (1-based) of the range, for the title.
     lines: (usize, usize),
-    ask: String,
+    pub(super) ask: String,
     busy: bool,
     result: Option<Result<Inline, String>>,
     focus: bool,
@@ -154,7 +154,7 @@ impl App {
         }
     }
 
-    fn inline_ai_send(&mut self) {
+    pub(super) fn inline_ai_send(&mut self) {
         static N: AtomicU64 = AtomicU64::new(1);
         let Some(st) = self.inline.as_ref() else { return };
         let Some(d) = self.docs.iter().find(|d| d.uid == st.uid) else { return };

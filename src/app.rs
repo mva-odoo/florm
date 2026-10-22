@@ -30,6 +30,7 @@ mod git_view;
 mod ai_review;
 mod inline_ai;
 mod md;
+mod quick_fix;
 mod pulls;
 mod pr_links;
 mod claude_ui;
@@ -501,6 +502,12 @@ enum LspReq {
     /// Tooltip of the symbol at `range` in document `uid`.
     Hover { uid: u64, range: (usize, usize) },
     References { word: String },
+    /// Code actions for the corrections of document `uid`.
+    CodeActions { uid: u64 },
+    /// A code action sent without its edit, completed by the server.
+    ResolveAction,
+    /// workspace/executeCommand: its edit comes as a workspace/applyEdit.
+    Command,
 }
 
 /// Interactive rebase prepared in the graph (see rebase.rs).
@@ -678,6 +685,8 @@ pub struct App {
     md_cache: egui_commonmark::CommonMarkCache,
     /// Claude on the selection, in a small window over the editor (Ctrl+I).
     inline: Option<inline_ai::InlineAsk>,
+    /// Corrections rapides (Ctrl+.) of the cursor, while their list is open.
+    quick_fix: Option<quick_fix::QuickFix>,
     /// GitHub pull requests tab.
     pr: pulls::PrUi,
     /// Pull requests of branches and commits, creation of one.
@@ -869,6 +878,7 @@ impl App {
             pending_focus: false,
             md_cache: egui_commonmark::CommonMarkCache::default(),
             inline: None,
+            quick_fix: None,
             pr: Default::default(),
             gh: Default::default(),
             claude: Default::default(),
@@ -1095,6 +1105,7 @@ impl eframe::App for App {
         self.lsp_frame(ctx);
         self.update_hover(ctx);
         self.completion_keys(ctx);
+        self.quick_fix_keys(ctx);
         self.handle_keys(ctx);
         self.editor_input(ctx);
         self.update_blame();
@@ -1122,6 +1133,7 @@ impl eframe::App for App {
         self.claude_poll_all();
         self.claude_take_picks();
         self.completion_popup(ctx);
+        self.quick_fix_ui(ctx);
         let (mb, mf) = ctx.input(|i| (i.pointer.button_pressed(egui::PointerButton::Extra1), i.pointer.button_pressed(egui::PointerButton::Extra2)));
         if mb || mf {
             self.nav_go(mb);
@@ -1591,6 +1603,7 @@ mod font_tests {
             include_str!("app/panes.rs"),
             include_str!("app/prefs.rs"),
             include_str!("app/projects.rs"),
+            include_str!("app/quick_fix.rs"),
             include_str!("app/save_lint.rs"),
             include_str!("app/search_panel.rs"),
             include_str!("app/settings.rs"),

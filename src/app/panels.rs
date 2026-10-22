@@ -1265,6 +1265,7 @@ impl App {
         item(ui, &format!("✳ Ajouter {what} au contexte de Claude"), Cmd::ClaudeAddSelection, has_path);
         item(ui, "✳ Ajouter le fichier au contexte de Claude", Cmd::ClaudeAddFile, has_path);
         ui.separator();
+        item(ui, "Corrections rapides…", Cmd::QuickFix, true);
         item(ui, "Aller à la définition", Cmd::GotoDefinition, true);
         item(ui, "Rechercher les usages", Cmd::FindReferences, true);
         item(ui, "Suggestions", Cmd::Complete, !ro);

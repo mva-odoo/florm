@@ -143,6 +143,7 @@ const DEFAULTS: &[(&str, &str)] = &[
     ("ctrl+alt+k", "claude_ask"),
     ("ctrl+i", "claude_inline"),
     ("ctrl+alt+d", "toggle_inline_diff"),
+    ("ctrl+period", "quick_fix"),
     ("ctrl+alt+f", "format_document"),
     ("ctrl+b", "git_blame"),
     ("ctrl+alt+b", "git_line_history"),

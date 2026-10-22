@@ -725,6 +725,20 @@ fn text_area(
             }
         }
 
+        // a bulb at the end of the cursor line when it has a problem: the corrections rapides
+        if focused && (first..=last).contains(&caret) && doc.diagnostics.iter().any(|d| d.line == caret) {
+            let end = at(caret, doc.vcol(caret, doc.line_len(caret)));
+            let center = Pos2::new(end.x + 1.5 * cw, end.y + rh * 0.45);
+            let r = ui.interact(Rect::from_center_size(center, egui::vec2(cw * 1.6, rh)), id.with("bulb"), Sense::click());
+            let color = if r.hovered() { highlight::yellow() } else { highlight::yellow().gamma_multiply(0.75) };
+            painter.circle_filled(center, (rh * 0.2).min(5.0), color);
+            let base = Rect::from_center_size(Pos2::new(center.x, center.y + rh * 0.27), egui::vec2(rh * 0.18, rh * 0.12));
+            painter.rect_filled(base, 1.0, color);
+            if r.on_hover_text("Corrections rapides (Ctrl+.)").clicked() {
+                doc.quick_fix_request = true;
+            }
+        }
+
         // diagnostics (squiggles)
         for d in doc.diagnostics.iter().filter(|d| (first..=last).contains(&d.line) && !rm.is_hidden(d.line)) {
             let ll = doc.line_len(d.line);
