@@ -674,6 +674,12 @@ pub struct App {
     status: Option<(String, Instant)>,
     /// Newer release of Florm, shown in the status bar until dismissed.
     update: Option<crate::update::Update>,
+    /// The update is being downloaded and installed.
+    update_installing: bool,
+    /// Installed update: the program to start for the restart.
+    update_ready: Option<PathBuf>,
+    /// Program started when Florm quits ("Redémarrer" after an update).
+    restart: Option<PathBuf>,
     pending: Vec<Cmd>,
     last_disk_check: Instant,
     /// Last command run in a terminal: git and the files are checked more often for a while.
@@ -879,6 +885,9 @@ impl App {
             output: Vec::new(),
             status: None,
             update: None,
+            update_installing: false,
+            update_ready: None,
+            restart: None,
             pending: Vec::new(),
             last_disk_check: Instant::now(),
             term_enter: None,
@@ -929,6 +938,7 @@ impl App {
             app.log(e);
         }
         app.search = app.fresh_search();
+        crate::update::cleanup();
         if app.settings.check_updates {
             app.check_update(false);
         }
@@ -981,6 +991,25 @@ impl App {
             self.set_status("Recherche d'une mise à jour…");
         }
         self.jobs.spawn(move || JobResult::Update { manual, result: crate::update::check() });
+    }
+
+    /// Downloads and installs the update in the background; "Redémarrer" is offered when done.
+    fn install_update(&mut self) {
+        let Some(u) = self.update.clone() else { return };
+        if self.update_installing || self.update_ready.is_some() {
+            return;
+        }
+        self.update_installing = true;
+        self.set_status(format!("Téléchargement de Florm {}…", u.version));
+        self.jobs.spawn(move || JobResult::UpdateInstalled { version: u.version.clone(), result: crate::update::install(&u) });
+    }
+
+    /// Quits (with the usual questions for unsaved files) and starts the installed version.
+    fn restart_for_update(&mut self, ctx: &egui::Context) {
+        if let Some(exe) = self.update_ready.clone() {
+            self.restart = Some(exe);
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
     }
 
     fn focus_editor(&self, ctx: &egui::Context) {
@@ -1098,6 +1127,14 @@ impl App {
 }
 
 impl eframe::App for App {
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        if let Some(exe) = self.restart.take() {
+            if let Err(e) = crate::os::command(&exe).stdin(std::process::Stdio::null()).spawn() {
+                eprintln!("Redémarrage de Florm impossible ({}) : {e}", exe.display());
+            }
+        }
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if std::mem::take(&mut self.visuals_dirty) {
             apply_visuals(ctx, self.hl.visuals());

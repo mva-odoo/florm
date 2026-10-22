@@ -381,13 +381,25 @@ impl App {
                     if ui.add(version).on_hover_text("Version de Florm · clic : rechercher une mise à jour").clicked() {
                         self.pending.push(Cmd::CheckUpdate);
                     }
-                    if let Some(u) = self.update.clone() {
+                    if let (Some(u), true) = (&self.update, self.update_ready.is_some()) {
+                        let text = RichText::new(format!("⟳ Redémarrer (Florm {})", u.version)).color(ui.visuals().hyperlink_color);
+                        if ui.add(egui::Button::new(text).frame(false)).on_hover_text("La nouvelle version est installée : Florm se relance (fichiers non enregistrés : la question habituelle)").clicked() {
+                            self.restart_for_update(ctx);
+                        }
+                    } else if let (Some(u), true) = (&self.update, self.update_installing) {
+                        ui.label(RichText::new(format!("Mise à jour vers Florm {}…", u.version)).weak());
+                        ui.spinner();
+                    } else if let Some(u) = self.update.clone() {
                         let text = RichText::new(format!("⬆ Florm {}", u.version)).color(ui.visuals().hyperlink_color);
                         ui.menu_button(text, |ui| {
                             ui.visuals_mut().override_text_color = None;
                             ui.label(format!("Nouvelle version (vous avez la {})", crate::update::current()));
+                            if ui.button("Installer et redémarrer").on_hover_text("Florm télécharge la nouvelle version, la vérifie et remplace celle-ci ; les préférences sont gardées. Sous Linux, un paquet système demande le mot de passe.").clicked() {
+                                self.install_update();
+                                ui.close_menu();
+                            }
                             if let Some((name, url)) = &u.file {
-                                if ui.button(format!("Télécharger {name}")).on_hover_text("Installez-le comme la première fois : il remplace l'ancienne version, les préférences sont gardées.").clicked() {
+                                if ui.button(format!("Télécharger {name}")).on_hover_text("Dans le navigateur ; installez-le comme la première fois : il remplace l'ancienne version, les préférences sont gardées.").clicked() {
                                     ui.ctx().open_url(egui::OpenUrl::new_tab(url));
                                     ui.close_menu();
                                 }

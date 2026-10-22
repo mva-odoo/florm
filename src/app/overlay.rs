@@ -744,6 +744,7 @@ impl App {
                 }
                 self.do_switch(p);
             }
+            (Confirm::Quit, _) => self.restart = None,
             (Confirm::SwitchProject(p), 2) => self.do_switch(p),
             (Confirm::ReplaceInFiles, 1) => self.replace_in_files(None),
             (Confirm::Delete(p), 1) => {

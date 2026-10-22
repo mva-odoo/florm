@@ -26,6 +26,8 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 egui_commonmark = "0.18"
 dunce = "1"
 ttf-parser = "0.25"
+# vérification des mises à jour téléchargées (SHA256SUMS de la release)
+sha2 = "0.10"
 
 [profile.release]
 opt-level = 3

@@ -442,6 +442,20 @@ impl App {
                         self.log(e);
                     }
                 },
+                JobResult::UpdateInstalled { version, result } => {
+                    self.update_installing = false;
+                    match result {
+                        Ok(exe) => {
+                            self.log(format!("Florm {version} est installé : redémarrez pour l'utiliser"));
+                            self.set_status(format!("Florm {version} est installé : « Redémarrer » en bas à droite"));
+                            self.update_ready = Some(exe);
+                        }
+                        Err(e) => {
+                            self.log(format!("Mise à jour vers Florm {version} impossible : {e}"));
+                            self.set_status("Mise à jour impossible (voir Sortie) : le fichier reste téléchargeable en bas à droite");
+                        }
+                    }
+                }
                 JobResult::Fonts(list) => {
                     self.prefs.font_list = Some(list);
                     self.prefs.font_list_loading = false;

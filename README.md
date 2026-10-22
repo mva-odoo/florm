@@ -82,7 +82,7 @@ cargo build --release
 
 ### Mettre à jour
 
-Quand une nouvelle version sort, Florm l'indique au démarrage par **⬆ Florm x.y.z** en bas à droite. Un clic propose de **télécharger le fichier pour votre système** (le `.deb` sous Ubuntu, le paquet Arch sous Arch, le `.exe` sous Windows, le `.dmg` sous macOS…) ou d'ouvrir les notes de version. Pour vérifier à la main : **Aide → Rechercher une mise à jour**. Pour ne plus chercher : Préférences → Avancé → « Chercher les mises à jour ».
+Quand une nouvelle version sort, Florm l'indique au démarrage par **⬆ Florm x.y.z** en bas à droite. Un clic propose **Installer et redémarrer** : Florm télécharge la version de votre système, la vérifie (SHA-256) et remplace celle installée, puis **⟳ Redémarrer** la relance. Avec un paquet Linux (`.deb`, `.rpm`, Arch), la fenêtre système demande le mot de passe, comme pour installer un paquet. Si ça n'est pas possible, le menu propose toujours de **télécharger le fichier dans le navigateur** (le `.deb` sous Ubuntu, le paquet Arch sous Arch, le `.exe` sous Windows, le `.dmg` sous macOS…) ou d'ouvrir les notes de version. Pour vérifier à la main : **Aide → Rechercher une mise à jour**. Pour ne plus chercher : Préférences → Avancé → « Chercher les mises à jour ».
 
 Inutile de désinstaller l'ancienne version : la nouvelle s'installe **par-dessus**, et les préférences sont gardées.
 

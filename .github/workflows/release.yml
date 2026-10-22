@@ -180,6 +180,9 @@ jobs:
         run: |
           tag="v$VERSION"
           files=$(ls dist/linux/* dist/arch/* dist/windows/* dist/macos/*)
+          # vérifiées par Florm avant d'installer une mise à jour (src/update.rs)
+          for f in $files; do (cd "$(dirname "$f")" && sha256sum "$(basename "$f")"); done > SHA256SUMS
+          files="$files SHA256SUMS"
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" $files --clobber
           else

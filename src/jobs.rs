@@ -90,6 +90,8 @@ pub enum JobResult {
     SplitEnded { aborted: bool, result: Result<String, String> },
     /// Newer release of Florm (`manual`: asked from the menu, so "up to date" is shown too).
     Update { manual: bool, result: Result<Option<crate::update::Update>, String> },
+    /// Update downloaded and installed: the program to start for the restart.
+    UpdateInstalled { version: String, result: Result<std::path::PathBuf, String> },
     Plugin { uid: u64, version: u64, title: String, output: Output, result: Result<Vec<String>, String> },
 }
 
