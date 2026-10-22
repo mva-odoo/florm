@@ -658,8 +658,14 @@ pub struct App {
     pr: pulls::PrUi,
     /// Pull requests of branches and commits, creation of one.
     gh: pr_links::GhUi,
-    /// Conversation with Claude Code and review of its changes.
+    /// Conversation with Claude Code and review of its changes: the one shown last.
     claude: claude_ui::ClaudeUi,
+    /// The other conversations (each in its editor tab, or one in the bottom panel).
+    claude_others: Vec<claude_ui::ClaudeUi>,
+    /// The conversations kept between sessions (newest first), and whether the last one was
+    /// brought back at the first showing of Claude.
+    claude_saved: Vec<claude_ui::SavedConv>,
+    claude_loaded: bool,
     /// For the places without a context at hand (prompt submission).
     egui_ctx: egui::Context,
     /// File to bring into view in the tree ("afficher dans l'arborescence").
@@ -839,6 +845,9 @@ impl App {
             pr: Default::default(),
             gh: Default::default(),
             claude: Default::default(),
+            claude_others: Vec::new(),
+            claude_saved: claude_ui::load_saved(),
+            claude_loaded: false,
             egui_ctx: cc.egui_ctx.clone(),
             tree_scroll: None,
             tree_nav: sidebar::Nav::default(),
@@ -1083,7 +1092,7 @@ impl eframe::App for App {
         }
         self.central(ctx);
         self.sync_terminal_tabs();
-        self.claude_poll();
+        self.claude_poll_all();
         self.claude_take_picks();
         self.completion_popup(ctx);
         let (mb, mf) = ctx.input(|i| (i.pointer.button_pressed(egui::PointerButton::Extra1), i.pointer.button_pressed(egui::PointerButton::Extra2)));
@@ -1163,11 +1172,12 @@ fn tab_widget(
     icon: TabIcon,
     dirty: bool,
     active: bool,
-    error: bool,
+    // color of the title instead of the usual one (errors, Claude working or finished)
+    tint: Option<Color32>,
     tc: &crate::highlight::TabColors,
 ) -> (egui::Response, bool) {
     let font = egui::FontId::proportional(13.5);
-    let text_color = if error { err() } else if active { tc.text_active } else { tc.text_inactive };
+    let text_color = tint.unwrap_or(if active { tc.text_active } else { tc.text_inactive });
     let galley = ui.painter().layout_no_wrap(title.to_string(), font, text_color);
     let icon_w = 22.0;
     let w = galley.size().x + 52.0 + icon_w;

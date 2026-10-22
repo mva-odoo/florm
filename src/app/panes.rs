@@ -112,7 +112,8 @@ impl App {
                 None
             }
             document::View::Claude => {
-                egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.claude_ui(ui, true));
+                let uid = self.docs[i].uid;
+                egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.claude_show(ui, Some(uid)));
                 None
             }
             document::View::PullRequests => {

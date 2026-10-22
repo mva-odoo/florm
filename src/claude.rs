@@ -215,9 +215,13 @@ pub struct Session {
 impl Session {
     /// Starts `claude` in `dir`; `repaint` is called when something arrives.
     /// `perms`: the arguments of `permission_args`.
-    pub fn start(dir: &Path, model: &str, perms: &[String], repaint: impl Fn() + Send + 'static) -> Result<Session, String> {
+    /// `resume`: the id of an earlier session to continue (its context is kept).
+    pub fn start(dir: &Path, model: &str, perms: &[String], resume: Option<&str>, repaint: impl Fn() + Send + 'static) -> Result<Session, String> {
         let mut args = vec!["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages"];
         args.extend(perms.iter().map(String::as_str));
+        if let Some(id) = resume {
+            args.extend(["--resume", id]);
+        }
         if !model.is_empty() {
             args.extend(["--model", model]);
         }

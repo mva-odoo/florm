@@ -13,7 +13,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 
 pub enum JobResult {
     /// Changes since the start of the review of Claude's work (a diff).
-    ClaudeReview(Result<String, String>),
+    ClaudeReview(u64, Result<String, String>),
     /// Commit message written by Claude.
     CommitMessage(Result<String, String>),
     /// The repository pull requests go to, and its default branch.
