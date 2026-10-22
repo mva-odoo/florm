@@ -140,7 +140,13 @@ impl App {
     }
 
     pub(super) fn lint_config(&self) -> lint::LintConfig {
-        lint::LintConfig { python_linter: self.settings.python_linter.clone(), python_args: self.settings.python_lint_args.clone() }
+        let s = &self.settings;
+        let ignore = [("flake8", &s.lint_ignore_flake8), ("ruff", &s.lint_ignore_ruff), ("pylint", &s.lint_ignore_pylint), ("eslint", &s.lint_ignore_eslint)];
+        lint::LintConfig {
+            python_linter: s.python_linter.clone(),
+            python_args: s.python_lint_args.clone(),
+            ignore: ignore.into_iter().filter(|(_, c)| !c.is_empty()).map(|(n, c)| (n.to_string(), c.clone())).collect(),
+        }
     }
 
     /// Lints the active Python buffer while typing (debounced, one run at a time per document).

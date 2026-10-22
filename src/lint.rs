@@ -53,6 +53,34 @@ pub struct LintConfig {
     /// "auto" (flake8 → ruff → pyflakes), or "flake8", "ruff", "pyflakes", "pylint".
     pub python_linter: String,
     pub python_args: Vec<String>,
+    /// Codes not shown, per linter: (linter, codes).
+    pub ignore: Vec<(String, Vec<String>)>,
+}
+
+/// The linters whose problems have a code that can be ignored: (name, example of codes).
+pub const WITH_CODES: [(&str, &str); 4] = [
+    ("flake8", "E501, W503, E2"),
+    ("ruff", "E501, F401, I"),
+    ("pylint", "C0114, missing-docstring"),
+    ("eslint", "no-unused-vars, no-console"),
+];
+
+impl LintConfig {
+    /// The problem has a code ignored for its linter: the code itself or a prefix of it ("E5"
+    /// for E501), or the rule name pylint puts at the end of the message ("(unused-import)").
+    fn ignores(&self, d: &Diagnostic) -> bool {
+        let Some((_, codes)) = self.ignore.iter().find(|(n, _)| *n == d.source) else { return false };
+        let code = d.code.as_deref().unwrap_or("").to_lowercase();
+        let message = d.message.to_lowercase();
+        codes.iter().map(|c| c.trim().to_lowercase()).filter(|c| !c.is_empty()).any(|c| {
+            (!code.is_empty() && code.starts_with(&c)) || message.ends_with(&format!("({c})"))
+        })
+    }
+
+    fn filter(&self, mut diags: Vec<Diagnostic>) -> Vec<Diagnostic> {
+        diags.retain(|d| !self.ignores(d));
+        diags
+    }
 }
 
 /// Runs an external linter. Python gets the buffer on stdin (unsaved changes are checked);
@@ -60,7 +88,7 @@ pub struct LintConfig {
 pub fn lint_external(path: &Path, text: &str, root: Option<&Path>, cfg: &LintConfig) -> Option<(Vec<Diagnostic>, String)> {
     match lang_of(path)? {
         "python" => Some(lint_python(path, text, root, cfg)),
-        "javascript" => Some((lint_js(path, root), "eslint".into())),
+        "javascript" => Some((cfg.filter(lint_js(path, root)), "eslint".into())),
         _ => None,
     }
 }
@@ -431,7 +459,7 @@ pub fn lint_python(path: &Path, text: &str, root: Option<&Path>, cfg: &LintConfi
                     d.col += 1; // pylint columns are 0-based
                 }
             }
-            failed.extend(diags);
+            failed.extend(cfg.filter(diags));
             return (failed, name.to_string());
         }
     }
@@ -582,7 +610,7 @@ mod tests {
     #[test]
     fn python_buffer_syntax_error() {
         let p = std::env::temp_dir().join("florm_lint_test.py");
-        let cfg = LintConfig { python_linter: "none".into(), python_args: Vec::new() };
+        let cfg = LintConfig { python_linter: "none".into(), ..Default::default() };
         let (d, used) = lint_python(&p, "def f(:\n    pass\n", None, &cfg);
         assert_eq!(used, "syntaxe");
         assert!(!d.is_empty(), "no diagnostic");
@@ -596,13 +624,32 @@ mod tests {
         }
         let p = std::env::temp_dir().join("florm_lint_fail.py");
         // single dash: flake8 rejects the option and lints nothing
-        let cfg = LintConfig { python_linter: "flake8".into(), python_args: vec!["-max-line-length=120".into()] };
+        let cfg = LintConfig { python_linter: "flake8".into(), python_args: vec!["-max-line-length=120".into()], ..Default::default() };
         let (d, used) = lint_python(&p, "def f(:\n    pass\n", None, &cfg);
         assert_eq!(used, "syntaxe");
         assert_eq!(d[0].line, 0);
         assert!(d[0].message.starts_with("flake8 a échoué : ") && d[0].message.contains("unrecognized arguments"), "{}", d[0].message);
         // the syntax check still runs after the failure
         assert!(d.iter().any(|d| d.source == "python" && d.severity == Severity::Error));
+    }
+
+    #[test]
+    fn ignored_codes() {
+        let d = |source: &str, code: Option<&str>, message: &str| Diagnostic { line: 0, col: 0, severity: Severity::Warning, message: message.into(), source: source.into(), code: code.map(String::from) };
+        let v = |c: &[&str]| c.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let cfg = LintConfig { ignore: vec![("flake8".into(), v(&["E5", " w503 "])), ("pylint".into(), v(&["unused-import"])), ("eslint".into(), v(&["no-console"]))], ..Default::default() };
+        let diags = vec![
+            d("flake8", Some("E501"), "E501 line too long"),
+            d("flake8", Some("W503"), "W503 line break before binary operator"),
+            d("flake8", Some("F401"), "F401 'os' imported but unused"),
+            // only the codes of its own linter
+            d("ruff", Some("E501"), "E501 Line too long"),
+            d("pylint", Some("W0611"), "W0611 Unused import os (unused-import)"),
+            d("eslint", Some("no-console"), "Unexpected console statement. (no-console)"),
+            d("flake8", None, "flake8 a échoué : E5"),
+        ];
+        let kept: Vec<String> = cfg.filter(diags).into_iter().map(|d| format!("{}:{}", d.source, d.code.unwrap_or_default())).collect();
+        assert_eq!(kept, ["flake8:F401", "ruff:E501", "flake8:"]);
     }
 
     #[test]

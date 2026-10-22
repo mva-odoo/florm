@@ -71,6 +71,33 @@ impl RowCtx {
     }
 }
 
+/// Title of a group of settings with a line under it, to set the groups apart. Not shown while
+/// searching: the rows found are listed under their section.
+fn pref_group(ui: &mut egui::Ui, rc: &RowCtx, title: &str, color: Color32) {
+    if !rc.filter.is_empty() {
+        return;
+    }
+    ui.add_space(26.0);
+    ui.label(RichText::new(title).size(15.5).strong().color(color));
+    ui.add_space(2.0);
+    let r = ui.available_rect_before_wrap();
+    ui.painter().line_segment([egui::pos2(r.left(), r.top()), egui::pos2(r.right(), r.top())], egui::Stroke::new(1.5_f32, color.gamma_multiply(0.6)));
+}
+
+/// « Installé » in green, or « Non installé ».
+fn install_state(ui: &mut egui::Ui, installed: bool) {
+    if installed {
+        ui.label(RichText::new("Installé").color(ok()));
+    } else {
+        ui.label(RichText::new("Non installé").weak());
+    }
+}
+
+/// The codes typed in a field: separated by commas or spaces.
+fn codes_of(text: &str) -> Vec<String> {
+    text.split(|c: char| c == ',' || c.is_whitespace()).filter(|c| !c.is_empty()).map(String::from).collect()
+}
+
 /// One setting: title + explanation on the left, control on the right.
 /// Hidden when it does not match the search filter.
 fn pref_row(ui: &mut egui::Ui, rc: &mut RowCtx, title: &str, desc: &str, control: impl FnOnce(&mut egui::Ui)) {
@@ -299,6 +326,8 @@ impl App {
                 });
             }
             PrefSection::Lint => {
+                let accent = self.hl.colors.accent;
+                pref_group(ui, rc, "Quand vérifier", accent);
                 pref_row(ui, rc, "Vérifier pendant la frappe", "Les fichiers Python sont vérifiés une demi-seconde après la dernière touche, sans enregistrer.", |ui| {
                     toggle_switch(ui, &mut s.lint_live);
                 });
@@ -307,13 +336,13 @@ impl App {
                 });
                 let status: Vec<(&str, bool)> =
                     ["flake8", "ruff", "pyflakes", "pylint"].iter().map(|n| (*n, lint::is_installed(n))).collect();
+                let installed = |n: &str| status.iter().any(|(m, i)| *m == n && *i);
+
+                pref_group(ui, rc, "Python", accent);
                 pref_row(ui, rc, "Linter Python", "« Automatique » prend flake8, sinon ruff, sinon pyflakes ; un linter qui plante est signalé en ligne 1 et le suivant prend le relais. ruff est le plus rapide et le plus léger (quelques Mo, en Rust). La configuration du projet (setup.cfg, .flake8, tox.ini, pyproject.toml) est lue.", |ui| {
                     let label = |n: &str| match n {
                         "auto" => "Automatique".to_string(),
-                        n => {
-                            let ok = status.iter().any(|(m, i)| *m == n && *i);
-                            format!("{n}{}", if ok { " — installé" } else { " — non installé" })
-                        }
+                        n => format!("{n}{}", if installed(n) { " — installé" } else { " — non installé" }),
                     };
                     egui::ComboBox::from_id_salt("pref_linter").selected_text(label(&s.python_linter)).width(220.0).show_ui(ui, |ui| {
                         for n in ["auto", "flake8", "ruff", "pyflakes", "pylint"] {
@@ -322,22 +351,51 @@ impl App {
                     });
                 });
                 let args = &mut self.prefs.lint_args;
-                pref_row(ui, rc, "Arguments du linter", "Ajoutés à la ligne de commande, séparés par des espaces. Ex. : --max-line-length=120 --ignore=E203", |ui| {
+                pref_row(ui, rc, "Arguments du linter", "Ajoutés à la ligne de commande, séparés par des espaces. Ex. : --max-line-length=120 (en automatique, ruff ne reçoit que la longueur de ligne).", |ui| {
                     let r = ui.add(egui::TextEdit::singleline(args).desired_width(260.0).font(egui::TextStyle::Monospace).hint_text("--max-line-length=120"));
                     if r.lost_focus() || r.changed() && ui.input(|i| i.key_pressed(Key::Enter)) {
                         s.python_lint_args = args.split_whitespace().map(String::from).collect();
                     }
                 });
-                let installed = status.iter().find(|(n, _)| *n == "flake8").is_some_and(|(_, i)| *i);
-                pref_row(ui, rc, "flake8", &format!("Installé dans {} (sans toucher au Python du système).", lint::tools_dir().display()), |ui| {
-                    if installed {
-                        ui.label(RichText::new("Installé").color(ok()));
-                        if ui.button("Mettre à jour").clicked() {
-                            actions.push(Cmd::InstallFlake8);
+
+                // each linter: where it comes from, then the codes it should not report
+                let about = [
+                    ("flake8", format!("pycodestyle + pyflakes, codes E / W / F. Installé par Florm dans {} (sans toucher au Python du système).", lint::tools_dir().display())),
+                    ("ruff", "Le plus rapide (en Rust), mêmes codes que flake8 et bien d'autres (I, B, UP…). Cherché dans le PATH (pip install ruff).".to_string()),
+                    ("pylint", "Le plus complet et le plus lent, codes C / R / W / E (ou leur nom). Utilisé seulement quand il est choisi plus haut.".to_string()),
+                    ("eslint", "JavaScript et TypeScript, à l'enregistrement. Celui du projet (node_modules/.bin) d'abord, sinon celui du PATH ; sa configuration est lue.".to_string()),
+                ];
+                for (k, (name, example)) in lint::WITH_CODES.iter().enumerate() {
+                    let title = if *name == "eslint" { "JavaScript — ESLint" } else { name };
+                    pref_group(ui, rc, title, accent);
+                    let desc = about.iter().find(|(n, _)| n == name).map_or("", |(_, d)| d.as_str());
+                    pref_row(ui, rc, name, desc, |ui| match *name {
+                        "flake8" => {
+                            if ui.button(if installed(name) { "Mettre à jour" } else { "Installer flake8" }).clicked() {
+                                actions.push(Cmd::InstallFlake8);
+                            }
+                            install_state(ui, installed(name));
                         }
-                    } else if ui.button("Installer flake8").clicked() {
-                        actions.push(Cmd::InstallFlake8);
-                    }
+                        "eslint" => install_state(ui, crate::lsp::in_path("eslint").is_some()),
+                        _ => install_state(ui, installed(name)),
+                    });
+                    let buf = &mut self.prefs.lint_ignore[k];
+                    let desc = format!("Problèmes de {name} à ne pas afficher, séparés par des virgules : un code, un préfixe (E5 : tous les E5xx){}.", if matches!(*name, "pylint" | "eslint") { " ou le nom d'une règle" } else { "" });
+                    pref_row(ui, rc, &format!("Codes ignorés par {name}"), &desc, |ui| {
+                        let r = ui.add(egui::TextEdit::singleline(buf).desired_width(260.0).font(egui::TextStyle::Monospace).hint_text(*example));
+                        if r.lost_focus() || r.changed() && ui.input(|i| i.key_pressed(Key::Enter)) {
+                            *s.lint_ignore_mut(name) = codes_of(buf);
+                        }
+                    });
+                }
+
+                pref_group(ui, rc, "pyflakes", accent);
+                pref_row(ui, rc, "pyflakes", "Le dernier recours de « Automatique », seulement les erreurs. Ses messages n'ont pas de code : rien à ignorer (flake8 l'inclut, avec des codes).", |ui| {
+                    install_state(ui, installed("pyflakes"));
+                });
+                pref_group(ui, rc, "XML et JSON", accent);
+                pref_row(ui, rc, "XML et JSON", "La syntaxe est vérifiée par Florm lui-même, sans rien installer.", |ui| {
+                    ui.label(RichText::new("Intégré").color(ok()));
                 });
             }
             PrefSection::Git => {
@@ -669,12 +727,24 @@ impl App {
                 self.persist(key, now.to_string());
             }
         }
-        let lint_changed = s.python_linter != before.python_linter || s.python_lint_args != before.python_lint_args || s.lint_live != before.lint_live;
+        let mut lint_changed = s.python_linter != before.python_linter || s.python_lint_args != before.python_lint_args || s.lint_live != before.lint_live;
         if s.python_linter != before.python_linter {
             self.persist("python_linter", config::toml_str(&s.python_linter));
         }
         if s.python_lint_args != before.python_lint_args {
             self.persist("python_lint_args", config::toml_str_array(&s.python_lint_args));
+        }
+        let ignored = [
+            ("lint_ignore_flake8", &s.lint_ignore_flake8, &before.lint_ignore_flake8),
+            ("lint_ignore_ruff", &s.lint_ignore_ruff, &before.lint_ignore_ruff),
+            ("lint_ignore_pylint", &s.lint_ignore_pylint, &before.lint_ignore_pylint),
+            ("lint_ignore_eslint", &s.lint_ignore_eslint, &before.lint_ignore_eslint),
+        ];
+        for (key, now, was) in ignored {
+            if now != was {
+                self.persist(key, config::toml_str_array(now));
+                lint_changed = true;
+            }
         }
         if lint_changed {
             for d in self.docs.iter_mut() {

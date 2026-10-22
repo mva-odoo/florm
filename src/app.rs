@@ -757,6 +757,8 @@ struct PrefsUi {
     filter: String,
     /// text buffers edited before being saved
     lint_args: String,
+    /// Codes ignored by each linter of `lint::WITH_CODES` (comma separated).
+    lint_ignore: [String; 4],
     shell: String,
     /// `exclude` setting being edited (comma separated).
     exclude: String,
@@ -769,7 +771,7 @@ struct PrefsUi {
 
 impl Default for PrefsUi {
     fn default() -> Self {
-        PrefsUi { capture: None, proposed: None, key_action: None, open: false, section: PrefSection::Appearance, filter: String::new(), lint_args: String::new(), shell: String::new(), exclude: String::new(), rulers: String::new(), font_list: None, font_list_loading: false }
+        PrefsUi { capture: None, proposed: None, key_action: None, open: false, section: PrefSection::Appearance, filter: String::new(), lint_args: String::new(), lint_ignore: Default::default(), shell: String::new(), exclude: String::new(), rulers: String::new(), font_list: None, font_list_loading: false }
     }
 }
 

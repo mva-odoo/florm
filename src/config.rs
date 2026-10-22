@@ -47,6 +47,11 @@ pub struct Settings {
     pub python_linter: String,
     /// Extra arguments for the Python linter, e.g. ["--max-line-length=120"].
     pub python_lint_args: Vec<String>,
+    /// Codes not shown, per linter (a code, a prefix like "E5", or a pylint / eslint rule name).
+    pub lint_ignore_flake8: Vec<String>,
+    pub lint_ignore_ruff: Vec<String>,
+    pub lint_ignore_pylint: Vec<String>,
+    pub lint_ignore_eslint: Vec<String>,
     pub trim_trailing_whitespace_on_save: bool,
     /// Python files formatted with ruff when saved.
     pub format_on_save: bool,
@@ -66,6 +71,18 @@ pub struct Settings {
     pub index_max_files: usize,
     /// Look for a newer release of Florm at startup (GitHub).
     pub check_updates: bool,
+}
+
+impl Settings {
+    /// The codes ignored for `linter` (one of `lint::WITH_CODES`).
+    pub fn lint_ignore_mut(&mut self, linter: &str) -> &mut Vec<String> {
+        match linter {
+            "flake8" => &mut self.lint_ignore_flake8,
+            "ruff" => &mut self.lint_ignore_ruff,
+            "pylint" => &mut self.lint_ignore_pylint,
+            _ => &mut self.lint_ignore_eslint,
+        }
+    }
 }
 
 impl Default for Settings {
@@ -95,6 +112,10 @@ impl Default for Settings {
             lint_live: true,
             python_linter: "auto".into(),
             python_lint_args: Vec::new(),
+            lint_ignore_flake8: Vec::new(),
+            lint_ignore_ruff: Vec::new(),
+            lint_ignore_pylint: Vec::new(),
+            lint_ignore_eslint: Vec::new(),
             trim_trailing_whitespace_on_save: false,
             format_on_save: false,
             hot_exit: true,
@@ -154,6 +175,12 @@ lint_live = true
 python_linter = "auto"
 # Arguments en plus, ex. ["--max-line-length=120"] (la config du projet, setup.cfg / .flake8 / tox.ini, est lue aussi)
 python_lint_args = []
+# Codes à ne pas afficher, par linter : un code ("E501"), un préfixe ("E5" : tous les E5xx)
+# ou, pour pylint et eslint, le nom d'une règle ("missing-docstring", "no-unused-vars")
+lint_ignore_flake8 = []
+lint_ignore_ruff = []
+lint_ignore_pylint = []
+lint_ignore_eslint = []
 trim_trailing_whitespace_on_save = false
 # formater les fichiers Python avec ruff à l'enregistrement (Ctrl+Alt+F pour le faire à la main)
 format_on_save = false
