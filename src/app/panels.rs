@@ -812,10 +812,23 @@ impl App {
                 ui.spinner();
             }
             ui.add_space(8.0);
+            let mut sync_cmd = None;
+            ui.menu_button("↕ Synchroniser ▾", |ui| {
+                for (label, cmd, tip) in [
+                    ("⬇ Pull", Cmd::GitPull, "Récupérer et intégrer les commits distants"),
+                    ("⬆ Push", Cmd::GitPush, "Envoyer tes commits"),
+                    ("Fetch", Cmd::GitFetch, "Récupérer sans intégrer"),
+                ] {
+                    if ui.button(label).on_hover_text(tip).clicked() {
+                        sync_cmd = Some(cmd);
+                        ui.close_menu();
+                    }
+                }
+            })
+            .response
+            .on_hover_text("Pull, Push, Fetch : récupérer et envoyer les commits");
+            self.pending.extend(sync_cmd);
             for (label, cmd, tip) in [
-                ("⬇ Pull", Cmd::GitPull, "Récupérer et intégrer les commits distants"),
-                ("⬆ Push", Cmd::GitPush, "Envoyer tes commits"),
-                ("Fetch", Cmd::GitFetch, "Récupérer sans intégrer"),
                 ("Branche ▾", Cmd::GitCheckout, "Changer de branche"),
                 ("+ Branche", Cmd::GitNewBranch, "Nouvelle branche"),
                 ("⇄ PR", Cmd::PullRequests, "Pull requests GitHub : commentaires, suggestions, commits"),
