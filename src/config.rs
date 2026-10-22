@@ -32,6 +32,8 @@ pub struct Settings {
     pub search_in_tab: bool,
     /// Claude in an editor tab instead of the bottom panel.
     pub claude_in_tab: bool,
+    /// The review of Claude's changes on the right of the conversation.
+    pub claude_review: bool,
     /// What Claude may do: "edit", "bash", "web", "agents", and "sandbox" (commands isolated),
     /// "confine" (files of the project only).
     pub claude_perms: Vec<String>,
@@ -115,6 +117,7 @@ impl Default for Settings {
             show_menu_bar: true,
             search_in_tab: false,
             claude_in_tab: false,
+            claude_review: true,
             claude_perms: ["edit", "agents", "sandbox"].map(String::from).to_vec(),
             claude_budget: 0.0,
             tree_git_info: true,
@@ -176,6 +179,8 @@ show_menu_bar = true
 search_in_tab = false
 # Claude (Ctrl+Alt+C) dans un onglet plutôt que dans le panneau du bas
 claude_in_tab = false
+# revue des changements de Claude à droite de la conversation (bouton « Revue »)
+claude_review = true
 # Ce que Claude a le droit de faire : "edit" (modifier les fichiers), "bash" (lancer des commandes),
 # "web" (internet), "agents" (sous-agents), "sandbox" (commandes isolées), "confine" (fichiers du projet seulement)
 claude_perms = ["edit", "agents", "sandbox"]

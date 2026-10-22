@@ -1130,6 +1130,7 @@ impl App {
             .collect();
         let (mut open_saved, mut forget_saved) = (None, None);
         let (perms, budget, mut perms_changed) = (&mut self.settings.claude_perms, &mut self.settings.claude_budget, false);
+        let (mut show_review, was_shown) = (self.settings.claude_review, self.settings.claude_review);
         let c = &mut self.claude;
         let cache = &mut self.md_cache;
         // ids of their own: two conversations can be shown at once (bottom panel and a tab)
@@ -1237,6 +1238,18 @@ impl App {
                         ui.label(RichText::new(format!("{:.2} $", c.cost)).weak().small()).on_hover_text("Coût estimé de la conversation");
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        // the review of the changes on the right, or the whole width for the conversation
+                        let n = c.review.as_ref().map_or(0, |d| d.files.len());
+                        let label = match (show_review, n) {
+                            (true, _) => "Revue ▶".to_string(),
+                            (false, 0) => "◀ Revue".to_string(),
+                            (false, n) => format!("◀ Revue ({n})"),
+                        };
+                        let text = if !show_review && n > 0 { RichText::new(label).color(accent).strong() } else { RichText::new(label) };
+                        let tip = if show_review { "Masquer la revue des changements : la conversation prend toute la largeur" } else { "Afficher à droite la revue de ce que Claude a changé" };
+                        if ui.small_button(text).on_hover_text(tip).clicked() {
+                            show_review = !show_review;
+                        }
                         if in_tab {
                             if ui.small_button("⇲ Panneau du bas").on_hover_text("Afficher Claude dans le panneau du bas").clicked() {
                                 move_to = Some(false);
@@ -1269,59 +1282,61 @@ impl App {
             });
 
         // ------------------------------------------------ the review, on the right
-        egui::SidePanel::right(review_id).resizable(true).default_width(ui.available_width() * 0.5).width_range(320.0..=1400.0).show_inside(ui, |ui| {
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("CE QUE CLAUDE A CHANGÉ").small().strong().color(accent));
-                let n = c.review.as_ref().map_or(0, |d| d.files.len());
-                if n > 0 {
-                    ui.label(RichText::new(format!("{n} fichier(s)")).small().weak());
-                }
-                if c.review_loading {
-                    ui.spinner();
-                }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        if show_review {
+            egui::SidePanel::right(review_id).resizable(true).default_width(ui.available_width() * 0.5).width_range(320.0..=1400.0).show_inside(ui, |ui| {
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("CE QUE CLAUDE A CHANGÉ").small().strong().color(accent));
+                    let n = c.review.as_ref().map_or(0, |d| d.files.len());
                     if n > 0 {
-                        let label = if c.confirm_reject { "Confirmer : tout rejeter" } else { "↺ Tout rejeter" };
-                        if ui.add(egui::Button::new(RichText::new(label).color(err())).small()).on_hover_text("Remettre les fichiers comme au début de la revue (les nouveaux fichiers sont supprimés)").clicked() {
-                            if c.confirm_reject {
-                                all = Some(false);
-                            } else {
-                                c.confirm_reject = true;
+                        ui.label(RichText::new(format!("{n} fichier(s)")).small().weak());
+                    }
+                    if c.review_loading {
+                        ui.spinner();
+                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if n > 0 {
+                            let label = if c.confirm_reject { "Confirmer : tout rejeter" } else { "↺ Tout rejeter" };
+                            if ui.add(egui::Button::new(RichText::new(label).color(err())).small()).on_hover_text("Remettre les fichiers comme au début de la revue (les nouveaux fichiers sont supprimés)").clicked() {
+                                if c.confirm_reject {
+                                    all = Some(false);
+                                } else {
+                                    c.confirm_reject = true;
+                                }
+                            }
+                            if ui.small_button("✔ Tout garder").on_hover_text("Tout accepter : la revue repart de là").clicked() {
+                                all = Some(true);
                             }
                         }
-                        if ui.small_button("✔ Tout garder").on_hover_text("Tout accepter : la revue repart de là").clicked() {
-                            all = Some(true);
-                        }
-                    }
+                    });
                 });
+                ui.separator();
+                match &c.review {
+                    _ if c.review_index.is_none() => {
+                        ui.label(RichText::new("Les fichiers modifiés par Claude apparaîtront ici, bloc par bloc : tu gardes ou tu rejettes chaque partie.").weak());
+                    }
+                    Some(d) if d.files.is_empty() => {
+                        ui.label(RichText::new("Aucun changement à revoir.").weak());
+                    }
+                    Some(d) => {
+                        let hunk_buttons: &[history::DiffButton] = &[
+                            ("✔ Garder", "Accepter ce bloc (il quitte la revue, il reste dans le fichier)", DiffAct::Stage),
+                            ("↺ Rejeter", "Retirer ce bloc du fichier", DiffAct::Discard),
+                        ];
+                        let file_buttons: &[history::DiffButton] = &[
+                            ("Ouvrir", "Ouvrir le fichier", DiffAct::Open),
+                            ("✔ Garder", "Accepter tout le fichier", DiffAct::Stage),
+                            ("↺ Rejeter", "Remettre le fichier comme avant (supprimé s'il est nouveau)", DiffAct::Discard),
+                        ];
+                        let jump = c.jump.take();
+                        review_click = history::stacked_diff_view(ui, &d.lines, &d.files, &mut c.collapsed, "claude_review", hunk_buttons, file_buttons, jump, None);
+                    }
+                    None => {
+                        ui.spinner();
+                    }
+                }
             });
-            ui.separator();
-            match &c.review {
-                _ if c.review_index.is_none() => {
-                    ui.label(RichText::new("Les fichiers modifiés par Claude apparaîtront ici, bloc par bloc : tu gardes ou tu rejettes chaque partie.").weak());
-                }
-                Some(d) if d.files.is_empty() => {
-                    ui.label(RichText::new("Aucun changement à revoir.").weak());
-                }
-                Some(d) => {
-                    let hunk_buttons: &[history::DiffButton] = &[
-                        ("✔ Garder", "Accepter ce bloc (il quitte la revue, il reste dans le fichier)", DiffAct::Stage),
-                        ("↺ Rejeter", "Retirer ce bloc du fichier", DiffAct::Discard),
-                    ];
-                    let file_buttons: &[history::DiffButton] = &[
-                        ("Ouvrir", "Ouvrir le fichier", DiffAct::Open),
-                        ("✔ Garder", "Accepter tout le fichier", DiffAct::Stage),
-                        ("↺ Rejeter", "Remettre le fichier comme avant (supprimé s'il est nouveau)", DiffAct::Discard),
-                    ];
-                    let jump = c.jump.take();
-                    review_click = history::stacked_diff_view(ui, &d.lines, &d.files, &mut c.collapsed, "claude_review", hunk_buttons, file_buttons, jump, None);
-                }
-                None => {
-                    ui.spinner();
-                }
-            }
-        });
+        }
 
         // ------------------------------------------------ the conversation
         egui::CentralPanel::default().show_inside(ui, |ui| {
@@ -1581,6 +1596,10 @@ impl App {
         }
         if let Some(k) = forget_saved {
             self.claude_forget_saved(k);
+        }
+        if show_review != was_shown {
+            self.settings.claude_review = show_review;
+            self.persist("claude_review", show_review.to_string());
         }
         if perms_changed {
             let (p, b) = (config::toml_str_array(&self.settings.claude_perms), format!("{:?}", self.settings.claude_budget));
