@@ -122,6 +122,10 @@ pub(super) struct ClaudeUi {
     queue: Queue,
     /// The definitions of the names cited are not given with the messages.
     no_defs: bool,
+    /// Claude asks its questions (with options) before coding when the request leaves choices open.
+    ask_first: bool,
+    /// The choices made for the questions of the last answer.
+    answers: Option<claude_ask::Answers>,
     /// Last commits of its folder for « + Contexte → Un commit »: (hash, short hash, subject, when).
     recent_commits: Vec<(String, String, String, String)>,
 }
@@ -358,13 +362,15 @@ impl App {
     /// The message written in the field of the chat.
     fn claude_send(&mut self) {
         let text = self.claude.input.trim().to_string();
-        if self.claude_send_text(text) {
+        let ask = self.claude.ask_first;
+        if self.claude_send_text(text, ask) {
             self.claude.input.clear();
         }
     }
 
-    /// Sends `text` (with the context given) to Claude; false when it could not be sent.
-    fn claude_send_text(&mut self, text: String) -> bool {
+    /// Sends `text` (with the context given) to Claude, asking it for its questions first when
+    /// `ask_first`; false when it could not be sent.
+    fn claude_send_text(&mut self, text: String, ask_first: bool) -> bool {
         let Some(dir) = self.claude.dir.clone() else {
             self.set_status("Aucun dossier ouvert");
             return false;
@@ -396,6 +402,9 @@ impl App {
                 message = format!("{message}\n\n{defs}");
                 given.push(format!("définitions : {}", names.join(", ")));
             }
+        }
+        if ask_first {
+            message = format!("{message}\n\n{}", claude_ask::INSTRUCTION);
         }
         if self.claude.session.is_none() {
             let model = claude::MODELS[self.claude.model].0;
@@ -443,6 +452,12 @@ impl App {
     fn claude_task_finished(&mut self, r: Result<(), String>) {
         let q = &mut self.claude.queue;
         let Some(k) = q.current().filter(|k| q.tasks[*k].state == TaskState::Running) else { return };
+        // Claude asks questions: the task goes on once they are answered
+        let asks = {
+            let items = &self.claude.items;
+            let last_user = items.iter().rposition(|i| matches!(i, Item::User(..))).unwrap_or(0);
+            items[last_user..].iter().any(|i| matches!(i, Item::Text(t) if !claude_ask::parse(t).1.is_empty()))
+        };
         match r {
             Err(e) => {
                 q.tasks[k].state = TaskState::Failed;
@@ -450,6 +465,7 @@ impl App {
                 q.running = false;
                 self.set_status("File de tâches en pause : une tâche a échoué");
             }
+            Ok(()) if asks => self.set_status("Claude pose des questions : la file reprend après tes réponses"),
             Ok(()) if q.commit_each => {
                 q.tasks[k].state = TaskState::Committing;
                 let (dir, wish, id) = (self.claude.dir.clone(), q.tasks[k].text.clone(), self.claude.id);
@@ -535,7 +551,8 @@ impl App {
             c.session = None;
         }
         self.claude.queue.tasks[k].state = TaskState::Running;
-        if !self.claude_send_text(text) {
+        let ask = self.claude.ask_first;
+        if !self.claude_send_text(text, ask) {
             let q = &mut self.claude.queue;
             q.tasks[k].state = TaskState::Failed;
             q.tasks[k].note = "Pas pu être envoyée".into();
@@ -1100,6 +1117,7 @@ impl App {
         let (mut send, mut stop, mut new_conv, mut review_click, mut all) = (false, false, false, None, None);
         let (mut chosen_dir, mut move_to, mut ctx_add) = (None, None, None);
         let (mut queue_act, mut queued, mut read_commits) = (None, None, false);
+        let mut answer: Option<String> = None;
         // the kept conversations: (key, title, folder and date)
         let history: Vec<(u64, String, String)> = self
             .claude_saved
@@ -1403,6 +1421,7 @@ impl App {
                     }
                     ctx_menu.response.on_hover_text("Donner à Claude un fichier, la sélection, le diff, un commit, les problèmes…");
                     ui.checkbox(&mut c.with_context, "Fichier ouvert et sélection").on_hover_text("Dit à Claude quel fichier tu édites, la ligne du curseur et le texte sélectionné");
+                    ui.checkbox(&mut c.ask_first, "Questions d'abord").on_hover_text("Si la demande laisse des choix ouverts, Claude pose d'abord 1 à 3 questions avec des options à cocher, au lieu de partir dans une direction à refaire (moins de tokens)");
                     let mut defs = !c.no_defs;
                     if ui.checkbox(&mut defs, "Définitions citées").on_hover_text("Les classes et fonctions du projet nommées dans le message (SaleOrder, _compute_total, `foo`…) partent avec lui, leurs premières lignes comprises : Claude n'a pas à les chercher (moins de tokens)").changed() {
                         c.no_defs = !defs;
@@ -1420,7 +1439,9 @@ impl App {
                 }
                 // who speaks is said once, at the start of their turn
                 let mut claude_said = true;
-                for it in &c.items {
+                // the questions of the last answer can be answered (not those of before)
+                let last_user = c.items.iter().rposition(|i| matches!(i, Item::User(..)));
+                for (k, it) in c.items.iter().enumerate() {
                     ui.add_space(6.0);
                     match it {
                         Item::User(t, given) => {
@@ -1451,7 +1472,24 @@ impl App {
                                 claude_said = true;
                                 ui.label(RichText::new("✳ Claude").small().strong().color(accent));
                             }
-                            super::md::markdown(ui, cache, t);
+                            let (rest, questions) = claude_ask::parse(t);
+                            if questions.is_empty() {
+                                super::md::markdown(ui, cache, t);
+                                continue;
+                            }
+                            super::md::markdown(ui, cache, &rest);
+                            let open = matches!(it, Item::Text(_)) && !c.busy && last_user.is_none_or(|u| k > u);
+                            let answers = if open {
+                                if c.answers.as_ref().map(|a| a.item) != Some(k) {
+                                    c.answers = Some(claude_ask::Answers::for_item(k, questions.len()));
+                                }
+                                c.answers.as_mut()
+                            } else {
+                                None
+                            };
+                            if claude_ask::questions_ui(ui, &questions, answers, accent) {
+                                answer = c.answers.as_ref().map(|a| a.message(&questions));
+                            }
                         }
                         Item::Tool { name, summary, result, .. } => {
                             let (icon, color) = match name.as_str() {
@@ -1550,6 +1588,10 @@ impl App {
         }
         if send {
             self.claude_send();
+        }
+        if let Some(m) = answer {
+            self.claude.answers = None;
+            self.claude_send_text(m, false);
         }
         if let Some(n) = queued {
             self.set_status(format!("{n} tâche(s) ajoutée(s) à la file — « Lancer » pour les envoyer une à une"));

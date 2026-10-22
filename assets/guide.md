@@ -176,6 +176,10 @@ panneau du bas (⇱ Onglet pour lui donner tout un onglet de l'éditeur, ⇲ pou
   **Plan seulement**, **Tout autoriser** pour qu'il lance aussi des commandes).
 - **Fichier ouvert et sélection** : Claude sait quel fichier tu édites et ce que tu as
   sélectionné.
+- **Questions d'abord** : si la demande laisse des choix ouverts, Claude ne code rien et pose
+  1 à 3 questions avec des options (la conseillée cochée d'avance, **Autre** pour écrire la
+  tienne) ; **Répondre** les envoie et il continue. Dans la file de tâches, la tâche attend tes
+  réponses avant la suivante.
 - **Définitions citées** : les classes et fonctions du projet nommées dans le message
   (`SaleOrder`, `_compute_total`, `foo()`…) partent avec lui, leurs premières lignes comprises,
   trouvées dans l'index de Florm : Claude n'a pas à les chercher (moins de tokens). Un nom

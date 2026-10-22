@@ -35,6 +35,7 @@ mod pulls;
 mod pr_links;
 mod claude_ui;
 mod claude_queue;
+mod claude_ask;
 mod theme_edit;
 mod template_edit;
 mod split_commit;
@@ -1616,6 +1617,7 @@ mod font_tests {
             include_str!("app/prefs.rs"),
             include_str!("app/projects.rs"),
             include_str!("app/claude_queue.rs"),
+            include_str!("app/claude_ask.rs"),
             include_str!("app/theme_edit.rs"),
             include_str!("app/template_edit.rs"),
             include_str!("app/quick_fix.rs"),
