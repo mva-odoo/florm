@@ -63,7 +63,8 @@ fn globs(s: &str) -> impl Iterator<Item = &str> {
 /// Turns a filter as people write it into gitignore-style globs, relative to `root`:
 /// - "syndic/*.py" matches the .py files of any "syndic" folder, at any depth and in its subfolders;
 /// - "syndic" matches a file or a whole folder with that name, anywhere;
-/// - "./…" and absolute paths (inside `root`) are anchored to the root.
+/// - "./…" and absolute paths (inside `root`) are anchored to the root;
+/// - "florm/tests" when the open folder is "florm" (and has no "florm" inside): its "tests".
 /// Exclusions (`include == false`) only get the "anywhere" part: an excluded folder is skipped whole.
 fn normalize(root: &Path, glob: &str, include: bool) -> Result<Vec<String>, String> {
     let (neg, g) = match glob.strip_prefix('!') {
@@ -84,6 +85,14 @@ fn normalize(root: &Path, glob: &str, include: bool) -> Result<Vec<String>, Stri
         anchored = true;
     } else if g.starts_with('/') {
         anchored = true;
+    } else if let Some((first, rest)) = g.split_once('/') {
+        // the name of the open folder itself, written in front as people see it
+        let is_root = root.file_name().is_some_and(|n| n.to_string_lossy() == first);
+        if is_root && !root.join(first).exists() {
+            // "florm/*.py": the .py of the whole project, "florm/tests": the "tests" at its root
+            anchored = rest.contains('/') || !rest.contains(['*', '?', '[', '{']);
+            g = rest.to_string();
+        }
     }
     let g = g.trim_matches('/');
     if g.is_empty() || g == "**" {
@@ -433,6 +442,12 @@ mod tests {
         assert_eq!(rels("models", ""), ["addons/other/models/budget.py", "addons/syndic/models/budget.py"]);
         assert_eq!(rels("./syndic/*.py", ""), Vec::<String>::new());
         assert_eq!(rels("./addons/syndic/*.py", ""), syndic_py);
+        // several rules: the .py of the project except one folder, in the two fields or in one
+        let name = dir.file_name().unwrap().to_string_lossy().into_owned();
+        let all_py = ["addons/other/models/budget.py", "addons/syndic/__init__.py", "addons/syndic/models/budget.py", "syndic.py"];
+        assert_eq!(rels(&format!("{name}/*.py"), &format!("{name}/addons/syndic/tests")), all_py);
+        assert_eq!(rels("*.py, !addons/syndic/tests", ""), all_py);
+        assert_eq!(rels("*.py", "tests, models"), ["addons/syndic/__init__.py", "syndic.py"]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

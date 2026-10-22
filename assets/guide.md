@@ -38,7 +38,8 @@ l'éditeur (plus de place), **⇲ Panneau du bas** la remet en bas
 
 ### Filtrer les fichiers
 
-Plusieurs filtres se séparent par des virgules.
+Plusieurs règles se séparent par des virgules ; un `!` devant une règle l'exclut. Le nom du
+projet ouvert peut se mettre devant : dans le projet `florm`, `florm/test` est son dossier `test`.
 
 | Filtre « Fichiers » | Cherche dans… |
 |---|---|
@@ -48,11 +49,18 @@ Plusieurs filtres se séparent par des virgules.
 | `tests` | tout dossier (ou fichier) nommé `tests` |
 | `./src/*.rs` | à partir de la racine du projet seulement |
 | `views/**/*.xml` | les `.xml` sous n'importe quel dossier `views` |
+| `*.py, !tests` | les `.py`, sauf ceux des dossiers `tests` |
+| `florm/*.py, !florm/test` | les `.py` du projet `florm`, sauf son dossier `test` |
 
 | Filtre « Exclure » | Ignore… |
 |---|---|
 | `node_modules, *.min.js` | ces dossiers et ces fichiers |
 | `tests, i18n` | les dossiers de tests et de traductions |
+| `addons/sale/tests` | ce dossier seulement |
+| `./test` (ou `florm/test` dans le projet `florm`) | le dossier `test` à la racine |
+
+Les deux champs se combinent : **Fichiers** `*.py` + **Exclure** `test` cherche dans les `.py`
+du projet, sauf le dossier `test`.
 
 Le `.gitignore` est respecté.
 
@@ -62,6 +70,9 @@ Le `.gitignore` est respecté.
   `def _compute_\w+` trouve toutes les méthodes de calcul, `^\s*import ` les imports.
 - Avec ⏵, le remplacement s'affiche ; en regex `$1`, `$2` reprennent les groupes :
   `fields\.(\w+)\(` → `Fields.$1(`.
+- **Retour à la ligne** dans le remplacement : **Maj+Entrée** dans le champ, ou `\n` en regex
+  (`\t` tabulation, `\\` barre oblique inverse). Pour changer les `\n` écrits dans le texte en
+  vrais retours à la ligne : regex, chercher `\\n`, remplacer par `\n`. Aussi dans Ctrl+H.
 - **Garder la casse** : chat → chien, Chat → Chien, CHAT → CHIEN.
 - **×** sur un résultat (ou un fichier) l'écarte : il ne sera pas remplacé.
 

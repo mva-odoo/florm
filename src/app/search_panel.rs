@@ -207,20 +207,29 @@ impl App {
             ui.add_space(22.0);
             ui.label(RichText::new("Fichiers").color(ok()));
             let inc = ui
-                .add(egui::TextEdit::singleline(&mut s.q.include).desired_width(220.0).hint_text("*.py, models/*.py, tests"))
+                .add(egui::TextEdit::singleline(&mut s.q.include).desired_width(220.0).hint_text("*.py, models/*.py, !tests"))
                 .on_hover_text(
-                    "Séparés par des virgules :\n\
+                    "Plusieurs règles, séparées par des virgules ; ! devant une règle l'exclut :\n\
                      *.py — tous les fichiers Python\n\
                      models/*.py — les fichiers Python des dossiers « models » (où qu'ils soient) et de leurs sous-dossiers\n\
                      tests — tout dossier (ou fichier) nommé « tests »\n\
                      ./src/*.rs ou /chemin/absolu/*.py — à partir de la racine du projet\n\
+                     *.py, !tests — les .py, sauf ceux des dossiers « tests »\n\
+                     florm/*.py, !florm/test — le nom du projet ouvert peut se mettre devant\n\
                      Aide → Guide de Florm pour plus d'exemples",
                 );
             go |= history_menu(ui, &st.include_history, &mut s.q.include, "Filtres récents");
             ui.add_space(8.0);
             ui.label(RichText::new("Exclure").color(err()));
             let exc = ui.add(
-                egui::TextEdit::singleline(&mut s.q.exclude).desired_width(170.0).hint_text("node_modules, *.min.js"),
+                egui::TextEdit::singleline(&mut s.q.exclude).desired_width(170.0).hint_text("tests, *.min.js"),
+            ).on_hover_text(
+                "Ce qui est ignoré, en plus du .gitignore (mêmes règles que « Fichiers », séparées par des virgules) :\n\
+                 tests — tout dossier nommé « tests »\n\
+                 addons/sale/tests — seulement celui-là\n\
+                 ./test ou florm/test — le dossier « test » à la racine du projet « florm »\n\
+                 *.min.js, i18n — ces fichiers et ces dossiers\n\n\
+                 Ex. : Fichiers « *.py » + Exclure « test » = les .py du projet, sauf le dossier test",
             );
             go |= history_menu(ui, &st.exclude_history, &mut s.q.exclude, "Exclusions récentes");
             go |= enter(&inc, ui) || enter(&exc, ui);
