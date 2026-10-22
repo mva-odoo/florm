@@ -100,6 +100,14 @@ fn replace_field<'t>(text: &'t mut String, hint: &str) -> egui::TextEdit<'t> {
         .font(egui::TextStyle::Monospace)
 }
 
+/// Layout of a multiline field: a word longer than the width (a path, a URL) is cut at the edge
+/// instead of running past it, under the panel next to it.
+fn layout_cutting(ui: &egui::Ui, text: &str, wrap_width: f32) -> std::sync::Arc<egui::Galley> {
+    let mut job = egui::text::LayoutJob::simple(text.to_string(), egui::TextStyle::Body.resolve(ui.style()), ui.visuals().widgets.inactive.text_color(), wrap_width);
+    job.wrap.break_anywhere = true;
+    ui.fonts(|f| f.layout_job(job))
+}
+
 const REPLACE_TIP: &str = "Maj+Entrée : retour à la ligne dans le remplacement.\nEn mode regex (.*) : \\n retour à la ligne, \\t tabulation, \\\\ barre oblique inverse, $1 groupe.\nEx. : chercher \\\\n (regex), remplacer par \\n, pour changer les « \\n » écrits en vrais retours à la ligne.";
 
 fn filled_button(text: impl Into<String>, fill: Color32) -> egui::Button<'static> {

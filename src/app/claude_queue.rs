@@ -167,7 +167,7 @@ pub(super) fn queue_ui(ui: &mut egui::Ui, q: &mut Queue, busy: bool, accent: Col
                 let editable = t.state == TaskState::Waiting;
                 let w = (ui.available_width() - 190.0).max(120.0);
                 if editable {
-                    ui.add(egui::TextEdit::multiline(&mut t.text).desired_rows(1).desired_width(w));
+                    ui.add(egui::TextEdit::multiline(&mut t.text).desired_rows(1).desired_width(w).layouter(&mut layout_cutting));
                 } else {
                     let mut text = RichText::new(t.text.lines().next().unwrap_or(""));
                     if t.state == TaskState::Done {

@@ -1359,7 +1359,8 @@ impl App {
                     egui::TextEdit::multiline(&mut c.input)
                         .hint_text("Demande à Claude… (Ctrl+Entrée pour envoyer)")
                         .desired_rows(rows)
-                        .desired_width(f32::INFINITY),
+                        .desired_width(f32::INFINITY)
+                        .layouter(&mut layout_cutting),
                 );
                 if std::mem::take(&mut c.focus) {
                     resp.request_focus();
