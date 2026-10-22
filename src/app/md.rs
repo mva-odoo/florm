@@ -85,8 +85,14 @@ pub(super) fn code_block(ui: &mut egui::Ui, lang: &str, code: &str) {
                     copy_button(ui, code, if shell { "Copier la commande" } else { "Copier" });
                 });
             });
-            egui::ScrollArea::horizontal().id_salt(("code_block", code)).show(ui, |ui| {
-                ui.add(egui::Label::new(RichText::new(code).monospace().size(12.5)).extend());
+            // id by place, not by content: it changes at each letter of an answer being written
+            // (and two same blocks would share one); the bar under the code, not over its last line
+            let id = ui.next_auto_id().with("code_block");
+            ui.scope(|ui| {
+                ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
+                egui::ScrollArea::horizontal().id_salt(id).show(ui, |ui| {
+                    ui.add(egui::Label::new(RichText::new(code).monospace().size(12.5)).extend());
+                });
             });
         });
     ui.add_space(4.0);
