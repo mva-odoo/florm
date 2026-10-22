@@ -35,6 +35,7 @@ mod pulls;
 mod pr_links;
 mod claude_ui;
 mod claude_queue;
+mod theme_edit;
 mod split_commit;
 mod panes;
 mod lsp_client;
@@ -787,6 +788,8 @@ struct PrefsUi {
     lint_args: String,
     /// Codes ignored by each linter of `lint::WITH_CODES` (comma separated).
     lint_ignore: [String; 4],
+    /// The theme being made, shown live (the one chosen before stays in the settings).
+    theme_draft: Option<theme_edit::ThemeDraft>,
     shell: String,
     /// `exclude` setting being edited (comma separated).
     exclude: String,
@@ -799,7 +802,7 @@ struct PrefsUi {
 
 impl Default for PrefsUi {
     fn default() -> Self {
-        PrefsUi { capture: None, proposed: None, key_action: None, open: false, section: PrefSection::Appearance, filter: String::new(), lint_args: String::new(), lint_ignore: Default::default(), shell: String::new(), exclude: String::new(), rulers: String::new(), font_list: None, font_list_loading: false }
+        PrefsUi { capture: None, proposed: None, key_action: None, open: false, section: PrefSection::Appearance, filter: String::new(), lint_args: String::new(), lint_ignore: Default::default(), theme_draft: None, shell: String::new(), exclude: String::new(), rulers: String::new(), font_list: None, font_list_loading: false }
     }
 }
 
@@ -1605,6 +1608,7 @@ mod font_tests {
             include_str!("app/prefs.rs"),
             include_str!("app/projects.rs"),
             include_str!("app/claude_queue.rs"),
+            include_str!("app/theme_edit.rs"),
             include_str!("app/quick_fix.rs"),
             include_str!("app/save_lint.rs"),
             include_str!("app/search_panel.rs"),

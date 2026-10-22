@@ -144,6 +144,25 @@ impl Highlighting {
         h
     }
 
+    /// Adds (or replaces) theme `name` from the text of a .tmTheme.
+    pub fn add_theme_xml(&mut self, name: &str, xml: &str) -> Result<(), String> {
+        let t = ThemeSet::load_from_reader(&mut std::io::Cursor::new(xml)).map_err(|e| e.to_string())?;
+        self.themes.insert(name.to_string(), t);
+        Ok(())
+    }
+
+    pub fn remove_theme(&mut self, name: &str) {
+        self.themes.remove(name);
+    }
+
+    /// Color and italic of `scope` (e.g. "comment.line") in the current theme.
+    pub fn scope_style(&self, scope: &str) -> (Color32, bool) {
+        let h = Highlighter::new(&self.theme);
+        let Ok(sc) = syntect::parsing::Scope::new(scope) else { return (self.colors.fg, false) };
+        let st = h.style_for_stack(&[sc]);
+        (Color32::from_rgb(st.foreground.r, st.foreground.g, st.foreground.b), st.font_style.contains(syntect::highlighting::FontStyle::ITALIC))
+    }
+
     pub fn theme_names(&self) -> Vec<String> {
         self.themes.keys().cloned().collect()
     }

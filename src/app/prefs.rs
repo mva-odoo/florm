@@ -196,6 +196,8 @@ impl App {
         let before = self.settings.clone();
         let mut actions: Vec<Cmd> = Vec::new();
         let s = &mut self.settings;
+        // to write in the log once the settings are no longer borrowed
+        let mut note: Option<String> = None;
         match sec {
             PrefSection::Appearance => {
                 let themes: Vec<(String, Option<highlight::ThemePreview>)> =
@@ -219,6 +221,70 @@ impl App {
                         }
                     });
                     ui.add_space(8.0);
+                }
+                // a theme of one's own: the colors of the current one, changed here
+                let user_theme = |name: &str| config::themes_dir().join(format!("{name}.tmTheme")).is_file();
+                let current_is_user = user_theme(&s.theme);
+                let mut theme_act = None;
+                let mut drop_theme = false;
+                if self.prefs.theme_draft.is_none() {
+                    pref_row(ui, rc, "Couleurs du thème", "Un thème à toi : les couleurs de l'éditeur et du code, à partir du thème choisi, enregistré dans le dossier « themes » de la configuration.", |ui| {
+                        if current_is_user && ui.button("Supprimer ce thème").clicked() {
+                            drop_theme = true;
+                        }
+                        let label = if current_is_user { "Modifier ce thème".to_string() } else { format!("Créer un thème à partir de « {} »", s.theme) };
+                        if ui.button(label).clicked() {
+                            theme_act = Some(None);
+                        }
+                    });
+                } else if rc.matches(&["Couleurs du thème", "thème", "couleurs"]) {
+                    let builtin: Vec<String> = self.hl.theme_names().into_iter().filter(|n| !user_theme(n)).collect();
+                    let accent = self.hl.colors.accent;
+                    if let Some(d) = self.prefs.theme_draft.as_mut() {
+                        ui.add_space(10.0);
+                        theme_act = d.ui(ui, &builtin, accent).map(Some);
+                    }
+                }
+                match theme_act {
+                    // start from the current theme
+                    Some(None) => self.prefs.theme_draft = Some(theme_edit::ThemeDraft::from_current(&self.hl, current_is_user)),
+                    Some(Some(theme_edit::ThemeAct::Changed)) => {
+                        if let Some(d) = &self.prefs.theme_draft {
+                            if self.hl.add_theme_xml(&d.name, &d.to_tmtheme()).is_ok() {
+                                self.hl.set_theme(&d.name);
+                            }
+                        }
+                    }
+                    Some(Some(theme_edit::ThemeAct::Save)) => {
+                        if let Some(d) = self.prefs.theme_draft.take() {
+                            let xml = d.to_tmtheme();
+                            let path = d.path();
+                            let written = std::fs::create_dir_all(config::themes_dir()).and_then(|_| std::fs::write(&path, &xml));
+                            match written {
+                                Ok(()) => {
+                                    let name = path.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or(d.name);
+                                    let _ = self.hl.add_theme_xml(&name, &xml);
+                                    self.hl.set_theme(&name);
+                                    s.theme = name;
+                                }
+                                Err(e) => note = Some(format!("Thème non enregistré : {e}")),
+                            }
+                        }
+                    }
+                    Some(Some(theme_edit::ThemeAct::Cancel)) => {
+                        if let Some(d) = self.prefs.theme_draft.take() {
+                            if !user_theme(&d.name) {
+                                self.hl.remove_theme(&d.name);
+                            }
+                        }
+                        self.hl.set_theme(&s.theme);
+                    }
+                    None => {}
+                }
+                if drop_theme {
+                    let _ = std::fs::remove_file(config::themes_dir().join(format!("{}.tmTheme", s.theme)));
+                    self.hl.remove_theme(&s.theme);
+                    s.theme = "Florm".into();
                 }
                 let theme_accent = self.hl.preview(&s.theme).map(|p| p.accent).unwrap_or(self.hl.colors.accent);
                 pref_row(ui, rc, "Couleur d'accentuation", "Boutons principaux, onglet actif, sélection dans les listes. Par défaut celle du thème.", |ui| {
@@ -558,6 +624,9 @@ impl App {
                     }
                 });
             }
+        }
+        if let Some(n) = note {
+            self.log(n);
         }
         self.pending.extend(actions);
         self.apply_settings_change(&before);

@@ -198,3 +198,9 @@ dans l'onglet Claude.
 **texte adouci** (texte moins « gras », utile sur les thèmes clairs), polices de l'éditeur et
 de l'interface, minimap, fil d'Ariane, **barre de menus** (masquée, les menus restent sous **☰**
 en bas à gauche).
+
+**Couleurs du thème → Créer un thème à partir de « … »** : toutes les couleurs de l'éditeur
+(fond, texte, accent, curseur, sélection, marge…) et du code (commentaires, mots-clés, chaînes,
+fonctions, classes, balises…, en italique ou non), appliquées tout de suite. **Enregistrer le
+thème** l'écrit dans le dossier `themes` de la configuration ; **Modifier ce thème** /
+**Supprimer ce thème** quand c'est un des tiens.

@@ -273,7 +273,7 @@ flake8 --version || ruff --version
 | Aperçu Markdown, images | Ctrl+Shift+V (onglet) ou Ctrl+K V (à côté, suit la frappe) ; png, jpg, gif, webp, bmp, ico, svg s'ouvrent dans un onglet image |
 | Travail non enregistré gardé | À la fermeture ou en changeant de projet, les modifications non enregistrées (et les onglets sans titre) sont gardées et rouvertes, sans question (désactivable) |
 | Git avancé | Cherry-pick, revert, rebase interactif (réordonner, changer un message, fusionner, supprimer), comparer deux commits ou un commit avec une branche, **stash** (mettre de côté, voir, appliquer, reprendre, supprimer) |
-| Apparence | Thèmes avec aperçus, couleur d'accentuation, **texte adouci** (texte moins gras, surtout sur les thèmes clairs), barre de menus masquable (menus sous ☰) |
+| Apparence | Thèmes avec aperçus, couleur d'accentuation, **texte adouci** (texte moins gras, surtout sur les thèmes clairs), barre de menus masquable (menus sous ☰), **thème à soi** (Préférences → Apparence : toutes les couleurs de l'éditeur et du code, appliquées en direct) |
 | Divers | Palette de commandes (accents facultatifs), Ctrl+P fuzzy, retour à la ligne automatique (Alt+Z), Tab pour compléter les chemins (ouvrir, enregistrer sous), minimap, guides d'indentation, crochets appariés, auto-fermeture, rechercher/remplacer (regex), polices au choix parmi celles installées (Préférences → Apparence ; par défaut Consolas / Segoe UI sous Windows), thèmes `.tmTheme` (intégrés : « Florm » sombre, « Florm Light » et « Light+ (VS Code) » clairs) |
 
 ## Raccourcis (comme Sublime)
