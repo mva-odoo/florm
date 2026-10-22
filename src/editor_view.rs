@@ -40,6 +40,8 @@ fn removed_bg(light: bool) -> Color32 {
 
 /// Width of the ✳ of the gutter (left of the line numbers) that gives lines to Claude.
 const CLAUDE_W: f32 = 14.0;
+/// Width of the ▶ of the tests (right of the ✳), in test files only.
+const TEST_W: f32 = 14.0;
 
 /// How the editor shows a document (from the settings).
 pub struct ViewOpts<'a> {
@@ -55,6 +57,8 @@ pub struct ViewOpts<'a> {
     pub rulers: &'a [usize],
     /// Comments of a pull request on lines: (line, text), marked in the gutter.
     pub notes: &'a [(usize, String)],
+    /// Odoo tests of the file: (line, tags), a ▶ in the gutter runs them.
+    pub tests: &'a [(usize, String)],
 }
 
 pub fn show(ui: &mut Ui, doc: &mut Document, hl: &Highlighting, opts: &ViewOpts, matches: &[(usize, usize)], id: Id) -> egui::Response {
@@ -201,7 +205,9 @@ fn text_area(
     let nlines = doc.rope.len_lines();
     let digits = nlines.to_string().len().max(3);
     // numbers, then the fold arrows, then the git marks
-    let gutter_w = (digits as f32 + 1.0) * cw + 30.0;
+    let test_w = if opts.tests.is_empty() { 0.0 } else { TEST_W };
+    let gutter_w = (digits as f32 + 1.0) * cw + 30.0 + test_w;
+    let test_at = |l: usize| opts.tests.iter().find(|(t, _)| *t == l).map(|(_, tags)| tags);
     doc.update_max_cols();
     doc.reveal_cursors(); // whatever placed a cursor in a folded block, open it
     let hidden = doc.hidden_ranges();
@@ -312,7 +318,10 @@ fn text_area(
                 let on_pill = !in_gutter && folded.contains(&line) && p.x >= end.x + cw && p.y >= end.y;
                 // ✳ on the left of the numbers: the line, or the lines selected around it, for Claude
                 let on_claude = in_gutter && pressed && p.x < gx + CLAUDE_W;
-                if on_claude {
+                let on_test = in_gutter && pressed && p.x >= gx + CLAUDE_W && p.x < gx + CLAUDE_W + test_w && test_at(line).is_some();
+                if on_test {
+                    doc.test_pick = test_at(line).cloned();
+                } else if on_claude {
                     let s = doc.primary_sel();
                     let (a, b) = (doc.rope.char_to_line(s.start()), doc.rope.char_to_line(s.end().saturating_sub(usize::from(s.end() > s.start()))));
                     doc.claude_pick = Some(if !s.is_empty() && (a..=b).contains(&line) { (a, b) } else { (line, line) });
@@ -458,6 +467,9 @@ fn text_area(
                     msgs.extend(opts.notes.iter().filter(|(n, _)| *n == l).map(|(_, t)| t.clone()));
                     if p.x < gx + CLAUDE_W {
                         msgs.push("✳ Clic : ajouter cette ligne (ou les lignes sélectionnées) au contexte de Claude".into());
+                    } else if let Some(tags) = test_at(l).filter(|_| p.x < gx + CLAUDE_W + test_w) {
+                        ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+                        msgs.push(format!("▶ Clic : lancer {tags} dans le conteneur des tests (Ctrl+F6 : relancer)"));
                     }
                     if p.x >= gx + gutter_w - 8.0 && doc.hunks.iter().any(|h| h.contains(l)) {
                         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
@@ -823,6 +835,16 @@ fn text_area(
             painter.text(Pos2::new(gx + gutter_w - 22.0, line_y(l)), Align2::RIGHT_TOP, (l + 1).to_string(), font.clone(), color);
             if hover_line == Some(l) {
                 painter.text(Pos2::new(gx + 2.0, line_y(l) + rh * 0.5), Align2::LEFT_CENTER, "✳", FontId::proportional(opts.font_size * 0.85), c.accent);
+            }
+            if test_at(l).is_some() {
+                // ▶ of a test: a small green triangle
+                let m = Pos2::new(gx + CLAUDE_W + TEST_W / 2.0, line_y(l) + rh * 0.5);
+                let s = (rh * 0.26).min(5.0);
+                painter.add(egui::Shape::convex_polygon(
+                    vec![m + egui::vec2(-s * 0.8, -s), m + egui::vec2(s, 0.0), m + egui::vec2(-s * 0.8, s)],
+                    highlight::green(),
+                    egui::Stroke::NONE,
+                ));
             }
             if opts.notes.iter().any(|(n, _)| *n == l) {
                 // comment of a pull request: a small speech bubble

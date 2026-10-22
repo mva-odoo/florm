@@ -43,6 +43,8 @@ enum DockAct {
     Refollow,
     /// Enter after the logs ended: again, whatever the state.
     Restart,
+    /// Opens / closes the tests row.
+    Tests,
 }
 
 impl App {
@@ -361,6 +363,9 @@ impl App {
                             if ui.button(">_ Terminal").on_hover_text("Un shell dans le conteneur (docker exec), dans un onglet").clicked() {
                                 act = Some(DockAct::Shell(c.name.clone()));
                             }
+                            if ui.selectable_label(self.tests.open, "🧪 Tests").on_hover_text("Lancer des tests Odoo dans ce conteneur").clicked() {
+                                act = Some(DockAct::Tests);
+                            }
                         } else if ui.add_enabled(!busy, egui::Button::new("▶ Démarrer")).clicked() {
                             act = Some(DockAct::Run("start", one()));
                         }
@@ -377,6 +382,10 @@ impl App {
                             ui.label(RichText::new(hint).small().color(weak));
                         });
                     });
+                    if self.tests.open && c.running() {
+                        ui.separator();
+                        self.tests_row(ui, &c.name);
+                    }
                 });
             let bg = self.hl.colors.bg;
             egui::CentralPanel::default().frame(egui::Frame::none().fill(bg)).show_inside(ui, |ui| match self.docker.session {
@@ -408,6 +417,12 @@ impl App {
             }
             Some(DockAct::Refollow) => self.docker_follow(false),
             Some(DockAct::Restart) => self.docker_follow(true),
+            Some(DockAct::Tests) => {
+                self.tests.open = !self.tests.open;
+                if self.tests.open && self.tests.draft.is_empty() {
+                    self.tests.draft = self.test_tags_here().or_else(|| self.settings.odoo_test_history.first().cloned()).unwrap_or_default();
+                }
+            }
             Some(DockAct::Run(verb, names)) => {
                 let what = match verb {
                     "start" => "Démarrage",

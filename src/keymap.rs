@@ -177,6 +177,8 @@ const DEFAULTS: &[(&str, &str)] = &[
     ("ctrl+shift+enter", "insert_line_before"),
     ("ctrl+m", "goto_bracket"),
     ("f9", "sort_lines"),
+    ("ctrl+f6", "odoo_test_again"),
+    ("ctrl+shift+f6", "odoo_test_here"),
     ("alt+f5", "git_next_change"),
     ("alt+shift+f5", "git_prev_change"),
     ("backspace", "backspace"),

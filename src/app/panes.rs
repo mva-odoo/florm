@@ -86,6 +86,7 @@ impl App {
     pub(super) fn doc_body(&mut self, ui: &mut egui::Ui, i: usize, id: egui::Id, focused: bool) -> Option<egui::Response> {
         match self.docs.get(i)?.view {
             document::View::Text => {
+                let tests = self.test_marks(i);
                 let matches: &[(usize, usize)] = if focused && self.find.open { &self.find.matches } else { &[] };
                 let doc = self.docs.get_mut(i)?;
                 let s = &self.settings;
@@ -97,8 +98,13 @@ impl App {
                     sticky: s.sticky_scroll,
                     rulers: &s.rulers,
                     notes: doc.path.as_ref().and_then(|p| self.pr.notes.get(p)).map_or(&[], |v| &v[..]),
+                    tests: &tests,
                 };
-                Some(editor_view::show(ui, doc, &self.hl, &opts, matches, id))
+                let r = editor_view::show(ui, doc, &self.hl, &opts, matches, id);
+                if let Some(t) = doc.test_pick.take() {
+                    self.run_tests(t);
+                }
+                Some(r)
             }
             document::View::Image => {
                 self.image_view(ui, i);

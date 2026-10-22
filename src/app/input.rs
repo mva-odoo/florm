@@ -334,6 +334,14 @@ impl App {
             ShowGit => self.open_git_view(),
             PullRequests => self.open_pulls(),
             Docker => self.open_docker(),
+            TestAgain => match self.settings.odoo_test_history.first().cloned() {
+                Some(t) => self.run_tests(t),
+                None => self.run_tests(String::new()),
+            },
+            TestHere => match self.test_tags_here() {
+                Some(t) => self.run_tests(t),
+                None => self.set_status("Pas de test ni de module Odoo sous le curseur"),
+            },
             CreatePr => self.start_pr_create(),
             Claude => self.open_claude(),
             SuggestCommit => self.suggest_commit_message(),

@@ -73,6 +73,12 @@ pub struct Settings {
     pub index_max_files: usize,
     /// Look for a newer release of Florm at startup (GitHub).
     pub check_updates: bool,
+    /// Odoo tests: command run in the container (`{tags}`: the tags), empty: the default one.
+    pub odoo_test_command: String,
+    /// Last tags run, newest first.
+    pub odoo_test_history: Vec<String>,
+    /// Container the tests run in.
+    pub odoo_test_container: String,
     /// Order of the services of each compose project in the Docker view (▶ tout starts them in
     /// it, ■ tout stops them the other way): project → services.
     pub docker_order: HashMap<String, Vec<String>>,
@@ -132,6 +138,9 @@ impl Default for Settings {
             exclude: ["__pycache__/", "*.pyc", "node_modules/", ".venv/", "*.egg-info/"].map(String::from).to_vec(),
             index_max_files: 150_000,
             check_updates: true,
+            odoo_test_command: String::new(),
+            odoo_test_history: Vec::new(),
+            odoo_test_container: String::new(),
             docker_order: HashMap::new(),
         }
     }
@@ -204,6 +213,9 @@ exclude = ["__pycache__/", "*.pyc", "node_modules/", ".venv/", "*.egg-info/"]
 index_max_files = 150000
 # chercher une nouvelle version de Florm au démarrage (releases GitHub)
 check_updates = true
+# tests Odoo dans un conteneur (vue Docker → 🧪 Tests) : commande lancée, {tags} = les tags
+# vide = "odoo --stop-after-init --test-enable --test-tags {tags}"
+odoo_test_command = ""
 
 [keys]
 # Raccourcis personnalisés : "combinaison" = "id_de_commande"

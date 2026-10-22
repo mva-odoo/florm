@@ -93,6 +93,8 @@ pub enum JobResult {
     /// `None`: the container did not change since its logs were shown.
     DockerFollow { name: String, result: Result<Option<crate::docker::Follow>, String> },
     DockerDone { label: String, result: Result<(), String> },
+    /// Odoo tests ready to run in a container.
+    TestsReady { tags: String, result: Result<crate::docker::Exec, String> },
     Update { manual: bool, result: Result<Option<crate::update::Update>, String> },
     /// Update downloaded and installed: the program to start for the restart.
     UpdateInstalled { version: String, result: Result<std::path::PathBuf, String> },

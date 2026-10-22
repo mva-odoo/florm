@@ -1439,6 +1439,7 @@ impl App {
     }
 
     pub(super) fn periodic(&mut self, ctx: &egui::Context) {
+        self.tests_check();
         // with hot exit, unsaved changes are kept in the session: no question
         let keeps = self.settings.hot_exit && self.root.is_some();
         if ctx.input(|i| i.viewport().close_requested())

@@ -33,6 +33,7 @@ mod md;
 mod quick_fix;
 mod pulls;
 mod docker_view;
+mod odoo_tests;
 mod pr_links;
 mod claude_ui;
 mod claude_queue;
@@ -716,6 +717,7 @@ pub struct App {
     /// GitHub pull requests tab.
     pr: pulls::PrUi,
     docker: docker_view::DockerUi,
+    tests: odoo_tests::Tests,
     /// Pull requests of branches and commits, creation of one.
     gh: pr_links::GhUi,
     /// Conversation with Claude Code and review of its changes: the one shown last.
@@ -917,6 +919,7 @@ impl App {
             quick_fix: None,
             pr: Default::default(),
             docker: Default::default(),
+            tests: Default::default(),
             gh: Default::default(),
             claude: Default::default(),
             claude_others: Vec::new(),

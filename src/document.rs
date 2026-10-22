@@ -140,6 +140,8 @@ pub struct Document {
     pub hover_word: Option<(usize, usize)>,
     /// Lines (first, last) the user asked to give to Claude (✳ in the gutter).
     pub claude_pick: Option<(usize, usize)>,
+    /// Tags of the test whose ▶ was clicked in the gutter.
+    pub test_pick: Option<String>,
     /// What the app found about a hovered symbol (its range, the text of the tooltip).
     pub hover_info: Option<((usize, usize), String)>,
     /// Where the hovered symbol is defined in the project (like Sublime Text): its range, the
@@ -414,6 +416,7 @@ impl Document {
             request_inline_diff: false,
             hover_word: None,
             claude_pick: None,
+            test_pick: None,
             hover_info: None,
             hover_defs: None,
             wraps: Default::default(),
