@@ -644,28 +644,40 @@ impl App {
                     ui.add_space(6.0);
                     ui.label(RichText::new("Florm utilise la commande claude (Claude Code) et ta connexion : pas de clé à configurer.").weak().small());
                 }
+                // who speaks is said once, at the start of their turn
+                let mut claude_said = true;
                 for it in &c.items {
                     ui.add_space(6.0);
                     match it {
                         Item::User(t, given) => {
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
-                                egui::Frame::none()
-                                    .fill(icons::mix(fill, accent, 0.16))
-                                    .rounding(egui::Rounding { nw: 10.0, ne: 2.0, sw: 10.0, se: 10.0 })
-                                    .inner_margin(egui::Margin::symmetric(10.0, 6.0))
-                                    .show(ui, |ui| {
-                                        ui.set_max_width(ui.available_width() * 0.8);
-                                        ui.vertical(|ui| {
-                                            ui.add(egui::Label::new(t.as_str()).wrap());
-                                            if !given.is_empty() {
-                                                ui.label(RichText::new(format!("✳ {}", given.join(", "))).small().weak());
-                                            }
+                            claude_said = false;
+                            ui.add_space(6.0);
+                            // on the left like the answers, set apart by its color and its edge
+                            egui::Frame::none()
+                                .fill(icons::mix(fill, accent, 0.10))
+                                .stroke(egui::Stroke::new(1.0_f32, icons::mix(fill, accent, 0.35)))
+                                .rounding(8.0)
+                                .inner_margin(egui::Margin::symmetric(12.0, 8.0))
+                                .show(ui, |ui| {
+                                    ui.set_width(ui.available_width());
+                                    ui.horizontal(|ui| {
+                                        ui.label(RichText::new("Toi").small().strong().color(accent));
+                                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                            super::md::copy_button(ui, t, "Copier");
                                         });
                                     });
-                            });
+                                    ui.add(egui::Label::new(t.as_str()).wrap());
+                                    if !given.is_empty() {
+                                        ui.label(RichText::new(format!("✳ {}", given.join(", "))).small().weak());
+                                    }
+                                });
                         }
                         Item::Text(t) | Item::Streaming(t) => {
-                            egui_commonmark::CommonMarkViewer::new().show(ui, cache, t);
+                            if !claude_said {
+                                claude_said = true;
+                                ui.label(RichText::new("✳ Claude").small().strong().color(accent));
+                            }
+                            super::md::markdown(ui, cache, t);
                         }
                         Item::Tool { name, summary, result, .. } => {
                             let (icon, color) = match name.as_str() {
@@ -675,11 +687,18 @@ impl App {
                             };
                             let error = result.as_ref().is_some_and(|(_, e)| *e);
                             let head = RichText::new(format!("{icon} {name}  {summary}")).monospace().size(12.0).color(if error { err() } else { color });
+                            // a command: copied to run it again in a terminal
+                            let command = (name == "Bash" && !summary.is_empty()).then_some(summary.as_str());
                             match result.as_ref().filter(|(t, _)| !t.trim().is_empty() && (name == "Bash" || error)) {
                                 Some((t, _)) => {
-                                    egui::CollapsingHeader::new(head).id_salt(ui.next_auto_id()).show(ui, |ui| {
-                                        let t: String = t.lines().take(80).collect::<Vec<_>>().join("\n");
-                                        ui.label(RichText::new(t).monospace().size(11.5).weak());
+                                    ui.horizontal(|ui| {
+                                        egui::CollapsingHeader::new(head).id_salt(ui.next_auto_id()).show(ui, |ui| {
+                                            let t: String = t.lines().take(80).collect::<Vec<_>>().join("\n");
+                                            ui.label(RichText::new(t).monospace().size(11.5).weak());
+                                        });
+                                        if let Some(cmd) = command {
+                                            super::md::copy_button(ui, cmd, "Copier");
+                                        }
                                     });
                                 }
                                 None => {
@@ -687,6 +706,9 @@ impl App {
                                         ui.label(head);
                                         if result.is_none() {
                                             ui.spinner();
+                                        }
+                                        if let Some(cmd) = command {
+                                            super::md::copy_button(ui, cmd, "Copier");
                                         }
                                     });
                                 }

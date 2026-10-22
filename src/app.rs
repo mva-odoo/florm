@@ -27,6 +27,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 mod git_view;
+mod md;
 mod pulls;
 mod pr_links;
 mod claude_ui;
