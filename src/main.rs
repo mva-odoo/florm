@@ -21,6 +21,7 @@ mod keymap;
 mod lint;
 mod logo;
 mod lsp;
+mod odoo_test;
 mod os;
 mod pick;
 mod plugins;

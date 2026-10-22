@@ -1185,6 +1185,14 @@ impl eframe::App for App {
         }
         self.central(ctx);
         self.sync_terminal_tabs();
+        // Ctrl+clic on a traceback in a terminal
+        if let Some((p, line)) = self.term.open_request.take() {
+            if p.is_file() {
+                self.open_at(p, line.saturating_sub(1));
+            } else {
+                self.set_status(format!("Fichier introuvable ici : {}", p.display()));
+            }
+        }
         self.claude_poll_all();
         self.claude_take_picks();
         self.completion_popup(ctx);

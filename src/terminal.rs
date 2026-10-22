@@ -12,6 +12,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 const SCROLLBACK: usize = 10_000;
+/// Most bytes of output kept as text by a session that keeps it.
+const CAPTURE: usize = 1 << 20;
 
 /// Command line run through the shell, for plugins (not the interactive terminal).
 #[cfg(windows)]
@@ -76,6 +78,15 @@ struct Session {
     id: u64,
     /// Shown in an editor tab rather than in the bottom panel.
     docked: bool,
+    /// Shown by another view (the Docker one), neither in the bottom panel nor in a tab of its own.
+    embedded: bool,
+    /// Program run instead of a shell (started again by Enter once it ended).
+    cmd: Option<Vec<String>>,
+    /// Output kept as text (the end of it), for those who read it (the summary of tests).
+    capture: Option<Arc<Mutex<Vec<u8>>>>,
+    /// Folders of a container and where they are here: (container folder, folder here), for the
+    /// files of its tracebacks.
+    mounts: Vec<(String, PathBuf)>,
     name: String,
     parser: Arc<Mutex<vt100::Parser>>,
     writer: SharedWriter,
@@ -90,13 +101,20 @@ struct Session {
 
 impl Session {
     fn spawn(shell: &str, cwd: PathBuf, ctx: &egui::Context) -> Result<Session, String> {
+        let argv: Vec<&str> = shell.split_whitespace().collect();
+        Self::spawn_argv(&argv, &[], cwd, ctx, false)
+    }
+
+    /// Runs `argv` in a new pseudo-terminal; `prefill` is shown before its output, which is also
+    /// kept as text when `capture`.
+    fn spawn_argv(argv: &[&str], prefill: &[u8], cwd: PathBuf, ctx: &egui::Context, capture: bool) -> Result<Session, String> {
+        let shell = argv.join(" ");
         let size = (24, 80);
         let pair = native_pty_system()
             .openpty(PtySize { rows: size.0, cols: size.1, pixel_width: 0, pixel_height: 0 })
             .map_err(|e| e.to_string())?;
-        let mut parts = shell.split_whitespace();
-        let mut cmd = CommandBuilder::new(parts.next().unwrap_or("sh"));
-        cmd.args(parts);
+        let mut cmd = CommandBuilder::new(argv.first().copied().unwrap_or("sh"));
+        cmd.args(argv.iter().skip(1));
         cmd.cwd(&cwd);
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
@@ -106,14 +124,24 @@ impl Session {
         let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
         let writer: SharedWriter = Arc::new(Mutex::new(pair.master.take_writer().map_err(|e| e.to_string())?));
         let parser = Arc::new(Mutex::new(vt100::Parser::new(size.0, size.1, SCROLLBACK)));
+        parser.lock().unwrap().process(prefill);
         let exited = Arc::new(AtomicBool::new(false));
-        let (p, ex, ctx, w) = (parser.clone(), exited.clone(), ctx.clone(), writer.clone());
+        let capture = capture.then(|| Arc::new(Mutex::new(Vec::new())));
+        let (p, ex, ctx, w, cap) = (parser.clone(), exited.clone(), ctx.clone(), writer.clone(), capture.clone());
         std::thread::spawn(move || {
             let mut buf = [0u8; 16384];
             loop {
                 match reader.read(&mut buf) {
                     Ok(0) | Err(_) => break,
                     Ok(n) => {
+                        if let Some(c) = &cap {
+                            let mut c = c.lock().unwrap();
+                            c.extend_from_slice(&buf[..n]);
+                            if c.len() > CAPTURE {
+                                let cut = c.len() - CAPTURE / 2;
+                                c.drain(..cut);
+                            }
+                        }
                         p.lock().unwrap().process(&buf[..n]);
                         let answer = replies(&buf[..n], || p.lock().unwrap().screen().cursor_position());
                         if !answer.is_empty() {
@@ -128,11 +156,11 @@ impl Session {
             ex.store(true, Ordering::Relaxed);
             ctx.request_repaint();
         });
-        let name = std::path::Path::new(shell.split_whitespace().next().unwrap_or(shell))
+        let name = std::path::Path::new(argv.first().copied().unwrap_or(&shell))
             .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| shell.to_string());
-        Ok(Session { id: 0, docked: false, name, parser, writer, master: pair.master, child, exited, cwd, size, sel: None })
+        Ok(Session { id: 0, docked: false, embedded: false, cmd: None, capture, mounts: Vec::new(), name, parser, writer, master: pair.master, child, exited, cwd, size, sel: None })
     }
 
     fn write(&mut self, bytes: &[u8]) {
@@ -163,6 +191,11 @@ impl Session {
         }
     }
 
+    /// Shown in the bottom panel.
+    fn in_panel(&self) -> bool {
+        !self.docked && !self.embedded
+    }
+
     fn selected_text(&self) -> Option<String> {
         let ((r1, c1), (r2, c2)) = self.sel?;
         let ((r1, c1), (r2, c2)) = if (r1, c1) <= (r2, c2) { ((r1, c1), (r2, c2)) } else { ((r2, c2), (r1, c1)) };
@@ -186,6 +219,8 @@ pub struct Terminal {
     pub focus_tab: Option<u64>,
     /// Session of the bottom panel asked to move into an editor tab ("⇱").
     pub dock_request: Option<u64>,
+    /// File (and line) of a traceback Ctrl+clicked in a terminal, for the app to open.
+    pub open_request: Option<(PathBuf, usize)>,
     sessions: Vec<Session>,
     /// Shown session of the bottom panel (index in `sessions`, never a docked one).
     active: usize,
@@ -202,7 +237,7 @@ enum GridAct {
 
 impl Terminal {
     pub fn new() -> Self {
-        Terminal { cwd: None, want_focus: false, focus_tab: None, dock_request: None, sessions: Vec::new(), active: 0, next_id: 1, error: None }
+        Terminal { cwd: None, want_focus: false, focus_tab: None, dock_request: None, open_request: None, sessions: Vec::new(), active: 0, next_id: 1, error: None }
     }
 
     fn cwd(&self) -> PathBuf {
@@ -278,17 +313,26 @@ impl Terminal {
 
     /// Keeps `active` on a session of the bottom panel.
     fn fix_active(&mut self) {
-        if self.sessions.get(self.active).map_or(true, |s| s.docked) {
-            self.active = self.sessions.iter().rposition(|s| !s.docked).unwrap_or(0);
+        if !self.sessions.get(self.active).is_some_and(Session::in_panel) {
+            self.active = self.sessions.iter().rposition(Session::in_panel).unwrap_or(0);
         }
     }
 
     fn restart(&mut self, i: usize, ctx: &egui::Context, shell: Option<&str>) {
-        let (cwd, id, docked) = (self.sessions[i].cwd.clone(), self.sessions[i].id, self.sessions[i].docked);
-        match self.spawn(ctx, shell, Some(cwd)) {
+        let old = &self.sessions[i];
+        let (cwd, id, docked, embedded) = (old.cwd.clone(), old.id, old.docked, old.embedded);
+        let (cmd, capture, mounts) = (old.cmd.clone(), old.capture.is_some(), old.mounts.clone());
+        let new = match &cmd {
+            Some(argv) => Session::spawn_argv(&argv.iter().map(String::as_str).collect::<Vec<_>>(), &[], cwd, ctx, capture),
+            None => self.spawn(ctx, shell, Some(cwd)),
+        };
+        match new {
             Ok(mut s) => {
                 s.id = id;
                 s.docked = docked;
+                s.embedded = embedded;
+                s.cmd = cmd;
+                s.mounts = mounts;
                 self.sessions[i] = s;
                 if docked {
                     self.focus_tab = Some(id);
@@ -304,13 +348,13 @@ impl Terminal {
     pub fn ui(&mut self, ui: &mut egui::Ui, shell: Option<&str>, colors: Colors, light: bool) {
         let ctx = ui.ctx().clone();
         self.fix_active();
-        if !self.sessions.iter().any(|s| !s.docked) && self.error.is_none() {
+        if !self.sessions.iter().any(Session::in_panel) && self.error.is_none() {
             self.open(&ctx, shell, None);
         }
         // --- tabs
         let (mut close, mut new, mut dock) = (None, false, false);
         ui.horizontal(|ui| {
-            for (i, s) in self.sessions.iter().enumerate().filter(|(_, s)| !s.docked) {
+            for (i, s) in self.sessions.iter().enumerate().filter(|(_, s)| s.in_panel()) {
                 let done = s.exited.load(Ordering::Relaxed);
                 let label = format!("{}{}", s.title(), if done { " (terminé)" } else { "" });
                 let r = ui.selectable_label(i == self.active, RichText::new(label).monospace());
@@ -332,7 +376,7 @@ impl Terminal {
                 new = true;
             }
             if ui
-                .add_enabled(self.sessions.get(self.active).is_some_and(|s| !s.docked), egui::Button::new("⇱ Onglet"))
+                .add_enabled(self.sessions.get(self.active).is_some_and(Session::in_panel), egui::Button::new("⇱ Onglet"))
                 .on_hover_text("Mettre ce terminal dans un onglet de l'éditeur (il peut alors être placé à côté d'un fichier, ou en bas)")
                 .clicked()
             {
@@ -366,7 +410,7 @@ impl Terminal {
             return;
         }
         let i = self.active;
-        if self.sessions.get(i).map_or(true, |s| s.docked) {
+        if !self.sessions.get(i).is_some_and(Session::in_panel) {
             ui.label(RichText::new("Aucun terminal ouvert — « + » pour en ouvrir un.").weak());
             return;
         }
@@ -419,14 +463,84 @@ impl Terminal {
         });
     }
 
+    /// Runs `argv` in a terminal shown by another view (`embedded_ui`); returns its id.
+    pub fn open_embedded(&mut self, ctx: &egui::Context, argv: &[String], prefill: &[u8], cwd: Option<PathBuf>) -> Result<u64, String> {
+        let mut s = Session::spawn_argv(&argv.iter().map(String::as_str).collect::<Vec<_>>(), prefill, cwd.unwrap_or_else(|| self.cwd()), ctx, false)?;
+        s.id = self.next_id;
+        s.embedded = true;
+        s.cmd = Some(argv.to_vec());
+        self.next_id += 1;
+        let id = s.id;
+        self.sessions.push(s);
+        Ok(id)
+    }
+
+    /// Runs `argv` (not a shell) in a terminal meant for an editor tab, its output kept as text
+    /// (`output`); Enter once it ended runs it again. Returns its id.
+    pub fn open_command_tab(&mut self, ctx: &egui::Context, argv: &[String], cwd: Option<PathBuf>) -> Result<u64, String> {
+        let mut s = Session::spawn_argv(&argv.iter().map(String::as_str).collect::<Vec<_>>(), &[], cwd.unwrap_or_else(|| self.cwd()), ctx, true)
+            .map_err(|e| format!("{} : {e}", argv.first().map_or("", String::as_str)))?;
+        s.id = self.next_id;
+        s.docked = true;
+        s.cmd = Some(argv.to_vec());
+        self.next_id += 1;
+        let id = s.id;
+        self.focus_tab = Some(id);
+        self.sessions.push(s);
+        self.fix_active();
+        Ok(id)
+    }
+
+    /// The output kept by session `id` (`open_command_tab`), without its colors.
+    pub fn output(&self, id: u64) -> Option<String> {
+        let s = self.sessions.iter().find(|s| s.id == id)?;
+        let bytes = s.capture.as_ref()?.lock().unwrap().clone();
+        Some(strip_ansi(&String::from_utf8_lossy(&bytes)))
+    }
+
+    /// Name of a session, shown as its title while its program sets none.
+    pub fn set_name(&mut self, id: u64, name: String) {
+        if let Some(s) = self.sessions.iter_mut().find(|s| s.id == id) {
+            s.name = name;
+        }
+    }
+
+    /// Folders of the container a session shows, for the files of its tracebacks (Ctrl+clic).
+    pub fn set_mounts(&mut self, id: u64, mounts: Vec<(String, PathBuf)>) {
+        if let Some(s) = self.sessions.iter_mut().find(|s| s.id == id) {
+            s.mounts = mounts;
+        }
+    }
+
+    /// Whether the program of session `id` ended (or the session is gone).
+    pub fn exited(&self, id: u64) -> bool {
+        self.sessions.iter().find(|s| s.id == id).is_none_or(|s| s.exited.load(Ordering::Relaxed))
+    }
+
+    /// Gives the keyboard to session `id` at the next frame.
+    pub fn focus(&mut self, id: u64) {
+        self.focus_tab = Some(id);
+    }
+
+    /// The grid of an embedded session. Returns true when Enter was pressed after its program ended
+    /// (the view starts it again).
+    pub fn embedded_ui(&mut self, ui: &mut egui::Ui, id: u64, colors: Colors, light: bool) -> bool {
+        let Some(i) = self.sessions.iter().position(|s| s.id == id) else { return false };
+        let focus = self.focus_tab == Some(id);
+        if focus {
+            self.focus_tab = None;
+        }
+        matches!(self.grid(ui, i, focus, colors, light), Some(GridAct::Restart))
+    }
+
     /// Whether some terminal is left for the bottom panel.
     pub fn has_panel_sessions(&self) -> bool {
-        self.sessions.iter().any(|s| !s.docked)
+        self.sessions.iter().any(Session::in_panel)
     }
 
     /// Ids of the sessions in editor tabs.
     pub fn docked_ids(&self) -> Vec<u64> {
-        self.sessions.iter().filter(|s| s.docked).map(|s| s.id).collect()
+        self.sessions.iter().filter(|s| s.docked && !s.embedded).map(|s| s.id).collect()
     }
 
     /// The grid of session `i`: drawing, mouse selection, wheel, keyboard, context menu.
@@ -459,6 +573,18 @@ impl Terminal {
             let r = ((p.y - rect.top()) / rh).floor().clamp(0.0, (rows - 1) as f32) as u16;
             (r, c)
         };
+        // Ctrl+clic on a traceback line (File "…", line N): its file
+        let link = (resp.hovered() && ui.input(|i| i.modifiers.command))
+            .then(|| ui.input(|i| i.pointer.hover_pos()))
+            .flatten()
+            .and_then(|p| traceback_at(s, cell_at(p).0));
+        if link.is_some() {
+            ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+            if resp.clicked() {
+                self.open_request = link;
+                return None;
+            }
+        }
         // selection with the mouse
         if resp.drag_started() {
             if let Some(p) = resp.interact_pointer_pos() {
@@ -579,6 +705,54 @@ impl Terminal {
         paint(ui, rect, pad, rh, cw, &font, s, colors, light, focused);
         None
     }
+}
+
+/// The file and line of the traceback line at visible row `r` (with the rows it wraps onto).
+fn traceback_at(s: &Session, r: u16) -> Option<(PathBuf, usize)> {
+    let p = s.parser.lock().unwrap();
+    let sc = p.screen();
+    let (rows, cols) = sc.size();
+    let (mut a, mut b) = (r, r);
+    while a > 0 && sc.row_wrapped(a - 1) {
+        a -= 1;
+    }
+    while b + 1 < rows && sc.row_wrapped(b) {
+        b += 1;
+    }
+    let (path, line) = crate::odoo_test::traceback_location(&sc.contents_between(a, 0, b, cols))?;
+    Some((crate::odoo_test::map_path(&path, &s.mounts), line))
+}
+
+/// Text without its escape sequences (colors, cursor moves, titles) and carriage returns.
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut it = s.chars().peekable();
+    while let Some(c) = it.next() {
+        match c {
+            '\x1b' => match it.next() {
+                // CSI: parameters up to a final letter
+                Some('[') => {
+                    for c in it.by_ref() {
+                        if ('@'..='~').contains(&c) {
+                            break;
+                        }
+                    }
+                }
+                // OSC: up to BEL or ESC \
+                Some(']') => {
+                    while let Some(c) = it.next() {
+                        if c == '\x07' || (c == '\x1b' && it.next_if_eq(&'\\').is_some()) {
+                            break;
+                        }
+                    }
+                }
+                _ => {}
+            },
+            '\r' => {}
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 #[allow(clippy::too_many_arguments)]
