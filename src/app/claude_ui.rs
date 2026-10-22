@@ -120,6 +120,8 @@ pub(super) struct ClaudeUi {
     pub(super) focus: bool,
     /// The to-do list: tasks sent one by one.
     queue: Queue,
+    /// The definitions of the names cited are not given with the messages.
+    no_defs: bool,
     /// Last commits of its folder for « + Contexte → Un commit »: (hash, short hash, subject, when).
     recent_commits: Vec<(String, String, String, String)>,
 }
@@ -384,6 +386,15 @@ impl App {
         if self.claude.with_context {
             if let Some(ctx) = self.editor_context(&dir) {
                 message = format!("{ctx}\n\n{message}");
+            }
+        }
+        // the classes and functions named in the message, found in the index: Claude does not
+        // have to search for them
+        let mut given = given;
+        if !self.claude.no_defs {
+            if let Some((defs, names)) = self.cited_definitions(&text, &dir) {
+                message = format!("{message}\n\n{defs}");
+                given.push(format!("définitions : {}", names.join(", ")));
             }
         }
         if self.claude.session.is_none() {
@@ -700,6 +711,37 @@ impl App {
     }
 
     /// The file being edited, the line of the cursor and the selection, said to Claude.
+    /// The definitions in the project of the names `text` cites (at most 4 names, each defined in
+    /// at most 2 places: a name found everywhere says nothing), with their first lines; and the
+    /// names given.
+    fn cited_definitions(&self, text: &str, dir: &Path) -> Option<(String, Vec<String>)> {
+        const MAX_NAMES: usize = 4;
+        const MAX_LINES: usize = 40;
+        let ix = self.index.symbols.as_ref()?;
+        let (mut parts, mut names) = (Vec::new(), Vec::new());
+        for name in cited_names(text) {
+            if names.len() >= MAX_NAMES {
+                break;
+            }
+            let found: Vec<(PathBuf, crate::index::Entry)> = ix
+                .lookup(&name)
+                .into_iter()
+                .filter(|(_, e)| e.name == name && matches!(e.kind, crate::symbols::Kind::Class | crate::symbols::Kind::Function | crate::symbols::Kind::Method))
+                .collect();
+            if found.is_empty() || found.len() > 2 {
+                continue;
+            }
+            for (p, e) in &found {
+                let Ok(src) = std::fs::read_to_string(p) else { continue };
+                let rel = p.strip_prefix(dir).unwrap_or(p).display().to_string();
+                let lang = p.extension().and_then(|x| x.to_str()).unwrap_or("");
+                parts.push(format!("{rel}:{} :\n```{lang}\n{}\n```", e.line + 1, definition_lines(&src, e.line, MAX_LINES)));
+            }
+            names.push(name);
+        }
+        (!parts.is_empty()).then(|| (format!("(Définitions trouvées dans le projet pour les noms cités :\n{})", parts.join("\n")), names))
+    }
+
     fn editor_context(&self, dir: &Path) -> Option<String> {
         let d = self.docs.iter().rev().find(|d| d.view == document::View::Text && d.path.is_some())?;
         let path = d.path.as_ref()?;
@@ -1361,6 +1403,10 @@ impl App {
                     }
                     ctx_menu.response.on_hover_text("Donner à Claude un fichier, la sélection, le diff, un commit, les problèmes…");
                     ui.checkbox(&mut c.with_context, "Fichier ouvert et sélection").on_hover_text("Dit à Claude quel fichier tu édites, la ligne du curseur et le texte sélectionné");
+                    let mut defs = !c.no_defs;
+                    if ui.checkbox(&mut defs, "Définitions citées").on_hover_text("Les classes et fonctions du projet nommées dans le message (SaleOrder, _compute_total, `foo`…) partent avec lui, leurs premières lignes comprises : Claude n'a pas à les chercher (moins de tokens)").changed() {
+                        c.no_defs = !defs;
+                    }
                 });
                 ui.add_space(4.0);
             });
@@ -1546,6 +1592,65 @@ impl App {
     }
 }
 
+/// The names of a message that look like code: in backquotes, followed by "(", CamelCase, or
+/// with an underscore — not the words of the sentence.
+fn cited_names(text: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut push = |w: &str| {
+        let w = w.trim_matches(|c: char| !(c.is_alphanumeric() || c == '_'));
+        if w.chars().count() >= 3 && w.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_') && !out.iter().any(|o| o == w) {
+            out.push(w.to_string());
+        }
+    };
+    let quoted: Vec<&str> = text.split('`').skip(1).step_by(2).collect();
+    for q in &quoted {
+        for w in q.split(|c: char| !(c.is_alphanumeric() || c == '_')) {
+            push(w);
+        }
+    }
+    let chars: Vec<char> = text.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i].is_alphanumeric() || chars[i] == '_' {
+            let start = i;
+            while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
+                i += 1;
+            }
+            let w: String = chars[start..i].iter().collect();
+            let call = chars.get(i) == Some(&'(');
+            let camel = w.chars().next().is_some_and(|c| c.is_uppercase()) && w.chars().skip(1).any(|c| c.is_uppercase()) && w.chars().any(|c| c.is_lowercase());
+            let snake = w.contains('_') && w.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+            if call || camel || snake {
+                push(&w);
+            }
+        } else {
+            i += 1;
+        }
+    }
+    out
+}
+
+/// The lines of a definition starting at `line`: until the code comes back to its indentation
+/// (the next definition), at most `max`.
+fn definition_lines(src: &str, line: usize, max: usize) -> String {
+    let lines: Vec<&str> = src.lines().skip(line).collect();
+    let Some(first) = lines.first() else { return String::new() };
+    let indent = first.len() - first.trim_start().len();
+    let mut out = vec![*first];
+    for l in lines.iter().skip(1).take(max - 1) {
+        let ind = l.len() - l.trim_start().len();
+        // decorators and blank lines do not end it; code at its indentation or less does
+        if !l.trim().is_empty() && ind <= indent && !l.trim_start().starts_with(')') {
+            break;
+        }
+        out.push(l);
+    }
+    while out.last().is_some_and(|l| l.trim().is_empty()) {
+        out.pop();
+    }
+    out.join("\n")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1587,6 +1692,16 @@ mod tests {
         let old = r#"[{"key":1,"title":"t","dir":null,"model":0,"mode":0,"session_id":null,"wish":null,"cost":0.0,"updated":1,"items":[]}]"#;
         let old: Vec<SavedConv> = serde_json::from_str(old).unwrap();
         assert!(old[0].queue.tasks.is_empty());
+    }
+
+    #[test]
+    fn names_and_definitions_given() {
+        assert_eq!(cited_names("Corrige SaleOrder et _compute_total, puis appelle foo() ; voir `bar.baz`. La vue est fausse."), ["bar", "baz", "SaleOrder", "_compute_total", "foo"]);
+        assert!(cited_names("Ajoute un bouton dans la vue Git").is_empty());
+        let src = "import os\n\nclass A:\n    x = 1\n\n    def f(self):\n        return 2\n\n\nclass B:\n    pass\n";
+        assert_eq!(definition_lines(src, 2, 40), "class A:\n    x = 1\n\n    def f(self):\n        return 2");
+        assert_eq!(definition_lines(src, 5, 40), "    def f(self):\n        return 2");
+        assert_eq!(definition_lines(src, 2, 2), "class A:\n    x = 1");
     }
 
     #[test]
