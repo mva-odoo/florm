@@ -213,13 +213,10 @@ pub fn show(
         ui.add_space(4.0);
         let r = ui
             .vertical_centered(|ui| {
-                let name = RichText::new(format!("{}   ", root.name.to_uppercase())).size(11.5).strong().extra_letter_spacing(1.6);
+                let name = RichText::new(root.name.to_uppercase()).size(11.5).strong().extra_letter_spacing(1.6);
                 ui.add(egui::Label::new(name).sense(Sense::click()))
             })
             .inner;
-        let hovered = r.hovered();
-        let color = if hovered { ui.visuals().strong_text_color() } else { ui.visuals().weak_text_color() };
-        icons::paint_chevron(ui.painter(), egui::pos2(r.rect.right() - 6.0, r.rect.center().y), true, color);
         let r = r.on_hover_cursor(CursorIcon::PointingHand).on_hover_text("Changer de projet (Ctrl+Alt+P)");
         let popup = Id::new("project_menu");
         if r.clicked() {
