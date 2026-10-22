@@ -13,12 +13,71 @@ pub const NOT_INSTALLED: &str = "La commande claude (Claude Code) est introuvabl
 /// Models offered: (value of --model, label). Empty: the default of Claude Code.
 pub const MODELS: [(&str, &str); 5] = [("", "Modèle par défaut"), ("opus", "Opus"), ("sonnet", "Sonnet"), ("haiku", "Haiku (rapide)"), ("fable", "Fable")];
 
-/// Permission modes: (value of --permission-mode, label, explanation).
+/// Permission modes: (value of --permission-mode, label, explanation). "custom": what is checked
+/// in the permissions.
 pub const MODES: [(&str, &str, &str); 3] = [
-    ("acceptEdits", "Modifie les fichiers", "Claude modifie les fichiers sans demander (tu gardes ou rejettes ensuite dans la revue) ; les autres commandes sont refusées"),
+    ("custom", "Selon les permissions", "Claude fait seulement ce qui est coché dans 🔒 Permissions ; tu gardes ou rejettes ses changements dans la revue"),
     ("plan", "Plan seulement", "Claude lit et propose un plan, sans rien modifier"),
-    ("bypassPermissions", "Tout autoriser", "Claude peut aussi lancer des commandes (tests, git…) sans demander"),
+    ("bypassPermissions", "Tout autoriser", "Claude peut tout faire sans demander (le bac à sable, s'il est coché, isole quand même ses commandes)"),
 ];
+
+/// The permissions that can be checked: (key in the settings, label, explanation).
+pub const PERMS: [(&str, &str, &str); 6] = [
+    ("edit", "Modifier les fichiers", "Créer et modifier des fichiers (tu gardes ou rejettes chaque bloc dans la revue)"),
+    ("bash", "Lancer des commandes", "Tests, git, scripts… dans un terminal caché"),
+    ("web", "Accès à internet", "Lire des pages web et faire des recherches"),
+    ("agents", "Sous-agents", "Confier des recherches à d'autres instances de Claude"),
+    ("sandbox", "Bac à sable pour les commandes", "Les commandes tournent isolées (bubblewrap) : écriture seulement dans le projet, réseau filtré"),
+    ("confine", "Rester dans le projet", "Les fichiers hors du dossier du projet sont inaccessibles, et tes réglages Claude Code personnels sont ignorés"),
+];
+
+/// Tools of each permission: those named in the allowed / denied lists (old names included) and
+/// those of `--tools` (current names only, an unknown one is an error).
+fn perm_tools(perm: &str) -> (&'static [&'static str], &'static [&'static str]) {
+    match perm {
+        "edit" => (&["Edit", "MultiEdit", "Write", "NotebookEdit"], &["Edit", "Write"]),
+        "bash" => (&["Bash"], &["Bash"]),
+        "web" => (&["WebFetch", "WebSearch"], &["WebFetch", "WebSearch"]),
+        "agents" => (&["Agent", "Task"], &["Agent"]),
+        _ => (&[], &[]),
+    }
+}
+
+/// Arguments of `claude` for mode `mode` (index in `MODES`), the permissions checked and the
+/// budget (0: none). Nothing is ever asked: what is not allowed is refused.
+pub fn permission_args(mode: usize, perms: &[String], budget: f64) -> Vec<String> {
+    let has = |p: &str| perms.iter().any(|x| x == p);
+    let mut a: Vec<String> = vec!["--permission-prompts".into(), "none".into()];
+    match MODES.get(mode).map_or("custom", |m| m.0) {
+        "custom" => {
+            let (mut allowed, mut denied, mut tools) = (vec!["Read", "Grep", "Glob"], Vec::<&str>::new(), vec!["Read", "Grep", "Glob"]);
+            for p in ["edit", "bash", "web", "agents"] {
+                let (names, current) = perm_tools(p);
+                if has(p) {
+                    allowed.extend(names);
+                    tools.extend(current);
+                } else {
+                    denied.extend(names);
+                }
+            }
+            a.extend(["--permission-mode".into(), "dontAsk".into(), "--allowedTools".into(), allowed.join(",")]);
+            if !denied.is_empty() {
+                a.extend(["--disallowedTools".into(), denied.join(",")]);
+            }
+            if has("confine") {
+                a.extend(["--restricted".into(), "--tools".into(), tools.join(",")]);
+            }
+        }
+        m => a.extend(["--permission-mode".into(), m.to_string()]),
+    }
+    if has("sandbox") {
+        a.extend(["--settings".into(), r#"{"sandbox":{"enabled":true}}"#.into()]);
+    }
+    if budget > 0.0 {
+        a.extend(["--max-budget-usd".into(), format!("{budget}")]);
+    }
+    a
+}
 
 /// What Claude sends during a conversation.
 #[derive(Clone, Debug, PartialEq)]
@@ -155,8 +214,10 @@ pub struct Session {
 
 impl Session {
     /// Starts `claude` in `dir`; `repaint` is called when something arrives.
-    pub fn start(dir: &Path, model: &str, mode: &str, repaint: impl Fn() + Send + 'static) -> Result<Session, String> {
-        let mut args = vec!["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", mode];
+    /// `perms`: the arguments of `permission_args`.
+    pub fn start(dir: &Path, model: &str, perms: &[String], repaint: impl Fn() + Send + 'static) -> Result<Session, String> {
+        let mut args = vec!["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages"];
+        args.extend(perms.iter().map(String::as_str));
         if !model.is_empty() {
             args.extend(["--model", model]);
         }
@@ -315,5 +376,22 @@ mod tests {
         assert_eq!(tool_summary("Grep", &json!({"pattern": "fn main"})), "fn main");
         assert_eq!(clean_message("```\n[FIX] a: b\n```"), "[FIX] a: b");
         assert_eq!(clean_message("\"[IMP] x\""), "[IMP] x");
+    }
+
+    #[test]
+    fn permissions() {
+        let p = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let a = permission_args(0, &p(&["edit", "sandbox"]), 0.0).join(" ");
+        assert!(a.contains("--permission-mode dontAsk"), "{a}");
+        assert!(a.contains("--allowedTools Read,Grep,Glob,Edit,MultiEdit,Write,NotebookEdit"), "{a}");
+        assert!(a.contains("--disallowedTools Bash,WebFetch,WebSearch,Agent,Task"), "{a}");
+        assert!(a.contains(r#"--settings {"sandbox":{"enabled":true}}"#), "{a}");
+        assert!(!a.contains("--restricted") && !a.contains("--max-budget-usd"), "{a}");
+        let a = permission_args(0, &p(&["edit", "bash", "web", "agents", "confine"]), 2.5).join(" ");
+        assert!(!a.contains("--disallowedTools") && !a.contains("--settings"), "{a}");
+        assert!(a.contains("--restricted --tools Read,Grep,Glob,Edit,Write,Bash,WebFetch,WebSearch,Agent"), "{a}");
+        assert!(a.ends_with("--max-budget-usd 2.5"), "{a}");
+        assert_eq!(permission_args(1, &[], 0.0), p(&["--permission-prompts", "none", "--permission-mode", "plan"]));
+        assert!(permission_args(2, &p(&["sandbox"]), 0.0).join(" ").contains("bypassPermissions --settings"));
     }
 }

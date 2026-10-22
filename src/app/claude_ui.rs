@@ -242,9 +242,10 @@ impl App {
             }
         }
         if self.claude.session.is_none() {
-            let (model, mode) = (claude::MODELS[self.claude.model].0, claude::MODES[self.claude.mode].0);
+            let model = claude::MODELS[self.claude.model].0;
+            let perms = claude::permission_args(self.claude.mode, &self.settings.claude_perms, self.settings.claude_budget);
             let ctx = self.egui_ctx.clone();
-            match claude::Session::start(&dir, model, mode, move || ctx.request_repaint()) {
+            match claude::Session::start(&dir, model, &perms, move || ctx.request_repaint()) {
                 Ok(s) => self.claude.session = Some(s),
                 Err(e) => {
                     self.claude.items.push(Item::Error(e));
@@ -456,6 +457,7 @@ impl App {
         let dirs: Vec<(PathBuf, String)> = self.repos.iter().map(|r| (r.clone(), self.repo_label(r))).collect();
         let (mut send, mut stop, mut new_conv, mut review_click, mut all) = (false, false, false, None, None);
         let (mut chosen_dir, mut move_to) = (None, None);
+        let (perms, budget, mut perms_changed) = (&mut self.settings.claude_perms, &mut self.settings.claude_budget, false);
         let c = &mut self.claude;
         let cache = &mut self.md_cache;
 
@@ -489,6 +491,44 @@ impl App {
                     })
                     .response
                     .on_disabled_hover_text("Pour changer : « Nouvelle conversation »");
+                    let n_perms = perms.iter().filter(|p| claude::PERMS.iter().any(|(k, ..)| k == p)).count();
+                    ui.menu_button(format!("🔒 Permissions ({n_perms})"), |ui| {
+                        ui.set_min_width(330.0);
+                        if running {
+                            ui.label(RichText::new("S'applique à la prochaine conversation").small().color(warn()));
+                        }
+                        if c.mode != 0 {
+                            ui.label(RichText::new(format!("Mode « {} » : seules les deux dernières cases comptent", claude::MODES[c.mode].1)).small().weak());
+                        }
+                        ui.add_enabled(false, egui::Checkbox::new(&mut true, "Lire les fichiers du projet")).on_disabled_hover_text("Toujours : Claude doit lire pour aider");
+                        for (key, label, tip) in claude::PERMS {
+                            let mut on = perms.iter().any(|p| p == key);
+                            if key == "sandbox" {
+                                ui.separator();
+                            }
+                            if ui.checkbox(&mut on, label).on_hover_text(tip).changed() {
+                                perms.retain(|p| p != key);
+                                if on {
+                                    perms.push(key.to_string());
+                                }
+                                perms_changed = true;
+                            }
+                        }
+                        if perms.iter().any(|p| p == "sandbox") && crate::lsp::in_path("bwrap").is_none() {
+                            ui.label(RichText::new("⚠ Le bac à sable demande bubblewrap (paquet bubblewrap) et socat").small().color(warn()));
+                        }
+                        ui.separator();
+                        ui.horizontal(|ui| {
+                            ui.label("Budget max par conversation");
+                            let r = ui.add(egui::DragValue::new(budget).speed(0.1).range(0.0..=100.0).prefix("$ ").max_decimals(2));
+                            if r.changed() {
+                                perms_changed = true;
+                            }
+                            r.on_hover_text("La conversation s'arrête au-delà (0 : sans limite)");
+                        });
+                    })
+                    .response
+                    .on_hover_text("Ce que Claude a le droit de faire");
                     if ui.button("Nouvelle conversation").on_hover_text("Oublie la conversation (la revue des changements reste)").clicked() {
                         new_conv = true;
                     }
@@ -728,6 +768,11 @@ impl App {
 
         if let Some(t) = move_to {
             self.move_claude(t);
+        }
+        if perms_changed {
+            let (p, b) = (config::toml_str_array(&self.settings.claude_perms), format!("{:?}", self.settings.claude_budget));
+            self.persist("claude_perms", p);
+            self.persist("claude_budget", b);
         }
         if let Some(d) = chosen_dir {
             self.claude.dir = Some(d);
