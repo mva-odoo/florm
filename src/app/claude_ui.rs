@@ -468,13 +468,11 @@ impl App {
                     let running = c.session.is_some();
                     ui.add_enabled_ui(!running, |ui| {
                         if dirs.len() > 1 {
-                            egui::ComboBox::from_id_salt("claude_dir").selected_text(&dir_name).show_ui(ui, |ui| {
-                                for (d, label) in &dirs {
-                                    if ui.selectable_label(c.dir.as_ref() == Some(d), label).clicked() {
-                                        chosen_dir = Some(d.clone());
-                                    }
-                                }
-                            });
+                            let labels: Vec<String> = dirs.iter().map(|(_, l)| l.clone()).collect();
+                            let current = dirs.iter().position(|(d, _)| c.dir.as_ref() == Some(d));
+                            if let Some(k) = crate::pick::combo(ui, "claude_dir", &dir_name, &labels, current) {
+                                chosen_dir = Some(dirs[k].0.clone());
+                            }
                         } else {
                             ui.label(RichText::new(&dir_name).weak());
                         }

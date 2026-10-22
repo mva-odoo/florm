@@ -242,13 +242,11 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("⇄ Pull requests").strong().size(15.0));
                     if repo_choices.len() > 1 {
-                        egui::ComboBox::from_id_salt("pr_repo").selected_text(&repo_name).show_ui(ui, |ui| {
-                            for (r, label) in &repo_choices {
-                                if ui.selectable_label(p.repo.as_ref() == Some(r), label).clicked() && p.repo.as_ref() != Some(r) {
-                                    act = Some(PrAct::Repo(r.clone()));
-                                }
-                            }
-                        });
+                        let labels: Vec<String> = repo_choices.iter().map(|(_, l)| l.clone()).collect();
+                        let current = repo_choices.iter().position(|(r, _)| p.repo.as_ref() == Some(r));
+                        if let Some(k) = crate::pick::combo(ui, "pr_repo", &repo_name, &labels, current).filter(|k| Some(*k) != current) {
+                            act = Some(PrAct::Repo(repo_choices[k].0.clone()));
+                        }
                     } else {
                         ui.label(RichText::new(&repo_name).weak());
                     }

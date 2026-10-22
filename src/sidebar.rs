@@ -225,20 +225,28 @@ pub fn show(
         if r.clicked() {
             ui.memory_mut(|m| m.toggle_popup(popup));
         }
-        egui::popup_below_widget(ui, popup, &r, egui::PopupCloseBehavior::CloseOnClick, |ui| {
-            ui.set_min_width(220.0);
+        // clicks in its filter field must not close it
+        let shown = egui::popup_below_widget(ui, popup, &r, egui::PopupCloseBehavior::CloseOnClickOutside, |ui| {
+            ui.set_min_width(260.0);
             ui.label(RichText::new("Projets").small().weak());
-            for (name, path) in projects {
-                let current = *path == root.path;
-                if ui.selectable_label(current, name.as_str()).on_hover_text(path.display().to_string()).clicked() && !current {
-                    act = Some(TreeAction::SwitchProject(path.clone()));
+            let names: Vec<String> = projects.iter().map(|(n, _)| n.clone()).collect();
+            let current = projects.iter().position(|(_, p)| *p == root.path);
+            if let Some(k) = crate::pick::list(ui, popup, &names, current) {
+                if Some(k) != current {
+                    act = Some(TreeAction::SwitchProject(projects[k].1.clone()));
                 }
+                ui.memory_mut(|m| m.close_popup());
             }
             ui.separator();
             if ui.button("Ouvrir un dossier…").clicked() {
                 act = Some(TreeAction::OpenFolder);
+                ui.memory_mut(|m| m.close_popup());
             }
         });
+        // its filter starts empty at the next opening
+        if shown.is_none() || act.is_some() {
+            crate::pick::closed(ui, popup);
+        }
         if let Some((label, tip)) = repos.get(&root.path) {
             let color = mix(ui.visuals().hyperlink_color, ui.visuals().weak_text_color(), 0.35);
             ui.vertical_centered(|ui| ui.label(RichText::new(label.as_str()).size(11.0).color(color)).on_hover_text(tip.as_str()));

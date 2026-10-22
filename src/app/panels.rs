@@ -843,13 +843,11 @@ impl App {
                 ui.add(egui::TextEdit::singleline(&mut h.filter).hint_text("🔍 Filtrer : message, auteur, hash, branche…").desired_width(220.0))
                     .on_hover_text("↑ ↓ commits · ← → fichiers du diff · Page ↑ ↓ défiler");
                 if repo_choices.len() > 1 {
-                    egui::ComboBox::from_id_salt("history_repo").selected_text(&repo_name).show_ui(ui, |ui| {
-                        for (r, label) in &repo_choices {
-                            if ui.selectable_label(h.repo.as_ref() == Some(r), label).clicked() {
-                                chosen_repo = Some(r.clone());
-                            }
-                        }
-                    });
+                    let labels: Vec<String> = repo_choices.iter().map(|(_, l)| l.clone()).collect();
+                    let current = repo_choices.iter().position(|(r, _)| h.repo.as_ref() == Some(r));
+                    if let Some(k) = crate::pick::combo(ui, "history_repo", &repo_name, &labels, current) {
+                        chosen_repo = Some(repo_choices[k].0.clone());
+                    }
                 }
             });
         });
