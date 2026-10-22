@@ -96,6 +96,8 @@ fn main() -> eframe::Result<()> {
     }
     #[cfg(target_os = "linux")]
     prefer_x11_on_wsl();
+    #[cfg(target_os = "macos")]
+    os::macos_path();
     let arg = std::env::args().nth(1).map(PathBuf::from);
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()

@@ -169,6 +169,67 @@ fn file_uri_path(uri: &str) -> Option<PathBuf> {
     Some(PathBuf::from(std::ffi::OsString::from_vec(out)))
 }
 
+/// Started from the Finder, the Dock or Spotlight, a macOS app only gets the PATH of launchd
+/// (/usr/bin:/bin:/usr/sbin:/sbin): claude, gh, ruff… installed with Homebrew or in ~/.local/bin
+/// are not found. Like VS Code, Florm takes the PATH of the login shell, plus the usual folders
+/// when the shell does not answer. Started from a terminal, the PATH is already the right one.
+/// To call before any thread is started.
+#[cfg(target_os = "macos")]
+pub fn macos_path() {
+    if std::env::var_os("TERM").is_some() {
+        return;
+    }
+    let home = crate::config::home();
+    let usual = [home.join(".local/bin"), "/opt/homebrew/bin".into(), "/opt/homebrew/sbin".into(), "/usr/local/bin".into(), home.join(".cargo/bin")];
+    let current = std::env::var_os("PATH").unwrap_or_default();
+    let path = merge_path(login_shell_path().as_deref(), &current, &usual);
+    std::env::set_var("PATH", path);
+}
+
+/// PATH of the login shell (`$SHELL -l -i`, its configuration read like in a terminal).
+#[cfg(target_os = "macos")]
+fn login_shell_path() -> Option<String> {
+    use std::io::Read;
+    // around the value: what the configuration prints (greeting, prompt codes) is left out
+    const MARK: &str = "_FLORM_PATH_";
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+    // "$PATH" is joined with ':' by sh, bash, zsh and fish alike
+    let script = format!("printf '{MARK}%s{MARK}' \"$PATH\"");
+    let mut child = Command::new(shell)
+        .args(["-l", "-i", "-c", &script])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    // a configuration that waits for something must not hold the start of Florm
+    let start = std::time::Instant::now();
+    while child.try_wait().ok()?.is_none() {
+        if start.elapsed() > std::time::Duration::from_secs(3) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let mut out = String::new();
+    child.stdout.take()?.read_to_string(&mut out).ok()?;
+    out.split(MARK).nth(1).filter(|p| !p.is_empty()).map(str::to_string)
+}
+
+/// The folders of the shell's PATH first, then those of `current` and the existing `usual` ones
+/// it lacks, each once.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn merge_path(shell: Option<&str>, current: &std::ffi::OsStr, usual: &[PathBuf]) -> std::ffi::OsString {
+    let mut dirs: Vec<PathBuf> = shell.map(|s| std::env::split_paths(s).filter(|d| d.is_absolute()).collect()).unwrap_or_default();
+    for d in std::env::split_paths(current).chain(usual.iter().filter(|d| d.is_dir()).cloned()) {
+        if !dirs.contains(&d) {
+            dirs.push(d);
+        }
+    }
+    std::env::join_paths(dirs).unwrap_or_else(|_| current.to_os_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -188,5 +249,18 @@ mod tests {
         assert!(!is_wsl_unc(Path::new("/home/odoo")));
         // no "\\?\" prefix, and a missing path is kept as is
         assert_eq!(canon(Path::new("/nonexistent/x")), PathBuf::from("/nonexistent/x"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn path_of_the_login_shell() {
+        let tmp = std::env::temp_dir();
+        let usual = [tmp.clone(), PathBuf::from("/nonexistent/bin")];
+        let p = merge_path(Some("/opt/homebrew/bin:relative:/usr/bin"), "/usr/bin:/bin".as_ref(), &usual);
+        let want = format!("/opt/homebrew/bin:/usr/bin:/bin:{}", tmp.display());
+        assert_eq!(p, std::ffi::OsString::from(want));
+        // the shell did not answer: the folders of launchd, then the usual ones that exist
+        let p = merge_path(None, "/usr/bin:/bin".as_ref(), &usual);
+        assert_eq!(p, std::ffi::OsString::from(format!("/usr/bin:/bin:{}", tmp.display())));
     }
 }
