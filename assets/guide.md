@@ -181,6 +181,8 @@ panneau du bas (⇱ Onglet pour lui donner tout un onglet de l'éditeur, ⇲ pou
   **Demander à Claude à propos de la sélection…** (**Ctrl+Alt+K**) ou **Ajouter … au contexte** ;
   clic droit sur un fichier ou un dossier de l'arborescence → **Ajouter au contexte de Claude**.
   Ils apparaissent en pastilles au-dessus du message (clic : retirer) et partent avec lui.
+  **+ Contexte → Un commit** (ou clic droit sur un commit dans la vue Git → **Donner ce commit
+  à Claude**) : son message et son diff, pour partir de ce qu'il fait (« fais pareil pour… »).
 - À droite, **ce que Claude a changé** depuis ton premier message, fichier par fichier et bloc
   par bloc : **✔ Garder** (le bloc quitte la revue et reste dans le fichier) ou **↺ Rejeter**
   (il est retiré du fichier). Tes propres changements d'avant ne sont pas dedans.

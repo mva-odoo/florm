@@ -996,6 +996,7 @@ impl App {
                     }
                 }
                 (HistAct::Split(hash), _) => self.start_split(hash),
+                (HistAct::Claude(hash), Some(repo)) => self.claude_attach_commit(&repo, &hash),
                 (HistAct::CherryPick(hash), Some(repo)) => self.git_job_at(repo, "cherry-pick", &["-c", "core.editor=true", "cherry-pick", &hash]),
                 (HistAct::Revert(hash), Some(repo)) => self.git_job_at(repo, "revert", &["-c", "core.editor=true", "revert", "--no-edit", &hash]),
                 (HistAct::Compare(a, b, title), _) => {

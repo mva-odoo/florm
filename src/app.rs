@@ -1355,6 +1355,8 @@ enum HistAct {
     /// Compare two revisions: (from, to, title).
     Compare(String, String, String),
     Rebase(String),
+    /// Given to Claude with the next message.
+    Claude(String),
 }
 
 /// Right-click menu of a commit in the graph.
@@ -1390,6 +1392,7 @@ fn commit_menu(ui: &mut egui::Ui, c: &history::Commit, local: &[String], selecte
     item(ui, "Créer une branche ici…", HistAct::BranchAt(c.hash.clone()), act);
     ui.separator();
     item(ui, "Voir le diff complet", HistAct::Diff(c.hash.clone()), act);
+    item(ui, "✳ Donner ce commit à Claude (contexte)", HistAct::Claude(c.hash.clone()), act);
     if let Some(s) = selected {
         let title = format!("{} → {}", &s[..s.len().min(8)], short);
         item(ui, "Comparer avec le commit sélectionné", HistAct::Compare(s.to_string(), c.hash.clone(), title), act);

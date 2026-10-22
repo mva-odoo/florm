@@ -52,8 +52,10 @@ impl Attach {
 }
 
 /// What can be added to the context from the chat (« + Contexte »).
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 enum CtxAdd {
+    /// A commit (its hash): its message and its diff.
+    Commit(String),
     File,
     Selection,
     Tabs,
@@ -118,6 +120,8 @@ pub(super) struct ClaudeUi {
     pub(super) focus: bool,
     /// The to-do list: tasks sent one by one.
     queue: Queue,
+    /// Last commits of its folder for « + Contexte → Un commit »: (hash, short hash, subject, when).
+    recent_commits: Vec<(String, String, String, String)>,
 }
 
 /// A conversation kept between sessions of Florm: what was said, and the Claude Code session to
@@ -554,9 +558,32 @@ impl App {
     }
 
     /// What the « + Contexte » menu of the chat asked for.
+    /// A commit given to Claude with the next message: its message, the files it touched and its
+    /// diff (cut when very large), to start from or to compare with.
+    pub(super) fn claude_attach_commit(&mut self, repo: &Path, hash: &str) {
+        match git::run(repo, &["show", "--stat", "--patch", "--format=commit %H%nAuteur : %an, %ad%n%n%B", "--date=short", hash]) {
+            Ok(text) => {
+                let subject = git::stdout(repo, &["log", "-1", "--format=%s", hash]).unwrap_or_default();
+                let mut text: String = text.chars().take(60_000).collect();
+                if text.len() >= 60_000 {
+                    text.push_str("\n[… diff coupé, trop long]");
+                }
+                self.claude.dir.get_or_insert_with(|| repo.to_path_buf());
+                let short = &hash[..hash.len().min(8)];
+                self.claude_attach_note(format!("Commit {short} : {}", subject.trim()), text);
+            }
+            Err(e) => self.set_status(format!("git show : {}", e.lines().next().unwrap_or(""))),
+        }
+    }
+
     fn claude_add_context(&mut self, what: CtxAdd) {
         let doc = self.claude_editor_doc();
         match what {
+            CtxAdd::Commit(hash) => {
+                if let Some(dir) = self.claude.dir.clone() {
+                    self.claude_attach_commit(&dir, &hash);
+                }
+            }
             CtxAdd::File => match doc.and_then(|i| self.docs[i].path.clone()) {
                 Some(p) => self.claude_attach_path(p),
                 None => self.set_status("Aucun fichier ouvert"),
@@ -1005,7 +1032,7 @@ impl App {
         let dirs: Vec<(PathBuf, String)> = self.repos.iter().map(|r| (r.clone(), self.repo_label(r))).collect();
         let (mut send, mut stop, mut new_conv, mut review_click, mut all) = (false, false, false, None, None);
         let (mut chosen_dir, mut move_to, mut ctx_add) = (None, None, None);
-        let (mut queue_act, mut queued) = (None, None);
+        let (mut queue_act, mut queued, mut read_commits) = (None, None, false);
         // the kept conversations: (key, title, folder and date)
         let history: Vec<(u64, String, String)> = self
             .claude_saved
@@ -1271,7 +1298,7 @@ impl App {
                         c.input.clear();
                         queued = Some(n);
                     }
-                    ui.menu_button("+ Contexte", |ui| {
+                    let ctx_menu = ui.menu_button("+ Contexte", |ui| {
                         ui.set_min_width(260.0);
                         for (label, tip, what) in [
                             ("Fichier ouvert", "Le fichier en entier (Claude le lit)", CtxAdd::File),
@@ -1285,11 +1312,29 @@ impl App {
                                 ui.close_menu();
                             }
                         }
+                        // the last commits of the folder of the conversation, read when the menu opens
+                        ui.menu_button("Un commit", |ui| {
+                            ui.set_min_width(420.0);
+                            if c.recent_commits.is_empty() {
+                                ui.label(RichText::new("Aucun commit").weak());
+                            }
+                            egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
+                                for (hash, short, subject, ago) in &c.recent_commits {
+                                    let text = format!("{short}  {subject}");
+                                    if ui.button(text).on_hover_text(format!("{ago} — son message et son diff partent avec le prochain message\n(aussi : clic droit sur un commit dans la vue Git)")).clicked() {
+                                        ctx_add = Some(CtxAdd::Commit(hash.clone()));
+                                        ui.close_menu();
+                                    }
+                                }
+                            });
+                        });
                         ui.separator();
                         ui.label(RichText::new("Aussi : clic droit dans l'éditeur, ou ✳ dans la marge pour des lignes").small().weak());
-                    })
-                    .response
-                    .on_hover_text("Donner à Claude un fichier, la sélection, le diff, les problèmes…");
+                    });
+                    if ctx_menu.response.clicked() {
+                        read_commits = true;
+                    }
+                    ctx_menu.response.on_hover_text("Donner à Claude un fichier, la sélection, le diff, un commit, les problèmes…");
                     ui.checkbox(&mut c.with_context, "Fichier ouvert et sélection").on_hover_text("Dit à Claude quel fichier tu édites, la ligne du curseur et le texte sélectionné");
                 });
                 ui.add_space(4.0);
@@ -1386,6 +1431,17 @@ impl App {
 
         if let Some(t) = move_to {
             self.move_claude(t);
+        }
+        if read_commits {
+            let dir = self.claude.dir.clone();
+            let out = dir.and_then(|d| git::stdout(&d, &["log", "-40", "--format=%H%x1f%h%x1f%s%x1f%cr"]).ok()).unwrap_or_default();
+            self.claude.recent_commits = out
+                .lines()
+                .filter_map(|l| {
+                    let mut f = l.split('\x1f');
+                    Some((f.next()?.to_string(), f.next()?.to_string(), f.next()?.to_string(), f.next()?.to_string()))
+                })
+                .collect();
         }
         if let Some(w) = ctx_add {
             self.claude_add_context(w);
