@@ -151,7 +151,8 @@ impl App {
     /// Definitions of `word` in the project index: (file, 0-based line, what, where) for the
     /// first ones, and how many more there are.
     pub(super) fn index_defs(&self, word: &str) -> (Vec<(PathBuf, usize, String, String)>, usize) {
-        const SHOWN: usize = 8;
+        // all of them, in a list to scroll and filter (a limit for the names defined everywhere)
+        const SHOWN: usize = 500;
         if word.chars().count() < 2 || word.chars().all(|c| c.is_ascii_digit()) {
             return (Vec::new(), 0);
         }

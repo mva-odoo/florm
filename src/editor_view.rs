@@ -1156,6 +1156,8 @@ fn definitions_popup(ui: &Ui, doc: &mut Document, id: Id, new: Option<(TipAt, St
     let shown = new.or_else(|| last.filter(|_| over).map(|(at, tip, _)| (at, tip)));
     let (Some((at, tip)), Some((_, defs, more))) = (shown, doc.hover_defs.as_ref()) else {
         ctx.data_mut(|d| d.remove::<(TipAt, String, Rect)>(pid));
+        // the filter starts empty at the next popup
+        ctx.data_mut(|d| d.remove::<String>(pid.with("filter")));
         return;
     };
     let mut clicked = None;
@@ -1166,17 +1168,32 @@ fn definitions_popup(ui: &Ui, doc: &mut Document, id: Id, new: Option<(TipAt, St
                 ui.label(tip.as_str());
                 ui.separator();
             }
-            ui.label(RichText::new(if defs.len() + more > 1 { "Définitions" } else { "Définition" }).small().strong());
-            for (k, (_, _, what, place)) in defs.iter().enumerate() {
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(what).monospace());
-                    if ui.link(RichText::new(place).small()).on_hover_text("Ouvrir à cette ligne").clicked() {
-                        clicked = Some(k);
-                    }
-                });
+            let total = defs.len() + more;
+            let title = if total > 1 { format!("{total} définitions") } else { "Définition".to_string() };
+            ui.label(RichText::new(title).small().strong());
+            // many: a field to keep those of a file or a folder
+            let fid = pid.with("filter");
+            let mut filter: String = ctx.data(|d| d.get_temp(fid)).unwrap_or_default();
+            if defs.len() > 8 {
+                ui.add(egui::TextEdit::singleline(&mut filter).hint_text("Filtrer : fichier, dossier, nom…").desired_width(300.0));
+                ctx.data_mut(|d| d.insert_temp(fid, filter.clone()));
             }
+            let f = filter.to_lowercase();
+            egui::ScrollArea::vertical().max_height(320.0).auto_shrink([false, true]).show(ui, |ui| {
+                for (k, (_, _, what, place)) in defs.iter().enumerate() {
+                    if !f.is_empty() && !place.to_lowercase().contains(&f) && !what.to_lowercase().contains(&f) {
+                        continue;
+                    }
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(what).monospace());
+                        if ui.link(RichText::new(place).small()).on_hover_text("Ouvrir à cette ligne").clicked() {
+                            clicked = Some(k);
+                        }
+                    });
+                }
+            });
             if *more > 0 {
-                ui.label(RichText::new(format!("… et {more} autre(s) — F12 pour la liste")).small().weak());
+                ui.label(RichText::new(format!("… et {more} autre(s) — F12 pour la liste complète")).small().weak());
             }
         });
     });
