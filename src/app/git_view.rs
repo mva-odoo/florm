@@ -213,7 +213,7 @@ impl App {
         }
     }
 
-    fn start_compare(&mut self, a: String, b: String, title: String) {
+    pub(super) fn start_compare(&mut self, a: String, b: String, title: String) {
         let Some(repo) = self.history.repo.clone() else { return };
         let h = &mut self.history;
         h.compare = Some((a.clone(), b.clone(), title));

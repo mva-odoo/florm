@@ -773,6 +773,7 @@ impl App {
 
         // ⇱ / ⇲: the view moves between the editor area and the bottom panel
         let (big, mut move_to) = (self.history.open, None);
+        let (mut stash_act, mut stash_open) = (None, false);
         // --- branch, its upstream and the remote actions
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
@@ -823,6 +824,14 @@ impl App {
                     self.pending.push(cmd);
                 }
             }
+            let changes = self.git.status.as_ref().is_some_and(|s| !s.entries.is_empty());
+            let n = self.git.stashes.len();
+            let label = if n > 0 { format!("Stash ({n}) ▾") } else { "Stash ▾".into() };
+            let menu = ui.menu_button(label, |ui| stash_menu(ui, &mut self.git, changes, &mut stash_act));
+            if menu.response.clicked() {
+                stash_open = true;
+            }
+            menu.response.on_hover_text("Mettre des changements de côté (git stash) et les reprendre plus tard");
             // the graph: repository, filter, branches shown
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if big {
@@ -854,6 +863,12 @@ impl App {
             });
         });
 
+        if stash_open {
+            self.stash_reload();
+        }
+        if let Some(a) = stash_act {
+            self.stash_act(a);
+        }
         match move_to {
             Some(true) => self.show_big(BottomTab::Git),
             Some(false) => self.show_bottom(BottomTab::Git, false),
@@ -1490,4 +1505,61 @@ impl App {
             self.set_status(e);
         }
     }
+}
+
+/// The Stash menu: put the changes aside (with a message), then the stashes, newest first, each
+/// to look at, apply (it stays), take back (applied then deleted) or delete.
+fn stash_menu(ui: &mut egui::Ui, g: &mut GitUi, changes: bool, act: &mut Option<super::git_actions::StashAct>) {
+    use super::git_actions::StashAct;
+    ui.set_min_width(460.0);
+    ui.label(RichText::new("Mettre de côté").strong());
+    ui.add(egui::TextEdit::singleline(&mut g.stash_msg).hint_text("Message (facultatif)").desired_width(f32::INFINITY));
+    ui.horizontal(|ui| {
+        let mut untracked = !g.stash_tracked_only;
+        if ui.checkbox(&mut untracked, "Nouveaux fichiers compris").on_hover_text("Les fichiers pas encore suivis par git partent aussi (--include-untracked)").changed() {
+            g.stash_tracked_only = !untracked;
+        }
+        let tip = "Range les changements non commités (indexés ou non) et remet les fichiers comme au dernier commit";
+        if ui.add_enabled(changes, egui::Button::new("Mettre de côté")).on_hover_text(tip).on_disabled_hover_text("Aucun changement à mettre de côté").clicked() {
+            *act = Some(StashAct::Push);
+            ui.close_menu();
+        }
+    });
+    ui.separator();
+    if g.stashes.is_empty() {
+        ui.label(RichText::new("Aucun stash dans ce dépôt.").weak());
+        return;
+    }
+    egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
+        for s in &g.stashes {
+            // "On main: message" → "message", the branch apart
+            let (branch, what) = s.message.split_once(": ").unwrap_or(("", s.message.as_str()));
+            let branch = branch.trim_start_matches("WIP ").trim_start_matches("On ");
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(&s.name).monospace().small().weak());
+                ui.label(RichText::new(what).strong()).on_hover_text(&s.message);
+                ui.label(RichText::new(format!("{branch} · {}", git::ago(s.time))).small().weak());
+            });
+            ui.horizontal(|ui| {
+                ui.add_space(12.0);
+                if ui.small_button("Voir").on_hover_text("Ses changements dans la vue des commits (sans les nouveaux fichiers)").clicked() {
+                    *act = Some(StashAct::Show(s.hash.clone(), what.to_string()));
+                    ui.close_menu();
+                }
+                if ui.small_button("Appliquer").on_hover_text("Remet ses changements dans tes fichiers ; le stash reste (git stash apply)").clicked() {
+                    *act = Some(StashAct::Apply(s.hash.clone()));
+                    ui.close_menu();
+                }
+                if ui.small_button("Reprendre").on_hover_text("Remet ses changements et supprime le stash (git stash pop)").clicked() {
+                    *act = Some(StashAct::Pop(s.hash.clone()));
+                    ui.close_menu();
+                }
+                if ui.small_button(RichText::new("Supprimer").color(err())).on_hover_text("git stash drop (demande confirmation)").clicked() {
+                    *act = Some(StashAct::AskDrop(s.hash.clone(), what.to_string()));
+                    ui.close_menu();
+                }
+            });
+            ui.add_space(4.0);
+        }
+    });
 }

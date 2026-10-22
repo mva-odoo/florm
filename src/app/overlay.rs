@@ -668,6 +668,7 @@ impl App {
                 ("Changer de projet", format!("Des fichiers ne sont pas enregistrés. Ouvrir « {} » ?", p.display()))
             }
             Confirm::DiffOp { msg, .. } => ("Annuler le changement", msg.clone()),
+            Confirm::DropStash(_, what) => ("Supprimer le stash", format!("Supprimer définitivement « {what} » ?\nSes changements seront perdus.")),
             Confirm::ReplaceInFiles => {
                 let n = self.search.hit_count();
                 (
@@ -695,6 +696,7 @@ impl App {
                         Confirm::SwitchProject(_) => ("Tout enregistrer et changer", Some("Changer sans enregistrer")),
                         Confirm::ReplaceInFiles => ("Remplacer", None),
                         Confirm::DiffOp { .. } => ("Oui, annuler le changement", None),
+                        Confirm::DropStash(..) => ("Supprimer", None),
                     };
                     if ui.button(yes).clicked() {
                         choice = Some(1);
@@ -713,6 +715,7 @@ impl App {
         let c = self.confirm.take().unwrap();
         match (c, choice) {
             (Confirm::DiffOp { label, op, .. }, 1) => self.run_diff_op(label, op),
+            (Confirm::DropStash(hash, _), 1) => self.stash_act(super::git_actions::StashAct::Drop(hash)),
             (Confirm::CloseTab(uid), 1 | 2) => {
                 if let Some(i) = self.docs.iter().position(|d| d.uid == uid) {
                     if choice == 2 || self.save(i) {

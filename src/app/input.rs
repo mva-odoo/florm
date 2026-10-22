@@ -621,6 +621,17 @@ impl App {
                 self.open_git_view();
                 self.git.focus_commit = true;
             }
+            GitStash => self.stash_act(super::git_actions::StashAct::Push),
+            GitStashPop => {
+                self.stash_reload();
+                match self.git.stashes.first() {
+                    Some(s) => {
+                        let hash = s.hash.clone();
+                        self.stash_act(super::git_actions::StashAct::Pop(hash));
+                    }
+                    None => self.set_status("Aucun stash à reprendre"),
+                }
+            }
             GitAiReview => {
                 self.open_git_view();
                 self.show_wip(false);

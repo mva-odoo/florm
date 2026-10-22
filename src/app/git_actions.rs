@@ -9,7 +9,8 @@ impl App {
         self.jobs.spawn(move || {
             let statuses = repos.iter().map(|r| (r.clone(), git::status(r))).collect();
             let remotes = repos.iter().map(|r| (r.clone(), git::stdout(r, &["remote", "-v"]).unwrap_or_default())).collect();
-            JobResult::GitStatus { selected, statuses, remotes }
+            let stashes = git::stashes(&selected);
+            JobResult::GitStatus { selected, statuses, remotes, stashes }
         });
     }
 
@@ -123,5 +124,59 @@ impl App {
         let Some(path) = d.path.clone() else { return };
         let (uid, version) = (d.uid, d.version);
         self.jobs.spawn(move || JobResult::Analyzed { uid, version, reload: false, diags: None, base: git::head_text(&path), log: Vec::new() });
+    }
+}
+
+/// What the Stash menu of the Git view asked for (a stash is named by its commit).
+pub(super) enum StashAct {
+    Push,
+    Show(String, String),
+    Apply(String),
+    Pop(String),
+    /// Asks first.
+    AskDrop(String, String),
+    Drop(String),
+}
+
+impl App {
+    /// The stashes of the repository, read again.
+    pub(super) fn stash_reload(&mut self) {
+        self.git.stashes = self.repo.as_deref().map(git::stashes).unwrap_or_default();
+    }
+
+    pub(super) fn stash_act(&mut self, act: StashAct) {
+        let Some(repo) = self.repo.clone() else { return };
+        let (verb, hash) = match act {
+            StashAct::Push => {
+                let msg = std::mem::take(&mut self.git.stash_msg);
+                let mut args = vec!["stash", "push"];
+                if !self.git.stash_tracked_only {
+                    args.push("--include-untracked");
+                }
+                if !msg.trim().is_empty() {
+                    args.extend(["-m", msg.trim()]);
+                }
+                self.git_job_at(repo, "stash", &args);
+                return;
+            }
+            StashAct::Show(hash, what) => {
+                self.start_compare(format!("{hash}^1"), hash, format!("Stash : {what}"));
+                return;
+            }
+            StashAct::AskDrop(hash, what) => {
+                self.confirm = Some(Confirm::DropStash(hash, what));
+                return;
+            }
+            StashAct::Apply(hash) => ("apply", hash),
+            StashAct::Pop(hash) => ("pop", hash),
+            StashAct::Drop(hash) => ("drop", hash),
+        };
+        self.log(format!("$ git stash {verb} {hash}"));
+        self.set_status(format!("git stash {verb}…"));
+        self.git.busy += 1;
+        self.jobs.spawn(move || {
+            let result = git::stash_op(&repo, verb, &hash);
+            JobResult::GitOp { label: format!("stash {verb}"), result, status: Some((repo.clone(), git::status(&repo))) }
+        });
     }
 }

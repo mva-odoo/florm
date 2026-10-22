@@ -271,6 +271,8 @@ enum Confirm {
     ReplaceInFiles,
     /// Irreversible change requested from a diff (discarding uncommitted changes).
     DiffOp { msg: String, label: String, op: DiffOp },
+    /// Deleting a stash: (its commit, what it is).
+    DropStash(String, String),
 }
 
 /// Change to the files or the index requested from a diff.
@@ -563,6 +565,11 @@ struct GitUi {
     focus_commit: bool,
     /// AI review of the changes not committed yet.
     ai: ai_review::AiReview,
+    /// Stashes of the repository (read when the Stash menu opens and after each stash command).
+    stashes: Vec<git::Stash>,
+    /// Message of the next stash, and whether the untracked files stay out of it.
+    stash_msg: String,
+    stash_tracked_only: bool,
     /// absolute path -> status letter (directories inherit from their files)
     map: HashMap<PathBuf, char>,
 }

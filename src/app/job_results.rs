@@ -95,10 +95,11 @@ impl App {
                         }
                     }
                 }
-                JobResult::GitStatus { selected, statuses, remotes } => {
+                JobResult::GitStatus { selected, statuses, remotes, stashes } => {
                     if self.repo.as_ref() != Some(&selected) {
                         continue;
                     }
+                    self.git.stashes = stashes;
                     // branch / remote of every repository, for the tree
                     self.repo_info.clear();
                     for (repo, st) in &statuses {
@@ -275,6 +276,9 @@ impl App {
                 }
                 JobResult::GitOp { label, result, status } => {
                     self.git.busy = self.git.busy.saturating_sub(1);
+                    if label.starts_with("stash") {
+                        self.stash_reload();
+                    }
                     if let Some((repo, Ok(st))) = status {
                         if self.repo.as_ref() == Some(&repo) {
                             self.git.status = Some(st);

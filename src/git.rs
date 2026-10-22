@@ -282,6 +282,47 @@ pub fn branches(root: &Path) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Changes put aside with `git stash`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Stash {
+    /// Its commit (stays the same when other stashes come or go, unlike its name).
+    pub hash: String,
+    /// "stash@{0}", the newest.
+    pub name: String,
+    /// "On main: message" or "WIP on main: …".
+    pub message: String,
+    /// When, in unix seconds.
+    pub time: i64,
+}
+
+/// The stashes of the repository, newest first.
+pub fn stashes(root: &Path) -> Vec<Stash> {
+    stdout(root, &["stash", "list", "--format=%H%x1f%gd%x1f%gs%x1f%ct"])
+        .map(|s| {
+            s.lines()
+                .filter_map(|l| {
+                    let mut f = l.split('\x1f');
+                    let (hash, name, message, time) = (f.next()?, f.next()?, f.next()?, f.next()?);
+                    Some(Stash { hash: hash.into(), name: name.into(), message: message.into(), time: time.trim().parse().unwrap_or(0) })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// `git stash <verb>` (apply, pop, drop) on the stash of commit `hash`, by its name of now: the
+/// names shift when a stash comes or goes.
+pub fn stash_op(root: &Path, verb: &str, hash: &str) -> Result<String, String> {
+    let name = stashes(root).into_iter().find(|s| s.hash == hash).map(|s| s.name).ok_or("ce stash n'existe plus")?;
+    let mut args = vec!["stash", verb];
+    if verb != "drop" {
+        // the index as it was too, when it can be
+        args.push("--index");
+    }
+    args.push(&name);
+    run(root, &args).or_else(|e| if verb != "drop" && e.contains("--index") { run(root, &["stash", verb, &name]) } else { Err(e) })
+}
+
 /// Lines added / removed per file from `git … --numstat` (None for binary files).
 pub type Stats = std::collections::HashMap<String, (Option<u32>, Option<u32>)>;
 
@@ -466,6 +507,18 @@ mod status_tests {
         g(&["commit", "-qm", "base"]);
         std::fs::write(repo.join("f"), "2\n").unwrap();
         g(&["stash", "push", "-m", "essai"]);
+        std::fs::write(repo.join("f"), "3\n").unwrap();
+        g(&["stash", "push", "-m", "deuxième"]);
+        let list = stashes(&repo);
+        assert_eq!(list.iter().map(|s| (s.name.as_str(), s.message.as_str())).collect::<Vec<_>>(), [("stash@{0}", "On main: deuxième"), ("stash@{1}", "On main: essai")]);
+        assert!(list[0].hash.len() == 40 && list[0].time > 0);
+        // by its commit: the older one, though its name was stash@{1}
+        stash_op(&repo, "drop", &list[1].hash).unwrap();
+        assert_eq!(stashes(&repo).iter().map(|s| s.message.as_str()).collect::<Vec<_>>(), ["On main: deuxième"]);
+        stash_op(&repo, "pop", &list[0].hash).unwrap();
+        assert_eq!(std::fs::read_to_string(repo.join("f")).unwrap(), "3\n");
+        assert!(stashes(&repo).is_empty() && stash_op(&repo, "pop", &list[0].hash).is_err());
+        g(&["checkout", "-q", "--", "f"]);
         let st = status(&repo).unwrap();
         assert_eq!(st.operation, None);
         // a conflicting cherry-pick leaves an operation in progress

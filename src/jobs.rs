@@ -58,6 +58,8 @@ pub enum JobResult {
         statuses: Vec<(PathBuf, Result<git::Status, String>)>,
         /// `git remote -v` of each repository.
         remotes: Vec<(PathBuf, String)>,
+        /// Stashes of the selected repository.
+        stashes: Vec<git::Stash>,
     },
     History(PathBuf, u64, Result<history::Graph, String>),
     HistoryDetails(String, Result<history::Details, String>),
