@@ -16,6 +16,8 @@ pub enum JobResult {
     ClaudeReview(u64, Result<String, String>),
     /// Commit message written by Claude.
     CommitMessage(Result<String, String>),
+    /// Answer of Claude on a selection in the editor (number of the question).
+    InlineAi(u64, Result<crate::claude::Inline, String>),
     /// The repository pull requests go to, and its default branch.
     GhBase(PathBuf, Result<(String, String), String>),
     /// Pull requests of a branch (repository, branch).

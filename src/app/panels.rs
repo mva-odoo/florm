@@ -1249,6 +1249,7 @@ impl App {
         }
         ui.separator();
         let what = if has_selection { "la sélection" } else { "la ligne" };
+        item(ui, &format!("✳ Modifier ou expliquer {what} avec Claude, ici…"), Cmd::ClaudeInline, true);
         item(ui, &format!("✳ Demander à Claude à propos de {what}…"), Cmd::ClaudeAsk, has_path);
         item(ui, &format!("✳ Ajouter {what} au contexte de Claude"), Cmd::ClaudeAddSelection, has_path);
         item(ui, "✳ Ajouter le fichier au contexte de Claude", Cmd::ClaudeAddFile, has_path);

@@ -338,6 +338,7 @@ impl App {
             SuggestCommit => self.suggest_commit_message(),
             ClaudeAddSelection => self.claude_attach_selection(false),
             ClaudeAsk => self.claude_attach_selection(true),
+            ClaudeInline => self.inline_ai_open(),
             ClaudeAddFile => {
                 if let Some(p) = self.docs.get(self.active).and_then(|d| d.path.clone()) {
                     self.claude_attach_path(p);

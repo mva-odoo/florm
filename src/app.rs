@@ -27,6 +27,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 mod git_view;
+mod inline_ai;
 mod md;
 mod pulls;
 mod pr_links;
@@ -654,6 +655,8 @@ pub struct App {
     /// Give the keyboard focus to the editor at the next frame (after a tab change).
     pending_focus: bool,
     md_cache: egui_commonmark::CommonMarkCache,
+    /// Claude on the selection, in a small window over the editor (Ctrl+I).
+    inline: Option<inline_ai::InlineAsk>,
     /// GitHub pull requests tab.
     pr: pulls::PrUi,
     /// Pull requests of branches and commits, creation of one.
@@ -842,6 +845,7 @@ impl App {
             drop_zones: DropZones::default(),
             pending_focus: false,
             md_cache: egui_commonmark::CommonMarkCache::default(),
+            inline: None,
             pr: Default::default(),
             gh: Default::default(),
             claude: Default::default(),
@@ -1102,6 +1106,7 @@ impl eframe::App for App {
         self.track_nav();
         self.line_history_ui(ctx);
         self.pr_create_ui(ctx);
+        self.inline_ai_ui(ctx);
         self.overlay_ui(ctx);
         self.confirm_ui(ctx);
 

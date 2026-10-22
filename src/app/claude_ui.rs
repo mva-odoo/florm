@@ -218,6 +218,21 @@ impl App {
         self.claude_prepare();
     }
 
+    /// Shows Claude with `text` written in its field (not sent: to read and send), in `dir`
+    /// when no conversation runs elsewhere.
+    pub(super) fn claude_prefill(&mut self, dir: PathBuf, text: String) {
+        if self.claude.session.is_none() && self.claude.dir.as_ref() != Some(&dir) {
+            self.claude.dir = Some(dir);
+            self.claude.review_index = None;
+            self.claude.review = None;
+        }
+        if !self.claude.input.trim().is_empty() {
+            self.claude.input.push_str("\n\n");
+        }
+        self.claude.input.push_str(&text);
+        self.open_claude();
+    }
+
     /// Its folder, the keyboard and the review, wherever Claude is shown.
     pub(super) fn claude_prepare(&mut self) {
         self.claude_restore_last();

@@ -307,8 +307,14 @@ pub fn commit_message(dir: &Path, diff: &str, recent: &str, wish: &str) -> Resul
     }
     // a very large diff is cut: the beginning says enough
     let diff: String = diff.chars().take(120_000).collect();
+    run_once(dir, &["-p", &prompt, "--output-format", "text", "--model", "haiku", "--tools", "", "--no-session-persistence"], diff).map(|t| clean_message(&t))
+}
+
+/// Runs `claude` once with `args`, `input` on its standard input; returns its answer (its
+/// spaces at the start kept: the indentation of code).
+fn run_once(dir: &Path, args: &[&str], input: String) -> Result<String, String> {
     let mut child = crate::os::command("claude")
-        .args(["-p", &prompt, "--output-format", "text", "--model", "haiku", "--tools", "", "--no-session-persistence"])
+        .args(args)
         .current_dir(dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -317,16 +323,59 @@ pub fn commit_message(dir: &Path, diff: &str, recent: &str, wish: &str) -> Resul
         .map_err(|_| NOT_INSTALLED.to_string())?;
     if let Some(mut stdin) = child.stdin.take() {
         std::thread::spawn(move || {
-            let _ = stdin.write_all(diff.as_bytes());
+            let _ = stdin.write_all(input.as_bytes());
         });
     }
     let out = child.wait_with_output().map_err(|e| e.to_string())?;
-    let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    if out.status.success() && !text.is_empty() {
-        Ok(clean_message(&text))
+    let text = String::from_utf8_lossy(&out.stdout).trim_end().to_string();
+    if out.status.success() && !text.trim().is_empty() {
+        Ok(text)
     } else {
         Err(format!("{text}{}", String::from_utf8_lossy(&out.stderr)).trim().to_string())
     }
+}
+
+/// The answer of Claude about a selection: the code replacing it, or an explanation.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Inline {
+    Code(String),
+    Explain(String),
+}
+
+/// Claude on a piece of a file (`selection`, with the code `before` and `after` it for the
+/// context): the new code for `ask`, or an explanation if it is a question.
+pub fn inline(dir: &Path, file: &str, before: &str, selection: &str, after: &str, ask: &str) -> Result<Inline, String> {
+    let prompt = format!(
+        "Tu travailles sur un extrait du fichier {file}. L'entrée standard contient le code autour, pour le contexte, \
+         et l'extrait lui-même entre les lignes <extrait> et </extrait>.\n\
+         Demande : {ask}\n\n\
+         Si la demande est de modifier, réponds uniquement par le nouveau code qui remplace l'extrait (lui seul, pas le code \
+         autour), avec la même indentation, sans bloc de code, sans balise, sans explication.\n\
+         Si c'est une question (expliquer, trouver un bug…), réponds par la ligne EXPLICATION: puis ta réponse, courte, en \
+         Markdown, en français."
+    );
+    let input = format!("{before}\n<extrait>\n{selection}\n</extrait>\n{after}");
+    let text = run_once(dir,&["-p", &prompt, "--output-format", "text", "--model", "sonnet", "--tools", "", "--no-session-persistence"], input)?;
+    Ok(parse_inline(&text))
+}
+
+/// Code (its fence or tags removed) or explanation.
+fn parse_inline(text: &str) -> Inline {
+    let t = text.trim_start();
+    if let Some(rest) = t.strip_prefix("EXPLICATION:").or_else(|| t.strip_prefix("EXPLICATION :")) {
+        return Inline::Explain(rest.trim().to_string());
+    }
+    // the indentation of the first line is kept: only blank lines are taken off
+    let blank = |s: &str| s.trim_matches(['\n', '\r']).to_string();
+    let mut code = blank(text.trim_end());
+    if let Some(r) = code.trim_start().strip_prefix("<extrait>").and_then(|r| r.strip_suffix("</extrait>")) {
+        code = blank(r);
+    }
+    if let Some(r) = code.trim_start().strip_prefix("```") {
+        let body = r.split_once('\n').map_or("", |(_, b)| b);
+        code = blank(body.trim_end().strip_suffix("```").unwrap_or(body));
+    }
+    Inline::Code(code)
 }
 
 /// Without the code fence or quotes a model sometimes puts around the message.
@@ -397,5 +446,13 @@ mod tests {
         assert!(a.ends_with("--max-budget-usd 2.5"), "{a}");
         assert_eq!(permission_args(1, &[], 0.0), p(&["--permission-prompts", "none", "--permission-mode", "plan"]));
         assert!(permission_args(2, &p(&["sandbox"]), 0.0).join(" ").contains("bypassPermissions --settings"));
+    }
+
+    #[test]
+    fn inline_answers() {
+        assert_eq!(parse_inline("    x = 1\n    y = 2\n"), Inline::Code("    x = 1\n    y = 2".into()));
+        assert_eq!(parse_inline("```python\n    x = 1\n```"), Inline::Code("    x = 1".into()));
+        assert_eq!(parse_inline("<extrait>\n  a\n</extrait>"), Inline::Code("  a".into()));
+        assert_eq!(parse_inline("EXPLICATION: Ça trie la liste."), Inline::Explain("Ça trie la liste.".into()));
     }
 }
