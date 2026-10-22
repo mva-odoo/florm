@@ -36,6 +36,7 @@ mod pr_links;
 mod claude_ui;
 mod claude_queue;
 mod theme_edit;
+mod template_edit;
 mod split_commit;
 mod panes;
 mod lsp_client;
@@ -746,16 +747,18 @@ enum PrefSection {
     Git,
     Terminal,
     Keys,
+    Templates,
     Advanced,
 }
 
-const PREF_SECTIONS: [(PrefSection, &str); 7] = [
+const PREF_SECTIONS: [(PrefSection, &str); 8] = [
     (PrefSection::Appearance, "Apparence"),
     (PrefSection::Editor, "Éditeur"),
     (PrefSection::Lint, "Lint"),
     (PrefSection::Git, "Git"),
     (PrefSection::Terminal, "Terminal"),
     (PrefSection::Keys, "Raccourcis"),
+    (PrefSection::Templates, "Modèles"),
     (PrefSection::Advanced, "Avancé"),
 ];
 
@@ -790,6 +793,8 @@ struct PrefsUi {
     lint_ignore: [String; 4],
     /// The theme being made, shown live (the one chosen before stays in the settings).
     theme_draft: Option<theme_edit::ThemeDraft>,
+    /// The template being edited in Préférences → Modèles.
+    template: Option<template_edit::TemplateDraft>,
     shell: String,
     /// `exclude` setting being edited (comma separated).
     exclude: String,
@@ -802,7 +807,7 @@ struct PrefsUi {
 
 impl Default for PrefsUi {
     fn default() -> Self {
-        PrefsUi { capture: None, proposed: None, key_action: None, open: false, section: PrefSection::Appearance, filter: String::new(), lint_args: String::new(), lint_ignore: Default::default(), theme_draft: None, shell: String::new(), exclude: String::new(), rulers: String::new(), font_list: None, font_list_loading: false }
+        PrefsUi { capture: None, proposed: None, key_action: None, open: false, section: PrefSection::Appearance, filter: String::new(), lint_args: String::new(), lint_ignore: Default::default(), theme_draft: None, template: None, shell: String::new(), exclude: String::new(), rulers: String::new(), font_list: None, font_list_loading: false }
     }
 }
 
@@ -1609,6 +1614,7 @@ mod font_tests {
             include_str!("app/projects.rs"),
             include_str!("app/claude_queue.rs"),
             include_str!("app/theme_edit.rs"),
+            include_str!("app/template_edit.rs"),
             include_str!("app/quick_fix.rs"),
             include_str!("app/save_lint.rs"),
             include_str!("app/search_panel.rs"),

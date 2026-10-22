@@ -141,6 +141,10 @@ propose dans les suggestions, **Tab** (ou Entrée) le remplace par
 (`odoo_form`, `odoo_model`, `odoo_menu`…). Un modèle perso dont le nom est un seul mot
 (`log.py`, `ifmain.py`) a ce mot pour déclencheur.
 
+**Préférences → Modèles** : la liste des tiens et des intégrés ; un clic en ouvre un pour
+changer son nom (un mot = son déclencheur), les fichiers pour lesquels il est proposé et son
+texte. **+ Nouveau modèle** en crée un ; un intégré modifié devient le tien et le remplace.
+
 **Outils → Nouveau modèle…** (ou la palette) : tape le déclencheur (`log`), Florm crée
 `log.py` (extension du fichier courant ; `log.xml` pour un autre type) dans le dossier des
 modèles et l'ouvre. S'il y avait une sélection, elle devient le texte du modèle.

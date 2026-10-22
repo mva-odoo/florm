@@ -579,6 +579,40 @@ impl App {
                     self.prefs.key_action = Some(a);
                 }
             }
+            PrefSection::Templates => {
+                if rc.matches(&["Modèles", "modèle", "template", "snippet", "déclencheur"]) {
+                    rc.header(ui);
+                    if self.templates.is_empty() {
+                        self.templates = crate::templates::load(&crate::templates::dir());
+                    }
+                    let accent = self.hl.colors.accent;
+                    let act = template_edit::section(ui, &self.templates, &mut self.prefs.template, accent);
+                    let mut reload = false;
+                    match act {
+                        Some(template_edit::TplAct::Edit(k)) => self.prefs.template = self.templates.get(k).map(template_edit::TemplateDraft::of),
+                        Some(template_edit::TplAct::New) => self.prefs.template = Some(template_edit::TemplateDraft::new()),
+                        Some(template_edit::TplAct::Save) => {
+                            if let Some(d) = self.prefs.template.as_mut() {
+                                d.error = d.save().err();
+                                reload = d.error.is_none();
+                            }
+                        }
+                        Some(template_edit::TplAct::Delete) => {
+                            if let Some(d) = self.prefs.template.take() {
+                                if let Err(e) = d.delete() {
+                                    self.log(format!("Modèle non supprimé : {e}"));
+                                }
+                                reload = true;
+                            }
+                        }
+                        Some(template_edit::TplAct::Cancel) => self.prefs.template = None,
+                        None => {}
+                    }
+                    if reload {
+                        self.templates = crate::templates::load(&crate::templates::dir());
+                    }
+                }
+            }
             PrefSection::Advanced => {
                 let exclude = &mut self.prefs.exclude;
                 pref_row(
