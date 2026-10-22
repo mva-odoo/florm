@@ -363,16 +363,7 @@ pub fn replacements(
         if scope.is_some_and(|(s, e)| a < s || b > e) {
             continue;
         }
-        let mut new = String::new();
-        if regex_mode {
-            caps.expand(repl, &mut new);
-        } else {
-            new.push_str(repl);
-        }
-        if preserve {
-            new = preserve_case(m.as_str(), &new);
-        }
-        out.push((a, b, new));
+        out.push((a, b, crate::search::expand_replacement(&caps, repl, regex_mode, preserve)));
     }
     out
 }

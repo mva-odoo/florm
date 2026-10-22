@@ -279,16 +279,7 @@ pub fn replace_text(
             }
         }
         out.push_str(&text[last..m.start()]);
-        let mut new = String::new();
-        if regex_mode {
-            caps.expand(replacement, &mut new);
-        } else {
-            new.push_str(replacement);
-        }
-        if preserve {
-            new = crate::document::preserve_case(m.as_str(), &new);
-        }
-        out.push_str(&new);
+        out.push_str(&expand_replacement(&caps, replacement, regex_mode, preserve));
         last = m.end();
         count += 1;
     }
@@ -301,23 +292,53 @@ pub fn replace_text(
 
 /// What the matched text becomes, for the preview in the results.
 pub fn replacement_preview(re: &regex::Regex, matched: &str, replacement: &str, regex_mode: bool, preserve: bool) -> String {
-    let new = if !regex_mode {
-        replacement.to_string()
-    } else {
-        match re.captures(matched) {
-            Some(caps) => {
-                let mut s = String::new();
-                caps.expand(replacement, &mut s);
-                s
-            }
-            None => replacement.to_string(),
-        }
-    };
-    if preserve {
-        crate::document::preserve_case(matched, &new)
-    } else {
-        new
+    match re.captures(matched) {
+        Some(caps) => expand_replacement(&caps, replacement, regex_mode, preserve),
+        None => unescape(replacement, regex_mode),
     }
+}
+
+/// What a match becomes: `replacement`, in regex mode with its groups ($1, $2…) and its escapes
+/// (\n a line break, \t a tab, \\ a backslash); the case of the match kept when `preserve`.
+/// A line break typed in the field (Maj+Entrée) is kept in both modes.
+pub fn expand_replacement(caps: &regex::Captures, replacement: &str, regex_mode: bool, preserve: bool) -> String {
+    let matched = caps.get(0).map_or("", |m| m.as_str());
+    let mut new = String::new();
+    if regex_mode {
+        caps.expand(&unescape(replacement, true), &mut new);
+    } else {
+        new.push_str(replacement);
+    }
+    if preserve {
+        new = crate::document::preserve_case(matched, &new);
+    }
+    new
+}
+
+/// \n, \t and \\ of a regex replacement turned into what they mean (other text left as is).
+fn unescape(replacement: &str, regex_mode: bool) -> String {
+    if !regex_mode || !replacement.contains('\\') {
+        return replacement.to_string();
+    }
+    let mut out = String::with_capacity(replacement.len());
+    let mut chars = replacement.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('n') => out.push('\n'),
+            Some('t') => out.push('\t'),
+            Some('\\') => out.push('\\'),
+            Some(o) => {
+                out.push('\\');
+                out.push(o);
+            }
+            None => out.push('\\'),
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -370,6 +391,13 @@ mod tests {
         assert_eq!(replacement_preview(&re, "foo", "<$1>", true, false), "<oo>");
         assert_eq!(replacement_preview(&re, "FOO", "bar", false, true), "BAR");
         assert_eq!(replace_text(&re, "bar", "x", true, false, None), None);
+        // "\n" written in the text becomes a real line break (regex), a typed one is kept as is
+        let nl = build_regex(r"\\n", false, true, false).unwrap();
+        assert_eq!(replace_text(&nl, r"a\nb", r"\n", true, false, None), Some(("a\nb".into(), 1)));
+        assert_eq!(replace_text(&nl, r"a\nb", r"\t|\\|\q", true, false, None), Some((r"a	|\|\qb".into(), 1)));
+        let semi = build_regex(";", false, false, false).unwrap();
+        assert_eq!(replace_text(&semi, "a;b", ";\n", false, false, None), Some(("a;\nb".into(), 1)));
+        assert_eq!(replace_text(&semi, "a;b", r"\n", false, false, None), Some((r"a\nb".into(), 1)));
     }
 
     #[test]

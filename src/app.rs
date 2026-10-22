@@ -86,6 +86,17 @@ fn text_on(fill: Color32) -> Color32 {
 }
 
 /// Main action button, filled with `fill` (the theme accent, or a status color).
+/// Field of a replacement: Maj+Entrée puts a line break in it (Entrée stays for the action).
+fn replace_field<'t>(text: &'t mut String, hint: &str) -> egui::TextEdit<'t> {
+    egui::TextEdit::multiline(text)
+        .desired_rows(1)
+        .return_key(egui::KeyboardShortcut::new(egui::Modifiers::SHIFT, Key::Enter))
+        .hint_text(hint)
+        .font(egui::TextStyle::Monospace)
+}
+
+const REPLACE_TIP: &str = "Maj+Entrée : retour à la ligne dans le remplacement.\nEn mode regex (.*) : \\n retour à la ligne, \\t tabulation, \\\\ barre oblique inverse, $1 groupe.\nEx. : chercher \\\\n (regex), remplacer par \\n, pour changer les « \\n » écrits en vrais retours à la ligne.";
+
 fn filled_button(text: impl Into<String>, fill: Color32) -> egui::Button<'static> {
     egui::Button::new(RichText::new(text.into()).color(text_on(fill)).strong()).fill(fill)
 }

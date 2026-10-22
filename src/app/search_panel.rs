@@ -179,12 +179,8 @@ impl App {
         if s.show_replace {
             ui.horizontal(|ui| {
                 ui.add_space(22.0);
-                ui.add(
-                    egui::TextEdit::singleline(&mut s.replacement)
-                        .desired_width(field_w)
-                        .hint_text(if s.q.regex { "Remplacer par… ($1, $2 = groupes)" } else { "Remplacer par… (vide = supprimer)" })
-                        .font(egui::TextStyle::Monospace),
-                );
+                let hint = if s.q.regex { "Remplacer par… ($1, $2 = groupes, \\n = retour à la ligne)" } else { "Remplacer par… (vide = supprimer)" };
+                ui.add(replace_field(&mut s.replacement, hint).desired_width(field_w)).on_hover_text(REPLACE_TIP);
                 let n = s.hit_count();
                 if ui.add_enabled(n > 0 && !s.running, filled_button(format!("Tout remplacer ({n})"), warn())).clicked() {
                     act = Some(SearchAct::ReplaceAll);
@@ -432,7 +428,8 @@ impl App {
                             match &preview_re {
                                 Some(re) => {
                                     job.append(matched, 0.0, old_fmt.clone());
-                                    let new = search::replacement_preview(re, matched, &s.replacement, s.done.regex, s.q.preserve);
+                                    // a line break of the replacement, on the one line of the result
+                                    let new = search::replacement_preview(re, matched, &s.replacement, s.done.regex, s.q.preserve).replace('\n', "↵");
                                     job.append(&new, 0.0, new_fmt.clone());
                                 }
                                 None => job.append(matched, 0.0, match_fmt.clone()),

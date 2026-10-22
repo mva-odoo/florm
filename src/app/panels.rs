@@ -580,15 +580,9 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.add_space(110.0);
                     let w = (ui.available_width() - 330.0).max(120.0);
-                    let te = ui.add(
-                        egui::TextEdit::singleline(&mut self.find.replacement)
-                            .desired_width(w)
-                            .hint_text("Remplacer par ($1 pour les groupes en mode regex)")
-                            .font(egui::TextStyle::Monospace),
-                    );
-                    if te.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
+                    let te = ui.add(replace_field(&mut self.find.replacement, "Remplacer par ($1 pour les groupes en mode regex)").desired_width(w)).on_hover_text(REPLACE_TIP);
+                    if te.has_focus() && ui.input(|i| i.key_pressed(Key::Enter) && !i.modifiers.shift) {
                         action = Some(FindAction::ReplaceOne);
-                        te.request_focus();
                     }
                     if ui.button("Remplacer").clicked() {
                         action = Some(FindAction::ReplaceOne);
