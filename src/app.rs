@@ -483,7 +483,7 @@ enum LspReq {
     Definition { word: String },
     Rename { name: String },
     /// Tooltip of the symbol at `range` in document `uid`.
-    Hover { uid: u64, range: (usize, usize), word: String },
+    Hover { uid: u64, range: (usize, usize) },
     References { word: String },
 }
 
