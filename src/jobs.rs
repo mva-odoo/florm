@@ -89,6 +89,10 @@ pub enum JobResult {
     SplitChanges { result: Result<Vec<split::FileChange>, String>, committed: Option<(String, String)> },
     SplitEnded { aborted: bool, result: Result<String, String> },
     /// Newer release of Florm (`manual`: asked from the menu, so "up to date" is shown too).
+    DockerList(Result<Vec<crate::docker::Container>, String>),
+    /// `None`: the container did not change since its logs were shown.
+    DockerFollow { name: String, result: Result<Option<crate::docker::Follow>, String> },
+    DockerDone { label: String, result: Result<(), String> },
     Update { manual: bool, result: Result<Option<crate::update::Update>, String> },
     /// Update downloaded and installed: the program to start for the restart.
     UpdateInstalled { version: String, result: Result<std::path::PathBuf, String> },

@@ -171,6 +171,7 @@ pub enum ViewIcon {
     Claude,
     Git,
     PullRequests,
+    Docker,
     Help,
     Welcome,
     Settings,
@@ -214,6 +215,13 @@ pub fn paint_view(painter: &Painter, center: Pos2, icon: ViewIcon, color: Color3
             for p in [a, b, c] {
                 painter.circle_filled(p, 2.0, color);
             }
+        }
+        ViewIcon::Docker => {
+            // stacked containers on a hull
+            for (dx, dy) in [(-4.5, 0.0), (0.0, 0.0), (4.5, 0.0), (-2.25, -4.0), (2.25, -4.0)] {
+                painter.rect_stroke(Rect::from_center_size(center + Vec2::new(dx, dy - 1.5), Vec2::new(3.6, 3.2)), 0.5, Stroke::new(1.1_f32, color));
+            }
+            painter.add(Shape::line(vec![center + Vec2::new(-7.5, 1.5), center + Vec2::new(-5.5, 5.5), center + Vec2::new(5.5, 5.5), center + Vec2::new(7.5, 1.5)], st));
         }
         ViewIcon::Help => {
             painter.circle_stroke(center, 6.5, st);

@@ -6,6 +6,7 @@ mod claude;
 mod commands;
 mod config;
 mod diff;
+mod docker;
 mod document;
 mod editor_view;
 mod fuzzy;

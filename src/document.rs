@@ -214,6 +214,8 @@ pub enum View {
     PullRequests,
     /// Conversation with Claude Code, and the review of its changes.
     Claude,
+    /// The Docker containers and their logs.
+    Docker,
 }
 
 /// Files shown as images rather than text.

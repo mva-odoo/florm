@@ -333,6 +333,7 @@ impl App {
             ShowOutput => self.bottom = Some(BottomTab::Output),
             ShowGit => self.open_git_view(),
             PullRequests => self.open_pulls(),
+            Docker => self.open_docker(),
             CreatePr => self.start_pr_create(),
             Claude => self.open_claude(),
             SuggestCommit => self.suggest_commit_message(),

@@ -32,6 +32,7 @@ mod inline_ai;
 mod md;
 mod quick_fix;
 mod pulls;
+mod docker_view;
 mod pr_links;
 mod claude_ui;
 mod claude_queue;
@@ -125,11 +126,12 @@ enum BottomTab {
     Claude,
     Git,
     Pulls,
+    Docker,
 }
 
 impl BottomTab {
     /// The views of the bottom panel: its tabs, and the buttons at the bottom of the sidebar.
-    const ALL: [(BottomTab, icons::ViewIcon, &'static str); 7] = [
+    const ALL: [(BottomTab, icons::ViewIcon, &'static str); 8] = [
         (BottomTab::Search, icons::ViewIcon::Search, "Recherche"),
         (BottomTab::Problems, icons::ViewIcon::Problems, "Problèmes"),
         (BottomTab::Terminal, icons::ViewIcon::Terminal, "Terminal"),
@@ -137,7 +139,13 @@ impl BottomTab {
         (BottomTab::Claude, icons::ViewIcon::Claude, "Claude"),
         (BottomTab::Git, icons::ViewIcon::Git, "Git"),
         (BottomTab::Pulls, icons::ViewIcon::PullRequests, "GitHub"),
+        (BottomTab::Docker, icons::ViewIcon::Docker, "Docker"),
     ];
+
+    /// The views offered: Docker only when the docker command is installed.
+    fn shown() -> impl Iterator<Item = (BottomTab, icons::ViewIcon, &'static str)> {
+        Self::ALL.into_iter().filter(|(t, _, _)| *t != BottomTab::Docker || crate::docker::available())
+    }
 
     fn hint(tab: BottomTab) -> &'static str {
         match tab {
@@ -707,6 +715,7 @@ pub struct App {
     quick_fix: Option<quick_fix::QuickFix>,
     /// GitHub pull requests tab.
     pr: pulls::PrUi,
+    docker: docker_view::DockerUi,
     /// Pull requests of branches and commits, creation of one.
     gh: pr_links::GhUi,
     /// Conversation with Claude Code and review of its changes: the one shown last.
@@ -907,6 +916,7 @@ impl App {
             inline: None,
             quick_fix: None,
             pr: Default::default(),
+            docker: Default::default(),
             gh: Default::default(),
             claude: Default::default(),
             claude_others: Vec::new(),
@@ -1246,6 +1256,7 @@ fn doc_tab(d: &Document) -> (TabIcon<'_>, String) {
         View::Help => Some(ViewIcon::Help),
         View::Welcome => Some(ViewIcon::Welcome),
         View::PullRequests => Some(ViewIcon::PullRequests),
+        View::Docker => Some(ViewIcon::Docker),
         View::Claude => Some(ViewIcon::Claude),
         View::Text | View::Image | View::Preview(_) => None,
     };

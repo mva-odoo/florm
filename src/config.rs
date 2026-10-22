@@ -73,6 +73,9 @@ pub struct Settings {
     pub index_max_files: usize,
     /// Look for a newer release of Florm at startup (GitHub).
     pub check_updates: bool,
+    /// Order of the services of each compose project in the Docker view (▶ tout starts them in
+    /// it, ■ tout stops them the other way): project → services.
+    pub docker_order: HashMap<String, Vec<String>>,
 }
 
 impl Settings {
@@ -129,6 +132,7 @@ impl Default for Settings {
             exclude: ["__pycache__/", "*.pyc", "node_modules/", ".venv/", "*.egg-info/"].map(String::from).to_vec(),
             index_max_files: 150_000,
             check_updates: true,
+            docker_order: HashMap::new(),
         }
     }
 }
@@ -344,6 +348,14 @@ pub fn set_setting(key: &str, value: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn docker_order_table() {
+        let order = vec!["postgresql".to_string(), "dns".into()];
+        let line = format!("docker_order = {{ {} = {} }}", toml_str("dockerized-saas"), toml_str_array(&order));
+        let s: Settings = toml::from_str(&line).unwrap();
+        assert_eq!(s.docker_order.get("dockerized-saas"), Some(&order));
+    }
 
     #[test]
     fn set_setting_keeps_comments() {

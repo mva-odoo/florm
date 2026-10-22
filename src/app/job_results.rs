@@ -442,6 +442,9 @@ impl App {
                         self.log(e);
                     }
                 },
+                JobResult::DockerList(list) => self.docker_listed(list),
+                JobResult::DockerFollow { name, result } => self.docker_followed(name, result),
+                JobResult::DockerDone { label, result } => self.docker_done(label, result),
                 JobResult::UpdateInstalled { version, result } => {
                     self.update_installing = false;
                     match result {

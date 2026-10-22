@@ -138,6 +138,9 @@ impl App {
                 ui.separator();
             }
             item(ui, "✳ Claude", Cmd::Claude);
+            if crate::docker::available() {
+                item(ui, "Docker (conteneurs et logs)", Cmd::Docker);
+            }
             ui.separator();
             item(ui, "Insérer un modèle…", Cmd::InsertTemplate);
             item(ui, "Nouveau modèle…", Cmd::NewTemplate);
@@ -669,7 +672,7 @@ impl App {
             egui::TopBottomPanel::bottom("sidebar_tools").frame(egui::Frame::none().inner_margin(egui::Margin { left: 0.0, right: 0.0, top: 6.0, bottom: 0.0 })).show_inside(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
-                    for (tab, icon, label) in BottomTab::ALL {
+                    for (tab, icon, label) in BottomTab::shown() {
                         let (rect, r) = ui.allocate_exact_size(egui::vec2(26.0, 24.0), Sense::click());
                         let on = self.bottom == Some(tab);
                         if r.hovered() || on {
@@ -962,6 +965,7 @@ impl App {
             BottomTab::Search => self.docs.iter().position(in_editor(document::View::Search)),
             // each Claude tab is a conversation of its own: it stays
             BottomTab::Pulls => self.docs.iter().position(in_editor(document::View::PullRequests)),
+            BottomTab::Docker => self.docs.iter().position(in_editor(document::View::Docker)),
             _ => None,
         };
         if let Some(i) = tab_of {
@@ -977,6 +981,7 @@ impl App {
                 self.git_view_load();
             }
             BottomTab::Pulls => self.pulls_load(),
+            BottomTab::Docker => self.docker_load(),
             BottomTab::Problems | BottomTab::Output => {}
         }
     }
@@ -995,6 +1000,7 @@ impl App {
             }
             BottomTab::Git => self.open_git_view(),
             BottomTab::Pulls => self.open_pulls(),
+            BottomTab::Docker => self.open_docker(),
             BottomTab::Problems | BottomTab::Output => self.show_bottom(tab, false),
         }
     }
@@ -1004,7 +1010,7 @@ impl App {
             self.last_bottom = t;
         }
         // Claude, git and the pull requests need room for their bars and content
-        let min_h = if matches!(self.bottom, Some(BottomTab::Claude | BottomTab::Git | BottomTab::Pulls)) { 360.0 } else { 80.0 };
+        let min_h = if matches!(self.bottom, Some(BottomTab::Claude | BottomTab::Git | BottomTab::Pulls | BottomTab::Docker)) { 360.0 } else { 80.0 };
         egui::TopBottomPanel::bottom("bottom").resizable(true).default_height(230.0).height_range(min_h..=900.0).show(
             ctx,
             |ui| {
@@ -1012,7 +1018,7 @@ impl App {
                     ui.spacing_mut().item_spacing.x = 2.0;
                     let nd: usize = self.docs.iter().map(|d| d.diagnostics.len()).sum();
                     let problems = if nd > 0 { format!("Problèmes {nd}") } else { "Problèmes".to_string() };
-                    for (tab, icon, label) in BottomTab::ALL {
+                    for (tab, icon, label) in BottomTab::shown() {
                         let label = if tab == BottomTab::Problems { problems.clone() } else { label.to_string() };
                         let r = nav_tab(ui, icon, &label, self.bottom == Some(tab));
                         if r.clicked() {
@@ -1077,6 +1083,17 @@ impl App {
                     }
                     Some(BottomTab::Pulls) => {
                         egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.pulls_ui(ui));
+                    }
+                    Some(BottomTab::Docker) if self.docs.iter().any(|d| d.view == document::View::Docker) => {
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new("Docker est dans un onglet de l'éditeur.").weak());
+                            if ui.button("Le mettre ici").clicked() {
+                                self.show_bottom(BottomTab::Docker, false);
+                            }
+                        });
+                    }
+                    Some(BottomTab::Docker) => {
+                        egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.docker_ui(ui));
                     }
                     Some(BottomTab::Search) => self.search_ui(ui, false),
                     Some(BottomTab::Problems) => self.problems_ui(ui),

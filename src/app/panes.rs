@@ -121,6 +121,10 @@ impl App {
                 egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.pulls_ui(ui));
                 None
             }
+            document::View::Docker => {
+                egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.docker_ui(ui));
+                None
+            }
             document::View::Help => {
                 self.render_markdown(ui, "guide", include_str!("../../assets/guide.md"), "file://".into());
                 None
