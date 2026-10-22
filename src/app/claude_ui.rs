@@ -1432,7 +1432,14 @@ impl App {
                 });
                 ui.add_space(4.0);
             });
-            egui::ScrollArea::vertical().id_salt(chat_id).stick_to_bottom(true).auto_shrink([false, false]).show(ui, |ui| {
+            // "⬇ Dernier message" asked at the previous frame
+            let to_end_id = egui::Id::new(("claude_to_end", chat_id));
+            let to_end = ui.data_mut(|d| d.remove_temp::<bool>(to_end_id)).unwrap_or(false);
+            let mut chat = egui::ScrollArea::vertical().id_salt(chat_id).stick_to_bottom(true).auto_shrink([false, false]);
+            if to_end {
+                chat = chat.vertical_scroll_offset(f32::MAX);
+            }
+            let out = chat.show(ui, |ui| {
                 ui.set_max_width(ui.available_width().min(900.0));
                 if c.items.is_empty() {
                     ui.add_space(20.0);
@@ -1539,6 +1546,17 @@ impl App {
                 }
                 ui.add_space(10.0);
             });
+            // scrolled up: a button to go back down to the last message
+            let below = out.content_size.y - out.state.offset.y - out.inner_rect.height();
+            if below > 40.0 {
+                let r = out.inner_rect;
+                let at = egui::Rect::from_min_size(egui::pos2(r.right() - 170.0, r.bottom() - 36.0), egui::vec2(150.0, 26.0));
+                let b = egui::Button::new(RichText::new("⬇ Dernier message").strong()).fill(ui.visuals().widgets.inactive.weak_bg_fill).rounding(13.0);
+                if ui.put(at, b).on_hover_text("Descendre à la fin de la conversation").clicked() {
+                    ui.data_mut(|d| d.insert_temp(to_end_id, true));
+                    ui.ctx().request_repaint();
+                }
+            }
         });
 
         if let Some(t) = move_to {
