@@ -27,6 +27,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 mod git_view;
+mod ai_review;
 mod inline_ai;
 mod md;
 mod pulls;
@@ -549,6 +550,8 @@ struct GitUi {
     /// Last failed git command (label, message): shown until dismissed or a later command succeeds.
     op_error: Option<(String, String)>,
     focus_commit: bool,
+    /// AI review of the changes not committed yet.
+    ai: ai_review::AiReview,
     /// absolute path -> status letter (directories inherit from their files)
     map: HashMap<PathBuf, char>,
 }

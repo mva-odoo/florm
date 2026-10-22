@@ -12,6 +12,8 @@ const STATES: [(&str, &str); 4] = [("open", "Ouvertes"), ("merged", "Fusionnées
 /// Key of the draft of the comment on the whole pull request, and of the one on a line.
 const DRAFT_PR: &str = "pr";
 const DRAFT_LINE: &str = "line";
+/// Key of the kept remarks of the AI review, published together.
+const DRAFT_AI: &str = "ai";
 
 #[derive(Default, Clone, Copy, PartialEq)]
 pub(super) enum PrSection {
@@ -75,6 +77,8 @@ pub(super) struct PrUi {
     /// file → (line, text).
     pub(super) notes: HashMap<PathBuf, Vec<(usize, String)>>,
     busy: bool,
+    /// AI review of the selected pull request: remarks proposed, published only when asked.
+    pub(super) ai: ai_review::AiReview,
 }
 
 /// What the pull request view asked for during the frame.
@@ -90,6 +94,11 @@ enum PrAct {
     /// Send the draft of this key.
     Send(String),
     Resolve(String, bool),
+    /// Ask Claude for a review of the pull request.
+    AiReview,
+    /// Publish the kept remarks of the AI review.
+    AiPublish,
+    Ai(ai_review::NoteAct),
 }
 
 impl App {
@@ -123,6 +132,7 @@ impl App {
             self.pr.list = None;
             self.pr.notes.clear();
             self.pr.branch = None;
+            self.pr.ai = Default::default();
             // its branch comes with the status of the repositories
             self.git_refresh();
         }
@@ -141,6 +151,7 @@ impl App {
             self.pr.new_line = None;
             self.pr.applied.clear();
             self.pr.shifts.clear();
+            self.pr.ai = Default::default();
         }
         self.pr.selected = Some(n);
         self.pr.detail_loading = true;
@@ -187,6 +198,9 @@ impl App {
                     if k == DRAFT_LINE {
                         self.pr.new_line = None;
                     }
+                    if k == DRAFT_AI {
+                        self.pr.ai.notes.retain(|n| !n.keep);
+                    }
                 }
                 if let Some(n) = reload.filter(|n| self.pr.selected == Some(*n)) {
                     self.load_pr(n);
@@ -220,6 +234,7 @@ impl App {
                 notes.entry(repo.join(&t.path)).or_default().push((line - 1, format!("💬 PR #{} · {} :\n{body}{more}", d.number, first.author)));
             }
         }
+        self.ai_editor_notes(&mut notes);
         self.pr.notes = notes;
     }
 
@@ -365,6 +380,14 @@ impl App {
                     if ui.button("Ouvrir sur GitHub").clicked() {
                         act = Some(PrAct::Web(d.number));
                     }
+                    if ui
+                        .add_enabled(!p.ai.loading, egui::Button::new("✳ Revue IA"))
+                        .on_hover_text("Claude relit la PR et propose des remarques sous les lignes : tu gardes, modifies ou écartes chacune, rien n'est publié sans toi")
+                        .clicked()
+                    {
+                        act = Some(PrAct::AiReview);
+                        p.section = PrSection::Files;
+                    }
                     if checked_out {
                         ui.label(RichText::new("✔ branche active").color(ok())).on_hover_text("Les commentaires sur les lignes sont aussi dans l'éditeur");
                     } else if ui
@@ -509,6 +532,15 @@ impl App {
                             ui.checkbox(&mut p.show_resolved, RichText::new(format!("afficher les {resolved} conversation(s) résolue(s)")).small());
                         }
                     });
+                    // the AI review: its state and buttons, the remarks off the diff
+                    let ai_rows = p.ai.rows(p.files.diff.as_ref());
+                    let mut ai_act = None;
+                    let (busy, mut publish) = (p.busy, false);
+                    ai_review::review_bar(ui, cache, &mut p.ai, &ai_rows, accent, &mut ai_act, |ui, kept| {
+                        let label = format!("Publier les {kept} gardée(s) sur GitHub");
+                        let tip = "Une seule revue GitHub (commentaire, sans approuver ni demander de changements) ; les remarques hors du diff vont dans son message";
+                        publish = ui.add_enabled(kept > 0 && !busy, filled_button(label, accent)).on_hover_text(tip).clicked();
+                    });
                     // the conversations under the lines they are about, like on GitHub
                     let mut at: HashMap<usize, Vec<usize>> = HashMap::new();
                     if let Some(diff) = &p.files.diff {
@@ -518,14 +550,23 @@ impl App {
                             }
                         }
                     }
+                    let mut ai_at: HashMap<usize, Vec<usize>> = HashMap::new();
+                    for (k, row) in ai_rows.iter().enumerate() {
+                        if let Some(i) = row {
+                            ai_at.entry(*i).or_default().push(k);
+                        }
+                    }
                     let new_at = p.new_line.as_ref().map(|n| n.3);
-                    let lines: HashSet<usize> = at.keys().copied().chain(new_at).collect();
-                    let (drafts, applied, shifts, new_line, busy) = (&mut p.drafts, &p.applied, &p.shifts, &mut p.new_line, p.busy);
+                    let lines: HashSet<usize> = at.keys().chain(ai_at.keys()).copied().chain(new_at).collect();
+                    let (drafts, applied, shifts, new_line, ai_notes) = (&mut p.drafts, &p.applied, &p.shifts, &mut p.new_line, &mut p.ai.notes);
                     let mut show = |ui: &mut egui::Ui, i: usize| {
                         for &k in at.get(&i).map_or(&[][..], |v| &v[..]) {
                             let t = &d.threads[k];
                             let draft = drafts.entry(t.id.clone()).or_default();
                             thread_ui(ui, t, cache, applied, shifts, checked_out, busy, draft, accent, true, &mut act);
+                        }
+                        for &k in ai_at.get(&i).map_or(&[][..], |v| &v[..]) {
+                            ai_review::note_card(ui, cache, k, &mut ai_notes[k], true, accent, &mut ai_act);
                         }
                         if new_at == Some(i) {
                             line_composer(ui, drafts.entry(DRAFT_LINE.into()).or_default(), new_line, busy, accent, &mut act);
@@ -555,6 +596,12 @@ impl App {
                             }
                         }
                         None => {}
+                    }
+                    if publish {
+                        act = Some(PrAct::AiPublish);
+                    }
+                    if let Some(a) = ai_act {
+                        act = Some(PrAct::Ai(a));
                     }
                 }
             }
@@ -602,6 +649,38 @@ impl App {
             Some(PrAct::Resolve(id, yes)) => {
                 let label = if yes { "Conversation résolue" } else { "Conversation rouverte" };
                 self.pr_job(label.into(), Some(n), None, move || github::resolve(&repo, &id, yes));
+            }
+            Some(PrAct::AiReview) => {
+                if let Some(Ok(d)) = self.pr.detail.clone() {
+                    self.ai_review_pr(repo, &d);
+                }
+            }
+            Some(PrAct::AiPublish) => {
+                let Some(Ok(d)) = &self.pr.detail else { return };
+                let commit = d.head_oid.clone();
+                // on a line of the diff: a comment there; else in the message of the review
+                let rows = self.pr.ai.rows(self.pr.files.diff.as_ref());
+                let (mut on_lines, mut general) = (Vec::new(), Vec::new());
+                for (a, row) in self.pr.ai.notes.iter().zip(&rows).filter(|(a, _)| a.keep) {
+                    let (note, body) = (&a.note, a.note.body.trim().to_string());
+                    if row.is_some() {
+                        on_lines.push((note.path.clone(), note.line, note.side.clone(), body));
+                    } else if note.path.is_empty() {
+                        general.push(body);
+                    } else if note.line > 0 {
+                        general.push(format!("**`{}:{}`** — {body}", note.path, note.line));
+                    } else {
+                        general.push(format!("**`{}`** — {body}", note.path));
+                    }
+                }
+                let count = on_lines.len() + general.len();
+                let body = general.join("\n\n");
+                self.pr_job(format!("Revue publiée ({count} remarque(s))"), Some(n), Some(DRAFT_AI.into()), move || github::review(&repo, n, &commit, &body, &on_lines));
+            }
+            Some(PrAct::Ai(a)) => {
+                if let Some((path, line)) = self.pr.ai.apply(a) {
+                    self.pr_open_file(&path, line);
+                }
             }
             None => {}
         }
@@ -670,16 +749,7 @@ impl App {
 
 /// Row of the diff a conversation is about: its last line, on its side of the file.
 fn thread_row(diff: &HistoryDiff, t: &github::Thread) -> Option<usize> {
-    let line = t.line?;
-    let f = diff.files.iter().position(|f| f.path == t.path)?;
-    let end = diff.files.get(f + 1).map_or(diff.lines.len(), |n| n.start);
-    (diff.files[f].start..end).find(|&i| {
-        let l = &diff.lines[i];
-        match t.side.as_str() {
-            "LEFT" => l.kind != DiffKind::Added && l.kind != DiffKind::Hunk && l.old == Some(line),
-            _ => l.kind != DiffKind::Removed && l.kind != DiffKind::Hunk && l.new == Some(line),
-        }
-    })
+    ai_review::diff_row(diff, &t.path, t.line?, &t.side)
 }
 
 /// The comment being written on a line of the diff, under it.

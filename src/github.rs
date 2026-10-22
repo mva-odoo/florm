@@ -7,14 +7,28 @@ use std::path::Path;
 use std::process::Stdio;
 
 fn gh(dir: &Path, args: &[&str]) -> Result<String, String> {
-    let out = crate::os::command("gh")
+    gh_with(dir, args, None)
+}
+
+/// Like `gh`, with `input` written on its standard input (`gh api --input -`).
+fn gh_with(dir: &Path, args: &[&str], input: Option<String>) -> Result<String, String> {
+    let mut child = crate::os::command("gh")
         .args(args)
         .current_dir(dir)
-        .stdin(Stdio::null())
+        .stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .env("GH_PROMPT_DISABLED", "1")
         .env("NO_COLOR", "1")
-        .output()
+        .spawn()
         .map_err(|_| NOT_INSTALLED.to_string())?;
+    if let (Some(mut stdin), Some(text)) = (child.stdin.take(), input) {
+        std::thread::spawn(move || {
+            use std::io::Write;
+            let _ = stdin.write_all(text.as_bytes());
+        });
+    }
+    let out = child.wait_with_output().map_err(|e| e.to_string())?;
     let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
     if out.status.success() {
         Ok(stdout)
@@ -396,6 +410,18 @@ pub fn line_comment(dir: &Path, n: u64, commit: &str, path: &str, line: usize, s
             &format!("side={side}"),
         ],
     )
+}
+
+/// A review (without approving nor asking for changes) at `commit`: `body` on the whole pull
+/// request and comments on lines (path, line, "RIGHT" / "LEFT", text), all sent at once.
+pub fn review(dir: &Path, n: u64, commit: &str, body: &str, comments: &[(String, usize, String, String)]) -> Result<String, String> {
+    let url = format!("repos/{{owner}}/{{repo}}/pulls/{n}/reviews");
+    let comments: Vec<Value> = comments.iter().map(|(path, line, side, text)| serde_json::json!({"path": path, "line": line, "side": side, "body": text})).collect();
+    let mut input = serde_json::json!({"commit_id": commit, "event": "COMMENT", "comments": comments});
+    if !body.is_empty() {
+        input["body"] = body.into();
+    }
+    gh_with(dir, &["api", "-X", "POST", &url, "--input", "-"], Some(input.to_string())).map(|_| String::new())
 }
 
 /// Marks a conversation on lines as resolved (or not any more).

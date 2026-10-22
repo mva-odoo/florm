@@ -378,6 +378,88 @@ fn parse_inline(text: &str) -> Inline {
     Inline::Code(code)
 }
 
+/// A remark of an AI review, about a line of the diff (`line` 0 / `path` empty: about the whole).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReviewNote {
+    pub path: String,
+    pub line: usize,
+    /// "RIGHT": the new version of the file, "LEFT": the old one (a removed line).
+    pub side: String,
+    /// "bug", "risk", "suggestion" or "nit".
+    pub severity: String,
+    pub body: String,
+}
+
+/// Remarks of Claude on `diff`: nothing is sent anywhere, the user picks the ones to keep.
+/// `about`: what the changes are (title and description of the pull request…); `language`: of
+/// the remarks. Claude may read the files of `dir` (only read) for the context.
+pub fn review(dir: &Path, diff: &str, about: &str, language: &str) -> Result<Vec<ReviewNote>, String> {
+    let mut prompt = String::from(
+        "Fais la revue de code de ce diff (reçu sur l'entrée standard). Chaque ligne du diff commence par sa position : \
+         [R12] = ligne 12 de la nouvelle version du fichier (lignes ajoutées « + » et lignes de contexte), \
+         [L7] = ligne 7 de l'ancienne version (lignes supprimées « - »). Tu peux lire les fichiers du dépôt pour \
+         comprendre le contexte (ils ne sont pas forcément dans la version du diff).\n\
+         Relève seulement ce qui mérite vraiment un commentaire : bugs, cas oubliés, risques (sécurité, performance, \
+         données), incohérences avec le reste du code, puis les améliorations nettes. Pas de compliments, pas de \
+         remarques de style quand le code suit celui du fichier. Au plus 15 remarques, les plus importantes d'abord.\n\
+         Réponds uniquement par un tableau JSON, sans texte autour ni bloc de code : \
+         [{\"path\": \"chemin/du/fichier\", \"line\": 12, \"side\": \"RIGHT\", \"severity\": \"bug\", \"body\": \"…\"}] \
+         où line et side viennent de la position de la ligne commentée (R → \"RIGHT\", L → \"LEFT\"), severity est \
+         \"bug\", \"risk\", \"suggestion\" ou \"nit\", et body la remarque en Markdown, courte, adressée à l'auteur ; \
+         quand c'est utile, un bloc ```suggestion avec le code qui remplace la ligne commentée (une seule ligne, côté RIGHT). \
+         Une remarque sur l'ensemble : path \"\" et line 0. [] s'il n'y a rien à redire.",
+    );
+    prompt.push_str(&format!("\nLangue des remarques : {language}."));
+    if !about.trim().is_empty() {
+        prompt.push_str("\n\nCe que font ces changements :\n");
+        prompt.push_str(about.trim());
+    }
+    let numbered: String = number_diff(diff).chars().take(200_000).collect();
+    let text = run_once(dir, &["-p", &prompt, "--output-format", "text", "--tools", "Read,Grep,Glob", "--no-session-persistence"], numbered)?;
+    parse_review(&text)
+}
+
+/// The diff with the position of each line in front of it, so the model does not count lines.
+fn number_diff(diff: &str) -> String {
+    let mut out = String::with_capacity(diff.len() + diff.len() / 4);
+    for l in crate::history::parse_diff(diff) {
+        match (l.kind, l.old, l.new) {
+            (crate::history::DiffKind::Removed, Some(o), _) => out.push_str(&format!("[L{o}] ")),
+            (_, _, Some(n)) => out.push_str(&format!("[R{n}] ")),
+            _ => {}
+        }
+        out.push_str(&l.text);
+        out.push('\n');
+    }
+    out
+}
+
+/// The JSON array of the answer (the model sometimes puts text or a code fence around it).
+fn parse_review(text: &str) -> Result<Vec<ReviewNote>, String> {
+    let end = text.rfind(']').unwrap_or(0);
+    // the first '[' starting a valid array up to the last ']' (a "[R12]" may come before it)
+    let v = text
+        .match_indices('[')
+        .filter(|(a, _)| *a < end)
+        .find_map(|(a, _)| serde_json::from_str::<Value>(&text[a..=end]).ok())
+        .ok_or_else(|| format!("Réponse inattendue de Claude : {}", text.chars().take(300).collect::<String>()))?;
+    let s = |x: &Value| x.as_str().unwrap_or("").trim().to_string();
+    Ok(v.as_array()
+        .map(|a| {
+            a.iter()
+                .map(|n| ReviewNote {
+                    path: s(&n["path"]),
+                    line: n["line"].as_u64().or_else(|| n["line"].as_str().and_then(|l| l.trim_start_matches(['R', 'L']).parse().ok())).unwrap_or(0) as usize,
+                    side: if s(&n["side"]).eq_ignore_ascii_case("LEFT") { "LEFT".into() } else { "RIGHT".into() },
+                    severity: s(&n["severity"]).to_lowercase(),
+                    body: s(&n["body"]),
+                })
+                .filter(|n| !n.body.is_empty())
+                .collect()
+        })
+        .unwrap_or_default())
+}
+
 /// Without the code fence or quotes a model sometimes puts around the message.
 fn clean_message(t: &str) -> String {
     let t = t.trim();
@@ -449,10 +531,25 @@ mod tests {
     }
 
     #[test]
-    fn inline_answers() {
+    fn review_answers() {
+        let diff = "diff --git a/x.py b/x.py\n--- a/x.py\n+++ b/x.py\n@@ -1,3 +1,3 @@\n a = 1\n-b = 2\n+b = 3\n c = 4";
+        let n = number_diff(diff);
+        assert!(n.contains("[R1]  a = 1\n[L2] -b = 2\n[R2] +b = 3\n[R3]  c = 4"), "{n}");
+        assert!(n.starts_with("diff --git"), "{n}");
+        let t = "Voici :\n```json\n[{\"path\":\"x.py\",\"line\":2,\"side\":\"RIGHT\",\"severity\":\"Bug\",\"body\":\"b vaut 3 ?\"},\
+                 {\"path\":\"x.py\",\"line\":\"L2\",\"side\":\"left\",\"severity\":\"nit\",\"body\":\"ok\"},{\"path\":\"\",\"line\":0,\"body\":\"\"}]\n```";
+        assert_eq!(
+            parse_review(t).unwrap(),
+            vec![
+                ReviewNote { path: "x.py".into(), line: 2, side: "RIGHT".into(), severity: "bug".into(), body: "b vaut 3 ?".into() },
+                ReviewNote { path: "x.py".into(), line: 2, side: "LEFT".into(), severity: "nit".into(), body: "ok".into() },
+            ]
+        );
         assert_eq!(parse_inline("    x = 1\n    y = 2\n"), Inline::Code("    x = 1\n    y = 2".into()));
         assert_eq!(parse_inline("```python\n    x = 1\n```"), Inline::Code("    x = 1".into()));
         assert_eq!(parse_inline("<extrait>\n  a\n</extrait>"), Inline::Code("  a".into()));
         assert_eq!(parse_inline("EXPLICATION: Ça trie la liste."), Inline::Explain("Ça trie la liste.".into()));
+        assert_eq!(parse_review("Rien à redire (voir [R12]) : []").unwrap(), vec![]);
+        assert!(parse_review("désolé").is_err());
     }
 }

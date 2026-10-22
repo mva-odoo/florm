@@ -613,6 +613,11 @@ impl App {
                 self.open_git_view();
                 self.git.focus_commit = true;
             }
+            GitAiReview => {
+                self.open_git_view();
+                self.show_wip(false);
+                self.ai_review_wip();
+            }
             GitCheckout => {
                 if let Some(repo) = self.repo.clone() {
                     self.jobs.spawn(move || JobResult::GitBranches(git::branches(&repo)));

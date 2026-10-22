@@ -239,6 +239,17 @@ impl App {
         });
     }
 
+    /// The changes not committed (indexed or not) in the detail, below the commits.
+    pub(super) fn show_wip(&mut self, staged: bool) {
+        let h = &mut self.history;
+        h.compare = None;
+        h.rebase = None;
+        h.wip_sel = Some(staged);
+        h.diff = None;
+        h.diff_loading = false;
+        self.load_wip_all(staged);
+    }
+
     /// Diff of all the staged (`staged`) or unstaged changes, new files included.
     pub(super) fn load_wip_all(&mut self, staged: bool) {
         let Some(repo) = self.history.repo.clone() else { return };
@@ -414,6 +425,10 @@ impl App {
         let (mut do_commit, mut suggest_msg, suggesting) = (false, false, self.git.suggesting);
         let commit_msg = &mut self.git.commit_msg;
         let focus_commit = std::mem::take(&mut self.git.focus_commit);
+        // AI review of the changes not committed: asked, kept remarks given to Claude, a remark's action
+        let (mut ai_start, mut ai_fix, mut ai_act) = (false, false, None);
+        let ai = &mut self.git.ai;
+        let cache = &mut self.md_cache;
         let h = &mut self.history;
         // messages and operations in progress, above the list (nothing when there are none)
         let banner = h.notice.is_some() || split_hidden.is_some() || op_banner.is_some() || h.graph.as_ref().is_some_and(|g| g.rebasing);
@@ -734,6 +749,10 @@ impl App {
                             } else if ui.button("Tout indexer").clicked() {
                                 wip_ops.push(vec!["add".into(), "-A".into()]);
                             }
+                            let tip = "Claude relit tout ce qui n'est pas commité (indexé ou non, nouveaux fichiers compris) et propose des remarques sous les lignes : tu gardes celles qui comptent";
+                            if ui.add_enabled(!ai.loading, egui::Button::new("✳ Revue IA")).on_hover_text(tip).clicked() {
+                                ai_start = true;
+                            }
                         });
                         chips = st
                             .entries
@@ -863,6 +882,28 @@ impl App {
                             });
                         });
                     }
+                    // the AI review of the changes not committed: its state, then its remarks under their lines
+                    let wip_view = matches!(source, DiffSource::Worktree | DiffSource::Index);
+                    let ai_rows = if wip_view { ai.rows(h.diff.as_ref()) } else { Vec::new() };
+                    if wip_view {
+                        ai_review::review_bar(ui, cache, ai, &ai_rows, accent, &mut ai_act, |ui, kept| {
+                            let tip = "Écrit les remarques gardées dans l'onglet Claude : tu relis, puis tu envoies";
+                            ai_fix = ui.add_enabled(kept > 0, filled_button(format!("Faire corriger les {kept} gardée(s) par Claude"), accent)).on_hover_text(tip).clicked();
+                        });
+                    }
+                    let mut ai_at: HashMap<usize, Vec<usize>> = HashMap::new();
+                    for (k, row) in ai_rows.iter().enumerate() {
+                        if let Some(i) = row {
+                            ai_at.entry(*i).or_default().push(k);
+                        }
+                    }
+                    let ai_lines: HashSet<usize> = ai_at.keys().copied().collect();
+                    let ai_notes = &mut ai.notes;
+                    let mut show_ai = |ui: &mut egui::Ui, i: usize| {
+                        for &k in ai_at.get(&i).map_or(&[][..], |v| &v[..]) {
+                            ai_review::note_card(ui, cache, k, &mut ai_notes[k], true, accent, &mut ai_act);
+                        }
+                    };
                     match &h.diff {
                         Some(d) => {
                             let hunk_buttons: &[history::DiffButton] = match source {
@@ -877,7 +918,8 @@ impl App {
                                 DiffSource::Compare => &[],
                             };
                             let jump = h.jump.take();
-                            if let Some(c) = history::stacked_diff_view(ui, &d.lines, &d.files, &mut h.collapsed, "history_stacked", hunk_buttons, file_buttons, jump, None) {
+                            let notes = if ai_lines.is_empty() { None } else { Some(history::Notes { at: &ai_lines, show: &mut show_ai }) };
+                            if let Some(c) = history::stacked_diff_view(ui, &d.lines, &d.files, &mut h.collapsed, "history_stacked", hunk_buttons, file_buttons, jump, notes) {
                                 diff_click = Some(c);
                             }
                         }
@@ -994,13 +1036,16 @@ impl App {
             }
         }
         if let Some(staged) = wip_pick {
-            let h = &mut self.history;
-            h.compare = None;
-            h.rebase = None;
-            h.wip_sel = Some(staged);
-            h.diff = None;
-            h.diff_loading = false;
-            self.load_wip_all(staged);
+            self.show_wip(staged);
+        }
+        if ai_start {
+            self.ai_review_wip();
+        }
+        if ai_fix {
+            self.ai_fix_with_claude();
+        }
+        if let Some(a) = ai_act {
+            self.ai_wip_act(a);
         }
         if !wip_ops.is_empty() {
             // everything leaves the side shown: empty at once, git's new diff follows

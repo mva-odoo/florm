@@ -112,6 +112,7 @@ impl App {
         ui.menu_button("Git", |ui| {
             item(ui, "Panneau Git", Cmd::ShowGit);
             item(ui, "Commit…", Cmd::GitCommit);
+            item(ui, "Revue IA des changements", Cmd::GitAiReview);
             item(ui, "Pull", Cmd::GitPull);
             item(ui, "Push", Cmd::GitPush);
             item(ui, "Fetch", Cmd::GitFetch);
