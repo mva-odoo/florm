@@ -138,8 +138,12 @@ pub(super) fn queue_ui(ui: &mut egui::Ui, q: &mut Queue, busy: bool, accent: Col
     let done = q.tasks.iter().filter(|t| t.state == TaskState::Done).count();
     let waiting = q.tasks.iter().filter(|t| t.state == TaskState::Waiting).count();
     let working = q.current().is_some();
-    ui.horizontal(|ui| {
+    // wrapped: a narrow panel stays narrow, the buttons go on a second line
+    ui.horizontal_wrapped(|ui| {
         ui.label(RichText::new(tf!("FILE DE TÂCHES · {done}/{}", "TASK QUEUE · {done}/{}", q.tasks.len())).small().strong().color(accent));
+        if done == q.tasks.len() {
+            ui.label(RichText::new(t!("✔ terminée", "✔ done")).small().color(ok()));
+        }
         if q.running {
             if ui.small_button("Pause").on_hover_text(t!("La tâche en cours se termine, la suivante attend", "The current task finishes, the next one waits")).clicked() {
                 act = Some(QueueAct::Pause);
@@ -173,38 +177,82 @@ pub(super) fn queue_ui(ui: &mut egui::Ui, q: &mut Queue, busy: bool, accent: Col
         }
     });
     let queue_model = q.model.map_or(t!("Modèle de la conversation", "Conversation's model"), model_label);
-    egui::ScrollArea::vertical().id_salt("claude_queue").max_height(170.0).show(ui, |ui| {
+    // the sentence before the list, said with each task: shown once, above them
+    let intro = shared_intro(&q.tasks);
+    if !intro.is_empty() {
+        ui.label(RichText::new(intro.trim()).small().weak());
+    }
+    // the finished tasks folded in one line: a finished queue takes a line, not the whole list
+    let show_done_id = id.with("show_done");
+    let mut show_done = ui.data(|d| d.get_temp::<bool>(show_done_id)).unwrap_or(false);
+    if done > 0 {
+        let arrow = if show_done { "⏷" } else { "⏵" };
+        let line = RichText::new(tf!("{arrow} ✔ {done} terminée(s)", "{arrow} ✔ {done} done")).small().color(ok());
+        if ui.add(egui::Label::new(line).sense(egui::Sense::click())).on_hover_text(t!("Afficher ou masquer les tâches terminées", "Show or hide the finished tasks")).clicked() {
+            show_done = !show_done;
+            ui.data_mut(|d| d.insert_temp(show_done_id, show_done));
+        }
+    }
+    let states: Vec<TaskState> = q.tasks.iter().map(|t| t.state).collect();
+    let row_fill = icons::mix(ui.visuals().panel_fill, accent, 0.10);
+    let mut number = 0;
+    // the whole width, whatever the width of the tasks shown the frame before
+    egui::ScrollArea::vertical().id_salt("claude_queue").auto_shrink([false, true]).max_height(170.0).show(ui, |ui| {
         for (k, t) in q.tasks.iter_mut().enumerate() {
-            ui.horizontal(|ui| {
-                match t.state {
-                    TaskState::Running | TaskState::Committing => {
-                        spinner(ui);
+            if t.state == TaskState::Done && !show_done {
+                continue;
+            }
+            if t.state != TaskState::Done {
+                number += 1;
+            }
+            let running = matches!(t.state, TaskState::Running | TaskState::Committing);
+            let frame = egui::Frame::none().inner_margin(egui::Margin::symmetric(4.0, 2.0)).rounding(4.0);
+            frame.fill(if running { row_fill } else { Color32::TRANSPARENT }).show(ui, |ui| ui.horizontal(|ui| {
+                // a column of its own for the state: the texts start at the same place
+                ui.allocate_ui_with_layout(egui::vec2(22.0, 18.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    ui.set_width(22.0);
+                    match t.state {
+                        TaskState::Running | TaskState::Committing => {
+                            spinner(ui);
+                        }
+                        TaskState::Done => {
+                            ui.label(RichText::new("✔").color(ok()));
+                        }
+                        TaskState::Failed => {
+                            ui.label(RichText::new("⚠").color(err())).on_hover_text(&t.note);
+                        }
+                        TaskState::Waiting => {
+                            ui.label(RichText::new(format!("{number}.")).weak());
+                        }
                     }
-                    TaskState::Done => {
-                        ui.label(RichText::new("✔").color(ok()));
-                    }
-                    TaskState::Failed => {
-                        ui.label(RichText::new("⚠").color(err())).on_hover_text(&t.note);
-                    }
-                    TaskState::Waiting => {
-                        ui.label(RichText::new(format!("{}.", k + 1)).weak());
-                    }
-                }
+                });
                 let editable = t.state == TaskState::Waiting;
-                let w = (ui.available_width() - 190.0).max(120.0);
+                // room for the buttons of the row, on the right
+                let buttons = match t.state {
+                    TaskState::Waiting => 170.0,
+                    TaskState::Failed => 110.0,
+                    TaskState::Committing => 70.0,
+                    TaskState::Running => 10.0,
+                    TaskState::Done => 30.0,
+                };
+                let w = (ui.available_width() - buttons).max(80.0);
+                let body = &t.text[intro.len()..];
                 if editable {
-                    ui.add(egui::TextEdit::multiline(&mut t.text).desired_rows(1).desired_width(w).layouter(&mut layout_cutting));
-                } else {
-                    // the whole task, on the left like the ones waiting: its first line alone is
-                    // often only the sentence before the list ("Dans florm :")
-                    let mut text = RichText::new(t.text.trim());
-                    if t.state == TaskState::Done {
-                        text = text.weak();
+                    let mut edited = body.to_string();
+                    if ui.add(egui::TextEdit::multiline(&mut edited).desired_rows(1).desired_width(w).layouter(&mut layout_cutting)).changed() {
+                        t.text = format!("{intro}{edited}");
                     }
+                } else {
                     let tip = if t.note.is_empty() { t.text.clone() } else { format!("{}\n\n{}", t.text, t.note) };
                     ui.allocate_ui_with_layout(egui::vec2(w, 18.0), egui::Layout::top_down(egui::Align::Min), |ui| {
                         ui.set_width(w);
-                        ui.add(egui::Label::new(text).wrap()).on_hover_text(tip);
+                        if t.state == TaskState::Done {
+                            // done: its first line is enough, the rest on hover
+                            let first = body.trim().lines().next().unwrap_or("");
+                            ui.add(egui::Label::new(RichText::new(first).weak()).truncate()).on_hover_text(tip);
+                        } else {
+                            ui.add(egui::Label::new(RichText::new(body.trim())).wrap()).on_hover_text(tip);
+                        }
                     });
                 }
                 if t.state == TaskState::Committing {
@@ -223,18 +271,37 @@ pub(super) fn queue_ui(ui: &mut egui::Ui, q: &mut Queue, busy: bool, accent: Col
                         }
                     });
                 }
-                if editable && k > 0 && ui.small_button("↑").on_hover_text(t!("Plus tôt", "Earlier")).clicked() {
+                // above the waiting one before it (a finished one, folded, would not show it moved)
+                if editable && k > 0 && states[k - 1] == TaskState::Waiting && ui.small_button("↑").on_hover_text(t!("Plus tôt", "Earlier")).clicked() {
                     act = Some(QueueAct::Up(k));
                 }
                 // any task can go, the one running excepted
                 if !matches!(t.state, TaskState::Running | TaskState::Committing) && ui.small_button("×").on_hover_text(t!("Retirer", "Remove")).clicked() {
                     act = Some(QueueAct::Remove(k));
                 }
-            });
+            }));
         }
     });
     ui.add_space(4.0);
     act
+}
+
+/// The lines all the tasks begin with (the sentence before the list, said with each by
+/// `split_tasks`), each task having more after them; "" with fewer than two tasks.
+fn shared_intro(tasks: &[Task]) -> String {
+    let [first, rest @ ..] = tasks else { return String::new() };
+    if rest.is_empty() {
+        return String::new();
+    }
+    let mut end = 0;
+    for (i, _) in first.text.match_indices('\n') {
+        let p = &first.text[..=i];
+        if !tasks.iter().all(|t| t.text.starts_with(p) && !t.text[p.len()..].trim().is_empty()) {
+            break;
+        }
+        end = i + 1;
+    }
+    first.text[..end].to_string()
 }
 
 fn model_label(m: usize) -> &'static str {
@@ -282,5 +349,14 @@ mod tests {
         q.model = Some(2);
         q.tasks[1].model = Some(3);
         assert_eq!((q.model_of(0), q.model_of(1)), (Some(2), Some(3)));
+        // the sentence before the list, shown once above the tasks
+        let mut q = Queue::default();
+        q.add("Dans florm :\n- a\n- b");
+        assert_eq!(shared_intro(&q.tasks), "Dans florm :\n");
+        q.add("c");
+        assert_eq!(shared_intro(&q.tasks), "");
+        let mut q = Queue::default();
+        q.add("seule tâche\navec un détail");
+        assert_eq!(shared_intro(&q.tasks), "");
     }
 }
