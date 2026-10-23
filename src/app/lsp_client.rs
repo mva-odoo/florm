@@ -44,15 +44,15 @@ impl App {
                     let Some(req) = self.lsp.requests.remove(&(ci, id)) else { continue };
                     match result {
                         Ok(v) => self.lsp_response(ci, req, v, ctx),
-                        Err(e) => self.set_status(format!("Serveur de langage : {e}")),
+                        Err(e) => self.set_status(tf!("Serveur de langage : {e}", "Language server: {e}")),
                     }
                 }
                 lsp::Incoming::ApplyEdit(edit) => {
                     let (n, files) = self.apply_workspace_edit(&edit);
-                    self.set_status(format!("Serveur de langage : {n} modification(s) dans {files} fichier(s)"));
+                    self.set_status(tf!("Serveur de langage : {n} modification(s) dans {files} fichier(s)", "Language server: {n} change(s) in {files} file(s)"));
                 }
                 lsp::Incoming::Exited(name) => {
-                    self.set_status(format!("Le serveur de langage {name} s'est arrêté (LSP : redémarrer pour réessayer)"));
+                    self.set_status(tf!("Le serveur de langage {name} s'est arrêté (LSP : redémarrer pour réessayer)", "The language server {name} stopped (LSP: restart to try again)"));
                 }
             }
         }
@@ -235,8 +235,8 @@ impl App {
         }
         match found.len() {
             0 => {
-                let more = if self.index.symbols.is_none() { " (indexation du projet en cours…)" } else { "" };
-                self.set_status(format!("Aucune définition de « {word} » trouvée dans le projet{more}"));
+                let more = if self.index.symbols.is_none() { t!(" (indexation du projet en cours…)", " (indexing the project…)") } else { "" };
+                self.set_status(tf!("Aucune définition de « {word} » trouvée dans le projet{more}", "No definition of “{word}” found in the project{more}"));
             }
             1 => {
                 let (p, e) = found.remove(0);
@@ -296,19 +296,19 @@ impl App {
                 continue;
             }
             let text = doc.rope.to_string();
-            let label = if k == self.active { "" } else { "autre fichier" };
+            let label = if k == self.active { "" } else { t!("autre fichier", "other file") };
             for m in re.find_iter(&text) {
                 push(m.as_str(), label, 1);
             }
         }
         if let Some(ix) = &self.index.symbols {
             for n in ix.names_with_prefix(&prefix, 200) {
-                push(n, "symbole du projet", 6);
+                push(n, t!("symbole du projet", "project symbol"), 6);
             }
             if prefix.chars().next().is_some_and(|c| c.is_lowercase()) {
                 let cap: String = prefix.chars().take(1).flat_map(char::to_uppercase).chain(prefix.chars().skip(1)).collect();
                 for n in ix.names_with_prefix(&cap, 100) {
-                    push(n, "symbole du projet", 7);
+                    push(n, t!("symbole du projet", "project symbol"), 7);
                 }
             }
         }
@@ -389,10 +389,10 @@ impl App {
             LspReq::Rename { name } => {
                 let (n, files) = self.apply_workspace_edit(&v);
                 if n == 0 {
-                    self.set_status("Rien à renommer ici");
+                    self.set_status(t!("Rien à renommer ici", "Nothing to rename here"));
                     return;
                 }
-                self.set_status(format!("Renommé en « {name} » : {n} endroit(s) dans {files} fichier(s) — à enregistrer (Ctrl+Alt+S : tout enregistrer)"));
+                self.set_status(tf!("Renommé en « {name} » : {n} endroit(s) dans {files} fichier(s) — à enregistrer (Ctrl+Alt+S : tout enregistrer)", "Renamed to “{name}”: {n} place(s) in {files} file(s) — to save (Ctrl+Alt+S: save all)"));
             }
             LspReq::CodeActions { uid } => self.code_actions_loaded(ci, uid, v),
             LspReq::ResolveAction => {
@@ -644,7 +644,7 @@ impl App {
                             }
                         }
                     });
-                    ui.label(RichText::new("↑ ↓ choisir · Entrée / Tab insérer · Échap fermer").small().weak());
+                    ui.label(RichText::new(t!("↑ ↓ choisir · Entrée / Tab insérer · Échap fermer", "↑ ↓ choose · Enter / Tab insert · Escape close")).small().weak());
                 });
             });
         if let Some(k) = clicked {

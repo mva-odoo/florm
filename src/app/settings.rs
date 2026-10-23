@@ -14,7 +14,7 @@ impl App {
             if self.hl.set_theme(&s.theme) {
                 self.visuals_dirty = true;
             } else {
-                self.log(format!("Thème inconnu : {}", s.theme));
+                self.log(tf!("Thème inconnu : {}", "Unknown theme: {}", s.theme));
             }
         }
         if s.editor_font != self.settings.editor_font || s.ui_font != self.settings.ui_font {
@@ -26,7 +26,7 @@ impl App {
         }
         self.settings = s;
         self.rebuild_keymap();
-        self.set_status("Préférences rechargées");
+        self.set_status(t!("Préférences rechargées", "Preferences reloaded"));
     }
 
     pub(super) fn reload_plugins(&mut self) {

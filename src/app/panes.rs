@@ -43,7 +43,7 @@ impl App {
         let pane = d.pane;
         let alone = self.docs.iter().filter(|x| x.pane == pane).count() == 1;
         if alone && !self.is_split() {
-            self.set_status("Ouvre un deuxième fichier pour diviser l'éditeur (un fichier ne peut être que dans un panneau).");
+            self.set_status(t!("Ouvre un deuxième fichier pour diviser l'éditeur (un fichier ne peut être que dans un panneau).", "Open a second file to split the editor (a file can only be in one pane)."));
             return;
         }
         if let Some(dir) = dir {
@@ -132,7 +132,12 @@ impl App {
                 None
             }
             document::View::Help => {
-                self.render_markdown(ui, "guide", include_str!("../../assets/guide.md"), "file://".into());
+                let (key, text) = if crate::i18n::en() {
+                    ("guide_en", include_str!("../../assets/guide.en.md"))
+                } else {
+                    ("guide", include_str!("../../assets/guide.md"))
+                };
+                self.render_markdown(ui, key, text, "file://".into());
                 None
             }
             document::View::Search => {
@@ -173,7 +178,7 @@ impl App {
         if self.bottom == Some(BottomTab::Search) {
             self.bottom = None;
         }
-        self.open_view_tab(document::View::Search, "Recherche".into());
+        self.open_view_tab(document::View::Search, t!("Recherche", "Search").into());
         self.search.focus = true;
     }
 
@@ -237,10 +242,10 @@ impl App {
                 }
                 if let Ok(m) = std::fs::metadata(&path) {
                     let kb = m.len() as f64 / 1024.0;
-                    ui.label(RichText::new(if kb < 1024.0 { format!("{kb:.1} Ko") } else { format!("{:.1} Mo", kb / 1024.0) }).weak());
+                    ui.label(RichText::new(if kb < 1024.0 { tf!("{kb:.1} Ko", "{kb:.1} KB") } else { tf!("{:.1} Mo", "{:.1} MB", kb / 1024.0) }).weak());
                 }
                 ui.separator();
-                if ui.selectable_label(zoom == 0.0, "Ajuster").clicked() {
+                if ui.selectable_label(zoom == 0.0, t!("Ajuster", "Fit")).clicked() {
                     zoom = 0.0;
                 }
                 for (label, z) in [("50 %", 0.5), ("100 %", 1.0), ("200 %", 2.0)] {
@@ -248,7 +253,7 @@ impl App {
                         zoom = z;
                     }
                 }
-                if ui.button("Afficher dans le gestionnaire de fichiers").clicked() {
+                if ui.button(t!("Afficher dans le gestionnaire de fichiers", "Show in the file manager")).clicked() {
                     let _ = crate::os::reveal(&path);
                 }
             });
@@ -272,7 +277,7 @@ impl App {
 
     fn markdown_view(&mut self, ui: &mut egui::Ui, src: u64) {
         let Some(d) = self.docs.iter().find(|d| d.uid == src) else {
-            ui.label(RichText::new("Le fichier Markdown de cet aperçu a été fermé.").weak());
+            ui.label(RichText::new(t!("Le fichier Markdown de cet aperçu a été fermé.", "The Markdown file of this preview was closed.")).weak());
             return;
         };
         let text = d.rope.to_string();
@@ -303,7 +308,7 @@ impl App {
         let Some(d) = self.docs.get(self.active) else { return };
         let is_md = d.syntax.contains("Markdown") || d.path.as_deref().is_some_and(|p| p.extension().is_some_and(|e| e == "md" || e == "markdown"));
         if !is_md {
-            self.set_status("L'aperçu est pour les fichiers Markdown (.md)");
+            self.set_status(t!("L'aperçu est pour les fichiers Markdown (.md)", "The preview is for Markdown files (.md)"));
             return;
         }
         let (src, title, src_pane) = (d.uid, d.title(), d.pane);
@@ -321,7 +326,7 @@ impl App {
         let mut p = Document::new(uid, self.settings.tab_size, self.settings.translate_tabs_to_spaces);
         p.view = document::View::Preview(src);
         p.read_only = true;
-        p.title_override = Some(format!("Aperçu : {title}"));
+        p.title_override = Some(tf!("Aperçu : {title}", "Preview: {title}"));
         p.pane = if side { 1 - src_pane } else { src_pane };
         self.docs.push(p);
         if side {
@@ -351,33 +356,33 @@ impl App {
             .show_inside(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
                     if conflicts.is_empty() {
-                        ui.label(RichText::new("✔ Tous les conflits de ce fichier sont résolus").color(ok()).strong());
-                        if in_repo && ui.button("Enregistrer et marquer comme résolu (git add)").clicked() {
+                        ui.label(RichText::new(t!("✔ Tous les conflits de ce fichier sont résolus", "✔ All the conflicts of this file are resolved")).color(ok()).strong());
+                        if in_repo && ui.button(t!("Enregistrer et marquer comme résolu (git add)", "Save and mark as resolved (git add)")).clicked() {
                             resolved = true;
                         }
                         return;
                     }
                     let c = &conflicts[k];
-                    ui.label(RichText::new(format!("⚠ Conflit de merge {}/{}", k + 1, conflicts.len())).color(warn()).strong());
-                    if ui.small_button("◀").on_hover_text("Conflit précédent").clicked() {
+                    ui.label(RichText::new(tf!("⚠ Conflit de merge {}/{}", "⚠ Merge conflict {}/{}", k + 1, conflicts.len())).color(warn()).strong());
+                    if ui.small_button("◀").on_hover_text(t!("Conflit précédent", "Previous conflict")).clicked() {
                         goto = Some(conflicts[(k + conflicts.len() - 1) % conflicts.len()].start);
                     }
-                    if ui.small_button("▶").on_hover_text("Conflit suivant").clicked() {
+                    if ui.small_button("▶").on_hover_text(t!("Conflit suivant", "Next conflict")).clicked() {
                         goto = Some(conflicts[(k + 1) % conflicts.len()].start);
                     }
                     ui.add_space(8.0);
-                    let mine = if c.ours.is_empty() { "Garder le mien".to_string() } else { format!("Garder le mien ({})", c.ours) };
-                    let theirs = if c.theirs.is_empty() { "Garder le leur".to_string() } else { format!("Garder le leur ({})", c.theirs) };
-                    if ui.button(RichText::new(mine).color(highlight::green())).on_hover_text("Ta version (en vert)").clicked() {
+                    let mine = if c.ours.is_empty() { t!("Garder le mien", "Keep mine").to_string() } else { tf!("Garder le mien ({})", "Keep mine ({})", c.ours) };
+                    let theirs = if c.theirs.is_empty() { t!("Garder le leur", "Keep theirs").to_string() } else { tf!("Garder le leur ({})", "Keep theirs ({})", c.theirs) };
+                    if ui.button(RichText::new(mine).color(highlight::green())).on_hover_text(t!("Ta version (en vert)", "Your version (in green)")).clicked() {
                         act = Some((c.clone(), document::Resolution::Ours));
                     }
-                    if ui.button(RichText::new(theirs).color(highlight::blue())).on_hover_text("La version qui arrive (en bleu)").clicked() {
+                    if ui.button(RichText::new(theirs).color(highlight::blue())).on_hover_text(t!("La version qui arrive (en bleu)", "The incoming version (in blue)")).clicked() {
                         act = Some((c.clone(), document::Resolution::Theirs));
                     }
-                    if ui.button("Garder les deux").on_hover_text("La tienne puis l'autre").clicked() {
+                    if ui.button(t!("Garder les deux", "Keep both")).on_hover_text(t!("La tienne puis l'autre", "Yours then the other")).clicked() {
                         act = Some((c.clone(), document::Resolution::Both));
                     }
-                    ui.label(RichText::new("(Ctrl+Z pour revenir)").weak().small());
+                    ui.label(RichText::new(t!("(Ctrl+Z pour revenir)", "(Ctrl+Z to go back)")).weak().small());
                 });
             });
         let d = &mut self.docs[i];
@@ -458,7 +463,7 @@ impl App {
                             Some(dir) => {
                                 let r = ui.menu_button(RichText::new(dname).size(11.5).color(weak), |ui| {
                                     ui.set_max_height(420.0);
-                                    if ui.button("Afficher dans l'arborescence").clicked() {
+                                    if ui.button(t!("Afficher dans l'arborescence", "Show in the tree")).clicked() {
                                         reveal = Some(dir.clone());
                                         ui.close_menu();
                                     }
@@ -495,19 +500,19 @@ impl App {
                         sep(ui);
                     }
                     let r = ui.add(egui::Label::new(RichText::new(&file).size(11.5).color(weak)).sense(Sense::click()));
-                    if r.on_hover_text("Symboles du fichier (Ctrl+R)").clicked() {
+                    if r.on_hover_text(t!("Symboles du fichier (Ctrl+R)", "Symbols of the file (Ctrl+R)")).clicked() {
                         list = true;
                     }
                     for (name, kind, l) in &chain {
                         sep(ui);
                         let text = RichText::new(format!("{} {name}", kind.icon())).size(11.5).color(accent.gamma_multiply(0.8));
-                        if ui.add(egui::Label::new(text).sense(Sense::click())).on_hover_text(format!("Aller à la ligne {}", l + 1)).clicked() {
+                        if ui.add(egui::Label::new(text).sense(Sense::click())).on_hover_text(tf!("Aller à la ligne {}", "Go to line {}", l + 1)).clicked() {
                             goto = Some(*l);
                         }
                     }
                     if is_md {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.small_button("Aperçu").on_hover_text("Aperçu Markdown à côté (Ctrl+K V)").clicked() {
+                            if ui.small_button(t!("Aperçu", "Preview")).on_hover_text(t!("Aperçu Markdown à côté (Ctrl+K V)", "Markdown preview to the side (Ctrl+K V)")).clicked() {
                                 preview = true;
                             }
                         });
@@ -574,14 +579,14 @@ impl App {
             target = Some(TabDrop::Strip(*pane, to));
         } else if let Some((pane, r)) = zones.panes.iter().find(|(_, r)| r.contains(p)) {
             if *pane != src {
-                hint(*r, "Déplacer dans ce panneau");
+                hint(*r, t!("Déplacer dans ce panneau", "Move to this pane"));
                 target = Some(TabDrop::Pane(*pane));
             } else if !split && !alone {
                 if p.x > r.left() + r.width() * 0.6 {
-                    hint(egui::Rect::from_min_max(egui::pos2(r.center().x, r.top()), r.max), "Diviser à droite");
+                    hint(egui::Rect::from_min_max(egui::pos2(r.center().x, r.top()), r.max), t!("Diviser à droite", "Split right"));
                     target = Some(TabDrop::Split(SplitDir::Right));
                 } else if p.y > r.top() + r.height() * 0.6 {
-                    hint(egui::Rect::from_min_max(egui::pos2(r.left(), r.center().y), r.max), "Diviser en bas");
+                    hint(egui::Rect::from_min_max(egui::pos2(r.left(), r.center().y), r.max), t!("Diviser en bas", "Split down"));
                     target = Some(TabDrop::Split(SplitDir::Down));
                 }
             }

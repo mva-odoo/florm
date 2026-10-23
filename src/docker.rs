@@ -221,9 +221,9 @@ struct InspectConfig {
 pub fn exec_in(name: &str, cmd: &[String]) -> Result<Exec, String> {
     let out = run(&["inspect", name])?;
     let mut info: Vec<Inspect> = serde_json::from_str(&out).map_err(|e| format!("docker inspect : {e}"))?;
-    let info = info.pop().ok_or_else(|| format!("Conteneur introuvable : {name}"))?;
+    let info = info.pop().ok_or_else(|| tf!("Conteneur introuvable : {name}", "Container not found: {name}"))?;
     if !info.state.running {
-        return Err(format!("{name} est arrêté : démarrez-le d'abord"));
+        return Err(tf!("{name} est arrêté : démarrez-le d'abord", "{name} is stopped: start it first"));
     }
     let labels = info.config.labels.unwrap_or_default();
     let mounts = info.mounts.into_iter().filter(|m| !m.source.is_empty() && !m.destination.is_empty()).map(|m| (m.destination, PathBuf::from(m.source))).collect();
@@ -331,7 +331,7 @@ pub fn follow(name: &str, unless: Option<&str>) -> Result<Option<Follow>, String
     let mut prefill = Vec::new();
     if running {
         prefill.extend_from_slice(
-            "\x1b[2m(lecture seule : pour répondre à un ipdb, ajoutez stdin_open: true et tty: true à ce service dans docker-compose.yml)\x1b[0m\r\n".as_bytes(),
+            t!("\x1b[2m(lecture seule : pour répondre à un ipdb, ajoutez stdin_open: true et tty: true à ce service dans docker-compose.yml)\x1b[0m\r\n", "\x1b[2m(read only: to answer an ipdb, add stdin_open: true and tty: true to this service in docker-compose.yml)\x1b[0m\r\n").as_bytes(),
         );
         return Ok(Some(Follow { argv: argv(&["docker", "logs", "-f", "--tail", TAIL, name]), prefill, interactive: false, key, mounts: mounts(name) }));
     }
@@ -355,7 +355,7 @@ fn run(args: &[&str]) -> Result<String, String> {
         .args(args)
         .stdin(Stdio::null())
         .output()
-        .map_err(|_| "La commande docker est introuvable".to_string())?;
+        .map_err(|_| t!("La commande docker est introuvable", "The docker command was not found").to_string())?;
     if out.status.success() {
         Ok(String::from_utf8_lossy(&out.stdout).into_owned())
     } else {

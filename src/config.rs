@@ -5,6 +5,8 @@ use std::path::PathBuf;
 #[derive(Deserialize, Clone, Debug)]
 #[serde(default)]
 pub struct Settings {
+    /// Language of the interface: "fr", "en"; empty: the system's.
+    pub language: String,
     pub font_size: f32,
     pub tab_size: usize,
     pub translate_tabs_to_spaces: bool,
@@ -101,6 +103,7 @@ impl Settings {
 impl Default for Settings {
     fn default() -> Self {
         Settings {
+            language: "fr".into(),
             font_size: 14.0,
             tab_size: 4,
             translate_tabs_to_spaces: true,
@@ -150,6 +153,8 @@ impl Default for Settings {
 }
 
 const DEFAULT_SETTINGS: &str = r#"# Préférences de Florm (enregistrer ce fichier les applique immédiatement)
+# langue de l'interface : "fr" (français), "en" (English) ; vide = celle du système
+language = "fr"
 font_size = 14.0
 tab_size = 4
 translate_tabs_to_spaces = true
@@ -287,7 +292,10 @@ pub fn load() -> (Settings, Option<String>) {
     }
     match std::fs::read_to_string(&p) {
         Ok(s) => match toml::from_str::<Settings>(&s) {
-            Ok(v) => (v, None),
+            Ok(v) => {
+                crate::i18n::set(crate::i18n::from_code(&v.language));
+                (v, None)
+            }
             Err(e) => (Settings::default(), Some(format!("settings.toml : {e}"))),
         },
         Err(_) => (Settings::default(), None),

@@ -35,7 +35,7 @@ pub fn list(ui: &mut egui::Ui, id: Id, items: &[String], current: Option<usize>)
     if opening {
         filter.clear();
     }
-    let edit = ui.add(egui::TextEdit::singleline(&mut filter).hint_text("🔍 taper pour chercher…").desired_width(f32::INFINITY));
+    let edit = ui.add(egui::TextEdit::singleline(&mut filter).hint_text(t!("🔍 taper pour chercher…", "🔍 type to search…")).desired_width(f32::INFINITY));
     if opening {
         edit.request_focus();
     }
@@ -55,7 +55,7 @@ pub fn list(ui: &mut egui::Ui, id: Id, items: &[String], current: Option<usize>)
     hi = hi.min(shown.len().saturating_sub(1));
     let mut chosen = None;
     if shown.is_empty() {
-        ui.label(RichText::new("Aucun résultat").weak());
+        ui.label(RichText::new(t!("Aucun résultat", "No result")).weak());
     }
     egui::ScrollArea::vertical().id_salt(state.with("scroll")).max_height(340.0).auto_shrink([false, true]).show(ui, |ui| {
         for (k, &i) in shown.iter().enumerate().take(500) {

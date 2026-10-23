@@ -217,7 +217,7 @@ pub fn show(
                 ui.add(egui::Label::new(name).sense(Sense::click()))
             })
             .inner;
-        let r = r.on_hover_cursor(CursorIcon::PointingHand).on_hover_text("Changer de projet (Ctrl+Alt+P)");
+        let r = r.on_hover_cursor(CursorIcon::PointingHand).on_hover_text(t!("Changer de projet (Ctrl+Alt+P)", "Switch project (Ctrl+Alt+P)"));
         let popup = Id::new("project_menu");
         if r.clicked() {
             ui.memory_mut(|m| m.toggle_popup(popup));
@@ -225,7 +225,7 @@ pub fn show(
         // clicks in its filter field must not close it
         let shown = egui::popup_below_widget(ui, popup, &r, egui::PopupCloseBehavior::CloseOnClickOutside, |ui| {
             ui.set_min_width(260.0);
-            ui.label(RichText::new("Projets").small().weak());
+            ui.label(RichText::new(t!("Projets", "Projects")).small().weak());
             let names: Vec<String> = projects.iter().map(|(n, _)| n.clone()).collect();
             let current = projects.iter().position(|(_, p)| *p == root.path);
             if let Some(k) = crate::pick::list(ui, popup, &names, current) {
@@ -235,7 +235,7 @@ pub fn show(
                 ui.memory_mut(|m| m.close_popup());
             }
             ui.separator();
-            if ui.button("Ouvrir un dossier…").clicked() {
+            if ui.button(t!("Ouvrir un dossier…", "Open a folder…")).clicked() {
                 act = Some(TreeAction::OpenFolder);
                 ui.memory_mut(|m| m.close_popup());
             }
@@ -267,7 +267,7 @@ pub fn show(
     if let Some(p) = DragAndDrop::payload::<PathBuf>(ui.ctx()) {
         ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
         let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        egui::show_tooltip_at_pointer(ui.ctx(), ui.layer_id(), Id::new("florm_dnd"), |ui| ui.label(format!("Déplacer {name}")));
+        egui::show_tooltip_at_pointer(ui.ctx(), ui.layer_id(), Id::new("florm_dnd"), |ui| ui.label(tf!("Déplacer {name}", "Move {name}")));
     }
     act
 }
@@ -390,7 +390,7 @@ fn node_ui(
             *act = Some(TreeAction::Open(node.path.clone()));
         }
     }
-    let note = if excluded { "\n\nExclu de l'index : ni dans Ctrl+P, ni dans F12, ni dans la recherche" } else { "" };
+    let note = if excluded { t!("\n\nExclu de l'index : ni dans Ctrl+P, ni dans F12, ni dans la recherche", "\n\nExcluded from the index: not in Ctrl+P, F12 or the search") } else { "" };
     let r = match repo {
         Some((_, tip)) => r.on_hover_text_at_pointer(format!("{}{note}\n\n{tip}", node.path.display())),
         None => r.on_hover_text_at_pointer(format!("{}{note}", node.path.display())),
@@ -495,45 +495,45 @@ fn menu(ui: &mut Ui, path: &Path, is_dir: bool, excluded: Option<bool>, act: &mu
         *act = Some(a);
         ui.close_menu();
     };
-    if ui.button("Nouveau fichier…").clicked() {
+    if ui.button(t!("Nouveau fichier…", "New file…")).clicked() {
         pick(TreeAction::NewFile(dir.clone()), ui);
     }
-    if ui.button("Nouveau dossier…").clicked() {
+    if ui.button(t!("Nouveau dossier…", "New folder…")).clicked() {
         pick(TreeAction::NewFolder(dir.clone()), ui);
     }
     ui.separator();
-    if ui.button("Renommer…").clicked() {
+    if ui.button(t!("Renommer…", "Rename…")).clicked() {
         pick(TreeAction::Rename(path.to_path_buf()), ui);
     }
-    if ui.button("Supprimer").clicked() {
+    if ui.button(t!("Supprimer", "Delete")).clicked() {
         pick(TreeAction::Delete(path.to_path_buf()), ui);
     }
     ui.separator();
-    if ui.button("✳ Ajouter au contexte de Claude").clicked() {
+    if ui.button(t!("✳ Ajouter au contexte de Claude", "✳ Add to Claude's context")).clicked() {
         pick(TreeAction::Claude(path.to_path_buf()), ui);
     }
-    if ui.button("Copier le chemin").clicked() {
+    if ui.button(t!("Copier le chemin", "Copy the path")).clicked() {
         pick(TreeAction::CopyPath(path.to_path_buf()), ui);
     }
-    if ui.button("Afficher dans le gestionnaire de fichiers").clicked() {
+    if ui.button(t!("Afficher dans le gestionnaire de fichiers", "Show in the file manager")).clicked() {
         pick(TreeAction::Reveal(path.to_path_buf()), ui);
     }
-    if ui.button("Ouvrir dans le terminal").clicked() {
+    if ui.button(t!("Ouvrir dans le terminal", "Open in the terminal")).clicked() {
         pick(TreeAction::Terminal(dir.clone()), ui);
     }
-    if ui.button("Rafraîchir").clicked() {
+    if ui.button(t!("Rafraîchir", "Refresh")).clicked() {
         pick(TreeAction::Refresh, ui);
     }
     match excluded {
         Some(false) => {
             ui.separator();
-            if ui.button("Exclure de l'index").on_hover_text("Plus dans Ctrl+P, F12 et la complétion, ni dans la recherche (Préférences → Avancé → Fichiers exclus)").clicked() {
+            if ui.button(t!("Exclure de l'index", "Exclude from the index")).on_hover_text(t!("Plus dans Ctrl+P, F12 et la complétion, ni dans la recherche (Préférences → Avancé → Fichiers exclus)", "No longer in Ctrl+P, F12 and completion, nor in the search (Preferences → Advanced → Excluded files)")).clicked() {
                 pick(TreeAction::Exclude(path.to_path_buf(), true), ui);
             }
         }
         Some(true) => {
             ui.separator();
-            if ui.button("Remettre dans l'index").clicked() {
+            if ui.button(t!("Remettre dans l'index", "Put back in the index")).clicked() {
                 pick(TreeAction::Exclude(path.to_path_buf(), false), ui);
             }
         }

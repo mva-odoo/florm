@@ -23,7 +23,7 @@ fn exec(dir: &Path, args: &[&str]) -> Result<(String, String), String> {
         .stdin(Stdio::null())
         .env("GIT_TERMINAL_PROMPT", "0")
         .output()
-        .map_err(|e| format!("git introuvable : {e}"))?;
+        .map_err(|e| tf!("git introuvable : {e}", "git not found: {e}"))?;
     let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
     if out.status.success() {
@@ -49,7 +49,7 @@ pub fn run_with(dir: &Path, args: &[&str], env: &[(&str, &str)], input: Option<&
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("git introuvable : {e}"))?;
+        .map_err(|e| tf!("git introuvable : {e}", "git not found: {e}"))?;
     if let (Some(mut stdin), Some(text)) = (child.stdin.take(), input) {
         let text = text.to_string();
         std::thread::spawn(move || {
@@ -313,7 +313,7 @@ pub fn stashes(root: &Path) -> Vec<Stash> {
 /// `git stash <verb>` (apply, pop, drop) on the stash of commit `hash`, by its name of now: the
 /// names shift when a stash comes or goes.
 pub fn stash_op(root: &Path, verb: &str, hash: &str) -> Result<String, String> {
-    let name = stashes(root).into_iter().find(|s| s.hash == hash).map(|s| s.name).ok_or("ce stash n'existe plus")?;
+    let name = stashes(root).into_iter().find(|s| s.hash == hash).map(|s| s.name).ok_or(t!("ce stash n'existe plus", "this stash no longer exists"))?;
     let mut args = vec!["stash", verb];
     if verb != "drop" {
         // the index as it was too, when it can be
@@ -363,8 +363,8 @@ impl Blame {
 
 /// Blame of one line (1-based) of the buffer content (unsaved changes included).
 pub fn blame_line(file: &Path, line: usize, contents: &str) -> Result<Blame, String> {
-    let dir = file.parent().ok_or("chemin invalide")?;
-    let name = file.file_name().and_then(|n| n.to_str()).ok_or("chemin invalide")?;
+    let dir = file.parent().ok_or(t!("chemin invalide", "invalid path"))?;
+    let name = file.file_name().and_then(|n| n.to_str()).ok_or(t!("chemin invalide", "invalid path"))?;
     let range = format!("{line},{line}");
     let mut child = git(dir)
         .args(["blame", "--porcelain", "-L", &range, "--contents", "-", "--", name])
@@ -411,8 +411,8 @@ pub struct LineCommit {
 
 /// Every commit that touched line `line` (1-based, in HEAD), newest first, with its diff.
 pub fn line_history(file: &Path, line: usize) -> Result<Vec<LineCommit>, String> {
-    let dir = file.parent().ok_or("chemin invalide")?;
-    let name = file.file_name().and_then(|n| n.to_str()).ok_or("chemin invalide")?;
+    let dir = file.parent().ok_or(t!("chemin invalide", "invalid path"))?;
+    let name = file.file_name().and_then(|n| n.to_str()).ok_or(t!("chemin invalide", "invalid path"))?;
     let range = format!("{line},{line}:{name}");
     let out = stdout(
         dir,
@@ -434,14 +434,24 @@ pub fn line_history(file: &Path, line: usize) -> Result<Vec<LineCommit>, String>
 pub fn ago(t: i64) -> String {
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(t);
     let d = (now - t).max(0);
-    let plural = |n: i64, unit: &str| format!("il y a {n} {unit}{}", if n > 1 && !unit.ends_with('s') { "s" } else { "" });
+    let plural = |n: i64, unit: &str| {
+        let s = if n > 1 && !unit.ends_with('s') { "s" } else { "" };
+        tf!("il y a {n} {unit}{s}", "{n} {unit}{s} ago")
+    };
     match d {
-        0..=59 => "à l'instant".into(),
-        60..=3599 => format!("il y a {} min", d / 60),
-        3600..=86_399 => plural(d / 3600, "heure"),
-        86_400..=2_591_999 => plural(d / 86_400, "jour"),
-        2_592_000..=31_535_999 => format!("il y a {} mois", d / 2_592_000),
-        _ => plural(d / 31_536_000, "an"),
+        0..=59 => t!("à l'instant", "just now").into(),
+        60..=3599 => tf!("il y a {} min", "{} min ago", d / 60),
+        3600..=86_399 => plural(d / 3600, t!("heure", "hour")),
+        86_400..=2_591_999 => plural(d / 86_400, t!("jour", "day")),
+        2_592_000..=31_535_999 => {
+            let n = d / 2_592_000;
+            if crate::i18n::en() {
+                format!("{n} month{} ago", if n > 1 { "s" } else { "" })
+            } else {
+                format!("il y a {n} mois")
+            }
+        }
+        _ => plural(d / 31_536_000, t!("an", "year")),
     }
 }
 

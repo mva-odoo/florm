@@ -51,11 +51,11 @@ pub fn check() -> Result<Option<Update>, String> {
         .args(["-fsSL", "--max-time", "20", "-H", "Accept: application/vnd.github+json", RELEASES])
         .stdin(Stdio::null())
         .output()
-        .map_err(|_| "curl est introuvable : impossible de chercher une mise à jour".to_string())?;
+        .map_err(|_| t!("curl est introuvable : impossible de chercher une mise à jour", "curl was not found: cannot check for an update").to_string())?;
     if !out.status.success() {
-        return Err(format!("Recherche de mise à jour impossible : {}", String::from_utf8_lossy(&out.stderr).trim()));
+        return Err(tf!("Recherche de mise à jour impossible : {}", "Cannot check for an update: {}", String::from_utf8_lossy(&out.stderr).trim()));
     }
-    let releases: Vec<Release> = serde_json::from_slice(&out.stdout).map_err(|e| format!("Réponse de GitHub illisible : {e}"))?;
+    let releases: Vec<Release> = serde_json::from_slice(&out.stdout).map_err(|e| tf!("Réponse de GitHub illisible : {e}", "Unreadable answer from GitHub: {e}"))?;
     Ok(newest(releases, current(), &file_kind()))
 }
 
@@ -117,10 +117,10 @@ fn linux_kind(os_release: &str) -> &'static str {
 /// start for the restart (the path of the running one, read before it is replaced: on Linux the
 /// running program then reads as "… (deleted)").
 pub fn install(u: &Update) -> Result<PathBuf, String> {
-    let exe = std::env::current_exe().map_err(|e| format!("Emplacement de Florm inconnu : {e}"))?;
+    let exe = std::env::current_exe().map_err(|e| tf!("Emplacement de Florm inconnu : {e}", "Unknown location of Florm: {e}"))?;
     let exe = crate::os::canon(&exe);
     if exe.components().any(|c| c.as_os_str() == "target") {
-        return Err("Florm est lancé depuis ses sources (dossier target) : mettez-le à jour avec git pull et cargo build".into());
+        return Err(t!("Florm est lancé depuis ses sources (dossier target) : mettez-le à jour avec git pull et cargo build", "Florm runs from its sources (target folder): update it with git pull and cargo build").into());
     }
     let dir = std::env::temp_dir().join(format!("florm-update-{}", u.version));
     let _ = std::fs::remove_dir_all(&dir);
@@ -160,28 +160,28 @@ fn install_from(u: &Update, exe: &Path, dir: &Path) -> Result<(), String> {
             return as_root(args);
         }
     }
-    let (name, url) = u.assets.iter().find(|(name, _)| name.ends_with("-linux-x86_64")).ok_or("Pas de binaire Linux dans cette version")?;
+    let (name, url) = u.assets.iter().find(|(name, _)| name.ends_with("-linux-x86_64")).ok_or(t!("Pas de binaire Linux dans cette version", "No Linux binary in this version"))?;
     let file = download(u, name, url, dir)?;
     set_executable(&file)?;
     match replace(&file, exe) {
         Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
             as_root(&["install", "-m755", &file.to_string_lossy(), &exe.to_string_lossy()])
         }
-        r => r.map_err(|e| format!("Remplacement de {} impossible : {e}", exe.display())),
+        r => r.map_err(|e| tf!("Remplacement de {} impossible : {e}", "Cannot replace {}: {e}", exe.display())),
     }
 }
 
 #[cfg(windows)]
 fn install_from(u: &Update, exe: &Path, dir: &Path) -> Result<(), String> {
-    let (name, url) = u.file.as_ref().ok_or("Pas de fichier Windows dans cette version")?;
+    let (name, url) = u.file.as_ref().ok_or(t!("Pas de fichier Windows dans cette version", "No Windows file in this version"))?;
     let file = download(u, name, url, dir)?;
     // a running .exe can't be overwritten, but it can be renamed
     let old = old_exe(exe);
     let _ = std::fs::remove_file(&old);
-    std::fs::rename(exe, &old).map_err(|e| format!("Remplacement de {} impossible : {e}", exe.display()))?;
+    std::fs::rename(exe, &old).map_err(|e| tf!("Remplacement de {} impossible : {e}", "Cannot replace {}: {e}", exe.display()))?;
     if let Err(e) = std::fs::copy(&file, exe) {
         let _ = std::fs::rename(&old, exe);
-        return Err(format!("Remplacement de {} impossible : {e}", exe.display()));
+        return Err(tf!("Remplacement de {} impossible : {e}", "Cannot replace {}: {e}", exe.display()));
     }
     Ok(())
 }
@@ -189,9 +189,9 @@ fn install_from(u: &Update, exe: &Path, dir: &Path) -> Result<(), String> {
 #[cfg(target_os = "macos")]
 fn install_from(u: &Update, exe: &Path, dir: &Path) -> Result<(), String> {
     // exe: …/Florm.app/Contents/MacOS/florm
-    let app = exe.ancestors().nth(3).filter(|a| a.extension().is_some_and(|e| e == "app")).ok_or("Florm n'est pas dans une application .app")?;
-    let parent = app.parent().ok_or("Dossier de Florm.app inconnu")?;
-    let (name, url) = u.file.as_ref().ok_or("Pas de fichier macOS dans cette version")?;
+    let app = exe.ancestors().nth(3).filter(|a| a.extension().is_some_and(|e| e == "app")).ok_or(t!("Florm n'est pas dans une application .app", "Florm is not in a .app application"))?;
+    let parent = app.parent().ok_or(t!("Dossier de Florm.app inconnu", "Unknown folder of Florm.app"))?;
+    let (name, url) = u.file.as_ref().ok_or(t!("Pas de fichier macOS dans cette version", "No macOS file in this version"))?;
     let dmg = download(u, name, url, dir)?;
     let mount = dir.join("mnt");
     run(crate::os::command("hdiutil").args(["attach", "-nobrowse", "-readonly", "-mountpoint"]).arg(&mount).arg(&dmg), "hdiutil attach")?;
@@ -209,12 +209,12 @@ fn install_from(u: &Update, exe: &Path, dir: &Path) -> Result<(), String> {
     });
     let _ = std::fs::remove_dir_all(&new);
     let _ = std::fs::remove_dir_all(&old);
-    moved.map_err(|e| format!("Remplacement de {} impossible : {e}", app.display()))
+    moved.map_err(|e| tf!("Remplacement de {} impossible : {e}", "Cannot replace {}: {e}", app.display()))
 }
 
 #[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
 fn install_from(_u: &Update, _exe: &Path, _dir: &Path) -> Result<(), String> {
-    Err("Mise à jour intégrée non disponible sur ce système".into())
+    Err(t!("Mise à jour intégrée non disponible sur ce système", "Built-in update not available on this system").into())
 }
 
 /// Downloads a file of the release into `dir` and checks it against the release's SHA256SUMS.
@@ -223,17 +223,17 @@ fn download(u: &Update, name: &str, url: &str, dir: &Path) -> Result<PathBuf, St
         .assets
         .iter()
         .find(|(n, _)| n == "SHA256SUMS")
-        .ok_or("Cette version n'a pas de SHA256SUMS : le fichier ne peut pas être vérifié")?;
+        .ok_or(t!("Cette version n'a pas de SHA256SUMS : le fichier ne peut pas être vérifié", "This version has no SHA256SUMS: the file cannot be checked"))?;
     let sums = dir.join("SHA256SUMS");
     curl(sums_url, &sums)?;
     let sums = std::fs::read_to_string(&sums).map_err(|e| format!("SHA256SUMS : {e}"))?;
-    let expected = expected_sum(&sums, name).ok_or_else(|| format!("{name} n'est pas dans SHA256SUMS"))?;
+    let expected = expected_sum(&sums, name).ok_or_else(|| tf!("{name} n'est pas dans SHA256SUMS", "{name} is not in SHA256SUMS"))?;
     let file = dir.join(name);
     curl(url, &file)?;
     let bytes = std::fs::read(&file).map_err(|e| format!("{}: {e}", file.display()))?;
     let actual = format!("{:x}", Sha256::digest(&bytes));
     if !actual.eq_ignore_ascii_case(&expected) {
-        return Err(format!("{name} est corrompu (somme SHA-256 différente de SHA256SUMS)"));
+        return Err(tf!("{name} est corrompu (somme SHA-256 différente de SHA256SUMS)", "{name} is corrupt (SHA-256 sum different from SHA256SUMS)"));
     }
     Ok(file)
 }
@@ -256,7 +256,7 @@ fn run(c: &mut std::process::Command, what: &str) -> Result<(), String> {
     if out.status.success() {
         Ok(())
     } else {
-        Err(format!("{what} a échoué : {}", String::from_utf8_lossy(&out.stderr).trim()))
+        Err(tf!("{what} a échoué : {}", "{what} failed: {}", String::from_utf8_lossy(&out.stderr).trim()))
     }
 }
 
@@ -267,12 +267,12 @@ fn as_root(args: &[&str]) -> Result<(), String> {
         .args(args)
         .stdin(Stdio::null())
         .output()
-        .map_err(|_| "pkexec est introuvable : impossible d'obtenir les droits pour installer".to_string())?;
+        .map_err(|_| t!("pkexec est introuvable : impossible d'obtenir les droits pour installer", "pkexec was not found: cannot get the rights to install").to_string())?;
     match out.status.code() {
         Some(0) => Ok(()),
-        Some(126) => Err("Mise à jour annulée (mot de passe non donné)".into()),
-        Some(127) => Err("Droits refusés par pkexec (pas d'agent polkit pour demander le mot de passe ?)".into()),
-        _ => Err(format!("{} a échoué : {}", args[0], String::from_utf8_lossy(&out.stderr).trim())),
+        Some(126) => Err(t!("Mise à jour annulée (mot de passe non donné)", "Update cancelled (password not given)").into()),
+        Some(127) => Err(t!("Droits refusés par pkexec (pas d'agent polkit pour demander le mot de passe ?)", "Rights refused by pkexec (no polkit agent to ask for the password?)").into()),
+        _ => Err(tf!("{} a échoué : {}", "{} failed: {}", args[0], String::from_utf8_lossy(&out.stderr).trim())),
     }
 }
 

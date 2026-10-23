@@ -41,95 +41,95 @@ impl App {
                 ui.close_menu();
             }
         };
-        ui.menu_button("Fichier", |ui| {
-            item(ui, "Nouveau fichier", Cmd::NewFile);
-            item(ui, "Ouvrir un fichier…", Cmd::OpenFile);
-            item(ui, "Ouvrir un dossier…", Cmd::OpenFolder);
-            item(ui, "Changer de projet…", Cmd::SwitchProject);
-            item(ui, "Fermer le dossier", Cmd::CloseFolder);
-            item(ui, "Rouvrir l'onglet fermé", Cmd::ReopenClosed);
+        ui.menu_button(t!("Fichier", "File"), |ui| {
+            item(ui, t!("Nouveau fichier", "New file"), Cmd::NewFile);
+            item(ui, t!("Ouvrir un fichier…", "Open a file…"), Cmd::OpenFile);
+            item(ui, t!("Ouvrir un dossier…", "Open a folder…"), Cmd::OpenFolder);
+            item(ui, t!("Changer de projet…", "Switch project…"), Cmd::SwitchProject);
+            item(ui, t!("Fermer le dossier", "Close the folder"), Cmd::CloseFolder);
+            item(ui, t!("Rouvrir l'onglet fermé", "Reopen closed tab"), Cmd::ReopenClosed);
             ui.separator();
-            item(ui, "Enregistrer", Cmd::Save);
-            item(ui, "Enregistrer sous…", Cmd::SaveAs);
-            item(ui, "Tout enregistrer", Cmd::SaveAll);
+            item(ui, t!("Enregistrer", "Save"), Cmd::Save);
+            item(ui, t!("Enregistrer sous…", "Save as…"), Cmd::SaveAs);
+            item(ui, t!("Tout enregistrer", "Save all"), Cmd::SaveAll);
             ui.separator();
-            item(ui, "Fermer l'onglet", Cmd::CloseTab);
-            item(ui, "Préférences", Cmd::OpenSettings);
-            item(ui, "Ouvrir settings.toml", Cmd::OpenSettingsFile);
-            item(ui, "Quitter", Cmd::Quit);
+            item(ui, t!("Fermer l'onglet", "Close tab"), Cmd::CloseTab);
+            item(ui, t!("Préférences", "Preferences"), Cmd::OpenSettings);
+            item(ui, t!("Ouvrir settings.toml", "Open settings.toml"), Cmd::OpenSettingsFile);
+            item(ui, t!("Quitter", "Quit"), Cmd::Quit);
         });
-        ui.menu_button("Édition", |ui| {
-            item(ui, "Annuler", Cmd::Undo);
-            item(ui, "Rétablir", Cmd::Redo);
+        ui.menu_button(t!("Édition", "Edit"), |ui| {
+            item(ui, t!("Annuler", "Undo"), Cmd::Undo);
+            item(ui, t!("Rétablir", "Redo"), Cmd::Redo);
             ui.separator();
-            item(ui, "Dupliquer la ligne", Cmd::DuplicateLine);
-            item(ui, "Supprimer la ligne", Cmd::DeleteLine);
-            item(ui, "Monter la ligne", Cmd::MoveLineUp);
-            item(ui, "Descendre la ligne", Cmd::MoveLineDown);
-            item(ui, "Joindre les lignes", Cmd::JoinLines);
-            item(ui, "Commenter / décommenter", Cmd::ToggleComment);
-            item(ui, "Indenter", Cmd::Indent);
-            item(ui, "Désindenter", Cmd::Unindent);
-            item(ui, "Trier les lignes", Cmd::SortLines);
-            item(ui, "MAJUSCULES", Cmd::UpperCase);
-            item(ui, "minuscules", Cmd::LowerCase);
+            item(ui, t!("Dupliquer la ligne", "Duplicate line"), Cmd::DuplicateLine);
+            item(ui, t!("Supprimer la ligne", "Delete line"), Cmd::DeleteLine);
+            item(ui, t!("Monter la ligne", "Move line up"), Cmd::MoveLineUp);
+            item(ui, t!("Descendre la ligne", "Move line down"), Cmd::MoveLineDown);
+            item(ui, t!("Joindre les lignes", "Join lines"), Cmd::JoinLines);
+            item(ui, t!("Commenter / décommenter", "Comment / uncomment"), Cmd::ToggleComment);
+            item(ui, t!("Indenter", "Indent"), Cmd::Indent);
+            item(ui, t!("Désindenter", "Unindent"), Cmd::Unindent);
+            item(ui, t!("Trier les lignes", "Sort lines"), Cmd::SortLines);
+            item(ui, t!("MAJUSCULES", "UPPERCASE"), Cmd::UpperCase);
+            item(ui, t!("minuscules", "lowercase"), Cmd::LowerCase);
         });
-        ui.menu_button("Sélection", |ui| {
-            item(ui, "Tout sélectionner", Cmd::SelectAll);
-            item(ui, "Sélectionner la ligne", Cmd::SelectLine);
-            item(ui, "Ajouter l'occurrence suivante", Cmd::SelectNext);
-            item(ui, "Toutes les occurrences", Cmd::SelectAllOccurrences);
-            item(ui, "Diviser en lignes", Cmd::SplitLines);
-            item(ui, "Curseur au-dessus", Cmd::AddCursorAbove);
-            item(ui, "Curseur en dessous", Cmd::AddCursorBelow);
-            item(ui, "Crochet correspondant", Cmd::GotoBracket);
+        ui.menu_button(t!("Sélection", "Selection"), |ui| {
+            item(ui, t!("Tout sélectionner", "Select all"), Cmd::SelectAll);
+            item(ui, t!("Sélectionner la ligne", "Select line"), Cmd::SelectLine);
+            item(ui, t!("Ajouter l'occurrence suivante", "Add next occurrence"), Cmd::SelectNext);
+            item(ui, t!("Toutes les occurrences", "All occurrences"), Cmd::SelectAllOccurrences);
+            item(ui, t!("Diviser en lignes", "Split into lines"), Cmd::SplitLines);
+            item(ui, t!("Curseur au-dessus", "Cursor above"), Cmd::AddCursorAbove);
+            item(ui, t!("Curseur en dessous", "Cursor below"), Cmd::AddCursorBelow);
+            item(ui, t!("Crochet correspondant", "Matching bracket"), Cmd::GotoBracket);
         });
-        ui.menu_button("Rechercher", |ui| {
-            item(ui, "Rechercher…", Cmd::Find);
-            item(ui, "Remplacer…", Cmd::Replace);
-            item(ui, "Suivant", Cmd::FindNext);
-            item(ui, "Rechercher dans le dossier…", Cmd::FindInFiles);
-            item(ui, "Résultat global suivant", Cmd::NextResult);
-            item(ui, "Précédent", Cmd::FindPrev);
+        ui.menu_button(t!("Rechercher", "Find"), |ui| {
+            item(ui, t!("Rechercher…", "Find…"), Cmd::Find);
+            item(ui, t!("Remplacer…", "Replace…"), Cmd::Replace);
+            item(ui, t!("Suivant", "Next"), Cmd::FindNext);
+            item(ui, t!("Rechercher dans le dossier…", "Find in folder…"), Cmd::FindInFiles);
+            item(ui, t!("Résultat global suivant", "Next global result"), Cmd::NextResult);
+            item(ui, t!("Précédent", "Previous"), Cmd::FindPrev);
             ui.separator();
-            item(ui, "Aller au fichier…", Cmd::QuickOpen);
-            item(ui, "Aller à la ligne…", Cmd::GotoLine);
+            item(ui, t!("Aller au fichier…", "Go to file…"), Cmd::QuickOpen);
+            item(ui, t!("Aller à la ligne…", "Go to line…"), Cmd::GotoLine);
         });
-        ui.menu_button("Affichage", |ui| {
-            item(ui, "Palette de commandes", Cmd::CommandPalette);
-            item(ui, "Barre latérale", Cmd::ToggleSidebar);
+        ui.menu_button(t!("Affichage", "View"), |ui| {
+            item(ui, t!("Palette de commandes", "Command palette"), Cmd::CommandPalette);
+            item(ui, t!("Barre latérale", "Sidebar"), Cmd::ToggleSidebar);
             item(ui, "Terminal", Cmd::ToggleTerminal);
-            item(ui, "Problèmes", Cmd::ShowProblems);
-            item(ui, "Sortie", Cmd::ShowOutput);
+            item(ui, t!("Problèmes", "Problems"), Cmd::ShowProblems);
+            item(ui, t!("Sortie", "Output"), Cmd::ShowOutput);
             item(ui, "Minimap", Cmd::ToggleMinimap);
-            item(ui, "Retour à la ligne automatique", Cmd::ToggleWordWrap);
-            item(ui, "Barre de menus", Cmd::ToggleMenuBar);
+            item(ui, t!("Retour à la ligne automatique", "Word wrap"), Cmd::ToggleWordWrap);
+            item(ui, t!("Barre de menus", "Menu bar"), Cmd::ToggleMenuBar);
             ui.separator();
-            item(ui, "Syntaxe…", Cmd::SetSyntax);
-            item(ui, "Thème…", Cmd::SelectTheme);
-            item(ui, "Zoom avant", Cmd::ZoomIn);
-            item(ui, "Zoom arrière", Cmd::ZoomOut);
+            item(ui, t!("Syntaxe…", "Syntax…"), Cmd::SetSyntax);
+            item(ui, t!("Thème…", "Theme…"), Cmd::SelectTheme);
+            item(ui, t!("Zoom avant", "Zoom in"), Cmd::ZoomIn);
+            item(ui, t!("Zoom arrière", "Zoom out"), Cmd::ZoomOut);
         });
         ui.menu_button("Git", |ui| {
-            item(ui, "Panneau Git", Cmd::ShowGit);
+            item(ui, t!("Panneau Git", "Git panel"), Cmd::ShowGit);
             item(ui, "Commit…", Cmd::GitCommit);
-            item(ui, "Revue IA des changements", Cmd::GitAiReview);
+            item(ui, t!("Revue IA des changements", "AI review of the changes"), Cmd::GitAiReview);
             item(ui, "Pull", Cmd::GitPull);
             item(ui, "Push", Cmd::GitPush);
             item(ui, "Fetch", Cmd::GitFetch);
             ui.separator();
-            item(ui, "Changer de branche…", Cmd::GitCheckout);
-            item(ui, "Nouvelle branche…", Cmd::GitNewBranch);
-            item(ui, "Diff du fichier", Cmd::GitDiffFile);
-            item(ui, "Historique (graphe)", Cmd::GitHistory);
-            item(ui, "Pull requests GitHub", Cmd::PullRequests);
-            item(ui, "Créer une pull request…", Cmd::CreatePr);
-            item(ui, "Diff dans l'éditeur (vert / rouge)", Cmd::ToggleInlineDiff);
-            item(ui, "Blame de la ligne", Cmd::GitBlame);
-            item(ui, "Historique de la ligne", Cmd::GitLineHistory);
+            item(ui, t!("Changer de branche…", "Switch branch…"), Cmd::GitCheckout);
+            item(ui, t!("Nouvelle branche…", "New branch…"), Cmd::GitNewBranch);
+            item(ui, t!("Diff du fichier", "Diff of the file"), Cmd::GitDiffFile);
+            item(ui, t!("Historique (graphe)", "History (graph)"), Cmd::GitHistory);
+            item(ui, t!("Pull requests GitHub", "GitHub pull requests"), Cmd::PullRequests);
+            item(ui, t!("Créer une pull request…", "Create a pull request…"), Cmd::CreatePr);
+            item(ui, t!("Diff dans l'éditeur (vert / rouge)", "Diff in the editor (green / red)"), Cmd::ToggleInlineDiff);
+            item(ui, t!("Blame de la ligne", "Line blame"), Cmd::GitBlame);
+            item(ui, t!("Historique de la ligne", "Line history"), Cmd::GitLineHistory);
         });
-        ui.menu_button("Outils", |ui| {
-            item(ui, "Linter le fichier", Cmd::Lint);
+        ui.menu_button(t!("Outils", "Tools"), |ui| {
+            item(ui, t!("Linter le fichier", "Lint the file"), Cmd::Lint);
             ui.separator();
             for (k, &(pi, ci)) in plugin_cmds.iter().enumerate() {
                 item(ui, &plugins[pi].commands[ci].title, Cmd::Plugin(k));
@@ -139,23 +139,23 @@ impl App {
             }
             item(ui, "✳ Claude", Cmd::Claude);
             if crate::docker::available() {
-                item(ui, "Docker (conteneurs et logs)", Cmd::Docker);
+                item(ui, t!("Docker (conteneurs et logs)", "Docker (containers and logs)"), Cmd::Docker);
             }
             ui.separator();
-            item(ui, "Insérer un modèle…", Cmd::InsertTemplate);
-            item(ui, "Nouveau modèle…", Cmd::NewTemplate);
-            item(ui, "Dossier des modèles", Cmd::OpenTemplatesFolder);
+            item(ui, t!("Insérer un modèle…", "Insert a template…"), Cmd::InsertTemplate);
+            item(ui, t!("Nouveau modèle…", "New template…"), Cmd::NewTemplate);
+            item(ui, t!("Dossier des modèles", "Templates folder"), Cmd::OpenTemplatesFolder);
             ui.separator();
-            item(ui, "Recharger les plugins", Cmd::ReloadPlugins);
-            item(ui, "Dossier des plugins", Cmd::OpenPluginsFolder);
+            item(ui, t!("Recharger les plugins", "Reload plugins"), Cmd::ReloadPlugins);
+            item(ui, t!("Dossier des plugins", "Plugins folder"), Cmd::OpenPluginsFolder);
         });
-        ui.menu_button("Aide", |ui| {
-            item(ui, "Guide de Florm (recherche, Git, terminal, modèles…)", Cmd::ShowGuide);
-            item(ui, "Accueil", Cmd::ShowWelcome);
-            item(ui, "Palette de commandes", Cmd::CommandPalette);
-            item(ui, "Raccourcis et préférences", Cmd::OpenSettings);
+        ui.menu_button(t!("Aide", "Help"), |ui| {
+            item(ui, t!("Guide de Florm (recherche, Git, terminal, modèles…)", "Florm guide (search, Git, terminal, templates…)"), Cmd::ShowGuide);
+            item(ui, t!("Accueil", "Welcome"), Cmd::ShowWelcome);
+            item(ui, t!("Palette de commandes", "Command palette"), Cmd::CommandPalette);
+            item(ui, t!("Raccourcis et préférences", "Shortcuts and preferences"), Cmd::OpenSettings);
             ui.separator();
-            item(ui, "Rechercher une mise à jour", Cmd::CheckUpdate);
+            item(ui, t!("Rechercher une mise à jour", "Check for an update"), Cmd::CheckUpdate);
         });
     }
 
@@ -204,7 +204,7 @@ impl App {
                             let (icon, title) = doc_tab(d);
                             let (body, closed) = tab_widget(ui, &title, icon, d.is_dirty(), active, tint, &tc);
                             if tint.is_some() && !error {
-                                let tip = if self.claude_tab_tint(d.uid) == Some(ok()) { "Claude a fini" } else { "Claude travaille…" };
+                                let tip = if self.claude_tab_tint(d.uid) == Some(ok()) { t!("Claude a fini", "Claude is done") } else { t!("Claude travaille…", "Claude is working…") };
                                 let _ = body.clone().on_hover_text(tip);
                             }
                             strip.1.push((body.rect, i));
@@ -229,7 +229,7 @@ impl App {
                         // the Git tab stays like a file tab (in the first panel when split)
                         if self.history.tab && pane.unwrap_or(0) == 0 {
                             let on = self.history.open && !split_on && !self.prefs.open;
-                            let (body, closed) = tab_widget(ui, "Historique Git", TabIcon::View(icons::ViewIcon::Git), false, on, None, &tc);
+                            let (body, closed) = tab_widget(ui, t!("Historique Git", "Git history"), TabIcon::View(icons::ViewIcon::Git), false, on, None, &tc);
                             close_history = closed || body.middle_clicked();
                             show_history = body.clicked() && !closed;
                         }
@@ -237,7 +237,7 @@ impl App {
                             return;
                         }
                         if let Some(sp) = &self.split {
-                            let title = format!("Découpage {}", sp.info.short);
+                            let title = tf!("Découpage {}", "Splitting {}", sp.info.short);
                             let (body, closed) = tab_widget(ui, &title, TabIcon::View(icons::ViewIcon::Split), false, split_on, None, &tc);
                             // the split stays in progress: × only switches away from it
                             if closed {
@@ -245,10 +245,10 @@ impl App {
                             } else if body.clicked() {
                                 show_split = true;
                             }
-                            body.on_hover_text("Découpage en cours — « Terminer » ou « Annuler le découpage » dans l'onglet");
+                            body.on_hover_text(t!("Découpage en cours — « Terminer » ou « Annuler le découpage » dans l'onglet", "Splitting in progress — “Finish” or “Cancel the splitting” in the tab"));
                         }
                         if self.prefs.open {
-                            let (_, closed) = tab_widget(ui, "Préférences", TabIcon::View(icons::ViewIcon::Settings), false, true, None, &tc);
+                            let (_, closed) = tab_widget(ui, t!("Préférences", "Preferences"), TabIcon::View(icons::ViewIcon::Settings), false, true, None, &tc);
                             close_prefs = closed;
                         }
                     });
@@ -314,14 +314,14 @@ impl App {
                 let kept = self.docs.iter().filter(|d| d.pane == p && d.uid != uid).count();
                 let closed = before - self.docs.len();
                 self.set_status(if kept > 0 {
-                    format!("{closed} onglet(s) fermé(s), {kept} non enregistré(s) gardé(s)")
+                    tf!("{closed} onglet(s) fermé(s), {kept} non enregistré(s) gardé(s)", "{closed} tab(s) closed, {kept} unsaved kept")
                 } else {
-                    format!("{closed} onglet(s) fermé(s)")
+                    tf!("{closed} onglet(s) fermé(s)", "{closed} tab(s) closed")
                 });
             }
             Some(TabAct::CopyPath(t)) => {
                 ui.ctx().output_mut(|o| o.copied_text = t.clone());
-                self.set_status(format!("Copié : {t}"));
+                self.set_status(tf!("Copié : {t}", "Copied: {t}"));
             }
             Some(TabAct::Reveal(p)) => self.reveal(&p),
             Some(TabAct::Locate(i)) => {
@@ -351,23 +351,23 @@ impl App {
                         ui.visuals_mut().override_text_color = None;
                         self.menus(ui, &mut pending);
                         ui.separator();
-                        if ui.button("Afficher la barre de menus").clicked() {
+                        if ui.button(t!("Afficher la barre de menus", "Show the menu bar")).clicked() {
                             pending.push(Cmd::ToggleMenuBar);
                             ui.close_menu();
                         }
                     })
                     .response
-                    .on_hover_text("Menus (barre de menus masquée)");
+                    .on_hover_text(t!("Menus (barre de menus masquée)", "Menus (menu bar hidden)"));
                     self.pending.extend(pending);
                 }
                 if let Some(d) = self.docs.get(self.active) {
                     let p = d.primary_sel();
                     let (l, c) = d.line_col(p.head);
-                    ui.label(format!("Ligne {}, Colonne {}", l + 1, c + 1));
+                    ui.label(tf!("Ligne {}, Colonne {}", "Line {}, Column {}", l + 1, c + 1));
                     if d.sels.len() > 1 {
-                        ui.label(format!("· {} sélections", d.sels.len()));
+                        ui.label(tf!("· {} sélections", "· {} selections", d.sels.len()));
                     } else if !p.is_empty() {
-                        ui.label(format!("· {} caractères sélectionnés", p.end() - p.start()));
+                        ui.label(tf!("· {} caractères sélectionnés", "· {} characters selected", p.end() - p.start()));
                     }
                     if let Some(g) = d.diagnostics.iter().find(|g| g.line == l) {
                         let col = if g.severity == Severity::Error { err() } else { warn() };
@@ -381,43 +381,43 @@ impl App {
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let version = egui::Button::new(RichText::new(format!("v{}", crate::update::current())).small()).frame(false);
-                    if ui.add(version).on_hover_text("Version de Florm · clic : rechercher une mise à jour").clicked() {
+                    if ui.add(version).on_hover_text(t!("Version de Florm · clic : rechercher une mise à jour", "Florm version · click: check for an update")).clicked() {
                         self.pending.push(Cmd::CheckUpdate);
                     }
                     if let (Some(u), true) = (&self.update, self.update_ready.is_some()) {
-                        let text = RichText::new(format!("⟳ Redémarrer (Florm {})", u.version)).color(ui.visuals().hyperlink_color);
-                        if ui.add(egui::Button::new(text).frame(false)).on_hover_text("La nouvelle version est installée : Florm se relance (fichiers non enregistrés : la question habituelle)").clicked() {
+                        let text = RichText::new(tf!("⟳ Redémarrer (Florm {})", "⟳ Restart (Florm {})", u.version)).color(ui.visuals().hyperlink_color);
+                        if ui.add(egui::Button::new(text).frame(false)).on_hover_text(t!("La nouvelle version est installée : Florm se relance (fichiers non enregistrés : la question habituelle)", "The new version is installed: Florm restarts (unsaved files: the usual question)")).clicked() {
                             self.restart_for_update(ctx);
                         }
                     } else if let (Some(u), true) = (&self.update, self.update_installing) {
-                        ui.label(RichText::new(format!("Mise à jour vers Florm {}…", u.version)).weak());
+                        ui.label(RichText::new(tf!("Mise à jour vers Florm {}…", "Updating to Florm {}…", u.version)).weak());
                         ui.spinner();
                     } else if let Some(u) = self.update.clone() {
                         let text = RichText::new(format!("⬆ Florm {}", u.version)).color(ui.visuals().hyperlink_color);
                         ui.menu_button(text, |ui| {
                             ui.visuals_mut().override_text_color = None;
-                            ui.label(format!("Nouvelle version (vous avez la {})", crate::update::current()));
-                            if ui.button("Installer et redémarrer").on_hover_text("Florm télécharge la nouvelle version, la vérifie et remplace celle-ci ; les préférences sont gardées. Sous Linux, un paquet système demande le mot de passe.").clicked() {
+                            ui.label(tf!("Nouvelle version (vous avez la {})", "New version (you have {})", crate::update::current()));
+                            if ui.button(t!("Installer et redémarrer", "Install and restart")).on_hover_text(t!("Florm télécharge la nouvelle version, la vérifie et remplace celle-ci ; les préférences sont gardées. Sous Linux, un paquet système demande le mot de passe.", "Florm downloads the new version, checks it and replaces this one; the preferences are kept. On Linux, a system package asks for the password.")).clicked() {
                                 self.install_update();
                                 ui.close_menu();
                             }
                             if let Some((name, url)) = &u.file {
-                                if ui.button(format!("Télécharger {name}")).on_hover_text("Dans le navigateur ; installez-le comme la première fois : il remplace l'ancienne version, les préférences sont gardées.").clicked() {
+                                if ui.button(tf!("Télécharger {name}", "Download {name}")).on_hover_text(t!("Dans le navigateur ; installez-le comme la première fois : il remplace l'ancienne version, les préférences sont gardées.", "In the browser; install it like the first time: it replaces the old version, the preferences are kept.")).clicked() {
                                     ui.ctx().open_url(egui::OpenUrl::new_tab(url));
                                     ui.close_menu();
                                 }
                             }
-                            if ui.button("Notes de version et tous les fichiers").clicked() {
+                            if ui.button(t!("Notes de version et tous les fichiers", "Release notes and all the files")).clicked() {
                                 ui.ctx().open_url(egui::OpenUrl::new_tab(&u.page));
                                 ui.close_menu();
                             }
-                            if ui.button("Masquer").on_hover_text("Jusqu'au prochain démarrage").clicked() {
+                            if ui.button(t!("Masquer", "Hide")).on_hover_text(t!("Jusqu'au prochain démarrage", "Until the next start")).clicked() {
                                 self.update = None;
                                 ui.close_menu();
                             }
                         })
                         .response
-                        .on_hover_text("Une nouvelle version de Florm est disponible");
+                        .on_hover_text(t!("Une nouvelle version de Florm est disponible", "A new version of Florm is available"));
                     }
                     // the rest of the file's details, the terminal and the language server in a menu
                     let mut pending = Vec::new();
@@ -425,24 +425,24 @@ impl App {
                     ui.menu_button("⋯", |ui| {
                         ui.visuals_mut().override_text_color = None;
                         if let Some(d) = self.docs.get(self.active) {
-                            if ui.button(format!("Syntaxe : {}…", d.syntax)).clicked() {
+                            if ui.button(tf!("Syntaxe : {}…", "Syntax: {}…", d.syntax)).clicked() {
                                 pending.push(Cmd::SetSyntax);
                                 ui.close_menu();
                             }
-                            let ind = if d.use_spaces { format!("Espaces : {}", d.tab_size) } else { format!("Tabulations : {}", d.tab_size) };
-                            if ui.button(format!("Indentation : {ind}")).on_hover_text("Clic : passer aux espaces / aux tabulations").clicked() {
+                            let ind = if d.use_spaces { tf!("Espaces : {}", "Spaces: {}", d.tab_size) } else { tf!("Tabulations : {}", "Tabs: {}", d.tab_size) };
+                            if ui.button(tf!("Indentation : {ind}", "Indentation: {ind}")).on_hover_text(t!("Clic : passer aux espaces / aux tabulations", "Click: switch to spaces / tabs")).clicked() {
                                 toggle_spaces = true;
                                 ui.close_menu();
                             }
-                            ui.label(format!("Fin de ligne : {}", if d.crlf { "CRLF (Windows)" } else { "LF" }));
-                            ui.label(format!("Encodage : {}", d.encoding.label()));
+                            ui.label(tf!("Fin de ligne : {}", "Line ending: {}", if d.crlf { "CRLF (Windows)" } else { "LF" }));
+                            ui.label(tf!("Encodage : {}", "Encoding: {}", d.encoding.label()));
                         }
                         ui.separator();
-                        if ui.button(format!(">_ Terminal en bas    {}", self.keymap.label(Cmd::ToggleTerminal))).clicked() {
+                        if ui.button(tf!(">_ Terminal en bas    {}", ">_ Terminal at the bottom    {}", self.keymap.label(Cmd::ToggleTerminal))).clicked() {
                             pending.push(Cmd::ToggleTerminal);
                             ui.close_menu();
                         }
-                        if ui.button(format!("Nouveau terminal dans un onglet    {}", self.keymap.label(Cmd::NewTerminalTab))).clicked() {
+                        if ui.button(tf!("Nouveau terminal dans un onglet    {}", "New terminal in a tab    {}", self.keymap.label(Cmd::NewTerminalTab))).clicked() {
                             pending.push(Cmd::NewTerminalTab);
                             ui.close_menu();
                         }
@@ -450,7 +450,7 @@ impl App {
                             ui.separator();
                             let t = if *warning { RichText::new(text).color(warn()) } else { RichText::new(text) };
                             if *install {
-                                if ui.button(t).on_hover_text("Installe python-lsp-server pour Florm (pip --target, sans toucher au Python système). Ou installe pyright.").clicked() {
+                                if ui.button(t).on_hover_text(t!("Installe python-lsp-server pour Florm (pip --target, sans toucher au Python système). Ou installe pyright.", "Installs python-lsp-server for Florm (pip --target, without touching the system Python). Or install pyright.")).clicked() {
                                     pending.push(Cmd::InstallPylsp);
                                     ui.close_menu();
                                 }
@@ -460,14 +460,14 @@ impl App {
                         }
                     })
                     .response
-                    .on_hover_text("Syntaxe, indentation, fin de ligne, encodage, terminal");
+                    .on_hover_text(t!("Syntaxe, indentation, fin de ligne, encodage, terminal", "Syntax, indentation, line ending, encoding, terminal"));
                     self.pending.extend(pending);
                     if let Some(d) = self.docs.get(self.active) {
                         // only shown when it is not UTF-8: the file is saved back in its encoding
                         if d.encoding != document::Encoding::Utf8
                             && ui
                                 .add(egui::Button::new(RichText::new(d.encoding.label()).color(warn())).frame(false))
-                                .on_hover_text("Le fichier n'est pas en UTF-8 : il est enregistré dans son encodage.\nClic : l'enregistrer en UTF-8 désormais.")
+                                .on_hover_text(t!("Le fichier n'est pas en UTF-8 : il est enregistré dans son encodage.\nClic : l'enregistrer en UTF-8 désormais.", "The file is not in UTF-8: it is saved in its encoding.\nClick: save it in UTF-8 from now on."))
                                 .clicked()
                         {
                             convert_utf8 = true;
@@ -483,7 +483,7 @@ impl App {
                     let warns: usize = self.docs.iter().map(|d| d.diagnostics.len()).sum::<usize>() - errs;
                     if errs + warns > 0 {
                         let txt = RichText::new(format!("✖ {errs}  ⚠ {warns}")).color(if errs > 0 { err() } else { warn() });
-                        if ui.add(egui::Button::new(txt).frame(false)).on_hover_text("Problèmes (Ctrl+Shift+M)").clicked() {
+                        if ui.add(egui::Button::new(txt).frame(false)).on_hover_text(t!("Problèmes (Ctrl+Shift+M)", "Problems (Ctrl+Shift+M)")).clicked() {
                             self.pending.push(Cmd::ShowProblems);
                         }
                     }
@@ -507,7 +507,7 @@ impl App {
         if convert_utf8 {
             if let Some(d) = self.docs.get_mut(self.active) {
                 d.convert_to_utf8();
-                self.set_status("Sera enregistré en UTF-8 (Ctrl+S)");
+                self.set_status(t!("Sera enregistré en UTF-8 (Ctrl+S)", "Will be saved in UTF-8 (Ctrl+S)"));
             }
         }
     }
@@ -518,10 +518,10 @@ impl App {
         let fam = self.settings.lsp.then(|| self.docs.get(self.active).and_then(|d| d.path.as_deref()).and_then(lsp::language_of)).flatten()?.0;
         let running = self.lsp.manager.clients.iter().flatten().find(|c| c.family == fam);
         match (running, self.lsp.notes.get(fam)) {
-            (Some(c), _) if c.ready => Some((format!("Serveur de langage : {}", c.name), false, false)),
-            (Some(c), _) => Some((format!("Serveur de langage : {} (démarrage…)", c.name), false, false)),
-            (None, Some(_)) if fam == "python" => Some(("Serveur de langage : installer pylsp".into(), true, true)),
-            (None, Some(why)) => Some((format!("Pas de serveur de langage : {why}"), true, false)),
+            (Some(c), _) if c.ready => Some((tf!("Serveur de langage : {}", "Language server: {}", c.name), false, false)),
+            (Some(c), _) => Some((tf!("Serveur de langage : {} (démarrage…)", "Language server: {} (starting…)", c.name), false, false)),
+            (None, Some(_)) if fam == "python" => Some((t!("Serveur de langage : installer pylsp", "Language server: install pylsp").into(), true, true)),
+            (None, Some(why)) => Some((tf!("Pas de serveur de langage : {why}", "No language server: {why}"), true, false)),
             _ => None,
         }
     }
@@ -532,15 +532,15 @@ impl App {
             ui.add_space(2.0);
             ui.horizontal(|ui| {
                 let f = &mut self.find;
-                if ui.toggle_value(&mut f.case, "Aa").on_hover_text("Respecter la casse").changed()
-                    | ui.toggle_value(&mut f.regex, ".*").on_hover_text("Expression régulière").changed()
-                    | ui.toggle_value(&mut f.whole, "« »").on_hover_text("Mot entier").changed()
+                if ui.toggle_value(&mut f.case, "Aa").on_hover_text(t!("Respecter la casse", "Match case")).changed()
+                    | ui.toggle_value(&mut f.regex, ".*").on_hover_text(t!("Expression régulière", "Regular expression")).changed()
+                    | ui.toggle_value(&mut f.whole, "« »").on_hover_text(t!("Mot entier", "Whole word")).changed()
                 {
                     action = Some(FindAction::Incremental);
                 }
                 if ui
-                    .toggle_value(&mut f.in_sel, "Sél.")
-                    .on_hover_text("Chercher et remplacer seulement dans la sélection actuelle (zone teintée)")
+                    .toggle_value(&mut f.in_sel, t!("Sél.", "Sel."))
+                    .on_hover_text(t!("Chercher et remplacer seulement dans la sélection actuelle (zone teintée)", "Find and replace only in the current selection (tinted area)"))
                     .changed()
                 {
                     scope_toggled = true;
@@ -549,7 +549,7 @@ impl App {
                 let te = ui.add(
                     egui::TextEdit::singleline(&mut f.query)
                         .desired_width(w)
-                        .hint_text("Rechercher (Entrée : suivant, Maj+Entrée : précédent, Alt+Entrée : tout sélectionner)")
+                        .hint_text(t!("Rechercher (Entrée : suivant, Maj+Entrée : précédent, Alt+Entrée : tout sélectionner)", "Find (Enter: next, Shift+Enter: previous, Alt+Enter: select all)"))
                         .font(egui::TextStyle::Monospace),
                 );
                 if f.focus {
@@ -578,37 +578,37 @@ impl App {
                         te.request_focus();
                     }
                 }
-                if ui.button("◀").on_hover_text("Précédent").clicked() {
+                if ui.button("◀").on_hover_text(t!("Précédent", "Previous")).clicked() {
                     action = Some(FindAction::Prev);
                 }
-                if ui.button("▶").on_hover_text("Suivant").clicked() {
+                if ui.button("▶").on_hover_text(t!("Suivant", "Next")).clicked() {
                     action = Some(FindAction::Next);
                 }
-                if ui.button("Tout").on_hover_text("Sélectionner tous les résultats (multi-curseur)").clicked() {
+                if ui.button(t!("Tout", "All")).on_hover_text(t!("Sélectionner tous les résultats (multi-curseur)", "Select all the results (multi-cursor)")).clicked() {
                     action = Some(FindAction::All);
                 }
                 match &f.error {
                     Some(e) => ui.label(RichText::new(e.lines().last().unwrap_or("")).color(err())),
-                    None => ui.label(RichText::new(format!("{} résultat(s)", f.matches.len())).weak()),
+                    None => ui.label(RichText::new(tf!("{} résultat(s)", "{} result(s)", f.matches.len())).weak()),
                 };
             });
             if self.find.replace_mode {
                 ui.horizontal(|ui| {
                     ui.add_space(110.0);
                     let w = (ui.available_width() - 330.0).max(120.0);
-                    let te = ui.add(replace_field(&mut self.find.replacement, "Remplacer par ($1 pour les groupes en mode regex)").desired_width(w)).on_hover_text(REPLACE_TIP);
+                    let te = ui.add(replace_field(&mut self.find.replacement, t!("Remplacer par ($1 pour les groupes en mode regex)", "Replace with ($1 for the groups in regex mode)")).desired_width(w)).on_hover_text(replace_tip());
                     if te.has_focus() && ui.input(|i| i.key_pressed(Key::Enter) && !i.modifiers.shift) {
                         action = Some(FindAction::ReplaceOne);
                     }
-                    if ui.button("Remplacer").clicked() {
+                    if ui.button(t!("Remplacer", "Replace")).clicked() {
                         action = Some(FindAction::ReplaceOne);
                     }
-                    let all = if self.find.in_sel { "Tout remplacer dans la sélection" } else { "Tout remplacer" };
+                    let all = if self.find.in_sel { t!("Tout remplacer dans la sélection", "Replace all in the selection") } else { t!("Tout remplacer", "Replace all") };
                     if ui.button(all).clicked() {
                         action = Some(FindAction::ReplaceAll);
                     }
-                    ui.toggle_value(&mut self.find.preserve, "Garder la casse")
-                        .on_hover_text("chat → chien, Chat → Chien, CHAT → CHIEN");
+                    ui.toggle_value(&mut self.find.preserve, t!("Garder la casse", "Keep case"))
+                        .on_hover_text(t!("chat → chien, Chat → Chien, CHAT → CHIEN", "cat → dog, Cat → Dog, CAT → DOG"));
                 });
             }
             ui.add_space(2.0);
@@ -621,7 +621,7 @@ impl App {
                     d.find_scope = None;
                 } else if p.is_empty() {
                     self.find.in_sel = false;
-                    self.set_status("Sélectionne d'abord le texte dans lequel chercher");
+                    self.set_status(t!("Sélectionne d'abord le texte dans lequel chercher", "First select the text to search in"));
                 } else {
                     d.find_scope = Some((p.start(), p.end()));
                 }
@@ -652,7 +652,7 @@ impl App {
             let r = ui.interact(rect, egui::Id::new("sidebar_strip_btn"), Sense::click());
             let c = if r.hovered() { self.hl.colors.accent } else { ui.visuals().weak_text_color().gamma_multiply(0.5) };
             ui.painter().text(rect.center(), Align2::CENTER_CENTER, "›", egui::FontId::proportional(14.0), c);
-            if r.on_hover_text("Afficher la barre latérale (Ctrl+K Ctrl+B)").clicked() {
+            if r.on_hover_text(t!("Afficher la barre latérale (Ctrl+K Ctrl+B)", "Show the sidebar (Ctrl+K Ctrl+B)")).clicked() {
                 self.show_sidebar = true;
             }
         });
@@ -703,8 +703,8 @@ impl App {
                     tree_action = sidebar::show(ui, tree, &projects, ex, active.as_deref(), &self.git.map, info, &mut self.tree_scroll, &mut self.tree_nav);
                 }
                 None => {
-                    ui.label("Aucun dossier ouvert.");
-                    if ui.button("Ouvrir un dossier…").clicked() {
+                    ui.label(t!("Aucun dossier ouvert.", "No folder open."));
+                    if ui.button(t!("Ouvrir un dossier…", "Open a folder…")).clicked() {
                         self.pending.push(Cmd::OpenFolder);
                     }
                 }
@@ -718,7 +718,7 @@ impl App {
         });
         if hide {
             self.show_sidebar = false;
-            self.set_status("Barre latérale masquée : clic sur le bord gauche ou Ctrl+K Ctrl+B pour la réafficher");
+            self.set_status(t!("Barre latérale masquée : clic sur le bord gauche ou Ctrl+K Ctrl+B pour la réafficher", "Sidebar hidden: click the left edge or Ctrl+K Ctrl+B to show it again"));
         }
         if let Some(a) = tree_action {
             self.tree_action(ctx, a);
@@ -755,7 +755,7 @@ impl App {
     /// then the commit message and button (the changes themselves are the first rows of the graph).
     fn git_bar(&mut self, ui: &mut egui::Ui) {
         if self.repo.is_none() {
-            ui.label("Aucun dépôt git dans ce dossier.");
+            ui.label(t!("Aucun dépôt git dans ce dossier.", "No git repository in this folder."));
             if let Some(root) = self.root.clone() {
                 if ui.button("git init").clicked() {
                     match git::run(&root, &["init"]) {
@@ -798,29 +798,29 @@ impl App {
                     Some((up, ahead, behind)) => {
                         if ahead > 0 {
                             ui.label(RichText::new(format!("↑{ahead}")).color(ok()).strong())
-                                .on_hover_text(format!("{ahead} commit(s) à pousser vers {up} (Push)"));
+                                .on_hover_text(tf!("{ahead} commit(s) à pousser vers {up} (Push)", "{ahead} commit(s) to push to {up} (Push)"));
                         }
                         if behind > 0 {
                             ui.label(RichText::new(format!("↓{behind}")).color(warn()).strong())
-                                .on_hover_text(format!("{behind} commit(s) à récupérer de {up} (Pull)"));
+                                .on_hover_text(tf!("{behind} commit(s) à récupérer de {up} (Pull)", "{behind} commit(s) to pull from {up} (Pull)"));
                         }
                         if ahead == 0 && behind == 0 {
-                            ui.label(RichText::new("✔ à jour").color(ok()).small()).on_hover_text(format!("Identique à {up}"));
+                            ui.label(RichText::new(t!("✔ à jour", "✔ up to date")).color(ok()).small()).on_hover_text(tf!("Identique à {up}", "Same as {up}"));
                         }
                     }
                     None => {
-                        ui.label(RichText::new("pas de branche distante").weak().small());
+                        ui.label(RichText::new(t!("pas de branche distante", "no remote branch")).weak().small());
                     }
                 }
             }
             for pr in branch_prs.iter().take(3) {
                 let (state, color) = super::pulls::state_badge(&pr.state, pr.is_draft);
                 let text = RichText::new(format!("⇄ #{} {}", pr.number, state.to_lowercase())).color(color);
-                if ui.add(egui::Button::new(text).small()).on_hover_text(format!("{}\n{} → {}\nClic : ouvrir la pull request", pr.title, pr.head_ref_name, pr.base_ref_name)).clicked() {
+                if ui.add(egui::Button::new(text).small()).on_hover_text(tf!("{}\n{} → {}\nClic : ouvrir la pull request", "{}\n{} → {}\nClick: open the pull request", pr.title, pr.head_ref_name, pr.base_ref_name)).clicked() {
                     open_pr = Some(pr.number);
                 }
             }
-            if !main_branch && !branch_prs.iter().any(|p| p.state == "OPEN") && ui.small_button("+ Créer une PR").on_hover_text("Pousser la branche et ouvrir une pull request (choix de la branche cible)").clicked() {
+            if !main_branch && !branch_prs.iter().any(|p| p.state == "OPEN") && ui.small_button(t!("+ Créer une PR", "+ Create a PR")).on_hover_text(t!("Pousser la branche et ouvrir une pull request (choix de la branche cible)", "Push the branch and open a pull request (choice of the target branch)")).clicked() {
                 create_pr = true;
             }
             if self.git.busy > 0 {
@@ -828,11 +828,11 @@ impl App {
             }
             ui.add_space(8.0);
             let mut sync_cmd = None;
-            ui.menu_button("↕ Synchroniser ▾", |ui| {
+            ui.menu_button(t!("↕ Synchroniser ▾", "↕ Sync ▾"), |ui| {
                 for (label, cmd, tip) in [
-                    ("⬇ Pull", Cmd::GitPull, "Récupérer et intégrer les commits distants"),
-                    ("⬆ Push", Cmd::GitPush, "Envoyer tes commits"),
-                    ("Fetch", Cmd::GitFetch, "Récupérer sans intégrer"),
+                    ("⬇ Pull", Cmd::GitPull, t!("Récupérer et intégrer les commits distants", "Fetch and merge the remote commits")),
+                    ("⬆ Push", Cmd::GitPush, t!("Envoyer tes commits", "Send your commits")),
+                    ("Fetch", Cmd::GitFetch, t!("Récupérer sans intégrer", "Fetch without merging")),
                 ] {
                     if ui.button(label).on_hover_text(tip).clicked() {
                         sync_cmd = Some(cmd);
@@ -841,12 +841,12 @@ impl App {
                 }
             })
             .response
-            .on_hover_text("Pull, Push, Fetch : récupérer et envoyer les commits");
+            .on_hover_text(t!("Pull, Push, Fetch : récupérer et envoyer les commits", "Pull, Push, Fetch: get and send the commits"));
             self.pending.extend(sync_cmd);
             for (label, cmd, tip) in [
-                ("Branche ▾", Cmd::GitCheckout, "Changer de branche"),
-                ("+ Branche", Cmd::GitNewBranch, "Nouvelle branche"),
-                ("⇄ PR", Cmd::PullRequests, "Pull requests GitHub : commentaires, suggestions, commits"),
+                (t!("Branche ▾", "Branch ▾"), Cmd::GitCheckout, t!("Changer de branche", "Switch branch")),
+                (t!("+ Branche", "+ Branch"), Cmd::GitNewBranch, t!("Nouvelle branche", "New branch")),
+                ("⇄ PR", Cmd::PullRequests, t!("Pull requests GitHub : commentaires, suggestions, commits", "GitHub pull requests: comments, suggestions, commits")),
             ] {
                 if ui.button(label).on_hover_text(tip).clicked() {
                     self.pending.push(cmd);
@@ -859,28 +859,28 @@ impl App {
             if menu.response.clicked() {
                 stash_open = true;
             }
-            menu.response.on_hover_text("Mettre des changements de côté (git stash) et les reprendre plus tard");
+            menu.response.on_hover_text(t!("Mettre des changements de côté (git stash) et les reprendre plus tard", "Put changes aside (git stash) and take them back later"));
             // the graph: repository, filter, branches shown
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if big {
-                    if ui.small_button("⇲ Panneau du bas").on_hover_text("Afficher Git dans le panneau du bas").clicked() {
+                    if ui.small_button(t!("⇲ Panneau du bas", "⇲ Bottom panel")).on_hover_text(t!("Afficher Git dans le panneau du bas", "Show Git in the bottom panel")).clicked() {
                         move_to = Some(false);
                     }
-                } else if ui.small_button("⇱ Onglet").on_hover_text("Afficher Git en grand dans l'éditeur").clicked() {
+                } else if ui.small_button(t!("⇱ Onglet", "⇱ Tab")).on_hover_text(t!("Afficher Git en grand dans l'éditeur", "Show Git large in the editor")).clicked() {
                     move_to = Some(true);
                 }
                 let h = &mut self.history;
                 if h.loading {
                     ui.spinner();
                 }
-                if ui.button("⟳").on_hover_text("Rafraîchir l'état et le graphe").clicked() {
+                if ui.button("⟳").on_hover_text(t!("Rafraîchir l'état et le graphe", "Refresh the status and the graph")).clicked() {
                     reload = true;
                 }
-                if ui.checkbox(&mut h.all, "Toutes les branches").changed() {
+                if ui.checkbox(&mut h.all, t!("Toutes les branches", "All branches")).changed() {
                     reload = true;
                 }
-                ui.add(egui::TextEdit::singleline(&mut h.filter).hint_text("🔍 Filtrer : message, auteur, hash, branche…").desired_width(220.0))
-                    .on_hover_text("↑ ↓ commits · ← → fichiers du diff · Page ↑ ↓ défiler");
+                ui.add(egui::TextEdit::singleline(&mut h.filter).hint_text(t!("🔍 Filtrer : message, auteur, hash, branche…", "🔍 Filter: message, author, hash, branch…")).desired_width(220.0))
+                    .on_hover_text(t!("↑ ↓ commits · ← → fichiers du diff · Page ↑ ↓ défiler", "↑ ↓ commits · ← → files of the diff · Page ↑ ↓ scroll"));
                 if repo_choices.len() > 1 {
                     let labels: Vec<String> = repo_choices.iter().map(|(_, l)| l.clone()).collect();
                     let current = repo_choices.iter().position(|(r, _)| h.repo.as_ref() == Some(r));
@@ -912,12 +912,12 @@ impl App {
                 .show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new(format!("⚠ git {label} a échoué")).color(err()).strong());
+                        ui.label(RichText::new(tf!("⚠ git {label} a échoué", "⚠ git {label} failed")).color(err()).strong());
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.small_button("×").on_hover_text("Masquer").clicked() {
+                            if ui.small_button("×").on_hover_text(t!("Masquer", "Hide")).clicked() {
                                 dismiss_error = true;
                             }
-                            if ui.small_button("Copier").clicked() {
+                            if ui.small_button(t!("Copier", "Copy")).clicked() {
                                 ui.ctx().output_mut(|o| o.copied_text = e.clone());
                             }
                         });
@@ -1017,7 +1017,7 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 2.0;
                     let nd: usize = self.docs.iter().map(|d| d.diagnostics.len()).sum();
-                    let problems = if nd > 0 { format!("Problèmes {nd}") } else { "Problèmes".to_string() };
+                    let problems = if nd > 0 { tf!("Problèmes {nd}", "Problems {nd}") } else { t!("Problèmes", "Problems").to_string() };
                     for (tab, icon, label) in BottomTab::shown() {
                         let label = if tab == BottomTab::Problems { problems.clone() } else { label.to_string() };
                         let r = nav_tab(ui, icon, &label, self.bottom == Some(tab));
@@ -1039,8 +1039,8 @@ impl App {
                     // already shown in a tab: not twice
                     Some(BottomTab::Search) if self.docs.iter().any(|d| d.view == document::View::Search) => {
                         ui.horizontal(|ui| {
-                            ui.label(RichText::new("La recherche est dans un onglet de l'éditeur.").weak());
-                            if ui.button("La remettre ici").clicked() {
+                            ui.label(RichText::new(t!("La recherche est dans un onglet de l'éditeur.", "The search is in an editor tab.")).weak());
+                            if ui.button(t!("La remettre ici", "Put it back here")).clicked() {
                                 if let Some(i) = self.docs.iter().position(|d| d.view == document::View::Search) {
                                     self.close_tab(i, true);
                                 }
@@ -1051,8 +1051,8 @@ impl App {
                     }
                     Some(BottomTab::Claude) if !self.claude_has_bottom() => {
                         ui.horizontal(|ui| {
-                            ui.label(RichText::new("Claude est dans un onglet de l'éditeur.").weak());
-                            if ui.button("Le remettre ici").clicked() {
+                            ui.label(RichText::new(t!("Claude est dans un onglet de l'éditeur.", "Claude is in an editor tab.")).weak());
+                            if ui.button(t!("Le remettre ici", "Put it back here")).clicked() {
                                 self.move_claude(false);
                             }
                         });
@@ -1060,8 +1060,8 @@ impl App {
                     Some(BottomTab::Claude) => self.claude_show(ui, None),
                     Some(BottomTab::Git) if self.history.open => {
                         ui.horizontal(|ui| {
-                            ui.label(RichText::new("Git est ouvert en grand dans l'éditeur.").weak());
-                            if ui.button("Le mettre ici").clicked() {
+                            ui.label(RichText::new(t!("Git est ouvert en grand dans l'éditeur.", "Git is open large in the editor.")).weak());
+                            if ui.button(t!("Le mettre ici", "Put it here")).clicked() {
                                 self.history.open = false;
                             }
                         });
@@ -1075,8 +1075,8 @@ impl App {
                     }
                     Some(BottomTab::Pulls) if self.docs.iter().any(|d| d.view == document::View::PullRequests) => {
                         ui.horizontal(|ui| {
-                            ui.label(RichText::new("Les pull requests sont dans un onglet de l'éditeur.").weak());
-                            if ui.button("Les mettre ici").clicked() {
+                            ui.label(RichText::new(t!("Les pull requests sont dans un onglet de l'éditeur.", "The pull requests are in an editor tab.")).weak());
+                            if ui.button(t!("Les mettre ici", "Put them here")).clicked() {
                                 self.show_bottom(BottomTab::Pulls, false);
                             }
                         });
@@ -1086,8 +1086,8 @@ impl App {
                     }
                     Some(BottomTab::Docker) if self.docs.iter().any(|d| d.view == document::View::Docker) => {
                         ui.horizontal(|ui| {
-                            ui.label(RichText::new("Docker est dans un onglet de l'éditeur.").weak());
-                            if ui.button("Le mettre ici").clicked() {
+                            ui.label(RichText::new(t!("Docker est dans un onglet de l'éditeur.", "Docker is in an editor tab.")).weak());
+                            if ui.button(t!("Le mettre ici", "Put it here")).clicked() {
                                 self.show_bottom(BottomTab::Docker, false);
                             }
                         });
@@ -1105,7 +1105,7 @@ impl App {
                         self.term.ui(ui, shell.as_deref(), self.hl.colors, self.hl.is_light());
                     }
                     Some(BottomTab::Output) => {
-                        if ui.small_button("Effacer").clicked() {
+                        if ui.small_button(t!("Effacer", "Clear")).clicked() {
                             self.output.clear();
                         }
                         egui::ScrollArea::both().auto_shrink([false, false]).stick_to_bottom(true).show(ui, |ui| {
@@ -1126,9 +1126,9 @@ impl App {
             ui.horizontal(|ui| {
                 if linter == "syntaxe" {
                     ui.label(
-                        RichText::new("Python : aucun linter installé, seules les erreurs de syntaxe sont détectées.").color(warn()),
+                        RichText::new(t!("Python : aucun linter installé, seules les erreurs de syntaxe sont détectées.", "Python: no linter installed, only syntax errors are detected.")).color(warn()),
                     );
-                    if ui.button("Installer flake8").on_hover_text(format!("pip install --target {}", lint::tools_dir().display())).clicked() {
+                    if ui.button(t!("Installer flake8", "Install flake8")).on_hover_text(format!("pip install --target {}", lint::tools_dir().display())).clicked() {
                         self.pending.push(Cmd::InstallFlake8);
                     }
                 } else {
@@ -1154,7 +1154,7 @@ impl App {
                 }
             }
             if !any {
-                ui.label(RichText::new("Aucun problème détecté (le lint Python/JS s'exécute à l'enregistrement).").weak());
+                ui.label(RichText::new(t!("Aucun problème détecté (le lint Python/JS s'exécute à l'enregistrement).", "No problem detected (Python/JS lint runs on save).")).weak());
             }
         });
         if let Some((i, l, c)) = goto {
@@ -1289,66 +1289,66 @@ impl App {
                 ui.close_menu();
             }
         };
-        ui.label(RichText::new(format!("Ligne {}", line + 1)).small().weak());
-        item(ui, "Couper", Cmd::Cut, !ro);
-        item(ui, "Copier", Cmd::Copy, true);
-        item(ui, "Coller", Cmd::Paste, !ro);
+        ui.label(RichText::new(tf!("Ligne {}", "Line {}", line + 1)).small().weak());
+        item(ui, t!("Couper", "Cut"), Cmd::Cut, !ro);
+        item(ui, t!("Copier", "Copy"), Cmd::Copy, true);
+        item(ui, t!("Coller", "Paste"), Cmd::Paste, !ro);
         if !word.is_empty() {
             let short: String = word.chars().take(28).collect();
             let short = if short.len() < word.len() { format!("{short}…") } else { short };
             ui.separator();
-            item(ui, &format!("Sélectionner toutes les occurrences de « {short} »"), Cmd::SelectAllOccurrences, true);
-            item(ui, &format!("Rechercher « {short} » dans le dossier"), Cmd::FindWordInFiles, has_root);
+            item(ui, &tf!("Sélectionner toutes les occurrences de « {short} »", "Select all occurrences of “{short}”"), Cmd::SelectAllOccurrences, true);
+            item(ui, &tf!("Rechercher « {short} » dans le dossier", "Find “{short}” in the folder"), Cmd::FindWordInFiles, has_root);
         }
         ui.separator();
-        let what = if has_selection { "la sélection" } else { "la ligne" };
-        item(ui, &format!("✳ Modifier ou expliquer {what} avec Claude, ici…"), Cmd::ClaudeInline, true);
-        item(ui, &format!("✳ Demander à Claude à propos de {what}…"), Cmd::ClaudeAsk, has_path);
-        item(ui, &format!("✳ Ajouter {what} au contexte de Claude"), Cmd::ClaudeAddSelection, has_path);
-        item(ui, "✳ Ajouter le fichier au contexte de Claude", Cmd::ClaudeAddFile, has_path);
+        let what = if has_selection { t!("la sélection", "the selection") } else { t!("la ligne", "the line") };
+        item(ui, &tf!("✳ Modifier ou expliquer {what} avec Claude, ici…", "✳ Edit or explain {what} with Claude, here…"), Cmd::ClaudeInline, true);
+        item(ui, &tf!("✳ Demander à Claude à propos de {what}…", "✳ Ask Claude about {what}…"), Cmd::ClaudeAsk, has_path);
+        item(ui, &tf!("✳ Ajouter {what} au contexte de Claude", "✳ Add {what} to Claude's context"), Cmd::ClaudeAddSelection, has_path);
+        item(ui, t!("✳ Ajouter le fichier au contexte de Claude", "✳ Add the file to Claude's context"), Cmd::ClaudeAddFile, has_path);
         ui.separator();
-        item(ui, "Corrections rapides…", Cmd::QuickFix, true);
-        item(ui, "Aller à la définition", Cmd::GotoDefinition, true);
-        item(ui, "Rechercher les usages", Cmd::FindReferences, true);
-        item(ui, "Suggestions", Cmd::Complete, !ro);
+        item(ui, t!("Corrections rapides…", "Quick fixes…"), Cmd::QuickFix, true);
+        item(ui, t!("Aller à la définition", "Go to definition"), Cmd::GotoDefinition, true);
+        item(ui, t!("Rechercher les usages", "Find usages"), Cmd::FindReferences, true);
+        item(ui, t!("Suggestions", "Suggestions"), Cmd::Complete, !ro);
         if has_lsp {
-            item(ui, "Renommer le symbole…", Cmd::RenameSymbol, !ro);
+            item(ui, t!("Renommer le symbole…", "Rename symbol…"), Cmd::RenameSymbol, !ro);
         }
         if !noqa.is_empty() {
             ui.separator();
-            item(ui, &format!("Ignorer {} sur cette ligne (# noqa)", noqa.join(", ")), Cmd::NoqaLine, !ro);
+            item(ui, &tf!("Ignorer {} sur cette ligne (# noqa)", "Ignore {} on this line (# noqa)", noqa.join(", ")), Cmd::NoqaLine, !ro);
         }
         if is_python {
             ui.separator();
-            item(ui, if has_selection { "Formater les lignes sélectionnées (ruff)" } else { "Formater le fichier (ruff)" }, Cmd::FormatDocument, !ro);
-            item(ui, "Corriger automatiquement (ruff --fix)", Cmd::FixDocument, !ro);
+            item(ui, if has_selection { t!("Formater les lignes sélectionnées (ruff)", "Format the selected lines (ruff)") } else { t!("Formater le fichier (ruff)", "Format the file (ruff)") }, Cmd::FormatDocument, !ro);
+            item(ui, t!("Corriger automatiquement (ruff --fix)", "Fix automatically (ruff --fix)"), Cmd::FixDocument, !ro);
         }
         ui.separator();
-        item(ui, "Ajouter / retirer un signet", Cmd::ToggleBookmark, true);
-        item(ui, "Commenter / décommenter", Cmd::ToggleComment, !ro);
-        item(ui, "Replier le bloc", Cmd::Fold, true);
-        item(ui, "Tout replier", Cmd::FoldAll, true);
-        item(ui, "Tout déplier", Cmd::UnfoldAll, has_folds);
-        item(ui, "Dupliquer la ligne", Cmd::DuplicateLine, !ro);
-        item(ui, "Supprimer la ligne", Cmd::DeleteLine, !ro);
-        item(ui, "Monter la ligne", Cmd::MoveLineUp, !ro);
-        item(ui, "Descendre la ligne", Cmd::MoveLineDown, !ro);
+        item(ui, t!("Ajouter / retirer un signet", "Add / remove a bookmark"), Cmd::ToggleBookmark, true);
+        item(ui, t!("Commenter / décommenter", "Comment / uncomment"), Cmd::ToggleComment, !ro);
+        item(ui, t!("Replier le bloc", "Fold the block"), Cmd::Fold, true);
+        item(ui, t!("Tout replier", "Fold all"), Cmd::FoldAll, true);
+        item(ui, t!("Tout déplier", "Unfold all"), Cmd::UnfoldAll, has_folds);
+        item(ui, t!("Dupliquer la ligne", "Duplicate line"), Cmd::DuplicateLine, !ro);
+        item(ui, t!("Supprimer la ligne", "Delete line"), Cmd::DeleteLine, !ro);
+        item(ui, t!("Monter la ligne", "Move line up"), Cmd::MoveLineUp, !ro);
+        item(ui, t!("Descendre la ligne", "Move line down"), Cmd::MoveLineDown, !ro);
         if in_repo {
             ui.separator();
-            item(ui, if blame_on { "Masquer le blame" } else { "Blame de la ligne" }, Cmd::GitBlame, true);
-            item(ui, "Historique de la ligne", Cmd::GitLineHistory, true);
+            item(ui, if blame_on { t!("Masquer le blame", "Hide the blame") } else { t!("Blame de la ligne", "Line blame") }, Cmd::GitBlame, true);
+            item(ui, t!("Historique de la ligne", "Line history"), Cmd::GitLineHistory, true);
             if has_change {
-                item(ui, "Voir le changement", Cmd::ShowChange, true);
-                item(ui, "Revenir en arrière sur ce changement", Cmd::GitRevertChange, !ro);
+                item(ui, t!("Voir le changement", "Show the change"), Cmd::ShowChange, true);
+                item(ui, t!("Revenir en arrière sur ce changement", "Revert this change"), Cmd::GitRevertChange, !ro);
             }
-            item(ui, "Copier le lien GitHub de la ligne", Cmd::CopyGithubLink, true);
+            item(ui, t!("Copier le lien GitHub de la ligne", "Copy the GitHub link of the line"), Cmd::CopyGithubLink, true);
         }
         if has_path {
             ui.separator();
-            item(ui, "Copier le chemin du fichier", Cmd::CopyFilePath, true);
-            item(ui, "Copier la référence fichier:ligne", Cmd::CopyFileRef, true);
-            item(ui, "Afficher dans l'arborescence", Cmd::RevealInTree, true);
-            item(ui, "Afficher dans le gestionnaire de fichiers", Cmd::RevealInOs, true);
+            item(ui, t!("Copier le chemin du fichier", "Copy the file path"), Cmd::CopyFilePath, true);
+            item(ui, t!("Copier la référence fichier:ligne", "Copy the file:line reference"), Cmd::CopyFileRef, true);
+            item(ui, t!("Afficher dans l'arborescence", "Show in the tree"), Cmd::RevealInTree, true);
+            item(ui, t!("Afficher dans le gestionnaire de fichiers", "Show in the file manager"), Cmd::RevealInOs, true);
         }
         if let Some(c) = chosen {
             self.pending.push(c);
@@ -1361,19 +1361,19 @@ impl App {
         let line = d.rope.char_to_line(d.primary_sel().head);
         let head_line = d.head_line(line).unwrap_or(line);
         let Some(repo) = self.repo_for(&path) else {
-            self.set_status("Fichier hors d'un dépôt git");
+            self.set_status(t!("Fichier hors d'un dépôt git", "File outside a git repository"));
             return;
         };
         let Some((owner, name)) = git::stdout(&repo, &["remote", "get-url", "origin"]).ok().and_then(|u| git::parse_github(u.trim()))
         else {
-            self.set_status("Le remote « origin » n'est pas un dépôt GitHub");
+            self.set_status(t!("Le remote « origin » n'est pas un dépôt GitHub", "The “origin” remote is not a GitHub repository"));
             return;
         };
         let rev = git::stdout(&repo, &["rev-parse", "HEAD"]).map(|s| s.trim().to_string()).unwrap_or_else(|_| "HEAD".into());
         let rel = path.strip_prefix(&repo).map(|r| r.to_string_lossy().replace('\\', "/")).unwrap_or_default();
         let link = format!("https://github.com/{owner}/{name}/blob/{rev}/{rel}#L{}", head_line + 1);
         ctx.output_mut(|o| o.copied_text = link.clone());
-        self.set_status(format!("Lien copié : {link}"));
+        self.set_status(tf!("Lien copié : {link}", "Link copied: {link}"));
     }
 
     /// Start screen in the style of the Florm artwork: logo, title, shortcuts, recent projects.
@@ -1401,21 +1401,21 @@ impl App {
             // colors of the backdrop (navy or paper), not of the editor theme
             ui.visuals_mut().override_text_color = Some(wc.text);
             ui.columns(2, |cols| {
-                welcome_card(&mut cols[0], "DÉMARRER", start_c, &wc, |ui| {
+                welcome_card(&mut cols[0], t!("DÉMARRER", "START"), start_c, &wc, |ui| {
                     for (label, c) in [
-                        ("Nouveau fichier", Cmd::NewFile),
-                        ("Ouvrir un dossier…", Cmd::OpenFolder),
-                        ("Aller au fichier…", Cmd::QuickOpen),
-                        ("Palette de commandes", Cmd::CommandPalette),
-                        ("Rechercher dans le dossier", Cmd::FindInFiles),
-                        ("Graphe git", Cmd::GitHistory),
+                        (t!("Nouveau fichier", "New file"), Cmd::NewFile),
+                        (t!("Ouvrir un dossier…", "Open a folder…"), Cmd::OpenFolder),
+                        (t!("Aller au fichier…", "Go to file…"), Cmd::QuickOpen),
+                        (t!("Palette de commandes", "Command palette"), Cmd::CommandPalette),
+                        (t!("Rechercher dans le dossier", "Find in folder"), Cmd::FindInFiles),
+                        (t!("Graphe git", "Git graph"), Cmd::GitHistory),
                     ] {
                         if welcome_row(ui, label, &self.keymap.label(c), true, start_c, &wc).clicked() {
                             cmd = Some(c);
                         }
                     }
                 });
-                welcome_card(&mut cols[1], "RÉCENTS", logo::PURPLE, &wc, |ui| {
+                welcome_card(&mut cols[1], t!("RÉCENTS", "RECENT"), logo::PURPLE, &wc, |ui| {
                     for p in self.projects.iter().filter(|p| p.path.is_dir()).take(6) {
                         let parent = p.path.parent().map(|d| d.display().to_string()).unwrap_or_default();
                         let r = welcome_row(ui, &p.name, &parent, false, logo::PURPLE, &wc)
@@ -1425,7 +1425,7 @@ impl App {
                         }
                     }
                     if self.projects.is_empty() {
-                        ui.label(RichText::new("Aucun projet récent").color(wc.dim));
+                        ui.label(RichText::new(t!("Aucun projet récent", "No recent project")).color(wc.dim));
                     }
                 });
             });
@@ -1504,9 +1504,9 @@ impl App {
                 if d.mtime.is_some() && d.mtime != Some(m) {
                     if d.is_dirty() {
                         d.mtime = Some(m);
-                        msgs.push(format!("{} a été modifié sur le disque", d.title()));
+                        msgs.push(tf!("{} a été modifié sur le disque", "{} was changed on disk", d.title()));
                     } else if d.reload_from_disk().is_ok() {
-                        msgs.push(format!("{} rechargé depuis le disque", d.title()));
+                        msgs.push(tf!("{} rechargé depuis le disque", "{} reloaded from disk", d.title()));
                     }
                 }
             }
@@ -1531,12 +1531,12 @@ impl App {
     /// Shows `path` in the file tree: sidebar opened, folders expanded, entry scrolled into view.
     pub(super) fn reveal_in_tree(&mut self, path: &Path) {
         let Some(tree) = self.tree.as_mut() else {
-            self.set_status("Aucun dossier ouvert");
+            self.set_status(t!("Aucun dossier ouvert", "No folder open"));
             return;
         };
         let path = crate::os::canon(path);
         if !tree.reveal(&path) {
-            self.set_status("Ce fichier n'est pas dans le dossier ouvert");
+            self.set_status(t!("Ce fichier n'est pas dans le dossier ouvert", "This file is not in the open folder"));
             return;
         }
         self.show_sidebar = true;
@@ -1556,22 +1556,22 @@ impl App {
 fn stash_menu(ui: &mut egui::Ui, g: &mut GitUi, changes: bool, act: &mut Option<super::git_actions::StashAct>) {
     use super::git_actions::StashAct;
     ui.set_min_width(460.0);
-    ui.label(RichText::new("Mettre de côté").strong());
-    ui.add(egui::TextEdit::singleline(&mut g.stash_msg).hint_text("Message (facultatif)").desired_width(f32::INFINITY));
+    ui.label(RichText::new(t!("Mettre de côté", "Put aside")).strong());
+    ui.add(egui::TextEdit::singleline(&mut g.stash_msg).hint_text(t!("Message (facultatif)", "Message (optional)")).desired_width(f32::INFINITY));
     ui.horizontal(|ui| {
         let mut untracked = !g.stash_tracked_only;
-        if ui.checkbox(&mut untracked, "Nouveaux fichiers compris").on_hover_text("Les fichiers pas encore suivis par git partent aussi (--include-untracked)").changed() {
+        if ui.checkbox(&mut untracked, t!("Nouveaux fichiers compris", "New files included")).on_hover_text(t!("Les fichiers pas encore suivis par git partent aussi (--include-untracked)", "Files not tracked by git yet go too (--include-untracked)")).changed() {
             g.stash_tracked_only = !untracked;
         }
-        let tip = "Range les changements non commités (indexés ou non) et remet les fichiers comme au dernier commit";
-        if ui.add_enabled(changes, egui::Button::new("Mettre de côté")).on_hover_text(tip).on_disabled_hover_text("Aucun changement à mettre de côté").clicked() {
+        let tip = t!("Range les changements non commités (indexés ou non) et remet les fichiers comme au dernier commit", "Stores the uncommitted changes (staged or not) and puts the files back as at the last commit");
+        if ui.add_enabled(changes, egui::Button::new(t!("Mettre de côté", "Put aside"))).on_hover_text(tip).on_disabled_hover_text(t!("Aucun changement à mettre de côté", "No change to put aside")).clicked() {
             *act = Some(StashAct::Push);
             ui.close_menu();
         }
     });
     ui.separator();
     if g.stashes.is_empty() {
-        ui.label(RichText::new("Aucun stash dans ce dépôt.").weak());
+        ui.label(RichText::new(t!("Aucun stash dans ce dépôt.", "No stash in this repository.")).weak());
         return;
     }
     egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
@@ -1586,19 +1586,19 @@ fn stash_menu(ui: &mut egui::Ui, g: &mut GitUi, changes: bool, act: &mut Option<
             });
             ui.horizontal(|ui| {
                 ui.add_space(12.0);
-                if ui.small_button("Voir").on_hover_text("Ses changements dans la vue des commits (sans les nouveaux fichiers)").clicked() {
+                if ui.small_button(t!("Voir", "Show")).on_hover_text(t!("Ses changements dans la vue des commits (sans les nouveaux fichiers)", "Its changes in the commits view (without the new files)")).clicked() {
                     *act = Some(StashAct::Show(s.hash.clone(), what.to_string()));
                     ui.close_menu();
                 }
-                if ui.small_button("Appliquer").on_hover_text("Remet ses changements dans tes fichiers ; le stash reste (git stash apply)").clicked() {
+                if ui.small_button(t!("Appliquer", "Apply")).on_hover_text(t!("Remet ses changements dans tes fichiers ; le stash reste (git stash apply)", "Puts its changes back in your files; the stash stays (git stash apply)")).clicked() {
                     *act = Some(StashAct::Apply(s.hash.clone()));
                     ui.close_menu();
                 }
-                if ui.small_button("Reprendre").on_hover_text("Remet ses changements et supprime le stash (git stash pop)").clicked() {
+                if ui.small_button(t!("Reprendre", "Pop")).on_hover_text(t!("Remet ses changements et supprime le stash (git stash pop)", "Puts its changes back and deletes the stash (git stash pop)")).clicked() {
                     *act = Some(StashAct::Pop(s.hash.clone()));
                     ui.close_menu();
                 }
-                if ui.small_button(RichText::new("Supprimer").color(err())).on_hover_text("git stash drop (demande confirmation)").clicked() {
+                if ui.small_button(RichText::new(t!("Supprimer", "Delete")).color(err())).on_hover_text(t!("git stash drop (demande confirmation)", "git stash drop (asks for confirmation)")).clicked() {
                     *act = Some(StashAct::AskDrop(s.hash.clone(), what.to_string()));
                     ui.close_menu();
                 }

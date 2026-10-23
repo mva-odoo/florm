@@ -154,13 +154,13 @@ impl App {
                 }
                 let line = d.rope.char_to_line(d.primary_sel().head);
                 let msg = if cmd == GitRevertChange && !d.hunks.iter().any(|h| h.contains(line)) {
-                    "Pas de changement git sur cette ligne"
+                    t!("Pas de changement git sur cette ligne", "No git change on this line")
                 } else if cmd == GitRevertFile && d.git_base.is_none() {
-                    "Ce fichier n'est pas suivi par git"
+                    t!("Ce fichier n'est pas suivi par git", "This file is not tracked by git")
                 } else if cmd == GitRevertChange {
-                    "Changement git annulé (Ctrl+Z pour le récupérer) — à enregistrer"
+                    t!("Changement git annulé (Ctrl+Z pour le récupérer) — à enregistrer", "Git change undone (Ctrl+Z to get it back) — to save")
                 } else {
-                    "Fichier remis comme au dernier commit (Ctrl+Z pour revenir) — à enregistrer"
+                    t!("Fichier remis comme au dernier commit (Ctrl+Z pour revenir) — à enregistrer", "File put back as at the last commit (Ctrl+Z to go back) — to save")
                 };
                 self.set_status(msg);
             }
@@ -244,7 +244,7 @@ impl App {
             SwitchProject => self.open_overlay(Mode::Projects),
             RenameProject => match self.projects.iter().find(|p| Some(&p.path) == self.root.as_ref()).cloned() {
                 Some(p) => self.open_overlay_with(Mode::Prompt(Prompt::RenameProject(p.path)), Vec::new(), p.name),
-                None => self.set_status("Aucun dossier ouvert"),
+                None => self.set_status(t!("Aucun dossier ouvert", "No folder open")),
             },
             CloseFolder => self.close_folder(),
             FindNext => self.find_step(true, false),
@@ -341,7 +341,7 @@ impl App {
             },
             TestHere => match self.test_tags_here() {
                 Some(t) => self.run_tests(t),
-                None => self.set_status("Pas de test ni de module Odoo sous le curseur"),
+                None => self.set_status(t!("Pas de test ni de module Odoo sous le curseur", "No Odoo test or module under the cursor")),
             },
             CreatePr => self.start_pr_create(),
             Claude => self.open_claude(),
@@ -373,7 +373,7 @@ impl App {
                 self.settings.show_menu_bar = !self.settings.show_menu_bar;
                 self.persist("show_menu_bar", self.settings.show_menu_bar.to_string());
                 if !self.settings.show_menu_bar {
-                    self.set_status("Barre de menus masquée : les menus restent dans ☰ en bas à gauche");
+                    self.set_status(t!("Barre de menus masquée : les menus restent dans ☰ en bas à gauche", "Menu bar hidden: the menus are still under ☰ at the bottom left"));
                 }
             }
             RevealInTree => {
@@ -390,7 +390,7 @@ impl App {
                 let i = self.active;
                 match self.lsp_for(i, ctx, true) {
                     None => {
-                        self.set_status("Renommer dans tout le projet demande un serveur de langage (pour Python : « installer pylsp » dans la barre d'état)");
+                        self.set_status(t!("Renommer dans tout le projet demande un serveur de langage (pour Python : « installer pylsp » dans la barre d'état)", "Renaming in the whole project needs a language server (for Python: “install pylsp” in the status bar)"));
                     }
                     Some(_) => {
                         let w = self.word_under_cursor();
@@ -399,7 +399,7 @@ impl App {
                 }
             }
             InstallPylsp => {
-                self.set_status("Installation de pylsp (pip)…");
+                self.set_status(t!("Installation de pylsp (pip)…", "Installing pylsp (pip)…"));
                 self.log(format!("pip install --target {} python-lsp-server", lint::tools_dir().display()));
                 self.jobs.spawn(|| JobResult::ToolInstalled(lint::install_python_tool("python-lsp-server")));
             }
@@ -408,7 +408,7 @@ impl App {
                 self.lsp.requests.clear();
                 self.lsp.completion = None;
                 self.lsp.notes.clear();
-                self.set_status("Serveurs de langage redémarrés");
+                self.set_status(t!("Serveurs de langage redémarrés", "Language servers restarted"));
             }
             MarkdownPreview => self.markdown_preview(false),
             MarkdownPreviewSide => self.markdown_preview(true),
@@ -417,7 +417,7 @@ impl App {
                     self.open_overlay(Mode::Symbols);
                     if self.overlay.as_ref().is_some_and(|o| o.items.is_empty()) {
                         self.overlay = None;
-                        self.set_status("Aucun symbole reconnu dans ce fichier");
+                        self.set_status(t!("Aucun symbole reconnu dans ce fichier", "No symbol recognized in this file"));
                     }
                 }
             }
@@ -438,7 +438,7 @@ impl App {
             ToggleWordWrap => {
                 self.settings.word_wrap = !self.settings.word_wrap;
                 self.persist("word_wrap", self.settings.word_wrap.to_string());
-                self.set_status(if self.settings.word_wrap { "Retour à la ligne automatique activé (Alt+Z)" } else { "Retour à la ligne automatique désactivé (Alt+Z)" });
+                self.set_status(if self.settings.word_wrap { t!("Retour à la ligne automatique activé (Alt+Z)", "Word wrap on (Alt+Z)") } else { t!("Retour à la ligne automatique désactivé (Alt+Z)", "Word wrap off (Alt+Z)") });
             }
             ToggleMinimap => {
                 self.settings.show_minimap = !self.settings.show_minimap;
@@ -458,7 +458,7 @@ impl App {
                         d.paste(&t, linewise);
                     }
                 }
-                Err(e) => self.set_status(format!("Presse-papiers illisible : {e}")),
+                Err(e) => self.set_status(tf!("Presse-papiers illisible : {e}", "Clipboard unreadable: {e}")),
             },
             CopyFilePath | CopyFileRef => {
                 if let Some(d) = self.docs.get(self.active) {
@@ -470,7 +470,7 @@ impl App {
                             format!("{}:{}", rel.display(), d.rope.char_to_line(d.primary_sel().head) + 1)
                         };
                         ctx.output_mut(|o| o.copied_text = text.clone());
-                        self.set_status(format!("Copié : {text}"));
+                        self.set_status(tf!("Copié : {text}", "Copied: {text}"));
                     }
                 }
             }
@@ -492,14 +492,14 @@ impl App {
             ToggleBookmark | NextBookmark | PrevBookmark | ClearBookmarks => {
                 if let Some(d) = self.docs.get_mut(self.active).filter(|d| d.view == document::View::Text) {
                     let msg = match cmd {
-                        ToggleBookmark if d.toggle_bookmark() => "Signet ajouté (F8 / Maj+F8 : suivant / précédent)",
-                        ToggleBookmark => "Signet retiré",
+                        ToggleBookmark if d.toggle_bookmark() => t!("Signet ajouté (F8 / Maj+F8 : suivant / précédent)", "Bookmark added (F8 / Shift+F8: next / previous)"),
+                        ToggleBookmark => t!("Signet retiré", "Bookmark removed"),
                         ClearBookmarks => {
                             d.bookmarks.clear();
-                            "Signets du fichier retirés"
+                            t!("Signets du fichier retirés", "Bookmarks of the file removed")
                         }
                         _ if d.goto_bookmark(cmd == NextBookmark) => "",
-                        _ => "Aucun signet dans ce fichier (Ctrl+F2 pour en poser un)",
+                        _ => t!("Aucun signet dans ce fichier (Ctrl+F2 pour en poser un)", "No bookmark in this file (Ctrl+F2 to set one)"),
                     };
                     if !msg.is_empty() {
                         self.set_status(msg);
@@ -519,7 +519,7 @@ impl App {
                 }
             }
             InstallFlake8 => {
-                self.set_status("Installation de flake8 (pip)…");
+                self.set_status(t!("Installation de flake8 (pip)…", "Installing flake8 (pip)…"));
                 self.log(format!("pip install --target {} flake8", lint::tools_dir().display()));
                 self.jobs.spawn(|| JobResult::ToolInstalled(lint::install_python_tool("flake8")));
             }
@@ -534,7 +534,7 @@ impl App {
                 self.state.include_history.clear();
                 self.state.exclude_history.clear();
                 project::save_state(&self.state);
-                self.set_status("Historique de recherche effacé");
+                self.set_status(t!("Historique de recherche effacé", "Search history cleared"));
             }
             GitBlame => {
                 self.blame_mode = !self.blame_mode;
@@ -545,9 +545,9 @@ impl App {
                     }
                 }
                 self.set_status(if self.blame_mode {
-                    "Blame activé (Ctrl+B pour masquer, Ctrl+Alt+B : historique de la ligne)"
+                    t!("Blame activé (Ctrl+B pour masquer, Ctrl+Alt+B : historique de la ligne)", "Blame on (Ctrl+B to hide, Ctrl+Alt+B: line history)")
                 } else {
-                    "Blame masqué"
+                    t!("Blame masqué", "Blame hidden")
                 });
             }
             GitLineHistory => self.open_line_history(),
@@ -555,9 +555,9 @@ impl App {
                 self.settings.inline_diff = !self.settings.inline_diff;
                 self.persist("inline_diff", self.settings.inline_diff.to_string());
                 self.set_status(if self.settings.inline_diff {
-                    "Diff dans l'éditeur : activé (Ctrl+Alt+D pour masquer)"
+                    t!("Diff dans l'éditeur : activé (Ctrl+Alt+D pour masquer)", "Diff in the editor: on (Ctrl+Alt+D to hide)")
                 } else {
-                    "Diff dans l'éditeur : désactivé"
+                    t!("Diff dans l'éditeur : désactivé", "Diff in the editor: off")
                 });
             }
             ZoomIn | ZoomOut => {
@@ -588,17 +588,17 @@ impl App {
             }
             ReloadPlugins => {
                 self.reload_plugins();
-                self.set_status(format!("{} plugin(s) chargé(s)", self.plugins.len()));
+                self.set_status(tf!("{} plugin(s) chargé(s)", "{} plugin(s) loaded", self.plugins.len()));
             }
             CheckUpdate => self.check_update(true),
-            ShowGuide => self.open_view_tab(document::View::Help, "Guide de Florm".into()),
-            ShowWelcome => self.open_view_tab(document::View::Welcome, "Accueil".into()),
+            ShowGuide => self.open_view_tab(document::View::Help, t!("Guide de Florm", "Florm guide").into()),
+            ShowWelcome => self.open_view_tab(document::View::Welcome, t!("Accueil", "Welcome").into()),
             InsertTemplate => self.open_overlay(Mode::Templates),
             OpenTemplatesFolder => {
                 let dir = crate::templates::dir();
                 crate::templates::install_readme(&dir);
                 self.open_path(dir.join("README.md"));
-                self.set_status(format!("Dossier des modèles : {} — un fichier par modèle", dir.display()));
+                self.set_status(tf!("Dossier des modèles : {} — un fichier par modèle", "Templates folder: {} — one file per template", dir.display()));
             }
             NewTemplate => {
                 let d = self.docs.get(self.active).filter(|d| d.view == document::View::Text);
@@ -613,7 +613,7 @@ impl App {
             OpenPluginsFolder => {
                 let dir = config::plugins_dir();
                 let _ = std::fs::create_dir_all(&dir);
-                self.log(format!("Dossier des plugins : {}", dir.display()));
+                self.log(tf!("Dossier des plugins : {}", "Plugins folder: {}", dir.display()));
                 self.open_path(dir.join("README.md"));
             }
             RefreshTree => {
@@ -640,7 +640,7 @@ impl App {
                         let hash = s.hash.clone();
                         self.stash_act(super::git_actions::StashAct::Pop(hash));
                     }
-                    None => self.set_status("Aucun stash à reprendre"),
+                    None => self.set_status(t!("Aucun stash à reprendre", "No stash to take back")),
                 }
             }
             GitAiReview => {
@@ -662,7 +662,7 @@ impl App {
                         self.select_repo(repo);
                         self.show_diff(rel, false);
                     }
-                    None => self.set_status("Fichier hors d'un dépôt git"),
+                    None => self.set_status(t!("Fichier hors d'un dépôt git", "File outside a git repository")),
                 }
             }
             GitHistory => {

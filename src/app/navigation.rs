@@ -15,7 +15,7 @@ impl App {
             }
         }
         if items.is_empty() {
-            self.set_status("Aucun signet dans les fichiers ouverts (Ctrl+F2 pour en poser un)");
+            self.set_status(t!("Aucun signet dans les fichiers ouverts (Ctrl+F2 pour en poser un)", "No bookmark in the open files (Ctrl+F2 to set one)"));
             return;
         }
         self.open_overlay_with(Mode::Bookmarks, items, String::new());
@@ -50,7 +50,7 @@ impl App {
         loop {
             let target = if back { self.nav.back.pop() } else { self.nav.fwd.pop() };
             let Some(t) = target else {
-                self.set_status(if back { "Pas de position précédente" } else { "Pas de position suivante" });
+                self.set_status(if back { t!("Pas de position précédente", "No previous position") } else { t!("Pas de position suivante", "No next position") });
                 return;
             };
             // the document may have been closed: reopen it from its path

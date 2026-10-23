@@ -5,7 +5,7 @@ use super::*;
 impl App {
     pub(super) fn start_search(&mut self) {
         let Some(root) = self.root.clone() else {
-            self.set_status("Ouvre d'abord un dossier");
+            self.set_status(t!("Ouvre d'abord un dossier", "Open a folder first"));
             return;
         };
         if self.search.q.pattern.is_empty() {
@@ -109,8 +109,8 @@ impl App {
         for e in errors {
             self.log(e);
         }
-        let open = if in_editor > 0 { format!(" — {in_editor} fichier(s) ouvert(s) à enregistrer") } else { String::new() };
-        self.set_status(format!("{count} remplacement(s) dans {files} fichier(s){open}"));
+        let open = if in_editor > 0 { tf!(" — {in_editor} fichier(s) ouvert(s) à enregistrer", " — {in_editor} open file(s) to save") } else { String::new() };
+        self.set_status(tf!("{count} remplacement(s) dans {files} fichier(s){open}", "{count} replacement(s) in {files} file(s){open}"));
         self.start_search();
         self.git_refresh();
     }
@@ -129,7 +129,7 @@ impl App {
             let arrow = if s.show_replace { "⏷" } else { "⏵" };
             if ui
                 .add(egui::Button::new(RichText::new(arrow).color(accent)).frame(false).min_size(egui::vec2(18.0, 0.0)))
-                .on_hover_text("Afficher / masquer le remplacement")
+                .on_hover_text(t!("Afficher / masquer le remplacement", "Show / hide the replacement"))
                 .clicked()
             {
                 s.show_replace = !s.show_replace;
@@ -137,7 +137,7 @@ impl App {
             let te = ui.add(
                 egui::TextEdit::singleline(&mut s.q.pattern)
                     .desired_width(field_w)
-                    .hint_text("🔍  Rechercher dans le dossier… (Entrée)")
+                    .hint_text(t!("🔍  Rechercher dans le dossier… (Entrée)", "🔍  Find in folder… (Enter)"))
                     .font(egui::TextStyle::Monospace),
             );
             if s.focus {
@@ -153,11 +153,11 @@ impl App {
                     s.q.pattern = t;
                 }
             }
-            go |= history_menu(ui, &st.search_history, &mut s.q.pattern, "Recherches récentes");
-            ui.toggle_value(&mut s.q.case, "Aa").on_hover_text("Respecter la casse");
-            ui.toggle_value(&mut s.q.regex, ".*").on_hover_text("Expression régulière");
-            ui.toggle_value(&mut s.q.whole, "« »").on_hover_text("Mot entier");
-            let search_btn = filled_button("Rechercher", accent);
+            go |= history_menu(ui, &st.search_history, &mut s.q.pattern, t!("Recherches récentes", "Recent searches"));
+            ui.toggle_value(&mut s.q.case, "Aa").on_hover_text(t!("Respecter la casse", "Match case"));
+            ui.toggle_value(&mut s.q.regex, ".*").on_hover_text(t!("Expression régulière", "Regular expression"));
+            ui.toggle_value(&mut s.q.whole, "« »").on_hover_text(t!("Mot entier", "Whole word"));
+            let search_btn = filled_button(t!("Rechercher", "Find"), accent);
             if ui.add(search_btn).clicked() {
                 go = true;
             }
@@ -166,10 +166,10 @@ impl App {
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if in_tab {
-                    if ui.small_button("⇲ Panneau du bas").on_hover_text("Afficher la recherche dans le panneau du bas").clicked() {
+                    if ui.small_button(t!("⇲ Panneau du bas", "⇲ Bottom panel")).on_hover_text(t!("Afficher la recherche dans le panneau du bas", "Show the search in the bottom panel")).clicked() {
                         act = Some(SearchAct::Move(false));
                     }
-                } else if ui.small_button("⇱ Onglet").on_hover_text("Afficher la recherche dans un onglet de l'éditeur (plus de place pour les résultats)").clicked() {
+                } else if ui.small_button(t!("⇱ Onglet", "⇱ Tab")).on_hover_text(t!("Afficher la recherche dans un onglet de l'éditeur (plus de place pour les résultats)", "Show the search in an editor tab (more room for the results)")).clicked() {
                     act = Some(SearchAct::Move(true));
                 }
             });
@@ -179,24 +179,24 @@ impl App {
         if s.show_replace {
             ui.horizontal(|ui| {
                 ui.add_space(22.0);
-                let hint = if s.q.regex { "Remplacer par… ($1, $2 = groupes, \\n = retour à la ligne)" } else { "Remplacer par… (vide = supprimer)" };
-                ui.add(replace_field(&mut s.replacement, hint).desired_width(field_w)).on_hover_text(REPLACE_TIP);
+                let hint = if s.q.regex { t!("Remplacer par… ($1, $2 = groupes, \\n = retour à la ligne)", "Replace with… ($1, $2 = groups, \\n = new line)") } else { t!("Remplacer par… (vide = supprimer)", "Replace with… (empty = delete)") };
+                ui.add(replace_field(&mut s.replacement, hint).desired_width(field_w)).on_hover_text(replace_tip());
                 let n = s.hit_count();
-                if ui.add_enabled(n > 0 && !s.running, filled_button(format!("Tout remplacer ({n})"), warn())).clicked() {
+                if ui.add_enabled(n > 0 && !s.running, filled_button(tf!("Tout remplacer ({n})", "Replace all ({n})"), warn())).clicked() {
                     act = Some(SearchAct::ReplaceAll);
                 }
-                ui.toggle_value(&mut s.q.preserve, "Garder la casse").on_hover_text("chat → chien, Chat → Chien, CHAT → CHIEN");
+                ui.toggle_value(&mut s.q.preserve, t!("Garder la casse", "Keep case")).on_hover_text(t!("chat → chien, Chat → Chien, CHAT → CHIEN", "cat → dog, Cat → Dog, CAT → DOG"));
             });
             ui.horizontal(|ui| {
                 ui.add_space(22.0);
                 ui.spacing_mut().item_spacing.x = 4.0;
                 let small = |t: &str| RichText::new(t).small();
-                ui.label(small("Aperçu :").weak());
-                ui.label(small(" ancien ").strikethrough().background_color(icons::mix(ui.visuals().panel_fill, err(), 0.4)));
+                ui.label(small(t!("Aperçu :", "Preview:")).weak());
+                ui.label(small(t!(" ancien ", " old ")).strikethrough().background_color(icons::mix(ui.visuals().panel_fill, err(), 0.4)));
                 ui.label(small("→").weak());
-                ui.label(small(" nouveau ").background_color(icons::mix(ui.visuals().panel_fill, ok(), 0.4)));
+                ui.label(small(t!(" nouveau ", " new ")).background_color(icons::mix(ui.visuals().panel_fill, ok(), 0.4)));
                 ui.label(
-                    small("· survol ou clic droit sur un résultat pour le remplacer seul ou l'écarter (× = ne pas remplacer)")
+                    small(t!("· survol ou clic droit sur un résultat pour le remplacer seul ou l'écarter (× = ne pas remplacer)", "· hover or right click a result to replace it alone or drop it (× = don't replace)"))
                         .weak(),
                 );
             });
@@ -205,10 +205,10 @@ impl App {
         // --- filters line
         ui.horizontal(|ui| {
             ui.add_space(22.0);
-            ui.label(RichText::new("Fichiers").color(ok()));
+            ui.label(RichText::new(t!("Fichiers", "Files")).color(ok()));
             let inc = ui
                 .add(egui::TextEdit::singleline(&mut s.q.include).desired_width(220.0).hint_text("*.py, models/*.py, !tests"))
-                .on_hover_text(
+                .on_hover_text(t!(
                     "Plusieurs règles, séparées par des virgules ; ! devant une règle l'exclut :\n\
                      *.py — tous les fichiers Python\n\
                      models/*.py — les fichiers Python des dossiers « models » (où qu'ils soient) et de leurs sous-dossiers\n\
@@ -217,21 +217,35 @@ impl App {
                      *.py, !tests — les .py, sauf ceux des dossiers « tests »\n\
                      florm/*.py, !florm/test — le nom du projet ouvert peut se mettre devant\n\
                      Aide → Guide de Florm pour plus d'exemples",
-                );
-            go |= history_menu(ui, &st.include_history, &mut s.q.include, "Filtres récents");
+                    "Several rules, separated by commas; ! in front of a rule excludes it:\n\
+                     *.py — all the Python files\n\
+                     models/*.py — the Python files of the “models” folders (wherever they are) and of their subfolders\n\
+                     tests — any folder (or file) named “tests”\n\
+                     ./src/*.rs or /absolute/path/*.py — from the root of the project\n\
+                     *.py, !tests — the .py files, except those of the “tests” folders\n\
+                     florm/*.py, !florm/test — the name of the open project can go in front\n\
+                     Help → Florm guide for more examples"
+                ));
+            go |= history_menu(ui, &st.include_history, &mut s.q.include, t!("Filtres récents", "Recent filters"));
             ui.add_space(8.0);
-            ui.label(RichText::new("Exclure").color(err()));
+            ui.label(RichText::new(t!("Exclure", "Exclude")).color(err()));
             let exc = ui.add(
                 egui::TextEdit::singleline(&mut s.q.exclude).desired_width(170.0).hint_text("tests, *.min.js"),
-            ).on_hover_text(
+            ).on_hover_text(t!(
                 "Ce qui est ignoré, en plus du .gitignore (mêmes règles que « Fichiers », séparées par des virgules) :\n\
                  tests — tout dossier nommé « tests »\n\
                  addons/sale/tests — seulement celui-là\n\
                  ./test ou florm/test — le dossier « test » à la racine du projet « florm »\n\
                  *.min.js, i18n — ces fichiers et ces dossiers\n\n\
                  Ex. : Fichiers « *.py » + Exclure « test » = les .py du projet, sauf le dossier test",
-            );
-            go |= history_menu(ui, &st.exclude_history, &mut s.q.exclude, "Exclusions récentes");
+                "What is ignored, on top of the .gitignore (same rules as “Files”, separated by commas):\n\
+                 tests — any folder named “tests”\n\
+                 addons/sale/tests — only that one\n\
+                 ./test or florm/test — the “test” folder at the root of the “florm” project\n\
+                 *.min.js, i18n — these files and folders\n\n\
+                 E.g.: Files “*.py” + Exclude “test” = the .py files of the project, except the test folder"
+            ));
+            go |= history_menu(ui, &st.exclude_history, &mut s.q.exclude, t!("Exclusions récentes", "Recent exclusions"));
             go |= enter(&inc, ui) || enter(&exc, ui);
         });
 
@@ -245,36 +259,36 @@ impl App {
                 let n = s.hit_count();
                 if scanned == 0 && !s.done.include.trim().is_empty() {
                     ui.label(
-                        RichText::new(format!("Aucun fichier ne correspond au filtre « {} »", s.done.include.trim()))
+                        RichText::new(tf!("Aucun fichier ne correspond au filtre « {} »", "No file matches the filter “{}”", s.done.include.trim()))
                             .color(warn()),
                     );
                 } else if n == 0 {
-                    ui.label(RichText::new(format!("Aucun résultat pour « {} »", s.done.pattern)).color(warn()));
+                    ui.label(RichText::new(tf!("Aucun résultat pour « {} »", "No result for “{}”", s.done.pattern)).color(warn()));
                 } else {
                     ui.label(RichText::new(n.to_string()).color(accent).strong());
-                    ui.label(" résultat(s) dans ");
+                    ui.label(t!(" résultat(s) dans ", " result(s) in "));
                     ui.label(RichText::new(s.files.len().to_string()).color(accent).strong());
-                    ui.label(" fichier(s)");
+                    ui.label(t!(" fichier(s)", " file(s)"));
                 }
-                ui.label(RichText::new(format!("   ·   {scanned} fichiers parcourus en {millis} ms")).weak());
+                ui.label(RichText::new(tf!("   ·   {scanned} fichiers parcourus en {millis} ms", "   ·   {scanned} files scanned in {millis} ms")).weak());
                 if truncated {
-                    ui.label(RichText::new("   ·   limite atteinte").color(warn()));
+                    ui.label(RichText::new(t!("   ·   limite atteinte", "   ·   limit reached")).color(warn()));
                 }
                 if n > 0 {
-                    ui.label(RichText::new("   ·   F4 / Maj+F4 pour naviguer   ").weak());
+                    ui.label(RichText::new(t!("   ·   F4 / Maj+F4 pour naviguer   ", "   ·   F4 / Shift+F4 to navigate   ")).weak());
                     ui.spacing_mut().item_spacing.x = 6.0;
-                    if ui.small_button("Tout replier").clicked() {
+                    if ui.small_button(t!("Tout replier", "Fold all")).clicked() {
                         s.collapsed = (0..s.files.len()).collect();
                         s.rebuild_rows();
                     }
-                    if ui.small_button("Tout déplier").clicked() {
+                    if ui.small_button(t!("Tout déplier", "Unfold all")).clicked() {
                         s.collapsed.clear();
                         s.rebuild_rows();
                     }
                 }
             } else {
                 ui.label(
-                    RichText::new("Tape un texte puis Entrée. Filtre les fichiers avec « *.py », exclus des dossiers avec « tests ».")
+                    RichText::new(t!("Tape un texte puis Entrée. Filtre les fichiers avec « *.py », exclus des dossiers avec « tests ».", "Type a text then Enter. Filter the files with “*.py”, exclude folders with “tests”."))
                         .weak(),
                 );
             }
@@ -387,15 +401,15 @@ impl App {
                                     right -= w + 4.0;
                                     ui.put(r, egui::Button::new(RichText::new(text).small())).on_hover_text(tip).clicked()
                                 };
-                                if btn(ui, "×", "Écarter ce fichier des résultats (il ne sera pas modifié)") {
+                                if btn(ui, "×", t!("Écarter ce fichier des résultats (il ne sera pas modifié)", "Drop this file from the results (it will not be changed)")) {
                                     act = Some(SearchAct::Dismiss(fi, None));
                                     clicked_button = true;
                                 }
-                                if s.show_replace && btn(ui, "Remplacer", "Remplacer dans ce fichier") {
+                                if s.show_replace && btn(ui, t!("Remplacer", "Replace"), t!("Remplacer dans ce fichier", "Replace in this file")) {
                                     act = Some(SearchAct::Replace(fi, None));
                                     clicked_button = true;
                                 }
-                                if btn(ui, "📂", "Afficher dans le gestionnaire de fichiers") {
+                                if btn(ui, "📂", t!("Afficher dans le gestionnaire de fichiers", "Show in the file manager")) {
                                     act = Some(SearchAct::Reveal(fi));
                                     clicked_button = true;
                                 }
@@ -414,17 +428,17 @@ impl App {
                                         ui.close_menu();
                                     }
                                 };
-                                item(ui, "Ouvrir le fichier", SearchAct::Open(fi, 0));
-                                item(ui, if collapsed { "Déplier" } else { "Replier" }, SearchAct::Fold(fi));
+                                item(ui, t!("Ouvrir le fichier", "Open the file"), SearchAct::Open(fi, 0));
+                                item(ui, if collapsed { t!("Déplier", "Unfold") } else { t!("Replier", "Fold") }, SearchAct::Fold(fi));
                                 ui.separator();
                                 if s.show_replace {
-                                    item(ui, "Remplacer dans ce fichier", SearchAct::Replace(fi, None));
+                                    item(ui, t!("Remplacer dans ce fichier", "Replace in this file"), SearchAct::Replace(fi, None));
                                 }
-                                item(ui, "Écarter ce fichier des résultats", SearchAct::Dismiss(fi, None));
+                                item(ui, t!("Écarter ce fichier des résultats", "Drop this file from the results"), SearchAct::Dismiss(fi, None));
                                 ui.separator();
-                                item(ui, "Afficher dans le gestionnaire de fichiers", SearchAct::Reveal(fi));
-                                item(ui, "Copier le chemin", SearchAct::Copy(f.path.display().to_string()));
-                                item(ui, "Copier le chemin relatif", SearchAct::Copy(f.rel.clone()));
+                                item(ui, t!("Afficher dans le gestionnaire de fichiers", "Show in the file manager"), SearchAct::Reveal(fi));
+                                item(ui, t!("Copier le chemin", "Copy the path"), SearchAct::Copy(f.path.display().to_string()));
+                                item(ui, t!("Copier le chemin relatif", "Copy the relative path"), SearchAct::Copy(f.rel.clone()));
                             });
                         }
                         Some(h) => {
@@ -483,11 +497,11 @@ impl App {
                                     right -= w + 4.0;
                                     ui.put(r, egui::Button::new(RichText::new(text).small())).on_hover_text(tip).clicked()
                                 };
-                                if btn(ui, "×", "Écarter ce résultat (il ne sera pas remplacé)") {
+                                if btn(ui, "×", t!("Écarter ce résultat (il ne sera pas remplacé)", "Drop this result (it will not be replaced)")) {
                                     act = Some(SearchAct::Dismiss(fi, Some(h)));
                                     clicked_button = true;
                                 }
-                                if s.show_replace && btn(ui, "Remplacer", "Remplacer cette occurrence") {
+                                if s.show_replace && btn(ui, t!("Remplacer", "Replace"), t!("Remplacer cette occurrence", "Replace this occurrence")) {
                                     act = Some(SearchAct::Replace(fi, Some(h)));
                                     clicked_button = true;
                                 }
@@ -503,14 +517,14 @@ impl App {
                                         ui.close_menu();
                                     }
                                 };
-                                item(ui, "Ouvrir", SearchAct::Open(fi, h));
+                                item(ui, t!("Ouvrir", "Open"), SearchAct::Open(fi, h));
                                 if s.show_replace {
-                                    item(ui, "Remplacer cette occurrence", SearchAct::Replace(fi, Some(h)));
+                                    item(ui, t!("Remplacer cette occurrence", "Replace this occurrence"), SearchAct::Replace(fi, Some(h)));
                                 }
-                                item(ui, "Écarter ce résultat", SearchAct::Dismiss(fi, Some(h)));
+                                item(ui, t!("Écarter ce résultat", "Drop this result"), SearchAct::Dismiss(fi, Some(h)));
                                 ui.separator();
-                                item(ui, "Afficher dans le gestionnaire de fichiers", SearchAct::Reveal(fi));
-                                item(ui, "Copier la référence fichier:ligne", SearchAct::Copy(ref_text.clone()));
+                                item(ui, t!("Afficher dans le gestionnaire de fichiers", "Show in the file manager"), SearchAct::Reveal(fi));
+                                item(ui, t!("Copier la référence fichier:ligne", "Copy the file:line reference"), SearchAct::Copy(ref_text.clone()));
                             });
                         }
                     }
@@ -542,7 +556,7 @@ impl App {
             }
             Some(SearchAct::Copy(t)) => {
                 ui.ctx().output_mut(|o| o.copied_text = t.clone());
-                self.set_status(format!("Copié : {t}"));
+                self.set_status(tf!("Copié : {t}", "Copied: {t}"));
             }
             Some(SearchAct::Move(true)) => {
                 self.open_search_tab();

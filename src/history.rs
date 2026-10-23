@@ -180,7 +180,7 @@ pub fn compare(repo: &Path, a: &str, b: &str) -> Result<Details, String> {
     let count = git::stdout(repo, &["rev-list", "--left-right", "--count", &format!("{a}...{b}")]).unwrap_or_default();
     let mut it = count.split_whitespace();
     let message = match (it.next(), it.next()) {
-        (Some(l), Some(r)) => format!("{r} commit(s) dans la deuxième qui ne sont pas dans la première, {l} dans l'autre sens"),
+        (Some(l), Some(r)) => tf!("{r} commit(s) dans la deuxième qui ne sont pas dans la première, {l} dans l'autre sens", "{r} commit(s) in the second that are not in the first, {l} the other way"),
         _ => String::new(),
     };
     Ok(Details { author: String::new(), date: String::new(), message, files })
@@ -651,7 +651,7 @@ pub fn stacked_diff_view(
                                 click = Some(DiffClick::Hunk(i, *act));
                             }
                         }
-                    } else if l.kind != DiffKind::Hunk && resp.on_hover_text_at_pointer("Double-clic : ouvrir le fichier à cette ligne").double_clicked() {
+                    } else if l.kind != DiffKind::Hunk && resp.on_hover_text_at_pointer(t!("Double-clic : ouvrir le fichier à cette ligne", "Double-click: open the file at this line")).double_clicked() {
                         click = Some(DiffClick::Line(i));
                     }
                 }
@@ -739,7 +739,7 @@ pub fn diff_view(ui: &mut Ui, lines: &[DiffLine], id: &str, hunk_buttons: &[Diff
                         click = Some(DiffClick::Hunk(i, *act));
                     }
                 }
-            } else if resp.on_hover_text_at_pointer("Double-clic : ouvrir le fichier à cette ligne").double_clicked() {
+            } else if resp.on_hover_text_at_pointer(t!("Double-clic : ouvrir le fichier à cette ligne", "Double-click: open the file at this line")).double_clicked() {
                 click = Some(DiffClick::Line(i));
             }
         }
@@ -782,7 +782,7 @@ pub fn without(text: &str, idx: usize, whole_file: bool) -> String {
     };
     let rest: Vec<&str> = lines[..a].iter().chain(&lines[b..]).copied().collect();
     let t = rest.join("\n");
-    if t.trim().is_empty() { "(aucune différence)".to_string() } else { t }
+    if t.trim().is_empty() { t!("(aucune différence)", "(no difference)").to_string() } else { t }
 }
 
 /// Patch of the whole file section containing line `idx`.

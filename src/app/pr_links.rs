@@ -59,7 +59,7 @@ impl App {
             // asked again at the next opening of the window, not at every frame
             self.gh.base.remove(&repo);
             if let Some(c) = self.gh.create.as_mut().filter(|c| c.repo == repo) {
-                c.error = Some("GitHub ne répond pas pour ce dépôt (gh installé et connecté ?)".into());
+                c.error = Some(t!("GitHub ne répond pas pour ce dépôt (gh installé et connecté ?)", "GitHub does not answer for this repository (gh installed and logged in?)").into());
             }
             return;
         }
@@ -131,12 +131,12 @@ impl App {
     /// The window to open a pull request of the current branch.
     pub(super) fn start_pr_create(&mut self) {
         let (Some(repo), Some(st)) = (self.repo.clone(), self.git.status.clone()) else {
-            self.set_status("Pas de dépôt git");
+            self.set_status(t!("Pas de dépôt git", "No git repository"));
             return;
         };
         let branch = st.branch.clone();
         if branch.is_empty() || branch.starts_with("HEAD") {
-            self.set_status("Pas de branche (HEAD détachée) : crée d'abord une branche");
+            self.set_status(t!("Pas de branche (HEAD détachée) : crée d'abord une branche", "No branch (detached HEAD): create a branch first"));
             return;
         }
         let remotes: Vec<(String, String)> = git::stdout(&repo, &["remote"])
@@ -181,7 +181,7 @@ impl App {
                 self.gh.create = None;
                 self.gh_forget_branches();
                 self.git_refresh();
-                self.set_status(format!("Pull request créée : {url}"));
+                self.set_status(tf!("Pull request créée : {url}", "Pull request created: {url}"));
                 if let Some(n) = github::number_of(&url) {
                     self.open_pr(repo, n);
                 }
@@ -211,7 +211,7 @@ impl App {
         }
         let mut open = true;
         let (mut create, mut cancel) = (false, false);
-        egui::Window::new("Créer une pull request")
+        egui::Window::new(t!("Créer une pull request", "Create a pull request"))
             .open(&mut open)
             .collapsible(false)
             .resizable(true)
@@ -219,10 +219,10 @@ impl App {
             .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
             .show(ctx, |ui| {
                 egui::Grid::new("pr_create_grid").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
-                    ui.label(RichText::new("De").weak());
+                    ui.label(RichText::new(t!("De", "From")).weak());
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(&c.branch).monospace().strong().color(accent));
-                        ui.label(RichText::new("poussée vers").weak());
+                        ui.label(RichText::new(t!("poussée vers", "pushed to")).weak());
                         let label = c.remotes.get(c.remote).map(|(n, o)| format!("{n} ({o})")).unwrap_or_default();
                         egui::ComboBox::from_id_salt("pr_create_remote").selected_text(label).show_ui(ui, |ui| {
                             for (k, (n, o)) in c.remotes.iter().enumerate() {
@@ -231,15 +231,15 @@ impl App {
                         });
                     });
                     ui.end_row();
-                    ui.label(RichText::new("Vers").weak());
+                    ui.label(RichText::new(t!("Vers", "To")).weak());
                     ui.horizontal(|ui| match &base {
                         None => {
                             ui.spinner();
-                            ui.label(RichText::new("dépôt GitHub…").weak());
+                            ui.label(RichText::new(t!("dépôt GitHub…", "GitHub repository…")).weak());
                         }
                         Some((full, _)) => {
                             ui.label(RichText::new(full).strong());
-                            ui.label(RichText::new("branche").weak());
+                            ui.label(RichText::new(t!("branche", "branch")).weak());
                             let current = c.bases.iter().position(|b| *b == c.base);
                             if let Some(k) = crate::pick::combo(ui, "pr_create_base", RichText::new(&c.base).monospace().color(accent), &c.bases, current) {
                                 c.base = c.bases[k].clone();
@@ -247,14 +247,14 @@ impl App {
                         }
                     });
                     ui.end_row();
-                    ui.label(RichText::new("Titre").weak());
+                    ui.label(RichText::new(t!("Titre", "Title")).weak());
                     ui.add(egui::TextEdit::singleline(&mut c.title).desired_width(f32::INFINITY));
                     ui.end_row();
                     ui.label(RichText::new("Description").weak());
                     ui.add(egui::TextEdit::multiline(&mut c.body).desired_rows(8).desired_width(f32::INFINITY).hint_text("Markdown"));
                     ui.end_row();
                     ui.label("");
-                    ui.checkbox(&mut c.draft, "Brouillon (draft)");
+                    ui.checkbox(&mut c.draft, t!("Brouillon (draft)", "Draft"));
                     ui.end_row();
                 });
                 if let Some(e) = &c.error {
@@ -264,15 +264,15 @@ impl App {
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
                     let can = base.is_some() && !c.base.is_empty() && !c.title.trim().is_empty() && !c.busy;
-                    if ui.add_enabled(can, filled_button("Pousser et créer la PR", accent)).on_hover_text("git push -u, puis gh pr create").clicked() {
+                    if ui.add_enabled(can, filled_button(t!("Pousser et créer la PR", "Push and create the PR"), accent)).on_hover_text(t!("git push -u, puis gh pr create", "git push -u, then gh pr create")).clicked() {
                         create = true;
                     }
-                    if ui.button("Annuler").clicked() {
+                    if ui.button(t!("Annuler", "Cancel")).clicked() {
                         cancel = true;
                     }
                     if c.busy {
                         ui.spinner();
-                        ui.label(RichText::new("push et création…").weak());
+                        ui.label(RichText::new(t!("push et création…", "pushing and creating…")).weak());
                     }
                 });
             });
@@ -288,7 +288,7 @@ impl App {
             // from a fork, GitHub wants "owner:branch"
             let head = if owner.eq_ignore_ascii_case(full.split('/').next().unwrap_or("")) || owner.is_empty() { c.branch.clone() } else { format!("{owner}:{}", c.branch) };
             let (repo, branch, b, title, body, draft) = (c.repo.clone(), c.branch.clone(), c.base.clone(), c.title.trim().to_string(), c.body.clone(), c.draft);
-            self.set_status(format!("git push {remote} {branch}, puis création de la pull request…"));
+            self.set_status(tf!("git push {remote} {branch}, puis création de la pull request…", "git push {remote} {branch}, then creating the pull request…"));
             self.jobs.spawn(move || {
                 let r = git::run(&repo, &["push", "-u", &remote, &branch]).and_then(|_| github::create(&repo, &full, &b, &head, &title, &body, draft));
                 JobResult::PrCreated(repo.clone(), r)

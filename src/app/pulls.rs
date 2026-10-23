@@ -6,8 +6,8 @@ use super::*;
 use crate::github::{self, Part};
 use history::{DiffAct, DiffClick, DiffKind};
 
-/// `gh pr list --state` values and their labels.
-const STATES: [(&str, &str); 4] = [("open", "Ouvertes"), ("merged", "Fusionnées"), ("closed", "Fermées"), ("all", "Toutes")];
+/// `gh pr list --state` values and their labels (French, English).
+const STATES: [(&str, &str, &str); 4] = [("open", "Ouvertes", "Open"), ("merged", "Fusionnées", "Merged"), ("closed", "Fermées", "Closed"), ("all", "Toutes", "All")];
 
 /// Key of the draft of the comment on the whole pull request, and of the one on a line.
 const DRAFT_PR: &str = "pr";
@@ -34,7 +34,7 @@ struct PrDiff {
 
 impl PrDiff {
     fn set(&mut self, text: String) {
-        let text = if text.trim().is_empty() { "(aucune différence)".to_string() } else { text };
+        let text = if text.trim().is_empty() { t!("(aucune différence)", "(no difference)").to_string() } else { text };
         let lines = history::parse_diff(&text);
         let files = history::diff_files(&lines);
         self.loading = false;
@@ -122,7 +122,7 @@ impl App {
 
     fn load_prs(&mut self, repo: Option<PathBuf>) {
         let Some(repo) = repo else {
-            self.pr.list = Some(Err("Aucun dépôt git dans ce dossier.".into()));
+            self.pr.list = Some(Err(t!("Aucun dépôt git dans ce dossier.", "No git repository in this folder.").into()));
             return;
         };
         if self.pr.repo.as_ref() != Some(&repo) {
@@ -192,7 +192,7 @@ impl App {
                 if !out.is_empty() && reload.is_none() {
                     self.log(out);
                 }
-                self.set_status(format!("{label} : OK"));
+                self.set_status(tf!("{label} : OK", "{label}: OK"));
                 if let Some(k) = draft {
                     self.pr.drafts.remove(&k);
                     if k == DRAFT_LINE {
@@ -208,7 +208,7 @@ impl App {
             }
             Err(e) => {
                 self.log(e.clone());
-                self.set_status(format!("{label} : échec — {}", e.lines().next().unwrap_or("")));
+                self.set_status(tf!("{label} : échec — {}", "{label}: failed — {}", e.lines().next().unwrap_or("")));
             }
         }
         self.git_refresh();
@@ -229,9 +229,9 @@ impl App {
                 let body: String = first.body.lines().take(6).collect::<Vec<_>>().join("\n");
                 let more = match t.comments.len() {
                     1 => String::new(),
-                    n => format!("\n(+{} réponse(s))", n - 1),
+                    n => tf!("\n(+{} réponse(s))", "\n(+{} reply(ies))", n - 1),
                 };
-                notes.entry(repo.join(&t.path)).or_default().push((line - 1, format!("💬 PR #{} · {} :\n{body}{more}", d.number, first.author)));
+                notes.entry(repo.join(&t.path)).or_default().push((line - 1, tf!("💬 PR #{} · {} :\n{body}{more}", "💬 PR #{} · {}:\n{body}{more}", d.number, first.author)));
             }
         }
         self.ai_editor_notes(&mut notes);
@@ -267,21 +267,21 @@ impl App {
                     }
                     ui.add_space(8.0);
                     let before = (p.state, p.who);
-                    egui::ComboBox::from_id_salt("pr_who").selected_text(github::WHO[p.who].1).show_ui(ui, |ui| {
-                        for (k, (_, label)) in github::WHO.iter().enumerate() {
-                            ui.selectable_value(&mut p.who, k, *label);
+                    egui::ComboBox::from_id_salt("pr_who").selected_text(t!(github::WHO[p.who].1, github::WHO[p.who].2)).show_ui(ui, |ui| {
+                        for (k, (_, fr, en)) in github::WHO.iter().enumerate() {
+                            ui.selectable_value(&mut p.who, k, t!(*fr, *en));
                         }
                     });
-                    egui::ComboBox::from_id_salt("pr_state").selected_text(STATES[p.state].1).show_ui(ui, |ui| {
-                        for (k, (_, label)) in STATES.iter().enumerate() {
-                            ui.selectable_value(&mut p.state, k, *label);
+                    egui::ComboBox::from_id_salt("pr_state").selected_text(t!(STATES[p.state].1, STATES[p.state].2)).show_ui(ui, |ui| {
+                        for (k, (_, fr, en)) in STATES.iter().enumerate() {
+                            ui.selectable_value(&mut p.state, k, t!(*fr, *en));
                         }
                     });
                     if before != (p.state, p.who) {
                         act = Some(PrAct::Reload);
                     }
-                    ui.add(egui::TextEdit::singleline(&mut p.filter).hint_text("🔍 Filtrer : titre, auteur, branche, numéro…").desired_width(240.0));
-                    if ui.button("⟳").on_hover_text("Recharger la liste").clicked() {
+                    ui.add(egui::TextEdit::singleline(&mut p.filter).hint_text(t!("🔍 Filtrer : titre, auteur, branche, numéro…", "🔍 Filter: title, author, branch, number…")).desired_width(240.0));
+                    if ui.button("⟳").on_hover_text(t!("Recharger la liste", "Reload the list")).clicked() {
                         act = Some(PrAct::Reload);
                     }
                     if p.loading || p.busy {
@@ -289,10 +289,10 @@ impl App {
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if big {
-                            if ui.small_button("⇲ Panneau du bas").on_hover_text("Afficher les pull requests dans le panneau du bas").clicked() {
+                            if ui.small_button(t!("⇲ Panneau du bas", "⇲ Bottom panel")).on_hover_text(t!("Afficher les pull requests dans le panneau du bas", "Show the pull requests in the bottom panel")).clicked() {
                                 move_to = Some(false);
                             }
-                        } else if ui.small_button("⇱ Onglet").on_hover_text("Afficher les pull requests en grand dans l'éditeur").clicked() {
+                        } else if ui.small_button(t!("⇱ Onglet", "⇱ Tab")).on_hover_text(t!("Afficher les pull requests en grand dans l'éditeur", "Show the pull requests large in the editor")).clicked() {
                             move_to = Some(true);
                         }
                     });
@@ -335,7 +335,7 @@ impl App {
                 .collect();
             if shown.is_empty() {
                 ui.add_space(8.0);
-                ui.label(RichText::new("Aucune pull request").weak());
+                ui.label(RichText::new(t!("Aucune pull request", "No pull request")).weak());
                 return;
             }
             egui::ScrollArea::vertical().id_salt("pr_list_scroll").auto_shrink([false, false]).show(ui, |ui| {
@@ -375,7 +375,7 @@ impl App {
                     }
                     None => {
                         ui.add_space(20.0);
-                        ui.vertical_centered(|ui| ui.label(RichText::new("Choisis une pull request à gauche").weak()));
+                        ui.vertical_centered(|ui| ui.label(RichText::new(t!("Choisis une pull request à gauche", "Choose a pull request on the left")).weak()));
                         return;
                     }
                     Some(Err(e)) => {
@@ -396,31 +396,31 @@ impl App {
                     let (label, color) = state_badge(&d.state, d.is_draft);
                     badge(ui, label, color);
                     ui.label(RichText::new(&d.author).strong());
-                    ui.label(RichText::new("veut fusionner").weak());
+                    ui.label(RichText::new(t!("veut fusionner", "wants to merge")).weak());
                     ui.label(RichText::new(&d.head).monospace().color(accent));
-                    ui.label(RichText::new("dans").weak());
+                    ui.label(RichText::new(t!("dans", "into")).weak());
                     ui.label(RichText::new(&d.base).monospace().color(accent));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         maximize::button(ui, view, "detail");
-                        if ui.button("⟳").on_hover_text("Recharger la pull request").clicked() {
+                        if ui.button("⟳").on_hover_text(t!("Recharger la pull request", "Reload the pull request")).clicked() {
                             act = Some(PrAct::Select(d.number));
                         }
-                        if ui.button("Ouvrir sur GitHub").clicked() {
+                        if ui.button(t!("Ouvrir sur GitHub", "Open on GitHub")).clicked() {
                             act = Some(PrAct::Web(d.number));
                         }
                         if ui
-                            .add_enabled(!p.ai.loading, egui::Button::new("✳ Revue IA"))
-                            .on_hover_text("Claude relit la PR et propose des remarques sous les lignes : tu gardes, modifies ou écartes chacune, rien n'est publié sans toi")
+                            .add_enabled(!p.ai.loading, egui::Button::new(t!("✳ Revue IA", "✳ AI review")))
+                            .on_hover_text(t!("Claude relit la PR et propose des remarques sous les lignes : tu gardes, modifies ou écartes chacune, rien n'est publié sans toi", "Claude reads over the PR and suggests remarks under the lines: you keep, edit or drop each one, nothing is published without you"))
                             .clicked()
                         {
                             act = Some(PrAct::AiReview);
                             p.section = PrSection::Files;
                         }
                         if checked_out {
-                            ui.label(RichText::new("✔ branche active").color(ok())).on_hover_text("Les commentaires sur les lignes sont aussi dans l'éditeur");
+                            ui.label(RichText::new(t!("✔ branche active", "✔ current branch")).color(ok())).on_hover_text(t!("Les commentaires sur les lignes sont aussi dans l'éditeur", "The comments on the lines are in the editor too"));
                         } else if ui
                             .add_enabled(!p.busy, filled_button("⤵ Checkout", accent))
-                            .on_hover_text("gh pr checkout : prendre la branche de la PR pour la modifier, appliquer les suggestions et voir les commentaires dans l'éditeur")
+                            .on_hover_text(t!("gh pr checkout : prendre la branche de la PR pour la modifier, appliquer les suggestions et voir les commentaires dans l'éditeur", "gh pr checkout: take the branch of the PR to change it, apply the suggestions and see the comments in the editor"))
                             .clicked()
                         {
                             act = Some(PrAct::Checkout(d.number));
@@ -430,11 +430,11 @@ impl App {
                 ui.add_space(4.0);
                 let open_threads = d.threads.iter().filter(|t| !t.resolved).count();
                 ui.horizontal(|ui| {
-                    let conv = if open_threads > 0 { format!("Conversation · {open_threads} à traiter") } else { "Conversation".into() };
+                    let conv = if open_threads > 0 { tf!("Conversation · {open_threads} à traiter", "Conversation · {open_threads} to handle") } else { "Conversation".into() };
                     ui.selectable_value(&mut p.section, PrSection::Conversation, conv);
                     ui.selectable_value(&mut p.section, PrSection::Commits, format!("Commits · {}", d.commits.len()));
                     let n = p.files.diff.as_ref().map_or(0, |x| x.files.len());
-                    ui.selectable_value(&mut p.section, PrSection::Files, format!("Fichiers · {n}"));
+                    ui.selectable_value(&mut p.section, PrSection::Files, tf!("Fichiers · {n}", "Files · {n}"));
                 });
                 ui.separator();
                 match p.section {
@@ -444,12 +444,12 @@ impl App {
                             ui.set_max_width(ui.available_width().min(1000.0));
                             ui.add_space(4.0);
                             let draft = p.drafts.entry(DRAFT_PR.into()).or_default();
-                            if composer(ui, draft, "Envoyer un message sur la pull request…", "Envoyer", p.busy, accent) {
+                            if composer(ui, draft, t!("Envoyer un message sur la pull request…", "Send a message on the pull request…"), t!("Envoyer", "Send"), p.busy, accent) {
                                 act = Some(PrAct::Send(DRAFT_PR.into()));
                             }
                             let resolved = d.threads.len() - open_threads;
                             if resolved > 0 {
-                                ui.checkbox(&mut p.show_resolved, RichText::new(format!("afficher les {resolved} conversation(s) résolue(s)")).small());
+                                ui.checkbox(&mut p.show_resolved, RichText::new(tf!("afficher les {resolved} conversation(s) résolue(s)", "show the {resolved} resolved conversation(s)")).small());
                             }
                             let mut day_shown = String::new();
                             for (date, ev) in timeline(d, p.show_resolved) {
@@ -459,9 +459,9 @@ impl App {
                                 }
                                 match ev {
                                     Event::Opened => {
-                                        comment_block(ui, &d.author, &date, Some(("a ouvert la pull request", accent)), |ui| {
+                                        comment_block(ui, &d.author, &date, Some((t!("a ouvert la pull request", "opened the pull request"), accent)), |ui| {
                                             if d.body.trim().is_empty() {
-                                                ui.label(RichText::new("Pas de description.").weak().italics());
+                                                ui.label(RichText::new(t!("Pas de description.", "No description.")).weak().italics());
                                             } else {
                                                 egui_commonmark::CommonMarkViewer::new().show(ui, cache, &d.body);
                                             }
@@ -470,12 +470,12 @@ impl App {
                                     Event::Comment(k) => {
                                         let c = &d.comments[k];
                                         let review = match c.state.as_str() {
-                                            "APPROVED" => Some(("✔ a approuvé", ok())),
-                                            "CHANGES_REQUESTED" => Some(("✖ demande des changements", err())),
+                                            "APPROVED" => Some((t!("✔ a approuvé", "✔ approved"), ok())),
+                                            "CHANGES_REQUESTED" => Some((t!("✖ demande des changements", "✖ requested changes"), err())),
                                             _ => None,
                                         };
                                         if c.body.trim().is_empty() {
-                                            let (t, color) = review.unwrap_or(("a fait une revue", accent));
+                                            let (t, color) = review.unwrap_or((t!("a fait une revue", "reviewed"), accent));
                                             tracking(ui, &c.author.login, &date, t, color);
                                         } else {
                                             comment_block(ui, &c.author.login, &date, review, |ui| {
@@ -486,7 +486,7 @@ impl App {
                                     Event::Thread(k) => {
                                         let t = &d.threads[k];
                                         let who = t.comments.first().map_or("", |c| c.author.as_str());
-                                        tracking(ui, who, &date, &format!("a commenté {}", t.path.rsplit('/').next().unwrap_or(&t.path)), accent);
+                                        tracking(ui, who, &date, &tf!("a commenté {}", "commented {}", t.path.rsplit('/').next().unwrap_or(&t.path)), accent);
                                         ui.horizontal_top(|ui| {
                                             ui.add_space(34.0);
                                             ui.vertical(|ui| {
@@ -496,13 +496,13 @@ impl App {
                                         });
                                     }
                                     Event::Push { author, commits } => {
-                                        let what = if commits.len() == 1 { "a poussé un commit".to_string() } else { format!("a poussé {} commits", commits.len()) };
+                                        let what = if commits.len() == 1 { t!("a poussé un commit", "pushed a commit").to_string() } else { tf!("a poussé {} commits", "pushed {} commits", commits.len()) };
                                         tracking(ui, &author, &date, &what, accent);
                                         for &k in &commits {
                                             let c = &d.commits[k];
                                             ui.horizontal(|ui| {
                                                 ui.add_space(34.0);
-                                                if ui.link(RichText::new(&c.oid[..c.oid.len().min(8)]).monospace().small().color(accent)).on_hover_text("Voir ce commit").clicked() {
+                                                if ui.link(RichText::new(&c.oid[..c.oid.len().min(8)]).monospace().small().color(accent)).on_hover_text(t!("Voir ce commit", "Show this commit")).clicked() {
                                                     act = Some(PrAct::Commit(c.oid.clone()));
                                                     p.section = PrSection::Commits;
                                                 }
@@ -535,7 +535,7 @@ impl App {
                         egui::CentralPanel::default().frame(egui::Frame::none().inner_margin(egui::Margin { top: 6.0, ..Default::default() })).show_inside(ui, |ui| {
                             let Some(sha) = &p.commit else {
                                 ui.add_space(20.0);
-                                ui.vertical_centered(|ui| ui.label(RichText::new("Choisis un commit : ses changements à lui seul s'affichent ici").weak()));
+                                ui.vertical_centered(|ui| ui.label(RichText::new(t!("Choisis un commit : ses changements à lui seul s'affichent ici", "Choose a commit: its changes alone show here")).weak()));
                                 return;
                             };
                             let headline = d.commits.iter().find(|c| &c.oid == sha).map_or("", |c| c.message_headline.as_str());
@@ -554,10 +554,10 @@ impl App {
                     }
                     PrSection::Files => {
                         ui.horizontal(|ui| {
-                            ui.label(RichText::new("Double-clic sur une ligne pour la commenter").small().weak());
+                            ui.label(RichText::new(t!("Double-clic sur une ligne pour la commenter", "Double-click a line to comment on it")).small().weak());
                             let resolved = d.threads.iter().filter(|t| t.resolved).count();
                             if resolved > 0 {
-                                ui.checkbox(&mut p.show_resolved, RichText::new(format!("afficher les {resolved} conversation(s) résolue(s)")).small());
+                                ui.checkbox(&mut p.show_resolved, RichText::new(tf!("afficher les {resolved} conversation(s) résolue(s)", "show the {resolved} resolved conversation(s)")).small());
                             }
                         });
                         // the AI review: its state and buttons, the remarks off the diff
@@ -565,8 +565,8 @@ impl App {
                         let mut ai_act = None;
                         let (busy, mut publish) = (p.busy, false);
                         ai_review::review_bar(ui, cache, &mut p.ai, &ai_rows, accent, &mut ai_act, |ui, kept| {
-                            let label = format!("Publier les {kept} gardée(s) sur GitHub");
-                            let tip = "Une seule revue GitHub (commentaire, sans approuver ni demander de changements) ; les remarques hors du diff vont dans son message";
+                            let label = tf!("Publier les {kept} gardée(s) sur GitHub", "Publish the {kept} kept on GitHub");
+                            let tip = t!("Une seule revue GitHub (commentaire, sans approuver ni demander de changements) ; les remarques hors du diff vont dans son message", "A single GitHub review (comment, without approving or requesting changes); the remarks outside the diff go in its message");
                             publish = ui.add_enabled(kept > 0 && !busy, filled_button(label, accent)).on_hover_text(tip).clicked();
                         });
                         // the conversations under the lines they are about, like on GitHub
@@ -649,9 +649,9 @@ impl App {
             Some(PrAct::Select(n)) => self.load_pr(n),
             Some(PrAct::Checkout(n)) => {
                 self.set_status(format!("gh pr checkout {n}…"));
-                self.pr_job(format!("Checkout de la PR #{n}"), None, None, move || github::checkout(&repo, n));
+                self.pr_job(tf!("Checkout de la PR #{n}", "Checkout of PR #{n}"), None, None, move || github::checkout(&repo, n));
             }
-            Some(PrAct::Web(n)) => self.pr_job("Ouvrir sur GitHub".into(), None, None, move || github::open_web(&repo, n)),
+            Some(PrAct::Web(n)) => self.pr_job(t!("Ouvrir sur GitHub", "Open on GitHub").into(), None, None, move || github::open_web(&repo, n)),
             Some(PrAct::Commit(sha)) => {
                 self.pr.commit = Some(sha.clone());
                 self.pr.commit_diff = PrDiff { loading: true, ..Default::default() };
@@ -666,17 +666,17 @@ impl App {
                     return;
                 }
                 if key == DRAFT_PR {
-                    self.pr_job("Commentaire".into(), Some(n), Some(key), move || github::comment(&repo, n, &body));
+                    self.pr_job(t!("Commentaire", "Comment").into(), Some(n), Some(key), move || github::comment(&repo, n, &body));
                 } else if key == DRAFT_LINE {
                     let Some((path, line, side, _)) = self.pr.new_line.clone() else { return };
                     let commit = d.head_oid.clone();
-                    self.pr_job("Commentaire sur la ligne".into(), Some(n), Some(key), move || github::line_comment(&repo, n, &commit, &path, line, side, &body));
+                    self.pr_job(t!("Commentaire sur la ligne", "Comment on the line").into(), Some(n), Some(key), move || github::line_comment(&repo, n, &commit, &path, line, side, &body));
                 } else if let Some(id) = d.threads.iter().find(|t| t.id == key).and_then(|t| t.comments.first()).map(|c| c.db_id) {
-                    self.pr_job("Réponse".into(), Some(n), Some(key), move || github::reply(&repo, n, id, &body));
+                    self.pr_job(t!("Réponse", "Reply").into(), Some(n), Some(key), move || github::reply(&repo, n, id, &body));
                 }
             }
             Some(PrAct::Resolve(id, yes)) => {
-                let label = if yes { "Conversation résolue" } else { "Conversation rouverte" };
+                let label = if yes { t!("Conversation résolue", "Conversation resolved") } else { t!("Conversation rouverte", "Conversation reopened") };
                 self.pr_job(label.into(), Some(n), None, move || github::resolve(&repo, &id, yes));
             }
             Some(PrAct::AiReview) => {
@@ -704,7 +704,7 @@ impl App {
                 }
                 let count = on_lines.len() + general.len();
                 let body = general.join("\n\n");
-                self.pr_job(format!("Revue publiée ({count} remarque(s))"), Some(n), Some(DRAFT_AI.into()), move || github::review(&repo, n, &commit, &body, &on_lines));
+                self.pr_job(tf!("Revue publiée ({count} remarque(s))", "Review published ({count} remark(s))"), Some(n), Some(DRAFT_AI.into()), move || github::review(&repo, n, &commit, &body, &on_lines));
             }
             Some(PrAct::Ai(a)) => {
                 if let Some((path, line)) = self.pr.ai.apply(a) {
@@ -724,7 +724,7 @@ impl App {
         let Some(repo) = self.pr.repo.clone() else { return };
         let path = repo.join(rel);
         if !path.is_file() {
-            self.set_status(format!("« {rel} » n'est pas dans tes fichiers (Checkout de la PR ?)"));
+            self.set_status(tf!("« {rel} » n'est pas dans tes fichiers (Checkout de la PR ?)", "“{rel}” is not in your files (Checkout of the PR?)"));
             return;
         }
         if self.open_path(path) {
@@ -742,7 +742,7 @@ impl App {
         let path = repo.join(rel);
         let back = self.docs.get(self.active).map(|d| d.uid);
         let Some(i) = self.docs.iter().position(|d| d.path.as_ref() == Some(&path)).or_else(|| self.open_path(path.clone()).then_some(self.active)) else {
-            self.set_status(format!("Impossible d'ouvrir {rel}"));
+            self.set_status(tf!("Impossible d'ouvrir {rel}", "Cannot open {rel}"));
             return;
         };
         // the suggestions applied above in the file moved the lines
@@ -752,7 +752,7 @@ impl App {
         let (s0, e0) = ((start as isize - 1 + shift).max(0) as usize, (end as isize - 1 + shift).max(0) as usize);
         let n = d.rope.len_lines();
         if e0 >= n {
-            self.set_status(format!("{rel} n'a plus la ligne {end} : fichier changé depuis le commentaire ?"));
+            self.set_status(tf!("{rel} n'a plus la ligne {end} : fichier changé depuis le commentaire ?", "{rel} no longer has line {end}: file changed since the comment?"));
             return;
         }
         let a = d.rope.line_to_char(s0);
@@ -766,9 +766,9 @@ impl App {
         self.pr.applied.insert(id);
         let saved = !was_dirty && self.save(i);
         self.set_status(if saved {
-            format!("Suggestion appliquée et enregistrée : {rel}:{start} — à committer (Ctrl+Z dans le fichier pour l'annuler)")
+            tf!("Suggestion appliquée et enregistrée : {rel}:{start} — à committer (Ctrl+Z dans le fichier pour l'annuler)", "Suggestion applied and saved: {rel}:{start} — to commit (Ctrl+Z in the file to undo it)")
         } else {
-            format!("Suggestion appliquée dans {rel}:{start} (non enregistré : le fichier avait d'autres modifications)")
+            tf!("Suggestion appliquée dans {rel}:{start} (non enregistré : le fichier avait d'autres modifications)", "Suggestion applied in {rel}:{start} (not saved: the file had other changes)")
         });
         if let Some(k) = back.and_then(|u| self.docs.iter().position(|d| d.uid == u)) {
             self.activate_tab(k);
@@ -792,15 +792,15 @@ fn line_composer(ui: &mut egui::Ui, draft: &mut String, new_line: &mut Option<(S
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.horizontal(|ui| {
-                let what = if side == "LEFT" { " (ancienne version)" } else { "" };
-                ui.label(RichText::new(format!("💬 Nouveau commentaire sur {path}:{line}{what}")).strong());
+                let what = if side == "LEFT" { t!(" (ancienne version)", " (old version)") } else { "" };
+                ui.label(RichText::new(tf!("💬 Nouveau commentaire sur {path}:{line}{what}", "💬 New comment on {path}:{line}{what}")).strong());
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.small_button("Annuler").clicked() {
+                    if ui.small_button(t!("Annuler", "Cancel")).clicked() {
                         *new_line = None;
                     }
                 });
             });
-            if composer(ui, draft, "Ton commentaire (Markdown ; ```suggestion pour proposer un remplacement)…", "Commenter la ligne", busy, accent) {
+            if composer(ui, draft, t!("Ton commentaire (Markdown ; ```suggestion pour proposer un remplacement)…", "Your comment (Markdown; ```suggestion to suggest a replacement)…"), t!("Commenter la ligne", "Comment on the line"), busy, accent) {
                 *act = Some(PrAct::Send(DRAFT_LINE.into()));
             }
         });
@@ -830,7 +830,7 @@ fn diff_area(ui: &mut egui::Ui, id: &str, pd: &mut PrDiff, threads: &[github::Th
     egui::CentralPanel::default()
         .frame(egui::Frame::none().inner_margin(egui::Margin { left: 6.0, ..Default::default() }))
         .show_inside(ui, |ui| {
-            let file_buttons: &[history::DiffButton] = &[("Ouvrir", "Ouvrir le fichier (tel qu'il est dans tes fichiers)", DiffAct::Open)];
+            let file_buttons: &[history::DiffButton] = &[(t!("Ouvrir", "Open"), t!("Ouvrir le fichier (tel qu'il est dans tes fichiers)", "Open the file (as it is in your files)"), DiffAct::Open)];
             let jump = pd.jump.take();
             history::stacked_diff_view(ui, &diff.lines, &diff.files, &mut pd.collapsed, id, &[], file_buttons, jump, notes)
         })
@@ -853,13 +853,13 @@ fn pr_row(ui: &mut egui::Ui, pr: &github::PrSummary, selected: bool, accent: Col
     p.text(egui::pos2(r.right() + 6.0, rect.top() + 6.0), Align2::LEFT_TOP, &pr.title, egui::FontId::proportional(13.5), v.strong_text_color());
     let mut info = format!("{} · {} → {} · {}", pr.author.login, pr.head_ref_name, pr.base_ref_name, ago(&pr.updated_at));
     if pr.is_draft {
-        info.push_str(" · brouillon");
+        info.push_str(t!(" · brouillon", " · draft"));
     }
     let r = p.text(egui::pos2(rect.left() + 20.0, rect.top() + 26.0), Align2::LEFT_TOP, info, egui::FontId::proportional(11.5), v.weak_text_color());
     let review = match pr.review_decision.as_deref() {
-        Some("APPROVED") => Some(("✔ approuvée", ok())),
-        Some("CHANGES_REQUESTED") => Some(("✖ à corriger", err())),
-        Some("REVIEW_REQUIRED") => Some(("revue demandée", accent)),
+        Some("APPROVED") => Some((t!("✔ approuvée", "✔ approved"), ok())),
+        Some("CHANGES_REQUESTED") => Some((t!("✖ à corriger", "✖ to fix"), err())),
+        Some("REVIEW_REQUIRED") => Some((t!("revue demandée", "review requested"), accent)),
         _ => None,
     };
     if let Some((t, c)) = review {
@@ -894,15 +894,15 @@ fn commit_row(ui: &mut egui::Ui, c: &github::Commit, selected: bool, accent: Col
         egui::FontId::proportional(13.5),
         v.strong_text_color(),
     );
-    resp.on_hover_text("Voir les changements de ce commit seul")
+    resp.on_hover_text(t!("Voir les changements de ce commit seul", "See the changes of this commit alone"))
 }
 
 pub(super) fn state_badge(state: &str, draft: bool) -> (&'static str, Color32) {
     match state {
-        _ if draft && state == "OPEN" => ("Brouillon", Color32::GRAY),
-        "OPEN" => ("Ouverte", ok()),
-        "MERGED" => ("Fusionnée", Color32::from_rgb(0x8a, 0x5c, 0xd8)),
-        _ => ("Fermée", err()),
+        _ if draft && state == "OPEN" => (t!("Brouillon", "Draft"), Color32::GRAY),
+        "OPEN" => (t!("Ouverte", "Open"), ok()),
+        "MERGED" => (t!("Fusionnée", "Merged"), Color32::from_rgb(0x8a, 0x5c, 0xd8)),
+        _ => (t!("Fermée", "Closed"), err()),
     }
 }
 
@@ -967,9 +967,10 @@ fn tracking(ui: &mut egui::Ui, author: &str, date: &str, what: &str, color: Colo
 /// "─── 21 octobre 2026 ───" between the days of the conversation.
 fn day_separator(ui: &mut egui::Ui, date: &str) {
     const MONTHS: [&str; 12] = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
+    const MONTHS_EN: [&str; 12] = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
     let n = |a: usize, b: usize| date.get(a..b).and_then(|s| s.parse::<usize>().ok());
     let label = match (n(0, 4), n(5, 7), n(8, 10)) {
-        (Some(y), Some(m), Some(d)) if (1..=12).contains(&m) => format!("{d} {} {y}", MONTHS[m - 1]),
+        (Some(y), Some(m), Some(d)) if (1..=12).contains(&m) => tf!("{d} {} {y}", "{} {d}, {y}", t!(MONTHS[m - 1], MONTHS_EN[m - 1])),
         _ => day(date).to_string(),
     };
     ui.add_space(10.0);
@@ -1028,7 +1029,7 @@ fn composer(ui: &mut egui::Ui, text: &mut String, hint: &str, button: &str, busy
     let mut send = false;
     if !text.trim().is_empty() {
         ui.horizontal(|ui| {
-            send = ui.add_enabled(!busy, filled_button(button, accent)).on_hover_text("Ctrl+Entrée").clicked();
+            send = ui.add_enabled(!busy, filled_button(button, accent)).on_hover_text(t!("Ctrl+Entrée", "Ctrl+Enter")).clicked();
             ui.label(RichText::new("Markdown").small().weak());
         });
     }
@@ -1098,19 +1099,19 @@ fn thread_ui(
                 .show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     ui.horizontal(|ui| {
-                        let lines = if start < line { format!("lignes {start}-{line}") } else { format!("ligne {line}") };
+                        let lines = if start < line { tf!("lignes {start}-{line}", "lines {start}-{line}") } else { tf!("ligne {line}", "line {line}") };
                         let place = if in_diff { format!("💬 {lines}") } else { format!("{} · {lines}", t.path) };
-                        if ui.link(RichText::new(place).monospace().strong()).on_hover_text("Ouvrir le fichier à cette ligne").clicked() {
+                        if ui.link(RichText::new(place).monospace().strong()).on_hover_text(t!("Ouvrir le fichier à cette ligne", "Open the file at this line")).clicked() {
                             *act = Some(PrAct::Open(t.path.clone(), line));
                         }
                         if t.resolved {
-                            badge(ui, "résolu", ok());
+                            badge(ui, t!("résolu", "resolved"), ok());
                         }
                         if t.outdated {
-                            badge(ui, "code modifié depuis", Color32::GRAY);
+                            badge(ui, t!("code modifié depuis", "code changed since"), Color32::GRAY);
                         }
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            let (label, tip) = if t.resolved { ("Rouvrir", "Marquer la conversation comme non résolue") } else { ("✔ Résoudre", "Marquer la conversation comme résolue") };
+                            let (label, tip) = if t.resolved { (t!("Rouvrir", "Reopen"), t!("Marquer la conversation comme non résolue", "Mark the conversation as unresolved")) } else { (t!("✔ Résoudre", "✔ Resolve"), t!("Marquer la conversation comme résolue", "Mark the conversation as resolved")) };
                             if ui.add_enabled(!busy, egui::Button::new(label).small()).on_hover_text(tip).clicked() {
                                 *act = Some(PrAct::Resolve(t.id.clone(), !t.resolved));
                             }
@@ -1136,7 +1137,7 @@ fn thread_ui(
                     });
                 }
                 ui.add_space(6.0);
-                if composer(ui, draft, "Répondre…", "Répondre", busy, accent) {
+                if composer(ui, draft, t!("Répondre…", "Reply…"), t!("Répondre", "Reply"), busy, accent) {
                     *act = Some(PrAct::Send(t.id.clone()));
                 }
             });
@@ -1169,7 +1170,7 @@ fn suggestion_ui(
             ui.set_width(ui.available_width());
             egui::Frame::none().fill(icons::mix(v.panel_fill, accent, 0.10)).inner_margin(egui::Margin::symmetric(8.0, 4.0)).show(ui, |ui| {
                 ui.set_width(ui.available_width());
-                ui.label(RichText::new("Changement suggéré").small().strong().color(accent));
+                ui.label(RichText::new(t!("Changement suggéré", "Suggested change")).small().strong().color(accent));
             });
             let font = egui::FontId::monospace(12.0);
             let new: Vec<&str> = if text.is_empty() { Vec::new() } else { text.split('\n').collect() };
@@ -1185,20 +1186,20 @@ fn suggestion_ui(
             }
             egui::Frame::none().inner_margin(egui::Margin::symmetric(8.0, 6.0)).show(ui, |ui| {
                 if applied.contains(&c.id) {
-                    ui.label(RichText::new("✔ appliquée dans ton fichier").color(ok()));
+                    ui.label(RichText::new(t!("✔ appliquée dans ton fichier", "✔ applied in your file")).color(ok()));
                     return;
                 }
                 let why = if !checked_out {
-                    Some("Fais d'abord « ⤵ Checkout » de la PR")
+                    Some(t!("Fais d'abord « ⤵ Checkout » de la PR", "First do “⤵ Checkout” of the PR"))
                 } else if t.line.is_none() || t.outdated {
-                    Some("Le code a changé depuis ce commentaire")
+                    Some(t!("Le code a changé depuis ce commentaire", "The code changed since this comment"))
                 } else {
                     None
                 };
                 let moved = shifts.get(&t.path).is_some_and(|v| v.iter().any(|(l, _)| *l >= start && *l <= line));
                 ui.horizontal(|ui| {
-                    let resp = ui.add_enabled(why.is_none() && !moved, filled_button("Appliquer la suggestion", accent));
-                    if resp.on_hover_text("Remplace ces lignes dans ton fichier et l'enregistre (à committer ensuite)").clicked() {
+                    let resp = ui.add_enabled(why.is_none() && !moved, filled_button(t!("Appliquer la suggestion", "Apply the suggestion"), accent));
+                    if resp.on_hover_text(t!("Remplace ces lignes dans ton fichier et l'enregistre (à committer ensuite)", "Replaces these lines in your file and saves it (to commit afterwards)")).clicked() {
                         *act = Some(PrAct::Apply { id: c.id.clone(), path: t.path.clone(), start, end: line, text: text.to_string() });
                     }
                     if let Some(w) = why {

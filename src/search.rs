@@ -77,7 +77,7 @@ fn normalize(root: &Path, glob: &str, include: bool) -> Result<Vec<String>, Stri
         let root_s = root.to_string_lossy().replace('\\', "/");
         match g.strip_prefix(root_s.trim_end_matches('/')) {
             Some(rest) if rest.is_empty() || rest.starts_with('/') => g = rest.to_string(),
-            _ => return Err(format!("« {glob} » est en dehors du dossier ouvert ({})", root.display())),
+            _ => return Err(tf!("« {glob} » est en dehors du dossier ouvert ({})", "“{glob}” is outside the open folder ({})", root.display())),
         }
         anchored = true;
     } else if let Some(rest) = g.strip_prefix("./") {

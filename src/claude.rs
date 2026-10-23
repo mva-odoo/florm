@@ -8,7 +8,13 @@ use std::process::{Child, ChildStdin, Stdio};
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::{Arc, Mutex};
 
-pub const NOT_INSTALLED: &str = "La commande claude (Claude Code) est introuvable. Installe-la (https://claude.com/claude-code), puis lance une fois « claude » dans un terminal pour te connecter.";
+pub fn not_installed() -> String {
+    t!(
+        "La commande claude (Claude Code) est introuvable. Installe-la (https://claude.com/claude-code), puis lance une fois « claude » dans un terminal pour te connecter.",
+        "The claude command (Claude Code) was not found. Install it (https://claude.com/claude-code), then run “claude” once in a terminal to log in."
+    )
+    .to_string()
+}
 
 /// Models offered: (value of --model, label). Empty: the default of Claude Code.
 pub const MODELS: [(&str, &str); 5] = [("", "Modèle par défaut"), ("opus", "Opus"), ("sonnet", "Sonnet"), ("haiku", "Haiku (rapide)"), ("fable", "Fable")];
@@ -30,6 +36,44 @@ pub const PERMS: [(&str, &str, &str); 6] = [
     ("sandbox", "Bac à sable pour les commandes", "Les commandes tournent isolées (bubblewrap) : écriture seulement dans le projet, réseau filtré"),
     ("confine", "Rester dans le projet", "Les fichiers hors du dossier du projet sont inaccessibles, et tes réglages Claude Code personnels sont ignorés"),
 ];
+
+/// A label or an explanation of `MODELS`, `MODES` and `PERMS` in the language of the interface.
+pub fn label(fr: &'static str) -> &'static str {
+    if !crate::i18n::en() {
+        return fr;
+    }
+    match fr {
+        "Modèle par défaut" => "Default model",
+        "Haiku (rapide)" => "Haiku (fast)",
+        "Selon les permissions" => "By permissions",
+        "Claude fait seulement ce qui est coché dans 🔒 Permissions ; tu gardes ou rejettes ses changements dans la revue" => {
+            "Claude only does what is ticked in 🔒 Permissions; you keep or reject its changes in the review"
+        }
+        "Plan seulement" => "Plan only",
+        "Claude lit et propose un plan, sans rien modifier" => "Claude reads and suggests a plan, without changing anything",
+        "Tout autoriser" => "Allow everything",
+        "Claude peut tout faire sans demander (le bac à sable, s'il est coché, isole quand même ses commandes)" => {
+            "Claude may do anything without asking (the sandbox, if ticked, still isolates its commands)"
+        }
+        "Modifier les fichiers" => "Edit files",
+        "Créer et modifier des fichiers (tu gardes ou rejettes chaque bloc dans la revue)" => "Create and edit files (you keep or reject each block in the review)",
+        "Lancer des commandes" => "Run commands",
+        "Tests, git, scripts… dans un terminal caché" => "Tests, git, scripts… in a hidden terminal",
+        "Accès à internet" => "Internet access",
+        "Lire des pages web et faire des recherches" => "Read web pages and search",
+        "Sous-agents" => "Subagents",
+        "Confier des recherches à d'autres instances de Claude" => "Hand searches to other instances of Claude",
+        "Bac à sable pour les commandes" => "Sandbox for the commands",
+        "Les commandes tournent isolées (bubblewrap) : écriture seulement dans le projet, réseau filtré" => {
+            "Commands run isolated (bubblewrap): writing only in the project, filtered network"
+        }
+        "Rester dans le projet" => "Stay in the project",
+        "Les fichiers hors du dossier du projet sont inaccessibles, et tes réglages Claude Code personnels sont ignorés" => {
+            "Files outside the project folder are out of reach, and your personal Claude Code settings are ignored"
+        }
+        _ => fr,
+    }
+}
 
 /// Tools of each permission: those named in the allowed / denied lists (old names included) and
 /// those of `--tools` (current names only, an unknown one is an error).
@@ -195,7 +239,7 @@ pub fn tool_summary(name: &str, input: &Value) -> String {
         "WebFetch" => s("url"),
         "WebSearch" => s("query"),
         "Task" | "Agent" => s("description"),
-        "TodoWrite" => "liste de tâches".into(),
+        "TodoWrite" => t!("liste de tâches", "todo list").into(),
         _ => String::new(),
     }
 }
@@ -232,7 +276,7 @@ impl Session {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .map_err(|_| NOT_INSTALLED.to_string())?;
+            .map_err(|_| not_installed())?;
         let stdin = child.stdin.take().ok_or("stdin")?;
         let stdout = child.stdout.take().ok_or("stdout")?;
         let mut stderr = child.stderr.take().ok_or("stderr")?;
@@ -263,7 +307,7 @@ impl Session {
     }
 
     fn write(&mut self, v: Value) -> Result<(), String> {
-        writeln!(self.stdin, "{v}").and_then(|_| self.stdin.flush()).map_err(|e| format!("Claude ne répond plus : {e}"))
+        writeln!(self.stdin, "{v}").and_then(|_| self.stdin.flush()).map_err(|e| tf!("Claude ne répond plus : {e}", "Claude no longer answers: {e}"))
     }
 
     /// Sends a message of the user.
@@ -292,17 +336,20 @@ impl Drop for Session {
 /// A commit message for `diff`, in the style of the last messages of the repository; `wish`:
 /// what was asked to Claude for these changes, if known.
 pub fn commit_message(dir: &Path, diff: &str, recent: &str, wish: &str) -> Result<String, String> {
-    let mut prompt = String::from(
+    let mut prompt = String::from(t!(
         "Écris le message de commit de ce diff (reçu sur l'entrée standard). Suis le style des derniers messages du dépôt \
          (préfixes comme [FIX] / [IMP] / [ADD] module: … s'ils en ont), une première ligne courte, puis une ligne vide et \
          en quelques lignes le pourquoi si ce n'est pas évident. Réponds uniquement par le message, sans guillemets ni bloc de code.",
-    );
+        "Write the commit message of this diff (given on the standard input). Follow the style of the last messages of the repository \
+         (prefixes like [FIX] / [IMP] / [ADD] module: … if they have some), a short first line, then an empty line and \
+         in a few lines the why if it is not obvious. Answer only with the message, without quotes or code block."
+    ));
     if !recent.trim().is_empty() {
-        prompt.push_str("\n\nDerniers messages du dépôt :\n");
+        prompt.push_str(t!("\n\nDerniers messages du dépôt :\n", "\n\nLast messages of the repository:\n"));
         prompt.push_str(recent.trim());
     }
     if !wish.trim().is_empty() {
-        prompt.push_str("\n\nCe que le développeur avait demandé pour ces changements :\n");
+        prompt.push_str(t!("\n\nCe que le développeur avait demandé pour ces changements :\n", "\n\nWhat the developer had asked for these changes:\n"));
         prompt.push_str(wish.trim());
     }
     // a very large diff is cut: the beginning says enough
@@ -320,7 +367,7 @@ fn run_once(dir: &Path, args: &[&str], input: String) -> Result<String, String> 
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|_| NOT_INSTALLED.to_string())?;
+        .map_err(|_| not_installed())?;
     if let Some(mut stdin) = child.stdin.take() {
         std::thread::spawn(move || {
             let _ = stdin.write_all(input.as_bytes());
@@ -345,14 +392,21 @@ pub enum Inline {
 /// Claude on a piece of a file (`selection`, with the code `before` and `after` it for the
 /// context): the new code for `ask`, or an explanation if it is a question.
 pub fn inline(dir: &Path, file: &str, before: &str, selection: &str, after: &str, ask: &str) -> Result<Inline, String> {
-    let prompt = format!(
+    let prompt = tf!(
         "Tu travailles sur un extrait du fichier {file}. L'entrée standard contient le code autour, pour le contexte, \
          et l'extrait lui-même entre les lignes <extrait> et </extrait>.\n\
          Demande : {ask}\n\n\
          Si la demande est de modifier, réponds uniquement par le nouveau code qui remplace l'extrait (lui seul, pas le code \
          autour), avec la même indentation, sans bloc de code, sans balise, sans explication.\n\
          Si c'est une question (expliquer, trouver un bug…), réponds par la ligne EXPLICATION: puis ta réponse, courte, en \
-         Markdown, en français."
+         Markdown, en français.",
+        "You work on an excerpt of the file {file}. The standard input holds the code around it, for the context, \
+         and the excerpt itself between the lines <extrait> and </extrait>.\n\
+         Request: {ask}\n\n\
+         If the request is to change it, answer only with the new code replacing the excerpt (it alone, not the code \
+         around), with the same indentation, without code block, without tag, without explanation.\n\
+         If it is a question (explain, find a bug…), answer with the line EXPLICATION: then your answer, short, in \
+         Markdown, in English."
     );
     let input = format!("{before}\n<extrait>\n{selection}\n</extrait>\n{after}");
     let text = run_once(dir,&["-p", &prompt, "--output-format", "text", "--model", "sonnet", "--tools", "", "--no-session-persistence"], input)?;
@@ -394,7 +448,7 @@ pub struct ReviewNote {
 /// `about`: what the changes are (title and description of the pull request…); `language`: of
 /// the remarks. Claude may read the files of `dir` (only read) for the context.
 pub fn review(dir: &Path, diff: &str, about: &str, language: &str) -> Result<Vec<ReviewNote>, String> {
-    let mut prompt = String::from(
+    let mut prompt = String::from(t!(
         "Fais la revue de code de ce diff (reçu sur l'entrée standard). Chaque ligne du diff commence par sa position : \
          [R12] = ligne 12 de la nouvelle version du fichier (lignes ajoutées « + » et lignes de contexte), \
          [L7] = ligne 7 de l'ancienne version (lignes supprimées « - »). Tu peux lire les fichiers du dépôt pour \
@@ -408,10 +462,23 @@ pub fn review(dir: &Path, diff: &str, about: &str, language: &str) -> Result<Vec
          \"bug\", \"risk\", \"suggestion\" ou \"nit\", et body la remarque en Markdown, courte, adressée à l'auteur ; \
          quand c'est utile, un bloc ```suggestion avec le code qui remplace la ligne commentée (une seule ligne, côté RIGHT). \
          Une remarque sur l'ensemble : path \"\" et line 0. [] s'il n'y a rien à redire.",
-    );
-    prompt.push_str(&format!("\nLangue des remarques : {language}."));
+        "Review the code of this diff (given on the standard input). Each line of the diff starts with its position: \
+         [R12] = line 12 of the new version of the file (added lines “+” and context lines), \
+         [L7] = line 7 of the old version (removed lines “-”). You may read the files of the repository to \
+         understand the context (they are not necessarily at the version of the diff).\n\
+         Point out only what really deserves a comment: bugs, forgotten cases, risks (security, performance, \
+         data), inconsistencies with the rest of the code, then the clear improvements. No compliments, no \
+         style remarks when the code follows the one of the file. At most 15 remarks, the most important first.\n\
+         Answer only with a JSON array, without text around it or code block: \
+         [{\"path\": \"path/of/the/file\", \"line\": 12, \"side\": \"RIGHT\", \"severity\": \"bug\", \"body\": \"…\"}] \
+         where line and side come from the position of the commented line (R → \"RIGHT\", L → \"LEFT\"), severity is \
+         \"bug\", \"risk\", \"suggestion\" or \"nit\", and body the remark in Markdown, short, addressed to the author; \
+         when useful, a ```suggestion block with the code replacing the commented line (a single line, RIGHT side). \
+         A remark on the whole: path \"\" and line 0. [] if there is nothing to say."
+    ));
+    prompt.push_str(&tf!("\nLangue des remarques : {language}.", "\nLanguage of the remarks: {language}."));
     if !about.trim().is_empty() {
-        prompt.push_str("\n\nCe que font ces changements :\n");
+        prompt.push_str(t!("\n\nCe que font ces changements :\n", "\n\nWhat these changes do:\n"));
         prompt.push_str(about.trim());
     }
     let numbered: String = number_diff(diff).chars().take(200_000).collect();
@@ -442,7 +509,7 @@ fn parse_review(text: &str) -> Result<Vec<ReviewNote>, String> {
         .match_indices('[')
         .filter(|(a, _)| *a < end)
         .find_map(|(a, _)| serde_json::from_str::<Value>(&text[a..=end]).ok())
-        .ok_or_else(|| format!("Réponse inattendue de Claude : {}", text.chars().take(300).collect::<String>()))?;
+        .ok_or_else(|| tf!("Réponse inattendue de Claude : {}", "Unexpected answer from Claude: {}", text.chars().take(300).collect::<String>()))?;
     let s = |x: &Value| x.as_str().unwrap_or("").trim().to_string();
     Ok(v.as_array()
         .map(|a| {

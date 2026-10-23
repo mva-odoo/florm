@@ -466,14 +466,14 @@ fn text_area(
                         doc.diagnostics.iter().filter(|d| d.line == l).map(|d| format!("{} : {}", d.source, d.message)).collect();
                     msgs.extend(opts.notes.iter().filter(|(n, _)| *n == l).map(|(_, t)| t.clone()));
                     if p.x < gx + CLAUDE_W {
-                        msgs.push("✳ Clic : ajouter cette ligne (ou les lignes sélectionnées) au contexte de Claude".into());
+                        msgs.push(t!("✳ Clic : ajouter cette ligne (ou les lignes sélectionnées) au contexte de Claude", "✳ Click: add this line (or the selected lines) to Claude's context").into());
                     } else if let Some(tags) = test_at(l).filter(|_| p.x < gx + CLAUDE_W + test_w) {
                         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
-                        msgs.push(format!("▶ Clic : lancer {tags} dans le conteneur des tests (Ctrl+F6 : relancer)"));
+                        msgs.push(tf!("▶ Clic : lancer {tags} dans le conteneur des tests (Ctrl+F6 : relancer)", "▶ Click: run {tags} in the tests container (Ctrl+F6: run again)"));
                     }
                     if p.x >= gx + gutter_w - 8.0 && doc.hunks.iter().any(|h| h.contains(l)) {
                         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
-                        msgs.push("Modifié depuis le dernier commit — clic pour voir le diff".into());
+                        msgs.push(t!("Modifié depuis le dernier commit — clic pour voir le diff", "Changed since the last commit — click to see the diff").into());
                     }
                     if !msgs.is_empty() {
                         let at = tip_at(p.x, origin.y + ((p.y - origin.y) / rh).floor() * rh, rh, l, caret);
@@ -524,8 +524,8 @@ fn text_area(
                 let bg = mix(c.bg, col, if marker { 0.32 } else { 0.12 });
                 painter.rect_filled(Rect::from_min_size(Pos2::new(gx, line_y(l)), egui::vec2(vp.width(), line_h(l))), 0.0, bg);
             }
-            conflict_labels.push((cf.start, "  ← ta version (actuelle)"));
-            conflict_labels.push((cf.end, "  ← version entrante"));
+            conflict_labels.push((cf.start, t!("  ← ta version (actuelle)", "  ← your version (current)")));
+            conflict_labels.push((cf.end, t!("  ← version entrante", "  ← incoming version")));
         }
 
         // Diff views: full-line backgrounds for +/- lines.
@@ -588,7 +588,7 @@ fn text_area(
                 // small "revert" button at the right of the hunk's first row
                 let y = origin.y + top_row as f32 * rh;
                 if y + rh >= origin.y + vp.min.y && y <= origin.y + vp.max.y {
-                    let label = "↺ Revenir";
+                    let label = t!("↺ Revenir", "↺ Revert");
                     let galley = painter.layout_no_wrap(label.into(), FontId::proportional(12.0), c.fg);
                     let br = Rect::from_min_size(
                         Pos2::new(gx + vp.width() - galley.size().x - 26.0, y + (rh - galley.size().y) / 2.0 - 1.0),
@@ -598,7 +598,7 @@ fn text_area(
                     let fill = if r.hovered() { c.selection } else { c.gutter_bg };
                     painter.rect_filled(br, 3.0, fill);
                     painter.galley(br.min + egui::vec2(5.0, 1.0), galley, c.fg);
-                    if r.on_hover_text("Revenir à la version du dernier commit pour ce bloc (Ctrl+Z pour annuler)").clicked() {
+                    if r.on_hover_text(t!("Revenir à la version du dernier commit pour ce bloc (Ctrl+Z pour annuler)", "Go back to the version of the last commit for this block (Ctrl+Z to undo)")).clicked() {
                         revert_clicked = Some(hi);
                     }
                 }
@@ -694,7 +694,7 @@ fn text_area(
                 // "⋯ N lignes" after a folded line
                 let n = hidden.iter().find(|h| h.0 == l + 1).map_or(0, |h| h.1 - h.0 + 1);
                 let end = at(l, doc.vcol(l, doc.line_len(l)));
-                let label = format!("⋯ {n} ligne{}", if n > 1 { "s" } else { "" });
+                let label = tf!("⋯ {n} ligne{}", "⋯ {n} line{}", if n > 1 { "s" } else { "" });
                 let g = painter.layout_no_wrap(label, FontId::proportional(font.size * 0.8), c.fg);
                 let pill = Rect::from_min_size(Pos2::new(end.x + cw, end.y + 2.0), egui::vec2(g.size().x + 12.0, rh - 4.0));
                 painter.rect_filled(pill, 4.0, mix(c.bg, c.accent, 0.22));
@@ -746,7 +746,7 @@ fn text_area(
             painter.circle_filled(center, (rh * 0.2).min(5.0), color);
             let base = Rect::from_center_size(Pos2::new(center.x, center.y + rh * 0.27), egui::vec2(rh * 0.18, rh * 0.12));
             painter.rect_filled(base, 1.0, color);
-            if r.on_hover_text("Corrections rapides (Ctrl+.)").clicked() {
+            if r.on_hover_text(t!("Corrections rapides (Ctrl+.)", "Quick fixes (Ctrl+.)")).clicked() {
                 doc.quick_fix_request = true;
             }
         }
@@ -995,9 +995,9 @@ fn diff_peek(
 ) -> Option<Peek> {
     let mut action = None;
     let kind = match h.kind() {
-        GitMark::Added => "Ajouté",
-        GitMark::Deleted => "Supprimé",
-        GitMark::Modified => "Modifié",
+        GitMark::Added => t!("Ajouté", "Added"),
+        GitMark::Deleted => t!("Supprimé", "Deleted"),
+        GitMark::Modified => t!("Modifié", "Changed"),
     };
     let removed_bg = Color32::from_rgba_unmultiplied(0xe0, 0x6c, 0x75, 45);
     let added_bg = Color32::from_rgba_unmultiplied(0x98, 0xc3, 0x79, 40);
@@ -1009,24 +1009,24 @@ fn diff_peek(
             egui::Frame::popup(ui.style()).fill(c.bg).inner_margin(6.0).show(ui, |ui| {
                 ui.set_width(width);
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new(format!("{kind} depuis le dernier commit")).strong());
-                    ui.label(RichText::new(format!("changement {}/{count}", index + 1)).weak());
+                    ui.label(RichText::new(tf!("{kind} depuis le dernier commit", "{kind} since the last commit")).strong());
+                    ui.label(RichText::new(tf!("changement {}/{count}", "change {}/{count}", index + 1)).weak());
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("×").on_hover_text("Fermer (Échap)").clicked() {
+                        if ui.button("×").on_hover_text(t!("Fermer (Échap)", "Close (Escape)")).clicked() {
                             action = Some(Peek::Close);
                         }
-                        if ui.button("⏷").on_hover_text("Changement suivant (Alt+F5)").clicked() {
+                        if ui.button("⏷").on_hover_text(t!("Changement suivant (Alt+F5)", "Next change (Alt+F5)")).clicked() {
                             action = Some(Peek::Next);
                         }
-                        if ui.button("⏶").on_hover_text("Changement précédent (Alt+Maj+F5)").clicked() {
+                        if ui.button("⏶").on_hover_text(t!("Changement précédent (Alt+Maj+F5)", "Previous change (Alt+Shift+F5)")).clicked() {
                             action = Some(Peek::Prev);
                         }
-                        if ui.button("Dans l'éditeur").on_hover_text("Afficher tous les changements dans l'éditeur, en vert et rouge (Ctrl+Alt+D)").clicked() {
+                        if ui.button(t!("Dans l'éditeur", "In the editor")).on_hover_text(t!("Afficher tous les changements dans l'éditeur, en vert et rouge (Ctrl+Alt+D)", "Show all the changes in the editor, in green and red (Ctrl+Alt+D)")).clicked() {
                             action = Some(Peek::Inline);
                         }
                         if ui
-                            .button(RichText::new("↺ Revenir en arrière").color(c.fg))
-                            .on_hover_text("Remettre la version du dernier commit pour ce bloc (annulable avec Ctrl+Z)")
+                            .button(RichText::new(t!("↺ Revenir en arrière", "↺ Revert")).color(c.fg))
+                            .on_hover_text(t!("Remettre la version du dernier commit pour ce bloc (annulable avec Ctrl+Z)", "Put back the version of the last commit for this block (can be undone with Ctrl+Z)"))
                             .clicked()
                         {
                             action = Some(Peek::Revert);
@@ -1191,13 +1191,13 @@ fn definitions_popup(ui: &Ui, doc: &mut Document, id: Id, new: Option<(TipAt, St
                 ui.separator();
             }
             let total = defs.len() + more;
-            let title = if total > 1 { format!("{total} définitions") } else { "Définition".to_string() };
+            let title = if total > 1 { tf!("{total} définitions", "{total} definitions") } else { t!("Définition", "Definition").to_string() };
             ui.label(RichText::new(title).small().strong());
             // many: a field to keep those of a file or a folder
             let fid = pid.with("filter");
             let mut filter: String = ctx.data(|d| d.get_temp(fid)).unwrap_or_default();
             if defs.len() > 8 {
-                ui.add(egui::TextEdit::singleline(&mut filter).hint_text("Filtrer : fichier, dossier, nom…").desired_width(300.0));
+                ui.add(egui::TextEdit::singleline(&mut filter).hint_text(t!("Filtrer : fichier, dossier, nom…", "Filter: file, folder, name…")).desired_width(300.0));
                 ctx.data_mut(|d| d.insert_temp(fid, filter.clone()));
             }
             let f = filter.to_lowercase();
@@ -1208,14 +1208,14 @@ fn definitions_popup(ui: &Ui, doc: &mut Document, id: Id, new: Option<(TipAt, St
                     }
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(what).monospace());
-                        if ui.link(RichText::new(place).small()).on_hover_text("Ouvrir à cette ligne").clicked() {
+                        if ui.link(RichText::new(place).small()).on_hover_text(t!("Ouvrir à cette ligne", "Open at this line")).clicked() {
                             clicked = Some(k);
                         }
                     });
                 }
             });
             if *more > 0 {
-                ui.label(RichText::new(format!("… et {more} autre(s) — F12 pour la liste complète")).small().weak());
+                ui.label(RichText::new(tf!("… et {more} autre(s) — F12 pour la liste complète", "… and {more} other(s) — F12 for the full list")).small().weak());
             }
         });
     });

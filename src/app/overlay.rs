@@ -10,7 +10,7 @@ impl App {
                 let mut v: Vec<Item> = commands::ALL
                     .iter()
                     .filter(|(_, l, _)| !l.is_empty())
-                    .map(|(_, l, c)| Item { label: l.to_string(), detail: self.keymap.label(*c), action: Action::Cmd(*c) })
+                    .map(|(id, l, c)| Item { label: commands::label(id, l).to_string(), detail: self.keymap.label(*c), action: Action::Cmd(*c) })
                     .collect();
                 for (k, &(pi, ci)) in self.plugin_cmds.iter().enumerate() {
                     let p = &self.plugins[pi];
@@ -46,7 +46,7 @@ impl App {
                             if !sy.detail.is_empty() {
                                 detail = if detail.is_empty() { sy.detail.clone() } else { format!("{detail} · {}", sy.detail) };
                             }
-                            let detail = if detail.is_empty() { format!("ligne {}", sy.line + 1) } else { format!("{detail} · ligne {}", sy.line + 1) };
+                            let detail = if detail.is_empty() { tf!("ligne {}", "line {}", sy.line + 1) } else { tf!("{detail} · ligne {}", "{detail} · line {}", sy.line + 1) };
                             Item { label: format!("{}  {}", sy.kind.icon(), sy.name), detail, action: Action::Line(sy.line) }
                         })
                         .collect()
@@ -70,7 +70,7 @@ impl App {
                     .map(|i| {
                         let t = &self.templates[i];
                         let detail = match (&t.path, t.ext.is_empty()) {
-                            (Some(_), _) => format!(".{} · perso", t.ext),
+                            (Some(_), _) => tf!(".{} · perso", ".{} · own", t.ext),
                             (None, false) => format!(".{}", t.ext),
                             (None, true) => String::new(),
                         };
@@ -148,34 +148,34 @@ impl App {
     pub(super) fn overlay_ui(&mut self, ctx: &egui::Context) {
         let Some(mut ov) = self.overlay.take() else { return };
         let title = match &ov.mode {
-            Mode::Commands => "Palette de commandes".to_string(),
-            Mode::Files => "Aller au fichier   (fichier:ligne, ou :ligne dans le fichier courant)".into(),
+            Mode::Commands => t!("Palette de commandes", "Command palette").to_string(),
+            Mode::Files => t!("Aller au fichier   (fichier:ligne, ou :ligne dans le fichier courant)", "Go to file   (file:line, or :line in the current file)").into(),
             Mode::GotoLine if self.goto_select => {
-                "Sélectionner la ligne   (42, ou 10-20 pour plusieurs lignes ; vide + Entrée : la ligne courante)".into()
+                t!("Sélectionner la ligne   (42, ou 10-20 pour plusieurs lignes ; vide + Entrée : la ligne courante)", "Select line   (42, or 10-20 for several lines; empty + Enter: the current line)").into()
             }
-            Mode::GotoLine => "Aller à la ligne   (ligne ou ligne:colonne)".into(),
-            Mode::Syntax => "Syntaxe du fichier".into(),
-            Mode::Themes => "Thème".into(),
-            Mode::Templates => "Insérer un modèle   (${model}, ${Model}, ${module} remplis d'après le fichier courant)".into(),
-            Mode::Branches => "Changer de branche".into(),
-            Mode::Projects => "Changer de projet".into(),
-            Mode::Symbols => "Aller au symbole   (classe, fonction, méthode, record Odoo, titre…)".into(),
-            Mode::Definitions(w) => format!("Définitions de « {w} »"),
-            Mode::References(w) => format!("Usages de « {w} »"),
-            Mode::Bookmarks => "Signets".into(),
+            Mode::GotoLine => t!("Aller à la ligne   (ligne ou ligne:colonne)", "Go to line   (line or line:column)").into(),
+            Mode::Syntax => t!("Syntaxe du fichier", "Syntax of the file").into(),
+            Mode::Themes => t!("Thème", "Theme").into(),
+            Mode::Templates => t!("Insérer un modèle   (${model}, ${Model}, ${module} remplis d'après le fichier courant)", "Insert a template   (${model}, ${Model}, ${module} filled from the current file)").into(),
+            Mode::Branches => t!("Changer de branche", "Switch branch").into(),
+            Mode::Projects => t!("Changer de projet", "Switch project").into(),
+            Mode::Symbols => t!("Aller au symbole   (classe, fonction, méthode, record Odoo, titre…)", "Go to symbol   (class, function, method, Odoo record, heading…)").into(),
+            Mode::Definitions(w) => tf!("Définitions de « {w} »", "Definitions of “{w}”"),
+            Mode::References(w) => tf!("Usages de « {w} »", "Usages of “{w}”"),
+            Mode::Bookmarks => t!("Signets", "Bookmarks").into(),
             Mode::Prompt(p) => match p {
-                Prompt::OpenFolder => "Ouvrir le dossier".into(),
-                Prompt::OpenFile => "Ouvrir le fichier".into(),
-                Prompt::SaveAs => "Enregistrer sous".into(),
-                Prompt::NewFile(d) => format!("Nouveau fichier dans {}", d.display()),
-                Prompt::NewFolder(d) => format!("Nouveau dossier dans {}", d.display()),
-                Prompt::Rename(p) => format!("Renommer {}", p.display()),
-                Prompt::NewBranch => "Nom de la nouvelle branche".into(),
-                Prompt::RenameSymbol => "Nouveau nom (renommé partout dans le projet)".into(),
-                Prompt::NewTemplate { ext, .. } if ext.is_empty() => "Nouveau modèle : son déclencheur, avec l'extension des fichiers visés (ipdb.py)".into(),
-                Prompt::NewTemplate { ext, .. } => format!("Nouveau modèle pour les .{ext} : son déclencheur (ex. ipdb ; nom.xml pour un autre type)"),
-                Prompt::RenameProject(_) => "Nom du projet".into(),
-                Prompt::BranchAt(h) => format!("Nouvelle branche sur le commit {}", &h[..h.len().min(8)]),
+                Prompt::OpenFolder => t!("Ouvrir le dossier", "Open the folder").into(),
+                Prompt::OpenFile => t!("Ouvrir le fichier", "Open the file").into(),
+                Prompt::SaveAs => t!("Enregistrer sous", "Save as").into(),
+                Prompt::NewFile(d) => tf!("Nouveau fichier dans {}", "New file in {}", d.display()),
+                Prompt::NewFolder(d) => tf!("Nouveau dossier dans {}", "New folder in {}", d.display()),
+                Prompt::Rename(p) => tf!("Renommer {}", "Rename {}", p.display()),
+                Prompt::NewBranch => t!("Nom de la nouvelle branche", "Name of the new branch").into(),
+                Prompt::RenameSymbol => t!("Nouveau nom (renommé partout dans le projet)", "New name (renamed everywhere in the project)").into(),
+                Prompt::NewTemplate { ext, .. } if ext.is_empty() => t!("Nouveau modèle : son déclencheur, avec l'extension des fichiers visés (ipdb.py)", "New template: its trigger, with the extension of the files it is for (ipdb.py)").into(),
+                Prompt::NewTemplate { ext, .. } => tf!("Nouveau modèle pour les .{ext} : son déclencheur (ex. ipdb ; nom.xml pour un autre type)", "New template for .{ext} files: its trigger (e.g. ipdb; name.xml for another type)"),
+                Prompt::RenameProject(_) => t!("Nom du projet", "Project name").into(),
+                Prompt::BranchAt(h) => tf!("Nouvelle branche sur le commit {}", "New branch on commit {}", &h[..h.len().min(8)]),
             },
         };
         let is_list = !matches!(ov.mode, Mode::Prompt(_) | Mode::GotoLine);
@@ -227,7 +227,7 @@ impl App {
                         }
                         if dialog_kind.is_some() {
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                browse = ui.small_button("📂 Parcourir…").on_hover_text("Choisir dans le gestionnaire de fichiers").clicked();
+                                browse = ui.small_button(t!("📂 Parcourir…", "📂 Browse…")).on_hover_text(t!("Choisir dans le gestionnaire de fichiers", "Choose in the file manager")).clicked();
                             });
                         }
                     });
@@ -236,7 +236,7 @@ impl App {
                         egui::TextEdit::singleline(&mut ov.query)
                             .desired_width(f32::INFINITY)
                             .frame(false)
-                            .hint_text("Tapez pour filtrer…")
+                            .hint_text(t!("Tapez pour filtrer…", "Type to filter…"))
                             .font(egui::FontId::proportional(17.0))
                             // Tab completes the path: it must not also move the focus to the next widget
                             .lock_focus(path_base.is_some()),
@@ -278,9 +278,9 @@ impl App {
                         let cut = ov.query.rfind(['/', '\\']).map_or(0, |i| i + 1);
                         let mut fill = None;
                         if found.is_empty() {
-                            ui.label(RichText::new("Tab : compléter le chemin").small().weak());
+                            ui.label(RichText::new(t!("Tab : compléter le chemin", "Tab: complete the path")).small().weak());
                         } else {
-                            ui.label(RichText::new(format!("Tab : compléter · {} entrée(s)", found.len())).small().weak());
+                            ui.label(RichText::new(tf!("Tab : compléter · {} entrée(s)", "Tab: complete · {} entry(ies)", found.len())).small().weak());
                             egui::ScrollArea::vertical().max_height(220.0).auto_shrink([false, true]).show(ui, |ui| {
                                 for (name, is_dir) in found.iter().take(200) {
                                     let label = if *is_dir { format!("{name}{}", std::path::MAIN_SEPARATOR) } else { name.clone() };
@@ -307,7 +307,7 @@ impl App {
                         return;
                     }
                     if matches!(ov.mode, Mode::Files) && ov.query.starts_with(':') {
-                        ui.label(RichText::new("Entrée : aller à cette ligne du fichier courant").weak());
+                        ui.label(RichText::new(t!("Entrée : aller à cette ligne du fichier courant", "Enter: go to this line of the current file")).weak());
                         if enter {
                             goto_only = Some(ov.query[1..].to_string());
                         }
@@ -412,10 +412,10 @@ impl App {
                         if n == 0 && indexing {
                             ui.horizontal(|ui| {
                                 ui.spinner();
-                                ui.label(RichText::new("Liste des fichiers du projet en cours…").weak());
+                                ui.label(RichText::new(t!("Liste des fichiers du projet en cours…", "Listing the project files…")).weak());
                             });
                         } else if n == 0 {
-                            ui.label(RichText::new("Aucun résultat").weak());
+                            ui.label(RichText::new(t!("Aucun résultat", "No result")).weak());
                         }
                     });
                     if enter {
@@ -458,7 +458,7 @@ impl App {
                         let cur = d.rope.char_to_line(d.primary_sel().head);
                         match document::parse_line_range(&ov.query, d.rope.len_lines(), cur) {
                             Some((a, b)) => d.select_lines(a, b),
-                            None => self.set_status("Numéro de ligne attendu : 42, ou 10-20"),
+                            None => self.set_status(t!("Numéro de ligne attendu : 42, ou 10-20", "Line number expected: 42, or 10-20")),
                         }
                     }
                 }
@@ -508,7 +508,7 @@ impl App {
                 apply_visuals(ctx, self.hl.visuals());
                 self.settings.theme = n.clone();
                 self.persist("theme", config::toml_str(&n));
-                self.set_status(format!("Thème « {n} » enregistré"));
+                self.set_status(tf!("Thème « {n} » enregistré", "Theme “{n}” saved"));
             }
             Action::Branch(b) => {
                 let name = b.split_once('/').filter(|(r, _)| *r == "origin").map(|(_, n)| n.to_string()).unwrap_or(b);
@@ -546,7 +546,7 @@ impl App {
             .collect();
         d.edit(EditKind::Other, items);
         d.scroll_to_cursor = true;
-        self.set_status(format!("Modèle « {} » inséré", t.name));
+        self.set_status(tf!("Modèle « {} » inséré", "Template “{}” inserted", t.name));
     }
 
     pub(super) fn submit_prompt(&mut self, p: Prompt, text: String) {
@@ -560,7 +560,7 @@ impl App {
                 if path.is_dir() {
                     self.switch_project(path);
                 } else {
-                    self.set_status(format!("Dossier introuvable : {}", path.display()));
+                    self.set_status(tf!("Dossier introuvable : {}", "Folder not found: {}", path.display()));
                 }
             }
             Prompt::OpenFile => {
@@ -608,7 +608,7 @@ impl App {
                 }
                 self.open_path(path);
                 let trigger = name.split('.').next().unwrap_or("");
-                self.set_status(format!("Écris le modèle ($0 = place du curseur), enregistre, puis tape « {trigger} » + Tab"));
+                self.set_status(tf!("Écris le modèle ($0 = place du curseur), enregistre, puis tape « {trigger} » + Tab", "Write the template ($0 = place of the cursor), save, then type “{trigger}” + Tab"));
             }
             Prompt::NewFolder(dir) => {
                 if let Err(e) = std::fs::create_dir_all(dir.join(&text)) {
@@ -660,21 +660,20 @@ impl App {
         let (title, msg) = match c {
             Confirm::CloseTab(uid) => {
                 let name = self.docs.iter().find(|d| d.uid == *uid).map(|d| d.title()).unwrap_or_default();
-                ("Fichier modifié", format!("Enregistrer les modifications de « {name} » ?"))
+                (t!("Fichier modifié", "File changed"), tf!("Enregistrer les modifications de « {name} » ?", "Save the changes of “{name}”?"))
             }
-            Confirm::Quit => ("Quitter", "Des fichiers ne sont pas enregistrés.".to_string()),
-            Confirm::Delete(p) => ("Supprimer", format!("Supprimer définitivement « {} » ?", p.display())),
+            Confirm::Quit => (t!("Quitter", "Quit"), t!("Des fichiers ne sont pas enregistrés.", "Some files are not saved.").to_string()),
+            Confirm::Delete(p) => (t!("Supprimer", "Delete"), tf!("Supprimer définitivement « {} » ?", "Delete “{}” for good?", p.display())),
             Confirm::SwitchProject(p) => {
-                ("Changer de projet", format!("Des fichiers ne sont pas enregistrés. Ouvrir « {} » ?", p.display()))
+                (t!("Changer de projet", "Switch project"), tf!("Des fichiers ne sont pas enregistrés. Ouvrir « {} » ?", "Some files are not saved. Open “{}”?", p.display()))
             }
-            Confirm::DiffOp { msg, .. } => ("Annuler le changement", msg.clone()),
-            Confirm::DropStash(_, what) => ("Supprimer le stash", format!("Supprimer définitivement « {what} » ?\nSes changements seront perdus.")),
+            Confirm::DiffOp { msg, .. } => (t!("Annuler le changement", "Undo the change"), msg.clone()),
+            Confirm::DropStash(_, what) => (t!("Supprimer le stash", "Delete the stash"), tf!("Supprimer définitivement « {what} » ?\nSes changements seront perdus.", "Delete “{what}” for good?\nIts changes will be lost.")),
             Confirm::ReplaceInFiles => {
                 let n = self.search.hit_count();
                 (
-                    "Remplacer dans les fichiers",
-                    format!(
-                        "Remplacer {n} occurrence(s) dans {} fichier(s) ?\nLes fichiers non ouverts sont modifiés directement sur le disque.",
+                    t!("Remplacer dans les fichiers", "Replace in files"),
+                    tf!("Remplacer {n} occurrence(s) dans {} fichier(s) ?\nLes fichiers non ouverts sont modifiés directement sur le disque.", "Replace {n} occurrence(s) in {} file(s)?\nFiles that are not open are changed directly on disk.",
                         self.search.files.len()
                     ),
                 )
@@ -690,13 +689,13 @@ impl App {
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     let (yes, no) = match c {
-                        Confirm::CloseTab(_) => ("Enregistrer", Some("Ne pas enregistrer")),
-                        Confirm::Quit => ("Tout enregistrer et quitter", Some("Quitter sans enregistrer")),
-                        Confirm::Delete(_) => ("Supprimer", None),
-                        Confirm::SwitchProject(_) => ("Tout enregistrer et changer", Some("Changer sans enregistrer")),
-                        Confirm::ReplaceInFiles => ("Remplacer", None),
-                        Confirm::DiffOp { .. } => ("Oui, annuler le changement", None),
-                        Confirm::DropStash(..) => ("Supprimer", None),
+                        Confirm::CloseTab(_) => (t!("Enregistrer", "Save"), Some(t!("Ne pas enregistrer", "Don't save"))),
+                        Confirm::Quit => (t!("Tout enregistrer et quitter", "Save all and quit"), Some(t!("Quitter sans enregistrer", "Quit without saving"))),
+                        Confirm::Delete(_) => (t!("Supprimer", "Delete"), None),
+                        Confirm::SwitchProject(_) => (t!("Tout enregistrer et changer", "Save all and switch"), Some(t!("Changer sans enregistrer", "Switch without saving"))),
+                        Confirm::ReplaceInFiles => (t!("Remplacer", "Replace"), None),
+                        Confirm::DiffOp { .. } => (t!("Oui, annuler le changement", "Yes, undo the change"), None),
+                        Confirm::DropStash(..) => (t!("Supprimer", "Delete"), None),
                     };
                     if ui.button(yes).clicked() {
                         choice = Some(1);
@@ -706,7 +705,7 @@ impl App {
                             choice = Some(2);
                         }
                     }
-                    if ui.button("Annuler").clicked() {
+                    if ui.button(t!("Annuler", "Cancel")).clicked() {
                         choice = Some(0);
                     }
                 });
@@ -751,7 +750,7 @@ impl App {
                 let r = if p.is_dir() { std::fs::remove_dir_all(&p) } else { std::fs::remove_file(&p) };
                 match r {
                     Ok(()) => {
-                        self.set_status(format!("Supprimé : {}", p.display()));
+                        self.set_status(tf!("Supprimé : {}", "Deleted: {}", p.display()));
                         self.exec_refresh_tree();
                     }
                     Err(e) => self.set_status(e.to_string()),
@@ -796,10 +795,10 @@ impl App {
             let picked = {
                 let d = rfd::FileDialog::new().set_directory(&dir);
                 Ok(match kind {
-                    Pick::Folder => d.set_title("Ouvrir un dossier (les projets WSL : \\\\wsl.localhost\\…)").pick_folder(),
-                    Pick::File => d.set_title("Ouvrir un fichier").pick_file(),
+                    Pick::Folder => d.set_title(t!("Ouvrir un dossier (les projets WSL : \\\\wsl.localhost\\…)", "Open a folder (WSL projects: \\\\wsl.localhost\\…)")).pick_folder(),
+                    Pick::File => d.set_title(t!("Ouvrir un fichier", "Open a file")).pick_file(),
                     Pick::SaveAs => {
-                        let d = d.set_title("Enregistrer sous");
+                        let d = d.set_title(t!("Enregistrer sous", "Save as"));
                         match name {
                             Some(n) => d.set_file_name(n).save_file(),
                             None => d.save_file(),

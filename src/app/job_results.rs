@@ -46,7 +46,7 @@ impl App {
                         }
                         Err(e) => {
                             self.log(e);
-                            self.set_status("Installation échouée (voir Sortie)");
+                            self.set_status(t!("Installation échouée (voir Sortie)", "Installation failed (see Output)"));
                             self.bottom = Some(BottomTab::Output);
                         }
                     }
@@ -127,19 +127,19 @@ impl App {
                             .map(|l| l.trim_end_matches("(fetch)").trim().replacen('\t', " : ", 1))
                             .collect();
                         urls.dedup();
-                        let mut tip = format!("Branche : {}\n", st.branch);
+                        let mut tip = tf!("Branche : {}\n", "Branch: {}\n", st.branch);
                         match st.upstream() {
-                            Some((up, a, b)) => tip.push_str(&format!("Suit : {up} ({a} à pousser, {b} à récupérer)\n")),
-                            None => tip.push_str("Pas de branche distante suivie\n"),
+                            Some((up, a, b)) => tip.push_str(&tf!("Suit : {up} ({a} à pousser, {b} à récupérer)\n", "Tracks: {up} ({a} to push, {b} to pull)\n")),
+                            None => tip.push_str(t!("Pas de branche distante suivie\n", "No tracked remote branch\n")),
                         }
                         if urls.is_empty() {
-                            tip.push_str("Aucun remote");
+                            tip.push_str(t!("Aucun remote", "No remote"));
                         } else {
-                            tip.push_str(&format!("Remote(s) :\n{}", urls.join("\n")));
+                            tip.push_str(&tf!("Remote(s) :\n{}", "Remote(s):\n{}", urls.join("\n")));
                         }
                         let n = st.entries.len();
                         if n > 0 {
-                            label.push_str(&format!(" · {n} modif."));
+                            label.push_str(&tf!(" · {n} modif.", " · {n} changed"));
                         }
                         self.repo_info.insert(repo.clone(), (label, tip));
                     }
@@ -207,7 +207,7 @@ impl App {
                                     self.history.scroll_to_sel = true;
                                     self.select_commit(i);
                                 } else if let Some(h) = wanted.filter(|_| std::mem::take(&mut self.history.seek)) {
-                                    self.history.notice = Some((format!("Commit {} introuvable dans le graphe", &h[..h.len().min(8)]), err()));
+                                    self.history.notice = Some((tf!("Commit {} introuvable dans le graphe", "Commit {} not found in the graph", &h[..h.len().min(8)]), err()));
                                 }
                             }
                             Err(e) => self.history.error = Some(e),
@@ -217,7 +217,7 @@ impl App {
                 JobResult::Blame { uid, line, version, result } => {
                     if let Some(d) = self.docs.iter_mut().find(|d| d.uid == uid) {
                         let text = match result {
-                            Ok(b) if b.uncommitted() => "Vous · pas encore commité".to_string(),
+                            Ok(b) if b.uncommitted() => t!("Vous · pas encore commité", "You · not committed yet").to_string(),
                             Ok(b) => format!(
                                 "{} · {} · {} ({})",
                                 b.author,
@@ -225,7 +225,7 @@ impl App {
                                 b.summary,
                                 &b.hash[..b.hash.len().min(7)]
                             ),
-                            Err(_) => "pas de blame (fichier hors git ou non suivi)".to_string(),
+                            Err(_) => t!("pas de blame (fichier hors git ou non suivi)", "no blame (file outside git or not tracked)").to_string(),
                         };
                         d.blame = Some((line, version, text));
                     }
@@ -246,7 +246,7 @@ impl App {
                     if self.history_key().as_deref() == Some(hash.as_str()) {
                         self.history.diff_loading = false;
                         let text = result.unwrap_or_else(|e| e);
-                        let text = if text.trim().is_empty() { "(aucune différence)".to_string() } else { text };
+                        let text = if text.trim().is_empty() { t!("(aucune différence)", "(no difference)").to_string() } else { text };
                         let lines = history::parse_diff(&text);
                         let files = history::diff_files(&lines);
                         // a reload of the same diff (after staging…) keeps the folded files
@@ -289,20 +289,20 @@ impl App {
                         Ok(out) => {
                             self.log(out);
                             self.git.op_error = None;
-                            self.set_status(format!("git {label} : OK"));
+                            self.set_status(tf!("git {label} : OK", "git {label}: OK"));
                         }
                         Err(e) => {
                             self.log(e.clone());
                             if self.git_shown() {
                                 let first = e.lines().find(|l| !l.trim().is_empty()).unwrap_or("").to_string();
-                                self.history.notice = Some((format!("git {label} a échoué : {first}"), err()));
+                                self.history.notice = Some((tf!("git {label} a échoué : {first}", "git {label} failed: {first}"), err()));
                             }
                             self.git.op_error = Some((label.clone(), e));
-                            self.set_status(format!("git {label} : échec (détail dans le panneau Git)"));
+                            self.set_status(tf!("git {label} : échec (détail dans le panneau Git)", "git {label}: failed (details in the Git panel)"));
                         }
                     }
                     // the rebase stopped on the commit to split: open the assistant on it
-                    if label == "rebase (découpage)" && self.split.is_none() && self.history.repo.as_deref().is_some_and(crate::split::rebase_in_progress) {
+                    if label == t!("rebase (découpage)", "rebase (splitting)") && self.split.is_none() && self.history.repo.as_deref().is_some_and(crate::split::rebase_in_progress) {
                         self.resume_split();
                     }
                     self.git_refresh();
@@ -331,7 +331,7 @@ impl App {
                     self.history.loading = false;
                     match r {
                         Ok((info, files)) => {
-                            self.set_status(format!("Découpage de {} : choisis le contenu de chaque partie", info.short));
+                            self.set_status(tf!("Découpage de {} : choisis le contenu de chaque partie", "Splitting {}: choose the content of each part", info.short));
                             let mut s = SplitUi {
                                 repo,
                                 message: info.message.clone(),
@@ -375,9 +375,9 @@ impl App {
                         Ok(_) => {
                             let n = self.split.take().map_or(0, |s| s.parts.len());
                             let msg = if aborted {
-                                "Découpage annulé : tout est revenu comme avant (commit d'origine rétabli).".to_string()
+                                t!("Découpage annulé : tout est revenu comme avant (commit d'origine rétabli).", "Splitting cancelled: everything is back as before (original commit restored).").to_string()
                             } else {
-                                format!("Commit découpé en {n} commits.")
+                                tf!("Commit découpé en {n} commits.", "Commit split into {n} commits.")
                             };
                             self.set_status(msg.clone());
                             self.history.notice = Some((msg, ok()));
@@ -427,17 +427,17 @@ impl App {
                 }
                 JobResult::Update { manual, result } => match result {
                     Ok(Some(u)) => {
-                        self.log(format!("Florm {} est disponible : {}", u.version, u.page));
+                        self.log(tf!("Florm {} est disponible : {}", "Florm {} is available: {}", u.version, u.page));
                         if manual {
-                            self.set_status(format!("Florm {} est disponible (en bas à droite)", u.version));
+                            self.set_status(tf!("Florm {} est disponible (en bas à droite)", "Florm {} is available (bottom right)", u.version));
                         }
                         self.update = Some(u);
                     }
-                    Ok(None) if manual => self.set_status(format!("Florm est à jour ({})", crate::update::current())),
+                    Ok(None) if manual => self.set_status(tf!("Florm est à jour ({})", "Florm is up to date ({})", crate::update::current())),
                     Ok(None) => {}
                     Err(e) => {
                         if manual {
-                            self.set_status("Recherche de mise à jour impossible (voir Sortie)");
+                            self.set_status(t!("Recherche de mise à jour impossible (voir Sortie)", "Cannot check for updates (see Output)"));
                         }
                         self.log(e);
                     }
@@ -450,13 +450,13 @@ impl App {
                     self.update_installing = false;
                     match result {
                         Ok(exe) => {
-                            self.log(format!("Florm {version} est installé : redémarrez pour l'utiliser"));
-                            self.set_status(format!("Florm {version} est installé : « Redémarrer » en bas à droite"));
+                            self.log(tf!("Florm {version} est installé : redémarrez pour l'utiliser", "Florm {version} is installed: restart to use it"));
+                            self.set_status(tf!("Florm {version} est installé : « Redémarrer » en bas à droite", "Florm {version} is installed: “Restart” at the bottom right"));
                             self.update_ready = Some(exe);
                         }
                         Err(e) => {
-                            self.log(format!("Mise à jour vers Florm {version} impossible : {e}"));
-                            self.set_status("Mise à jour impossible (voir Sortie) : le fichier reste téléchargeable en bas à droite");
+                            self.log(tf!("Mise à jour vers Florm {version} impossible : {e}", "Cannot update to Florm {version}: {e}"));
+                            self.set_status(t!("Mise à jour impossible (voir Sortie) : le fichier reste téléchargeable en bas à droite", "Update impossible (see Output): the file can still be downloaded at the bottom right"));
                         }
                     }
                 }
@@ -466,8 +466,8 @@ impl App {
                 }
                 JobResult::SymbolIndex(root, idx, partial) => {
                     if self.root.as_ref() == Some(&root) {
-                        let what = if partial { "Dépôts en cours indexés" } else { "Projet indexé" };
-                        self.log(format!("{what} : {} symboles dans {} fichiers", idx.len(), idx.files.len()));
+                        let what = if partial { t!("Dépôts en cours indexés", "Current repositories indexed") } else { t!("Projet indexé", "Project indexed") };
+                        self.log(tf!("{what} : {} symboles dans {} fichiers", "{what}: {} symbols in {} files", idx.len(), idx.files.len()));
                         self.index.symbols = Some(idx);
                     }
                 }
@@ -498,7 +498,7 @@ impl App {
             Err(e) => {
                 self.log(format!("[{title}] {e}"));
                 self.bottom = Some(BottomTab::Output);
-                self.set_status(format!("Plugin « {title} » : erreur"));
+                self.set_status(tf!("Plugin « {title} » : erreur", "Plugin “{title}”: error"));
                 return;
             }
         };
@@ -515,7 +515,7 @@ impl App {
             _ => {
                 let Some(doc) = self.docs.iter_mut().find(|d| d.uid == uid) else { return };
                 if doc.version != version {
-                    self.set_status("Le document a changé pendant le plugin : résultat ignoré");
+                    self.set_status(t!("Le document a changé pendant le plugin : résultat ignoré", "The document changed during the plugin: result ignored"));
                     return;
                 }
                 // Keep the trailing newline only if the input had one.
@@ -551,7 +551,7 @@ impl App {
                     }
                     _ => {}
                 }
-                self.set_status(format!("Plugin « {title} » : OK"));
+                self.set_status(tf!("Plugin « {title} » : OK", "Plugin “{title}”: OK"));
             }
         }
     }

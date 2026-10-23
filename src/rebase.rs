@@ -23,12 +23,12 @@ impl Action {
 
     pub fn label(self) -> &'static str {
         match self {
-            Action::Pick => "Garder",
-            Action::Reword => "Changer le message",
-            Action::Squash => "Fusionner avec le précédent",
-            Action::Fixup => "Fusionner (sans son message)",
-            Action::Drop => "Supprimer",
-            Action::Split => "Découper en plusieurs commits",
+            Action::Pick => t!("Garder", "Keep"),
+            Action::Reword => t!("Changer le message", "Change the message"),
+            Action::Squash => t!("Fusionner avec le précédent", "Merge with the previous one"),
+            Action::Fixup => t!("Fusionner (sans son message)", "Merge (without its message)"),
+            Action::Drop => t!("Supprimer", "Drop"),
+            Action::Split => t!("Découper en plusieurs commits", "Split into several commits"),
         }
     }
 }
@@ -46,20 +46,20 @@ pub struct Step {
 /// Commits from `from` (included) to HEAD, oldest first, after checking the rebase is safe.
 pub fn load(repo: &Path, from: &str) -> Result<Vec<Step>, String> {
     if crate::split::rebase_in_progress(repo) {
-        return Err("Un rebase est déjà en cours dans ce dépôt : termine-le ou annule-le d'abord.".into());
+        return Err(t!("Un rebase est déjà en cours dans ce dépôt : termine-le ou annule-le d'abord.", "A rebase is already in progress in this repository: finish or abort it first.").into());
     }
     if !git::stdout(repo, &["status", "--porcelain", "--untracked-files=no"])?.trim().is_empty() {
-        return Err("Le dépôt a des modifications non validées : valide-les ou mets-les de côté (stash) d'abord.".into());
+        return Err(t!("Le dépôt a des modifications non validées : valide-les ou mets-les de côté (stash) d'abord.", "The repository has uncommitted changes: commit them or put them aside (stash) first.").into());
     }
     if git::run(repo, &["merge-base", "--is-ancestor", from, "HEAD"]).is_err() {
-        return Err("Le commit doit faire partie de la branche courante.".into());
+        return Err(t!("Le commit doit faire partie de la branche courante.", "The commit must be part of the current branch.").into());
     }
     if git::stdout(repo, &["rev-list", "--parents", "-n", "1", from])?.split_whitespace().count() < 2 {
-        return Err("Le premier commit du dépôt ne peut pas être réécrit ici.".into());
+        return Err(t!("Le premier commit du dépôt ne peut pas être réécrit ici.", "The first commit of the repository cannot be rewritten here.").into());
     }
     let range = format!("{from}^..HEAD");
     if !git::stdout(repo, &["rev-list", "--merges", &range])?.trim().is_empty() {
-        return Err("Il y a des merges dans ces commits : le rebase les aplatirait, il est donc refusé.".into());
+        return Err(t!("Il y a des merges dans ces commits : le rebase les aplatirait, il est donc refusé.", "There are merges in these commits: the rebase would flatten them, so it is refused.").into());
     }
     let out = git::stdout(repo, &["log", "--reverse", "--format=%H%x1f%h%x1f%s%x1f%B%x1e", &range])?;
     Ok(out
@@ -80,12 +80,12 @@ pub fn load(repo: &Path, from: &str) -> Result<Vec<Step>, String> {
 /// Why the plan cannot run (a fusion needs a kept commit before it).
 pub fn check(steps: &[Step]) -> Result<(), String> {
     match steps.iter().find(|s| s.action != Action::Drop) {
-        None => Err("Tous les commits seraient supprimés.".into()),
+        None => Err(t!("Tous les commits seraient supprimés.", "All the commits would be dropped.").into()),
         Some(s) if matches!(s.action, Action::Squash | Action::Fixup) => {
-            Err(format!("« {} » ne peut pas fusionner : il n'y a pas de commit gardé avant lui.", s.subject))
+            Err(tf!("« {} » ne peut pas fusionner : il n'y a pas de commit gardé avant lui.", "“{}” cannot merge: there is no kept commit before it.", s.subject))
         }
         _ if steps.iter().filter(|s| s.action == Action::Split).count() > 1 => {
-            Err("Un seul commit à découper par rebase (découpe les autres ensuite).".into())
+            Err(t!("Un seul commit à découper par rebase (découpe les autres ensuite).", "A single commit to split per rebase (split the others afterwards).").into())
         }
         _ => Ok(()),
     }

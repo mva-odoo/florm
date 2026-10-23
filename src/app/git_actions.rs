@@ -28,7 +28,7 @@ impl App {
 
     pub(super) fn git_job(&mut self, label: &str, args: &[&str]) {
         let Some(repo) = self.repo.clone() else {
-            self.set_status("Pas de dépôt git");
+            self.set_status(t!("Pas de dépôt git", "No git repository"));
             return;
         };
         self.git_job_at(repo, label, args);
@@ -84,7 +84,7 @@ impl App {
             let text = git::run(&repo, &["diff", "HEAD", "--", &rel])
                 .or_else(|_| git::run(&repo, &["diff", "--cached", "--", &rel]))
                 .unwrap_or_else(|e| e);
-            let text = if text.is_empty() { "(aucune différence)".into() } else { text };
+            let text = if text.is_empty() { t!("(aucune différence)", "(no difference)").into() } else { text };
             JobResult::NewTab { title: format!("diff : {rel}"), text, syntax: "Diff".into() }
         });
     }

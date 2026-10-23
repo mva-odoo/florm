@@ -125,7 +125,7 @@ fn lint_xml(text: &str) -> Vec<Diagnostic> {
         }
     }
     match stack.last() {
-        Some((name, p)) => vec![diag_at(text, *p, Severity::Error, format!("Balise <{name}> non fermée"), "xml")],
+        Some((name, p)) => vec![diag_at(text, *p, Severity::Error, tf!("Balise <{name}> non fermée", "Tag <{name}> not closed"), "xml")],
         None => Vec::new(),
     }
 }
@@ -316,7 +316,7 @@ pub enum Rewrite {
 /// applies). `lines`: first and last line (1-based) to format, None for the whole file.
 pub fn ruff_rewrite(path: &Path, text: &str, root: Option<&Path>, what: Rewrite, lines: Option<(usize, usize)>) -> Result<String, String> {
     let Some(Runner::Bin(ruff)) = find_runner("ruff") else {
-        return Err("ruff n'est pas installé (paquet ruff de la distribution, ou pip install ruff)".into());
+        return Err(t!("ruff n'est pas installé (paquet ruff de la distribution, ou pip install ruff)", "ruff is not installed (ruff package of the distribution, or pip install ruff)").into());
     };
     let cwd = root.or(path.parent()).unwrap_or(Path::new("."));
     let display = path.strip_prefix(cwd).unwrap_or(path).to_string_lossy().into_owned();
@@ -351,7 +351,7 @@ pub fn ruff_rewrite(path: &Path, text: &str, root: Option<&Path>, what: Rewrite,
         return Ok(out);
     }
     let err = String::from_utf8_lossy(&o.stderr);
-    let first = err.lines().find(|l| !l.trim().is_empty()).unwrap_or("échec");
+    let first = err.lines().find(|l| !l.trim().is_empty()).unwrap_or(t!("échec", "failed"));
     Err(format!("ruff : {first}"))
 }
 
@@ -448,7 +448,7 @@ pub fn lint_python(path: &Path, text: &str, root: Option<&Path>, cfg: &LintConfi
                     line: 0,
                     col: 0,
                     severity: Severity::Warning,
-                    message: format!("{name} a échoué : {last}"),
+                    message: tf!("{name} a échoué : {last}", "{name} failed: {last}"),
                     source: name.into(),
                     code: None,
                 });
@@ -479,11 +479,11 @@ pub fn install_python_tool(name: &str) -> Result<String, String> {
         .arg(name)
         .stdin(Stdio::null())
         .output()
-        .map_err(|e| format!("pip introuvable : {e}"))?;
+        .map_err(|e| tf!("pip introuvable : {e}", "pip not found: {e}"))?;
     reset_linter_cache();
     let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
     if out.status.success() {
-        Ok(format!("{name} installé dans {}", dir.display()))
+        Ok(tf!("{name} installé dans {}", "{name} installed in {}", dir.display()))
     } else {
         Err(text)
     }

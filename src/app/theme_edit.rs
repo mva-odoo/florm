@@ -35,6 +35,39 @@ const SYNTAX: [(&str, &str, &str); 14] = [
     ("Lignes ajoutées / supprimées (diff)", "markup.inserted", "markup.inserted"),
 ];
 
+/// A label of `UI` or `SYNTAX` in the language of the interface.
+fn label(fr: &'static str) -> &'static str {
+    if !crate::i18n::en() {
+        return fr;
+    }
+    match fr {
+        "Fond" => "Background",
+        "Texte" => "Text",
+        "Accent de l'interface" => "Interface accent",
+        "Curseur" => "Cursor",
+        "Sélection" => "Selection",
+        "Ligne du curseur" => "Cursor line",
+        "Marge des numéros" => "Line number gutter",
+        "Numéros de ligne" => "Line numbers",
+        "Résultats de recherche" => "Search results",
+        "Guides d'indentation" => "Indentation guides",
+        "Commentaires" => "Comments",
+        "Mots-clés" => "Keywords",
+        "Opérateurs" => "Operators",
+        "Chaînes" => "Strings",
+        "Nombres et constantes" => "Numbers and constants",
+        "Fonctions" => "Functions",
+        "Classes et types" => "Classes and types",
+        "Paramètres" => "Parameters",
+        "Décorateurs" => "Decorators",
+        "Balises (XML, HTML)" => "Tags (XML, HTML)",
+        "Attributs" => "Attributes",
+        "Titres (Markdown)" => "Headings (Markdown)",
+        "Lignes ajoutées / supprimées (diff)" => "Added / removed lines (diff)",
+        _ => fr,
+    }
+}
+
 pub(super) struct ThemeDraft {
     pub(super) name: String,
     ui: Vec<Color32>,
@@ -115,19 +148,19 @@ impl ThemeDraft {
         let picker = |ui: &mut egui::Ui, c: &mut Color32| egui::color_picker::color_edit_button_srgba(ui, c, egui::color_picker::Alpha::Opaque).changed();
         egui::Frame::group(ui.style()).show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.label(RichText::new("Nom du thème").strong());
+                ui.label(RichText::new(t!("Nom du thème", "Theme name")).strong());
                 ui.add(egui::TextEdit::singleline(&mut self.name).desired_width(260.0));
             });
             let taken = builtin.iter().any(|b| *b == self.name);
             if taken {
-                ui.label(RichText::new("Ce nom est celui d'un thème intégré : choisis-en un autre").small().color(warn()));
+                ui.label(RichText::new(t!("Ce nom est celui d'un thème intégré : choisis-en un autre", "This name is the one of a built-in theme: choose another one")).small().color(warn()));
             }
             ui.add_space(6.0);
             ui.columns(2, |cols| {
-                cols[0].label(RichText::new("ÉDITEUR ET INTERFACE").small().strong().color(accent));
+                cols[0].label(RichText::new(t!("ÉDITEUR ET INTERFACE", "EDITOR AND INTERFACE")).small().strong().color(accent));
                 egui::Grid::new("theme_ui_colors").num_columns(2).spacing([12.0, 6.0]).show(&mut cols[0], |ui| {
-                    for ((_, label), c) in UI.iter().zip(self.ui.iter_mut()) {
-                        ui.label(*label);
+                    for ((_, fr), c) in UI.iter().zip(self.ui.iter_mut()) {
+                        ui.label(label(fr));
                         if picker(ui, c) {
                             act = Some(ThemeAct::Changed);
                         }
@@ -136,17 +169,17 @@ impl ThemeDraft {
                 });
                 cols[1].label(RichText::new("CODE").small().strong().color(accent));
                 egui::Grid::new("theme_code_colors").num_columns(3).spacing([12.0, 6.0]).show(&mut cols[1], |ui| {
-                    for ((label, _, _), (c, italic)) in SYNTAX.iter().zip(self.syntax.iter_mut()) {
-                        ui.label(*label);
+                    for ((fr, _, _), (c, italic)) in SYNTAX.iter().zip(self.syntax.iter_mut()) {
+                        ui.label(label(fr));
                         if picker(ui, c) {
                             act = Some(ThemeAct::Changed);
                         }
-                        if ui.checkbox(italic, RichText::new("italique").small()).changed() {
+                        if ui.checkbox(italic, RichText::new(t!("italique", "italic")).small()).changed() {
                             act = Some(ThemeAct::Changed);
                         }
                         ui.end_row();
                     }
-                    ui.label("Lignes supprimées (diff), erreurs");
+                    ui.label(t!("Lignes supprimées (diff), erreurs", "Removed lines (diff), errors"));
                     if picker(ui, &mut self.deleted) {
                         act = Some(ThemeAct::Changed);
                     }
@@ -156,14 +189,14 @@ impl ThemeDraft {
             ui.add_space(6.0);
             ui.horizontal(|ui| {
                 let ok_name = !self.name.trim().is_empty() && !taken;
-                let tip = format!("Écrit {}", self.path().display());
-                if ui.add_enabled(ok_name, filled_button("Enregistrer le thème", accent)).on_hover_text(tip).clicked() {
+                let tip = tf!("Écrit {}", "Writes {}", self.path().display());
+                if ui.add_enabled(ok_name, filled_button(t!("Enregistrer le thème", "Save the theme"), accent)).on_hover_text(tip).clicked() {
                     act = Some(ThemeAct::Save);
                 }
-                if ui.button("Annuler").on_hover_text("Revenir au thème d'avant").clicked() {
+                if ui.button(t!("Annuler", "Cancel")).on_hover_text(t!("Revenir au thème d'avant", "Back to the previous theme")).clicked() {
                     act = Some(ThemeAct::Cancel);
                 }
-                ui.label(RichText::new("Les couleurs s'appliquent tout de suite, pour voir le résultat.").small().weak());
+                ui.label(RichText::new(t!("Les couleurs s'appliquent tout de suite, pour voir le résultat.", "The colors apply right away, to see the result.")).small().weak());
             });
         });
         act

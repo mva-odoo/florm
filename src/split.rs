@@ -139,34 +139,34 @@ pub fn info(repo: &Path, hash: &str) -> Result<Info, String> {
 /// Checks that `hash` can be split, then stops a rebase on it and un-commits it.
 pub fn start(repo: &Path, hash: &str, seq_editor: &str) -> Result<Info, String> {
     if rebase_in_progress(repo) {
-        return Err("Un rebase est déjà en cours dans ce dépôt : termine-le ou annule-le d'abord.".into());
+        return Err(t!("Un rebase est déjà en cours dans ce dépôt : termine-le ou annule-le d'abord.", "A rebase is already in progress in this repository: finish or abort it first.").into());
     }
     if !git::stdout(repo, &["status", "--porcelain", "--untracked-files=no"])?.trim().is_empty() {
-        return Err("Le dépôt a des modifications non validées : valide-les ou mets-les de côté (stash) avant de découper un commit.".into());
+        return Err(t!("Le dépôt a des modifications non validées : valide-les ou mets-les de côté (stash) avant de découper un commit.", "The repository has uncommitted changes: commit them or put them aside (stash) before splitting a commit.").into());
     }
     let parents = git::stdout(repo, &["rev-list", "--parents", "-n", "1", hash])?.split_whitespace().count() - 1;
     if parents == 0 {
-        return Err("Le premier commit du dépôt ne peut pas être découpé.".into());
+        return Err(t!("Le premier commit du dépôt ne peut pas être découpé.", "The first commit of the repository cannot be split.").into());
     }
     if parents > 1 {
-        return Err("Un commit de merge ne peut pas être découpé.".into());
+        return Err(t!("Un commit de merge ne peut pas être découpé.", "A merge commit cannot be split.").into());
     }
     if git::run(repo, &["merge-base", "--is-ancestor", hash, "HEAD"]).is_err() {
-        return Err("Le commit doit faire partie de la branche courante : fais d'abord un checkout de sa branche.".into());
+        return Err(t!("Le commit doit faire partie de la branche courante : fais d'abord un checkout de sa branche.", "The commit must be part of the current branch: checkout its branch first.").into());
     }
     if !git::stdout(repo, &["rev-list", "--merges", &format!("{hash}..HEAD")])?.trim().is_empty() {
-        return Err("Il y a des merges après ce commit : le découpage les aplatirait, il est donc refusé.".into());
+        return Err(t!("Il y a des merges après ce commit : le découpage les aplatirait, il est donc refusé.", "There are merges after this commit: splitting would flatten them, so it is refused.").into());
     }
     let info = info(repo, hash)?;
     let env = [("GIT_SEQUENCE_EDITOR", seq_editor), ("GIT_EDITOR", "true")];
     git::run_with(repo, &["rebase", "-i", "--no-autosquash", &format!("{hash}^")], &env, None)?;
     if !rebase_in_progress(repo) {
-        return Err("Le rebase ne s'est pas arrêté sur le commit à découper.".into());
+        return Err(t!("Le rebase ne s'est pas arrêté sur le commit à découper.", "The rebase did not stop on the commit to split.").into());
     }
     let head = git::stdout(repo, &["rev-parse", "HEAD"])?;
     if head.trim() != hash {
         let _ = git::run(repo, &["rebase", "--abort"]);
-        return Err("Le rebase ne s'est pas arrêté sur le commit à découper : annulé.".into());
+        return Err(t!("Le rebase ne s'est pas arrêté sur le commit à découper : annulé.", "The rebase did not stop on the commit to split: aborted.").into());
     }
     git::run(repo, &["reset", "-q", "HEAD~1"])?;
     Ok(info)
@@ -214,7 +214,7 @@ pub fn changes(repo: &Path, added: &[String]) -> Result<Vec<FileChange>, String>
         let bytes = std::fs::read(repo.join(path)).unwrap_or_default();
         let binary = bytes.iter().take(8192).any(|b| *b == 0);
         let text = String::from_utf8_lossy(&bytes);
-        let mut lines = vec![format!("@@ nouveau fichier : {} ligne(s) @@", text.lines().count())];
+        let mut lines = vec![tf!("@@ nouveau fichier : {} ligne(s) @@", "@@ new file: {} line(s) @@", text.lines().count())];
         if !binary {
             lines.extend(text.lines().take(400).map(|l| format!("+{l}")));
         }

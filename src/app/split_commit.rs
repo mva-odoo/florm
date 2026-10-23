@@ -6,7 +6,7 @@ impl App {
     pub(super) fn start_split(&mut self, hash: String) {
         let Some(repo) = self.history.repo.clone() else { return };
         if self.docs.iter().any(|d| d.is_dirty()) {
-            self.history.notice = Some(("Enregistre d'abord les fichiers modifiés avant de découper un commit.".into(), err()));
+            self.history.notice = Some((t!("Enregistre d'abord les fichiers modifiés avant de découper un commit.", "Save the changed files first before splitting a commit.").into(), err()));
             return;
         }
         let editor = match split::self_editor() {
@@ -16,7 +16,7 @@ impl App {
                 return;
             }
         };
-        self.set_status("Préparation du découpage…");
+        self.set_status(t!("Préparation du découpage…", "Preparing the splitting…"));
         self.history.loading = true;
         self.jobs.spawn(move || {
             let r = split::start(&repo, &hash, &editor).and_then(|info| {
@@ -32,7 +32,7 @@ impl App {
         let Some(repo) = self.history.repo.clone() else { return };
         self.jobs.spawn(move || {
             let r = split::stopped_commit(&repo)
-                .ok_or_else(|| "Le rebase en cours n'est pas arrêté sur un commit (conflit ?) : utilise le terminal.".to_string())
+                .ok_or_else(|| t!("Le rebase en cours n'est pas arrêté sur un commit (conflit ?) : utilise le terminal.", "The rebase in progress is not stopped on a commit (conflict?): use the terminal.").to_string())
                 .and_then(|hash| split::info(&repo, &hash))
                 .and_then(|info| {
                     let files = split::changes(&repo, &info.added)?;
@@ -92,7 +92,7 @@ impl App {
         egui::TopBottomPanel::top("split_top").show_inside(ui, |ui| {
             ui.add_space(6.0);
             ui.horizontal(|ui| {
-                ui.label(RichText::new("✂ Découper le commit").size(17.0).strong());
+                ui.label(RichText::new(t!("✂ Découper le commit", "✂ Split the commit")).size(17.0).strong());
                 ui.label(RichText::new(&s.info.short).monospace().color(accent).size(15.0));
                 ui.label(RichText::new(&s.info.subject).size(15.0));
                 if s.busy {
@@ -100,15 +100,15 @@ impl App {
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if s.confirm_abort {
-                        if ui.button("Non, continuer").clicked() {
+                        if ui.button(t!("Non, continuer", "No, go on")).clicked() {
                             s.confirm_abort = false;
                         }
-                        let b = filled_button("Oui, tout annuler", err());
+                        let b = filled_button(t!("Oui, tout annuler", "Yes, cancel everything"), err());
                         if ui.add_enabled(!s.busy, b).clicked() {
                             abort = true;
                         }
-                        ui.label(RichText::new("Remettre le commit d'origine et supprimer les parties ?").color(err()));
-                    } else if ui.add_enabled(!s.busy, egui::Button::new("Annuler le découpage")).clicked() {
+                        ui.label(RichText::new(t!("Remettre le commit d'origine et supprimer les parties ?", "Put the original commit back and delete the parts?")).color(err()));
+                    } else if ui.add_enabled(!s.busy, egui::Button::new(t!("Annuler le découpage", "Cancel the splitting"))).clicked() {
                         s.confirm_abort = true;
                     }
                 });
@@ -122,13 +122,13 @@ impl App {
                     ui.label(RichText::new(t).color(if on { ui.visuals().strong_text_color() } else { c }));
                 };
                 let left = !s.files.is_empty();
-                step(ui, "1.", &format!("Coche les blocs (ou les lignes + / −) de la partie {part}"), left && n_sel == 0);
+                step(ui, "1.", &tf!("Coche les blocs (ou les lignes + / −) de la partie {part}", "Tick the blocks (or the + / − lines) of part {part}"), left && n_sel == 0);
                 ui.label(RichText::new("›").weak());
-                step(ui, "2.", "Écris son message", left && n_sel > 0 && s.message.trim().is_empty());
+                step(ui, "2.", t!("Écris son message", "Write its message"), left && n_sel > 0 && s.message.trim().is_empty());
                 ui.label(RichText::new("›").weak());
-                step(ui, "3.", &format!("« Valider la partie {part} »"), left && n_sel > 0 && !s.message.trim().is_empty());
+                step(ui, "3.", &tf!("« Valider la partie {part} »", "“Commit part {part}”"), left && n_sel > 0 && !s.message.trim().is_empty());
                 ui.label(RichText::new("›").weak());
-                step(ui, "4.", "Recommence, puis « Terminer » quand tout est validé", !left);
+                step(ui, "4.", t!("Recommence, puis « Terminer » quand tout est validé", "Start again, then “Finish” when everything is committed"), !left);
             });
             if let Some(e) = &s.error {
                 ui.label(RichText::new(format!("⚠ {e}")).color(err()));
@@ -138,7 +138,7 @@ impl App {
 
         egui::SidePanel::left("split_parts").resizable(true).default_width(260.0).show_inside(ui, |ui| {
             ui.add_space(6.0);
-            ui.label(RichText::new("PARTIES").small().strong().color(accent));
+            ui.label(RichText::new(t!("PARTIES", "PARTS")).small().strong().color(accent));
             ui.add_space(4.0);
             for (i, (h, subj)) in s.parts.iter().enumerate() {
                 ui.horizontal(|ui| {
@@ -150,19 +150,21 @@ impl App {
             if !s.files.is_empty() {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(format!("● {part}")).color(accent).strong());
-                    ui.label(RichText::new("en cours").italics());
+                    ui.label(RichText::new(t!("en cours", "in progress")).italics());
                 });
             }
             ui.add_space(10.0);
-            ui.label(RichText::new("COMMIT D'ORIGINE").small().strong().weak());
+            ui.label(RichText::new(t!("COMMIT D'ORIGINE", "ORIGINAL COMMIT")).small().strong().weak());
             egui::ScrollArea::vertical().id_salt("split_orig_msg").show(ui, |ui| {
                 ui.label(RichText::new(&s.info.message).weak());
                 ui.add_space(8.0);
                 ui.label(
-                    RichText::new(
+                    RichText::new(t!(
                         "Les commits qui suivaient seront rejoués automatiquement à la fin. \
                          « Annuler le découpage » remet tout exactement comme avant.",
-                    )
+                        "The commits that followed will be replayed automatically at the end. \
+                         “Cancel the splitting” puts everything back exactly as before."
+                    ))
                     .small()
                     .weak(),
                 );
@@ -173,11 +175,11 @@ impl App {
             ui.add_space(6.0);
             if s.files.is_empty() {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("✔ Tout est validé").color(ok()).size(16.0).strong());
-                    ui.label(format!("— le commit d'origine sera remplacé par {} commit(s).", s.parts.len()));
+                    ui.label(RichText::new(t!("✔ Tout est validé", "✔ Everything is committed")).color(ok()).size(16.0).strong());
+                    ui.label(tf!("— le commit d'origine sera remplacé par {} commit(s).", "— the original commit will be replaced by {} commit(s).", s.parts.len()));
                 });
                 ui.add_space(4.0);
-                let b = filled_button("Terminer le découpage", ok())
+                let b = filled_button(t!("Terminer le découpage", "Finish the splitting"), ok())
                     .min_size(egui::vec2(220.0, 30.0));
                 if ui.add_enabled(!s.busy, b).clicked() {
                     finish = true;
@@ -187,27 +189,27 @@ impl App {
                     egui::TextEdit::multiline(&mut s.message)
                         .desired_rows(3)
                         .desired_width(f32::INFINITY)
-                        .hint_text(format!("Message du commit de la partie {part}"))
+                        .hint_text(tf!("Message du commit de la partie {part}", "Commit message of part {part}"))
                         .font(egui::TextStyle::Monospace),
                 );
                 ui.add_space(4.0);
                 ui.horizontal(|ui| {
                     let ready = n_sel > 0 && !s.message.trim().is_empty() && !s.busy;
-                    let label = format!("Valider la partie {part}  ({n_sel} / {n_hunks} bloc(s))");
+                    let label = tf!("Valider la partie {part}  ({n_sel} / {n_hunks} bloc(s))", "Commit part {part}  ({n_sel} / {n_hunks} block(s))");
                     let b = filled_button(label, accent).min_size(egui::vec2(0.0, 28.0));
                     let r = ui.add_enabled(ready, b);
                     if r.clicked() {
                         commit = true;
                     }
                     if !ready && !s.busy {
-                        let why = if n_sel == 0 { "coche au moins un bloc" } else { "écris un message" };
+                        let why = if n_sel == 0 { t!("coche au moins un bloc", "tick at least one block") } else { t!("écris un message", "write a message") };
                         ui.label(RichText::new(format!("({why})")).weak());
                     }
                     ui.add_space(12.0);
-                    if ui.button("Tout cocher").on_hover_text("Le reste va dans cette partie (la dernière)").clicked() {
+                    if ui.button(t!("Tout cocher", "Tick all")).on_hover_text(t!("Le reste va dans cette partie (la dernière)", "The rest goes in this part (the last one)")).clicked() {
                         s.sel.iter_mut().flatten().flatten().for_each(|b| *b = true);
                     }
-                    if ui.button("Rien").clicked() {
+                    if ui.button(t!("Rien", "None")).clicked() {
                         s.sel.iter_mut().flatten().flatten().for_each(|b| *b = false);
                     }
                 });
@@ -219,13 +221,13 @@ impl App {
             if s.files.is_empty() {
                 ui.add_space(30.0);
                 ui.vertical_centered(|ui| {
-                    ui.label(RichText::new("Il ne reste aucun changement à répartir.").size(15.0));
+                    ui.label(RichText::new(t!("Il ne reste aucun changement à répartir.", "No change left to share out.")).size(15.0));
                 });
                 return;
             }
             ui.horizontal(|ui| {
-                ui.label(RichText::new("CHANGEMENTS RESTANTS").small().strong().color(accent));
-                ui.label(RichText::new(format!("{} fichier(s), {n_hunks} bloc(s)", s.files.len())).small().weak());
+                ui.label(RichText::new(t!("CHANGEMENTS RESTANTS", "REMAINING CHANGES")).small().strong().color(accent));
+                ui.label(RichText::new(tf!("{} fichier(s), {n_hunks} bloc(s)", "{} file(s), {n_hunks} block(s)", s.files.len())).small().weak());
             });
             ui.add_space(4.0);
             let mono = egui::TextStyle::Monospace.resolve(ui.style());
@@ -254,16 +256,16 @@ impl App {
                         }
                         let (kc, kt) = match f.kind {
                             'A' => (ok(), "nouveau"),
-                            'D' => (err(), "supprimé"),
-                            _ => (warn(), "modifié"),
+                            'D' => (err(), t!("supprimé", "deleted")),
+                            _ => (warn(), t!("modifié", "changed")),
                         };
                         ui.label(RichText::new(&f.path).strong());
                         ui.label(RichText::new(kt).small().color(kc));
                         if f.binary {
-                            ui.label(RichText::new("binaire").small().weak());
+                            ui.label(RichText::new(t!("binaire", "binary")).small().weak());
                         }
                         if !partial {
-                            ui.label(RichText::new("(se valide en entier)").small().weak());
+                            ui.label(RichText::new(t!("(se valide en entier)", "(committed whole)")).small().weak());
                         } else if f.hunks.len() > 1 {
                             ui.label(RichText::new(format!("{} blocs", f.hunks.len())).small().weak());
                         }
@@ -290,16 +292,16 @@ impl App {
                                 ui.horizontal(|ui| {
                                     let mut v = whole;
                                     let label = match (whole, on) {
-                                        (true, _) => "tout le bloc dans cette partie",
-                                        (false, true) => "une partie des lignes dans cette partie",
-                                        _ => "pas dans cette partie",
+                                        (true, _) => t!("tout le bloc dans cette partie", "the whole block in this part"),
+                                        (false, true) => t!("une partie des lignes dans cette partie", "some of the lines in this part"),
+                                        _ => t!("pas dans cette partie", "not in this part"),
                                     };
                                     if ui.add(egui::Checkbox::new(&mut v, RichText::new(label).small()).indeterminate(on && !whole)).changed() {
                                         set_all = Some(v);
                                     }
                                     ui.label(RichText::new(&h.lines[0]).monospace().small().color(accent));
                                     if partial {
-                                        ui.label(RichText::new("· clic sur une ligne + / − pour la prendre ou la laisser").small().weak());
+                                        ui.label(RichText::new(t!("· clic sur une ligne + / − pour la prendre ou la laisser", "· click a + / − line to take it or leave it")).small().weak());
                                     }
                                 });
                                 let shown = h.lines.len().min(300);
@@ -330,7 +332,7 @@ impl App {
                                     }
                                 }
                                 if h.lines.len() > shown {
-                                    ui.label(RichText::new(format!("… {} ligne(s) de plus", h.lines.len() - shown)).weak().small());
+                                    ui.label(RichText::new(tf!("… {} ligne(s) de plus", "… {} more line(s)", h.lines.len() - shown)).weak().small());
                                 }
                             })
                             .response;

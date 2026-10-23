@@ -503,7 +503,7 @@ impl Document {
             .as_ref()
             .and_then(|p| p.file_name())
             .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "sans titre".into())
+            .unwrap_or_else(|| t!("sans titre", "untitled").into())
     }
 
     pub fn is_dirty(&self) -> bool {
@@ -515,7 +515,7 @@ impl Document {
     }
 
     pub fn save(&mut self, trim_trailing: bool) -> Result<(), String> {
-        let path = self.path.clone().ok_or("aucun chemin")?;
+        let path = self.path.clone().ok_or(t!("aucun chemin", "no path"))?;
         if trim_trailing {
             self.trim_trailing_whitespace();
         }
@@ -561,7 +561,7 @@ impl Document {
     }
 
     pub fn reload_from_disk(&mut self) -> Result<(), String> {
-        let path = self.path.clone().ok_or("aucun chemin")?;
+        let path = self.path.clone().ok_or(t!("aucun chemin", "no path"))?;
         let (text, encoding) = read_text(&path)?;
         self.encoding = encoding;
         self.crlf = text.contains("\r\n");
@@ -2236,7 +2236,7 @@ impl Encoding {
                     n if n < 0x80 || (0xa0..=0xff).contains(&n) => Ok(n as u8),
                     _ => CP1252_HIGH.iter().position(|h| *h == c).map(|k| 0x80 + k as u8).ok_or_else(|| {
                         let line = text.chars().take(i).filter(|c| *c == '\n').count() + 1;
-                        format!("« {c} » (ligne {line}) n'existe pas en Windows-1252, l'encodage du fichier : clic sur « Windows-1252 » dans la barre d'état pour l'enregistrer en UTF-8")
+                        tf!("« {c} » (ligne {line}) n'existe pas en Windows-1252, l'encodage du fichier : clic sur « Windows-1252 » dans la barre d'état pour l'enregistrer en UTF-8", "“{c}” (line {line}) does not exist in Windows-1252, the encoding of the file: click “Windows-1252” in the status bar to save it in UTF-8")
                     }),
                 })
                 .collect(),
@@ -2247,7 +2247,7 @@ impl Encoding {
 fn read_text(path: &Path) -> Result<(String, Encoding), String> {
     let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
     if bytes.iter().take(8192).any(|b| *b == 0) {
-        return Err(format!("{} : fichier binaire", path.display()));
+        return Err(tf!("{} : fichier binaire", "{}: binary file", path.display()));
     }
     Ok(match String::from_utf8(bytes) {
         Ok(s) => (s, Encoding::Utf8),

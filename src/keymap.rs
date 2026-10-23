@@ -323,7 +323,7 @@ impl Keymap {
             }
             match commands::by_id(id) {
                 Some(cmd) => km.bind(k, Some(cmd), &mut errors),
-                None => errors.push(format!("Commande inconnue dans [keys] : {id}")),
+                None => errors.push(tf!("Commande inconnue dans [keys] : {id}", "Unknown command in [keys]: {id}")),
             }
         }
         km.compute_labels();
@@ -349,7 +349,7 @@ impl Keymap {
                     self.chords.remove(b);
                 }
             },
-            _ => errors.push(format!("Raccourci invalide : {keys}")),
+            _ => errors.push(tf!("Raccourci invalide : {keys}", "Invalid shortcut: {keys}")),
         }
     }
 

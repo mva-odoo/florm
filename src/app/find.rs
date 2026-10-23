@@ -121,7 +121,7 @@ impl App {
         if let Some((s, e)) = doc.find_scope.as_mut() {
             *e = (*e as isize + delta).max(*s as isize) as usize;
         }
-        let where_ = if scope.is_some() { " dans la sélection" } else { "" };
-        self.set_status(format!("{n} remplacement(s){where_}"));
+        let where_ = if scope.is_some() { t!(" dans la sélection", " in the selection") } else { "" };
+        self.set_status(tf!("{n} remplacement(s){where_}", "{n} replacement(s){where_}"));
     }
 }

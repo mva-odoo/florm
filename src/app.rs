@@ -111,7 +111,9 @@ fn layout_cutting(ui: &egui::Ui, text: &str, wrap_width: f32) -> std::sync::Arc<
     ui.fonts(|f| f.layout_job(job))
 }
 
-const REPLACE_TIP: &str = "Maj+Entrée : retour à la ligne dans le remplacement.\nEn mode regex (.*) : \\n retour à la ligne, \\t tabulation, \\\\ barre oblique inverse, $1 groupe.\nEx. : chercher \\\\n (regex), remplacer par \\n, pour changer les « \\n » écrits en vrais retours à la ligne.";
+fn replace_tip() -> &'static str {
+    t!("Maj+Entrée : retour à la ligne dans le remplacement.\nEn mode regex (.*) : \\n retour à la ligne, \\t tabulation, \\\\ barre oblique inverse, $1 groupe.\nEx. : chercher \\\\n (regex), remplacer par \\n, pour changer les « \\n » écrits en vrais retours à la ligne.", "Shift+Enter: new line in the replacement.\nIn regex mode (.*): \\n new line, \\t tab, \\\\ backslash, $1 group.\nE.g.: find \\\\n (regex), replace with \\n, to turn written “\\n” into real new lines.")
+}
 
 fn filled_button(text: impl Into<String>, fill: Color32) -> egui::Button<'static> {
     egui::Button::new(RichText::new(text.into()).color(text_on(fill)).strong()).fill(fill)
@@ -146,7 +148,15 @@ impl BottomTab {
 
     /// The views offered: Docker only when the docker command is installed.
     fn shown() -> impl Iterator<Item = (BottomTab, icons::ViewIcon, &'static str)> {
-        Self::ALL.into_iter().filter(|(t, _, _)| *t != BottomTab::Docker || crate::docker::available())
+        Self::ALL.into_iter().filter(|(t, _, _)| *t != BottomTab::Docker || crate::docker::available()).map(|(t, i, l)| {
+            let l = match l {
+                "Recherche" => t!(l, "Search"),
+                "Problèmes" => t!(l, "Problems"),
+                "Sortie" => t!(l, "Output"),
+                _ => l,
+            };
+            (t, i, l)
+        })
     }
 
     /// Problems and output only exist in the bottom panel.
@@ -156,9 +166,9 @@ impl BottomTab {
 
     fn hint(tab: BottomTab) -> &'static str {
         if tab.bottom_only() {
-            "Clic : dans le panneau du bas"
+            t!("Clic : dans le panneau du bas", "Click: in the bottom panel")
         } else {
-            "Clic : en grand dans l'éditeur · clic droit : dans le panneau du bas"
+            t!("Clic : en grand dans l'éditeur · clic droit : dans le panneau du bas", "Click: large in the editor · right click: in the bottom panel")
         }
     }
 }
@@ -787,15 +797,16 @@ enum PrefSection {
     Advanced,
 }
 
-const PREF_SECTIONS: [(PrefSection, &str); 8] = [
-    (PrefSection::Appearance, "Apparence"),
-    (PrefSection::Editor, "Éditeur"),
-    (PrefSection::Lint, "Lint"),
-    (PrefSection::Git, "Git"),
-    (PrefSection::Terminal, "Terminal"),
-    (PrefSection::Keys, "Raccourcis"),
-    (PrefSection::Templates, "Modèles"),
-    (PrefSection::Advanced, "Avancé"),
+/// (section, French name, English name).
+const PREF_SECTIONS: [(PrefSection, &str, &str); 8] = [
+    (PrefSection::Appearance, "Apparence", "Appearance"),
+    (PrefSection::Editor, "Éditeur", "Editor"),
+    (PrefSection::Lint, "Lint", "Lint"),
+    (PrefSection::Git, "Git", "Git"),
+    (PrefSection::Terminal, "Terminal", "Terminal"),
+    (PrefSection::Keys, "Raccourcis", "Shortcuts"),
+    (PrefSection::Templates, "Modèles", "Templates"),
+    (PrefSection::Advanced, "Avancé", "Advanced"),
 ];
 
 #[derive(Clone, Copy)]
@@ -1012,7 +1023,7 @@ impl App {
     /// Looks for a newer release in the background; `manual` also reports "up to date" and errors.
     fn check_update(&mut self, manual: bool) {
         if manual {
-            self.set_status("Recherche d'une mise à jour…");
+            self.set_status(t!("Recherche d'une mise à jour…", "Checking for an update…"));
         }
         self.jobs.spawn(move || JobResult::Update { manual, result: crate::update::check() });
     }
@@ -1024,7 +1035,7 @@ impl App {
             return;
         }
         self.update_installing = true;
-        self.set_status(format!("Téléchargement de Florm {}…", u.version));
+        self.set_status(tf!("Téléchargement de Florm {}…", "Downloading Florm {}…", u.version));
         self.jobs.spawn(move || JobResult::UpdateInstalled { version: u.version.clone(), result: crate::update::install(&u) });
     }
 
@@ -1154,7 +1165,7 @@ impl eframe::App for App {
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         if let Some(exe) = self.restart.take() {
             if let Err(e) = crate::os::command(&exe).stdin(std::process::Stdio::null()).spawn() {
-                eprintln!("Redémarrage de Florm impossible ({}) : {e}", exe.display());
+                eprintln!("{}", tf!("Redémarrage de Florm impossible ({}) : {e}", "Cannot restart Florm ({}): {e}", exe.display()));
             }
         }
     }
@@ -1214,7 +1225,7 @@ impl eframe::App for App {
             if p.is_file() {
                 self.open_at(p, line.saturating_sub(1));
             } else {
-                self.set_status(format!("Fichier introuvable ici : {}", p.display()));
+                self.set_status(tf!("Fichier introuvable ici : {}", "File not found here: {}", p.display()));
             }
         }
         self.claude_poll_all();
@@ -1349,7 +1360,7 @@ fn tab_widget(
     } else if active || hovered || dirty {
         p.text(close_rect.center(), Align2::CENTER_CENTER, "×", egui::FontId::proportional(15.0), text_color);
     }
-    let closed = close.on_hover_text("Fermer (Ctrl+W)").clicked();
+    let closed = close.on_hover_text(t!("Fermer (Ctrl+W)", "Close (Ctrl+W)")).clicked();
     (resp, closed)
 }
 
@@ -1401,22 +1412,22 @@ fn tab_menu(ui: &mut egui::Ui, i: usize, d: &Document, split: bool, alone: bool,
         }
     };
     if split {
-        item(ui, "Déplacer dans l'autre panneau", TabAct::MoveOther(i), true, "");
-        item(ui, "Fusionner les panneaux", TabAct::Unsplit, true, "");
-        item(ui, "Changer l'orientation (côte à côte / l'un sous l'autre)", TabAct::Flip, true, "");
+        item(ui, t!("Déplacer dans l'autre panneau", "Move to the other pane"), TabAct::MoveOther(i), true, "");
+        item(ui, t!("Fusionner les panneaux", "Merge the panes"), TabAct::Unsplit, true, "");
+        item(ui, t!("Changer l'orientation (côte à côte / l'un sous l'autre)", "Change the orientation (side by side / one below the other)"), TabAct::Flip, true, "");
     } else {
-        let tip = "Ouvre un deuxième fichier d'abord : un fichier ne peut être que dans un panneau.";
-        item(ui, "Diviser à droite", TabAct::Split(i, SplitDir::Right), !alone, tip);
-        item(ui, "Diviser en bas", TabAct::Split(i, SplitDir::Down), !alone, tip);
+        let tip = t!("Ouvre un deuxième fichier d'abord : un fichier ne peut être que dans un panneau.", "Open a second file first: a file can only be in one pane.");
+        item(ui, t!("Diviser à droite", "Split right"), TabAct::Split(i, SplitDir::Right), !alone, tip);
+        item(ui, t!("Diviser en bas", "Split down"), TabAct::Split(i, SplitDir::Down), !alone, tip);
     }
     ui.separator();
-    item(ui, "Fermer", TabAct::Close(i), true, "");
-    item(ui, "Fermer les autres onglets", TabAct::CloseOthers(i), !alone, "");
+    item(ui, t!("Fermer", "Close"), TabAct::Close(i), true, "");
+    item(ui, t!("Fermer les autres onglets", "Close the other tabs"), TabAct::CloseOthers(i), !alone, "");
     if let Some(p) = &d.path {
         ui.separator();
-        item(ui, "Afficher dans l'arborescence (Alt+L)", TabAct::Locate(i), true, "");
-        item(ui, "Copier le chemin", TabAct::CopyPath(p.display().to_string()), true, "");
-        item(ui, "Afficher dans le gestionnaire de fichiers", TabAct::Reveal(p.clone()), true, "");
+        item(ui, t!("Afficher dans l'arborescence (Alt+L)", "Show in the tree (Alt+L)"), TabAct::Locate(i), true, "");
+        item(ui, t!("Copier le chemin", "Copy the path"), TabAct::CopyPath(p.display().to_string()), true, "");
+        item(ui, t!("Afficher dans le gestionnaire de fichiers", "Show in the file manager"), TabAct::Reveal(p.clone()), true, "");
     }
 }
 
@@ -1457,41 +1468,41 @@ fn commit_menu(ui: &mut egui::Ui, c: &history::Commit, local: &[String], selecte
             continue;
         }
         if local.iter().any(|l| l == r) {
-            branches.push((r.to_string(), format!("Checkout de la branche « {r} »")));
+            branches.push((r.to_string(), tf!("Checkout de la branche « {r} »", "Checkout of the branch “{r}”")));
         } else if let Some((_, name)) = r.split_once('/') {
             if !local.iter().any(|l| l == name) && !c.refs.iter().any(|x| x == name) {
-                branches.push((name.to_string(), format!("Checkout de « {name} » (suit {r})")));
+                branches.push((name.to_string(), tf!("Checkout de « {name} » (suit {r})", "Checkout of “{name}” (tracks {r})")));
             }
         }
     }
     for (target, label) in branches {
         item(ui, &label, HistAct::Checkout(target), act);
     }
-    item(ui, "Checkout de ce commit (HEAD détachée)", HistAct::Checkout(c.hash.clone()), act);
-    item(ui, "Créer une branche ici…", HistAct::BranchAt(c.hash.clone()), act);
+    item(ui, t!("Checkout de ce commit (HEAD détachée)", "Checkout of this commit (detached HEAD)"), HistAct::Checkout(c.hash.clone()), act);
+    item(ui, t!("Créer une branche ici…", "Create a branch here…"), HistAct::BranchAt(c.hash.clone()), act);
     ui.separator();
-    item(ui, "Voir le diff complet", HistAct::Diff(c.hash.clone()), act);
-    item(ui, "✳ Donner ce commit à Claude (contexte)", HistAct::Claude(c.hash.clone()), act);
+    item(ui, t!("Voir le diff complet", "See the full diff"), HistAct::Diff(c.hash.clone()), act);
+    item(ui, t!("✳ Donner ce commit à Claude (contexte)", "✳ Give this commit to Claude (context)"), HistAct::Claude(c.hash.clone()), act);
     if let Some(s) = selected {
         let title = format!("{} → {}", &s[..s.len().min(8)], short);
-        item(ui, "Comparer avec le commit sélectionné", HistAct::Compare(s.to_string(), c.hash.clone(), title), act);
+        item(ui, t!("Comparer avec le commit sélectionné", "Compare with the selected commit"), HistAct::Compare(s.to_string(), c.hash.clone(), title), act);
     }
-    ui.menu_button("Comparer avec la branche", |ui| {
-        item(ui, "HEAD (branche courante)", HistAct::Compare(c.hash.clone(), "HEAD".into(), format!("{short} → HEAD")), act);
+    ui.menu_button(t!("Comparer avec la branche", "Compare with the branch"), |ui| {
+        item(ui, t!("HEAD (branche courante)", "HEAD (current branch)"), HistAct::Compare(c.hash.clone(), "HEAD".into(), format!("{short} → HEAD")), act);
         for b in local {
             item(ui, b, HistAct::Compare(c.hash.clone(), b.clone(), format!("{short} → {b}")), act);
         }
     });
     ui.separator();
-    item(ui, "Cherry-pick sur la branche courante", HistAct::CherryPick(c.hash.clone()), act);
-    item(ui, "Revert : annuler ce commit par un nouveau commit", HistAct::Revert(c.hash.clone()), act);
+    item(ui, t!("Cherry-pick sur la branche courante", "Cherry-pick on the current branch"), HistAct::CherryPick(c.hash.clone()), act);
+    item(ui, t!("Revert : annuler ce commit par un nouveau commit", "Revert: undo this commit with a new commit"), HistAct::Revert(c.hash.clone()), act);
     if c.parents.len() == 1 {
-        item(ui, "Rebase interactif à partir d'ici…", HistAct::Rebase(c.hash.clone()), act);
-        item(ui, "✂ Découper ce commit en plusieurs…", HistAct::Split(c.hash.clone()), act);
+        item(ui, t!("Rebase interactif à partir d'ici…", "Interactive rebase from here…"), HistAct::Rebase(c.hash.clone()), act);
+        item(ui, t!("✂ Découper ce commit en plusieurs…", "✂ Split this commit into several…"), HistAct::Split(c.hash.clone()), act);
     }
     ui.separator();
-    item(ui, "Copier le hash", HistAct::Copy(c.hash.clone()), act);
-    item(ui, "Copier le message", HistAct::Copy(c.subject.clone()), act);
+    item(ui, t!("Copier le hash", "Copy the hash"), HistAct::Copy(c.hash.clone()), act);
+    item(ui, t!("Copier le message", "Copy the message"), HistAct::Copy(c.subject.clone()), act);
 }
 
 /// Colors of the welcome page, on the navy (dark theme) or paper (light theme) backdrop.
@@ -1593,7 +1604,7 @@ fn history_menu(ui: &mut egui::Ui, list: &[String], target: &mut String, title: 
     ui.menu_button("⏷", |ui| {
         ui.label(RichText::new(title).small().strong());
         if list.is_empty() {
-            ui.label(RichText::new("(vide)").weak());
+            ui.label(RichText::new(t!("(vide)", "(empty)")).weak());
         }
         for h in list.iter().take(20) {
             if ui.button(RichText::new(h).monospace()).clicked() {

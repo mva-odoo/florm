@@ -22,19 +22,19 @@ impl App {
                 Ok(text) => {
                     doc.replace_all(&text);
                 }
-                Err(e) => self.set_status(format!("Pas formaté : {e}")),
+                Err(e) => self.set_status(tf!("Pas formaté : {e}", "Not formatted: {e}")),
             }
         }
         let doc = &mut self.docs[idx];
         match doc.save(trim) {
             Ok(()) => {
                 let path = doc.path.clone().unwrap();
-                self.set_status(format!("Enregistré : {}", path.display()));
+                self.set_status(tf!("Enregistré : {}", "Saved: {}", path.display()));
                 self.after_save(idx, &path);
                 true
             }
             Err(e) => {
-                self.set_status(format!("Erreur : {e}"));
+                self.set_status(tf!("Erreur : {e}", "Error: {e}"));
                 false
             }
         }
@@ -45,7 +45,7 @@ impl App {
     pub(super) fn python_rewrite(&mut self, what: lint::Rewrite) {
         let Some(d) = self.docs.get(self.active) else { return };
         let Some(path) = d.path.clone().filter(|p| lint::lang_of(p) == Some("python")) else {
-            self.set_status("Formatage : fichiers Python seulement");
+            self.set_status(t!("Formatage : fichiers Python seulement", "Formatting: Python files only"));
             return;
         };
         if d.read_only {
@@ -66,10 +66,10 @@ impl App {
             Ok(new) => {
                 let changed = self.docs[self.active].replace_all(&new);
                 self.set_status(match (changed, what, lines) {
-                    (false, _, _) => "Rien à changer".to_string(),
-                    (true, lint::Rewrite::Fix, _) => "Corrigé (ruff --fix)".to_string(),
-                    (true, _, Some((a, b))) => format!("Lignes {a} à {b} formatées (ruff format)"),
-                    (true, _, None) => "Fichier formaté (ruff format)".to_string(),
+                    (false, _, _) => t!("Rien à changer", "Nothing to change").to_string(),
+                    (true, lint::Rewrite::Fix, _) => t!("Corrigé (ruff --fix)", "Fixed (ruff --fix)").to_string(),
+                    (true, _, Some((a, b))) => tf!("Lignes {a} à {b} formatées (ruff format)", "Lines {a} to {b} formatted (ruff format)"),
+                    (true, _, None) => t!("Fichier formaté (ruff format)", "File formatted (ruff format)").to_string(),
                 });
             }
             Err(e) => self.set_status(e),

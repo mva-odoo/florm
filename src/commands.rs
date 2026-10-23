@@ -416,10 +416,187 @@ pub const ALL: &[(&str, &str, Cmd)] = &[
     ("select_doc_end", "", Move(DocEnd, true)),
 ];
 
+/// English labels of the commands (id, label); the French ones are in `ALL`.
+const EN: &[(&str, &str)] = &[
+    ("command_palette", "Command palette"),
+    ("quick_open", "Go to file…"),
+    ("goto_line", "Go to line…"),
+    ("find", "Find…"),
+    ("replace", "Replace…"),
+    ("find_next", "Find: next"),
+    ("find_prev", "Find: previous"),
+    ("find_all", "Find: select all results"),
+    ("find_in_files", "Find in folder…"),
+    ("find_in_files_tab", "Find in folder, in a tab…"),
+    ("next_result", "Global search: next result"),
+    ("prev_result", "Global search: previous result"),
+    ("switch_project", "Project: switch…"),
+    ("rename_project", "Project: rename…"),
+    ("close_project", "Project: close the folder"),
+    ("save", "Save"),
+    ("save_as", "Save as…"),
+    ("save_all", "Save all"),
+    ("new_file", "New file"),
+    ("open_file", "Open a file…"),
+    ("open_folder", "Open a folder…"),
+    ("close_tab", "Close tab"),
+    ("reopen_closed", "Reopen closed tab"),
+    ("next_tab", "Next tab"),
+    ("prev_tab", "Previous tab"),
+    ("toggle_sidebar", "Show/hide the sidebar"),
+    ("toggle_menu_bar", "Show/hide the menu bar (File, Edit…)"),
+    ("toggle_terminal", "Show/hide the terminal"),
+    ("toggle_panel", "Show / hide the bottom panel (search, problems, terminal, output, Claude)"),
+    ("new_terminal_tab", "Terminal: new terminal in a tab (to place next to a file)"),
+    ("fold", "Fold the block"),
+    ("unfold", "Unfold the block"),
+    ("fold_all", "Fold all (classes, functions…)"),
+    ("unfold_all", "Unfold all"),
+    ("markdown_preview", "Markdown: preview in a tab"),
+    ("markdown_preview_side", "Markdown: preview to the side"),
+    ("complete", "Completion suggestions"),
+    ("goto_definition", "Go to definition"),
+    ("rename_symbol", "Rename symbol (in the whole project)…"),
+    ("install_pylsp", "LSP: install pylsp for Python (Florm)"),
+    ("lsp_restart", "LSP: restart the language servers"),
+    ("nav_back", "Go back to the previous cursor position"),
+    ("nav_forward", "Go to the next cursor position"),
+    ("reveal_in_tree", "Show the file in the tree"),
+    ("goto_line_select", "Go to line and select it (or several: 10-20)…"),
+    ("open_folder_path", "Open a folder by typing its path…"),
+    ("goto_symbol", "Go to symbol in file (class, function, record…)…"),
+    ("toggle_breadcrumbs", "Show/hide the breadcrumbs"),
+    ("split_right", "Split editor: current file to the right"),
+    ("split_down", "Split editor: current file below"),
+    ("unsplit", "Merge the editor panes"),
+    ("focus_other_pane", "Go to the other editor pane"),
+    ("show_problems", "Show problems (lint)"),
+    ("show_output", "Show output"),
+    ("show_git", "Git: show the Git view"),
+    ("show_files", "Show files"),
+    ("show_welcome", "Show the Florm welcome page"),
+    ("toggle_minimap", "Show/hide the minimap"),
+    ("toggle_word_wrap", "Word wrap (on / off)"),
+    ("zoom_in", "Zoom in"),
+    ("zoom_out", "Zoom out"),
+    ("set_syntax", "Set syntax…"),
+    ("select_theme", "Choose theme…"),
+    ("lint", "Lint the current file"),
+    ("open_settings", "Preferences"),
+    ("open_settings_file", "Preferences: open settings.toml"),
+    ("reload_plugins", "Reload plugins"),
+    ("insert_template", "Insert a template / snippet…"),
+    ("show_guide", "Help: Florm guide (search examples, Git, terminal…)"),
+    ("check_update", "Help: check for a Florm update"),
+    ("open_templates_folder", "Open the templates folder"),
+    ("new_template", "New template / snippet (trigger like ipdb, from the selection)…"),
+    ("open_plugins_folder", "Open the plugins folder"),
+    ("refresh_tree", "Refresh the tree"),
+    ("quit", "Quit"),
+    ("git_refresh", "Git: refresh"),
+    ("git_pull", "Git: pull"),
+    ("git_push", "Git: push"),
+    ("git_fetch", "Git: fetch"),
+    ("git_stage_all", "Git: stage all"),
+    ("git_commit", "Git: commit…"),
+    ("git_ai_review", "Git: AI review of the uncommitted changes"),
+    ("git_stash", "Git: put the changes aside (stash)"),
+    ("git_stash_pop", "Git: take back the last stash (stash pop)"),
+    ("git_checkout", "Git: switch branch…"),
+    ("git_new_branch", "Git: new branch…"),
+    ("git_diff_file", "Git: diff of the current file"),
+    ("git_history", "Git: history (commit graph)"),
+    ("pull_requests", "GitHub: pull requests (comments, suggestions, commits)"),
+    ("docker", "Docker: containers, logs, ipdb in a container"),
+    ("odoo_test_again", "Odoo: run the last tests again (in the tests container)"),
+    ("odoo_test_here", "Odoo: run the test under the cursor (method, class or module)"),
+    ("create_pr", "GitHub: create a pull request from the branch…"),
+    ("claude", "Claude: chat and review its changes"),
+    ("suggest_commit", "Claude: suggest the commit message"),
+    ("claude_add_selection", "Claude: add the selection (or the line) to the context"),
+    ("claude_add_file", "Claude: add the file to the context"),
+    ("claude_ask", "Claude: ask about the selection…"),
+    ("claude_inline", "Claude: edit or explain the selection, here in the editor…"),
+    ("copy", "Copy"),
+    ("cut", "Cut"),
+    ("paste", "Paste"),
+    ("copy_file_path", "Copy the file path"),
+    ("reveal_in_os", "Show the file in the file manager"),
+    ("copy_file_ref", "Copy the file:line reference"),
+    ("copy_github_link", "Git: copy the GitHub link of the line"),
+    ("find_word_in_files", "Find the word under the cursor in the folder"),
+    ("noqa_line", "Lint: ignore the errors of the line (# noqa)"),
+    ("find_references", "Find usages of the symbol (language server, else the whole word in the folder)"),
+    ("format_document", "Python: format the file, or the selected lines (ruff format)"),
+    ("fix_document", "Python: fix automatically (ruff --fix: unused imports, import order…)"),
+    ("install_flake8", "Lint: install flake8 for Florm"),
+    ("show_change", "Git: show the change of the line"),
+    ("clear_search_history", "Search: clear the history"),
+    ("git_blame", "Git: blame of the line (show / hide)"),
+    ("git_line_history", "Git: history of the line"),
+    ("toggle_inline_diff", "Git: show the diff in the editor (green / red)"),
+    ("quick_fix", "Quick fixes (import, ignore, fix…)"),
+    ("git_next_change", "Git: next change (show the diff)"),
+    ("git_prev_change", "Git: previous change (show the diff)"),
+    ("git_revert_change", "Git: revert this change"),
+    ("git_revert_file", "Git: discard all changes of the file"),
+    ("undo", "Undo"),
+    ("redo", "Redo"),
+    ("select_all", "Select all"),
+    ("select_line", "Select line"),
+    ("select_next", "Add next occurrence"),
+    ("select_all_occurrences", "Select all occurrences"),
+    ("split_selection_into_lines", "Split selection into lines"),
+    ("add_cursor_above", "Add cursor above"),
+    ("add_cursor_below", "Add cursor below"),
+    ("duplicate_line", "Duplicate line"),
+    ("delete_line", "Delete line"),
+    ("move_line_up", "Move line up"),
+    ("move_line_down", "Move line down"),
+    ("toggle_comment", "Comment / uncomment"),
+    ("toggle_bookmark", "Bookmark: add / remove on the line"),
+    ("next_bookmark", "Bookmark: next"),
+    ("prev_bookmark", "Bookmark: previous"),
+    ("clear_bookmarks", "Bookmark: remove all in the file"),
+    ("list_bookmarks", "Bookmark: list (all open files)…"),
+    ("indent", "Indent"),
+    ("unindent", "Unindent"),
+    ("join_lines", "Join lines"),
+    ("insert_line_after", "Insert line after"),
+    ("insert_line_before", "Insert line before"),
+    ("upper_case", "Convert to UPPERCASE"),
+    ("lower_case", "Convert to lowercase"),
+    ("sort_lines", "Sort lines"),
+    ("goto_bracket", "Go to matching bracket"),
+];
+
+/// Label of the command `id` in the language of the interface (`fr`: its label in `ALL`).
+pub fn label(id: &str, fr: &'static str) -> &'static str {
+    if fr.is_empty() || !crate::i18n::en() {
+        return fr;
+    }
+    EN.iter().find(|(i, _)| *i == id).map_or(fr, |(_, l)| *l)
+}
+
 pub fn by_id(id: &str) -> Option<Cmd> {
     ALL.iter().find(|(i, _, _)| *i == id).map(|(_, _, c)| *c)
 }
 
 pub fn id_of(cmd: Cmd) -> Option<&'static str> {
     ALL.iter().find(|(_, _, c)| *c == cmd).map(|(id, _, _)| *id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_command_has_an_english_label() {
+        for (id, fr, _) in ALL.iter().filter(|(_, l, _)| !l.is_empty()) {
+            assert!(EN.iter().any(|(i, _)| i == id), "no English label for {id} ({fr})");
+        }
+        for (id, _) in EN {
+            assert!(ALL.iter().any(|(i, l, _)| i == id && !l.is_empty()), "English label of an unknown command {id}");
+        }
+    }
 }

@@ -162,7 +162,7 @@ impl App {
                         self.docker.session = Some(id);
                         self.docker.interactive = f.interactive;
                     }
-                    Err(e) => self.set_status(format!("Logs de {name} : {e}")),
+                    Err(e) => self.set_status(tf!("Logs de {name} : {e}", "Logs of {name}: {e}")),
                 }
             }
             Err(e) => self.set_status(e),
@@ -172,9 +172,9 @@ impl App {
     pub(super) fn docker_done(&mut self, label: String, result: Result<(), String>) {
         self.docker.busy = None;
         match result {
-            Ok(()) => self.set_status(format!("{label} : fait")),
+            Ok(()) => self.set_status(tf!("{label} : fait", "{label}: done")),
             Err(e) => {
-                self.set_status(format!("{label} : échec (voir Sortie)"));
+                self.set_status(tf!("{label} : échec (voir Sortie)", "{label}: failed (see Output)"));
                 self.log(e);
             }
         }
@@ -227,13 +227,13 @@ impl App {
                         maximize::button(ui, view, "list");
                     }
                     if big {
-                        if ui.small_button("⇲").on_hover_text("Afficher Docker dans le panneau du bas").clicked() {
+                        if ui.small_button("⇲").on_hover_text(t!("Afficher Docker dans le panneau du bas", "Show Docker in the bottom panel")).clicked() {
                             act = Some(DockAct::Move(false));
                         }
-                    } else if ui.small_button("⇱").on_hover_text("Afficher Docker en grand dans l'éditeur").clicked() {
+                    } else if ui.small_button("⇱").on_hover_text(t!("Afficher Docker en grand dans l'éditeur", "Show Docker large in the editor")).clicked() {
                         act = Some(DockAct::Move(true));
                     }
-                    if ui.small_button("⟳").on_hover_text("Relire la liste des conteneurs").clicked() {
+                    if ui.small_button("⟳").on_hover_text(t!("Relire la liste des conteneurs", "Read the list of containers again")).clicked() {
                         act = Some(DockAct::Reload);
                     }
                 });
@@ -246,18 +246,18 @@ impl App {
             // compose projects of the folder that have no container yet
             let idle: Vec<&docker::Compose> = d.composes.iter().filter(|c| !list.iter().any(|k| k.project.as_ref() == Some(&c.name))).collect();
             if d.list.is_some() && list.is_empty() && idle.is_empty() {
-                ui.label(RichText::new("Aucun conteneur.").weak());
+                ui.label(RichText::new(t!("Aucun conteneur.", "No container.")).weak());
             }
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                 for c in idle {
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(&c.name).strong());
-                        ui.label(RichText::new("aucun conteneur").small().color(weak));
+                        ui.label(RichText::new(t!("aucun conteneur", "no container")).small().color(weak));
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             let file = c.file.as_deref().map_or(String::new(), |f| f.display().to_string());
                             if ui
                                 .add_enabled(!busy, egui::Button::new("⬆ compose up").small())
-                                .on_hover_text(format!("docker compose up -d : crée et démarre les conteneurs de {file}"))
+                                .on_hover_text(tf!("docker compose up -d : crée et démarre les conteneurs de {file}", "docker compose up -d: creates and starts the containers of {file}"))
                                 .clicked()
                             {
                                 act = Some(DockAct::Up(c.clone()));
@@ -275,7 +275,7 @@ impl App {
                     let names = |f: fn(&Container) -> bool| group.iter().filter(|c| f(c)).map(|c| c.name.clone()).collect::<Vec<_>>();
                     let up = group.iter().filter(|c| c.running()).count();
                     ui.horizontal(|ui| {
-                        let title = project.as_deref().unwrap_or("Autres conteneurs");
+                        let title = project.as_deref().unwrap_or(t!("Autres conteneurs", "Other containers"));
                         ui.label(RichText::new(title).strong());
                         ui.label(RichText::new(format!("{up}/{n}")).small().color(weak));
                         if project.is_some() {
@@ -290,22 +290,22 @@ impl App {
                                 if let Some(compose) = compose {
                                     if ui
                                         .add_enabled(!busy, egui::Button::new("⬆").small())
-                                        .on_hover_text("docker compose up -d : crée et démarre tous les services du projet, même ceux sans conteneur, et recrée ceux dont la configuration a changé")
+                                        .on_hover_text(t!("docker compose up -d : crée et démarre tous les services du projet, même ceux sans conteneur, et recrée ceux dont la configuration a changé", "docker compose up -d: creates and starts all the services of the project, even those without a container, and recreates those whose configuration changed"))
                                         .clicked()
                                     {
                                         act = Some(DockAct::Up(compose));
                                     }
                                 }
                                 if ui
-                                    .add_enabled(!busy && !running.is_empty(), egui::Button::new("■ tout").small())
-                                    .on_hover_text("Arrêter tous les conteneurs du projet, du bas de la liste vers le haut")
+                                    .add_enabled(!busy && !running.is_empty(), egui::Button::new(t!("■ tout", "■ all")).small())
+                                    .on_hover_text(t!("Arrêter tous les conteneurs du projet, du bas de la liste vers le haut", "Stop all the containers of the project, from the bottom of the list up"))
                                     .clicked()
                                 {
                                     act = Some(DockAct::Run("stop", running));
                                 }
                                 if ui
-                                    .add_enabled(!busy && !stopped.is_empty(), egui::Button::new("▶ tout").small())
-                                    .on_hover_text("Démarrer les conteneurs arrêtés dans l'ordre de la liste (poignée à points à gauche : glisser pour le changer), chacun une fois le précédent prêt (healthy)")
+                                    .add_enabled(!busy && !stopped.is_empty(), egui::Button::new(t!("▶ tout", "▶ all")).small())
+                                    .on_hover_text(t!("Démarrer les conteneurs arrêtés dans l'ordre de la liste (poignée à points à gauche : glisser pour le changer), chacun une fois le précédent prêt (healthy)", "Start the stopped containers in the order of the list (dotted handle on the left: drag to change it), each once the previous one is ready (healthy)"))
                                     .clicked()
                                 {
                                     act = Some(DockAct::Run("start", stopped));
@@ -323,7 +323,7 @@ impl App {
                                     for (dx, dy) in [(-2.0, -4.0), (2.0, -4.0), (-2.0, 0.0), (2.0, 0.0), (-2.0, 4.0), (2.0, 4.0)] {
                                         ui.painter().circle_filled(rect.center() + egui::vec2(dx, dy), 1.1, dots);
                                     }
-                                    let h = h.on_hover_text("Glisser pour changer l'ordre (▶ tout démarre dans cet ordre)");
+                                    let h = h.on_hover_text(t!("Glisser pour changer l'ordre (▶ tout démarre dans cet ordre)", "Drag to change the order (▶ all starts in this order)"));
                                     if h.hovered() {
                                         ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
                                     }
@@ -336,7 +336,7 @@ impl App {
                                 let r = ui.selectable_label(on, c.label());
                                 ui.label(RichText::new(short_status(&c.status)).small().color(weak));
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                    let (label, verb, tip) = if c.running() { ("■", "stop", "Arrêter ce conteneur") } else { ("▶", "start", "Démarrer ce conteneur") };
+                                    let (label, verb, tip) = if c.running() { ("■", "stop", t!("Arrêter ce conteneur", "Stop this container")) } else { ("▶", "start", t!("Démarrer ce conteneur", "Start this container")) };
                                     if ui.add_enabled(!busy, egui::Button::new(label).small()).on_hover_text(tip).clicked() {
                                         act = Some(DockAct::Run(verb, vec![c.name.clone()]));
                                     }
@@ -360,13 +360,13 @@ impl App {
                             act = Some(DockAct::Select(c.name.clone()));
                         }
                         r.context_menu(|ui| {
-                            for (label, verb) in [("Démarrer", "start"), ("Arrêter", "stop"), ("Redémarrer", "restart")] {
+                            for (label, verb) in [(t!("Démarrer", "Start"), "start"), (t!("Arrêter", "Stop"), "stop"), (t!("Redémarrer", "Restart"), "restart")] {
                                 if ui.button(label).clicked() {
                                     act = Some(DockAct::Run(verb, vec![c.name.clone()]));
                                     ui.close_menu();
                                 }
                             }
-                            if ui.add_enabled(c.running(), egui::Button::new("Terminal dans le conteneur")).clicked() {
+                            if ui.add_enabled(c.running(), egui::Button::new(t!("Terminal dans le conteneur", "Terminal in the container"))).clicked() {
                                 act = Some(DockAct::Shell(c.name.clone()));
                                 ui.close_menu();
                             }
@@ -395,7 +395,7 @@ impl App {
             egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| {
                 let Some(c) = current else {
                     ui.add_space(20.0);
-                    ui.vertical_centered(|ui| ui.label(RichText::new(if empty { "" } else { "Choisissez un conteneur à gauche." }).weak()));
+                    ui.vertical_centered(|ui| ui.label(RichText::new(if empty { "" } else { t!("Choisissez un conteneur à gauche.", "Choose a container on the left.") }).weak()));
                     return;
                 };
                 egui::TopBottomPanel::top("docker_bar")
@@ -410,19 +410,19 @@ impl App {
                             let busy = self.docker.busy.is_some();
                             let one = || vec![c.name.clone()];
                             if c.running() {
-                                if ui.add_enabled(!busy, egui::Button::new("⟳ Redémarrer")).clicked() {
+                                if ui.add_enabled(!busy, egui::Button::new(t!("⟳ Redémarrer", "⟳ Restart"))).clicked() {
                                     act = Some(DockAct::Run("restart", one()));
                                 }
-                                if ui.add_enabled(!busy, egui::Button::new("■ Arrêter")).clicked() {
+                                if ui.add_enabled(!busy, egui::Button::new(t!("■ Arrêter", "■ Stop"))).clicked() {
                                     act = Some(DockAct::Run("stop", one()));
                                 }
-                                if ui.button(">_ Terminal").on_hover_text("Un shell dans le conteneur (docker exec), dans un onglet").clicked() {
+                                if ui.button(">_ Terminal").on_hover_text(t!("Un shell dans le conteneur (docker exec), dans un onglet", "A shell in the container (docker exec), in a tab")).clicked() {
                                     act = Some(DockAct::Shell(c.name.clone()));
                                 }
-                                if ui.selectable_label(self.tests.open, "🧪 Tests").on_hover_text("Lancer des tests Odoo dans ce conteneur").clicked() {
+                                if ui.selectable_label(self.tests.open, "🧪 Tests").on_hover_text(t!("Lancer des tests Odoo dans ce conteneur", "Run Odoo tests in this container")).clicked() {
                                     act = Some(DockAct::Tests);
                                 }
-                            } else if ui.add_enabled(!busy, egui::Button::new("▶ Démarrer")).clicked() {
+                            } else if ui.add_enabled(!busy, egui::Button::new(t!("▶ Démarrer", "▶ Start"))).clicked() {
                                 act = Some(DockAct::Run("start", one()));
                             }
                             if let Some(b) = &self.docker.busy {
@@ -432,9 +432,9 @@ impl App {
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                 maximize::button(ui, view, "logs");
                                 let hint = if self.docker.interactive {
-                                    "Attaché : ce que vous tapez va au conteneur (ipdb…) · Ctrl+C l'interrompt"
+                                    t!("Attaché : ce que vous tapez va au conteneur (ipdb…) · Ctrl+C l'interrompt", "Attached: what you type goes to the container (ipdb…) · Ctrl+C interrupts it")
                                 } else {
-                                    "Logs en lecture seule"
+                                    t!("Logs en lecture seule", "Read-only logs")
                                 };
                                 ui.label(RichText::new(hint).small().color(weak));
                             });
@@ -456,7 +456,7 @@ impl App {
                         ui.horizontal(|ui| {
                             ui.add_space(12.0);
                             ui.spinner();
-                            ui.label(RichText::new("Lecture des logs…").weak());
+                            ui.label(RichText::new(t!("Lecture des logs…", "Reading the logs…")).weak());
                         });
                     }
                 });
@@ -483,17 +483,17 @@ impl App {
             }
             Some(DockAct::Run(verb, names)) => {
                 let what = match verb {
-                    "start" => "Démarrage",
-                    "stop" => "Arrêt",
-                    _ => "Redémarrage",
+                    "start" => t!("Démarrage", "Start"),
+                    "stop" => t!("Arrêt", "Stop"),
+                    _ => t!("Redémarrage", "Restart"),
                 };
-                let label = format!("{what} de {}", names.iter().map(|n| self.docker_label(n)).collect::<Vec<_>>().join(", "));
+                let label = tf!("{what} de {}", "{what} of {}", names.iter().map(|n| self.docker_label(n)).collect::<Vec<_>>().join(", "));
                 self.docker.busy = Some(format!("{label}…"));
                 self.jobs.spawn(move || JobResult::DockerDone { result: docker::act(verb, &names), label });
             }
             Some(DockAct::Shell(name)) => {
                 let ctx = self.egui_ctx.clone();
-                let title = format!("{} (conteneur)", self.docker_label(&name));
+                let title = tf!("{} (conteneur)", "{} (container)", self.docker_label(&name));
                 match self.term.open_tab(&ctx, Some(&format!("docker exec -it {name} bash")), None) {
                     Ok((id, _)) => self.open_view_tab(document::View::Terminal(id), title),
                     Err(e) => self.set_status(e),
@@ -542,14 +542,14 @@ fn short_status(status: &str) -> String {
     if let Some(rest) = status.strip_prefix("Up ") {
         let t = rest.split(" (").next().unwrap_or(rest);
         if status.contains("(unhealthy)") {
-            format!("{t} · malade")
+            tf!("{t} · malade", "{t} · unhealthy")
         } else if status.contains("(health: starting)") {
-            format!("{t} · démarre")
+            tf!("{t} · démarre", "{t} · starting")
         } else {
             t.to_string()
         }
     } else if status.starts_with("Exited") {
-        "arrêté".into()
+        t!("arrêté", "stopped").into()
     } else {
         status.split_whitespace().next().unwrap_or("").to_lowercase()
     }

@@ -88,7 +88,7 @@ pub(super) fn button_at(ui: &mut Ui, rect: Rect, view: Id, pane: &'static str) {
         ui.painter().line_segment([p, p + egui::vec2(arm * sx, 0.0)], stroke);
         ui.painter().line_segment([p, p + egui::vec2(0.0, arm * sy)], stroke);
     }
-    let tip = if on { "Revenir à la disposition normale (Échap)" } else { "Agrandir ce panneau : il prend toute la place de la vue (Échap pour revenir)" };
+    let tip = if on { t!("Revenir à la disposition normale (Échap)", "Back to the normal layout (Escape)") } else { t!("Agrandir ce panneau : il prend toute la place de la vue (Échap pour revenir)", "Maximize this panel: it takes the whole view (Escape to come back)") };
     if r.on_hover_text(tip).clicked() {
         toggle(ui.ctx(), view, pane);
     }

@@ -45,7 +45,7 @@ impl App {
             self.tests.draft = if tags.is_empty() { self.test_tags_here().unwrap_or_default() } else { tags };
             self.tests.open = true;
             self.open_docker();
-            self.set_status("Choisissez le conteneur des tests, puis ▶ Lancer");
+            self.set_status(t!("Choisissez le conteneur des tests, puis ▶ Lancer", "Choose the tests container, then ▶ Run"));
             return;
         }
         let h = &mut self.settings.odoo_test_history;
@@ -55,7 +55,7 @@ impl App {
         let history = config::toml_str_array(h);
         self.persist("odoo_test_history", history);
         let cmd = odoo_test::command(&self.settings.odoo_test_command, &tags);
-        self.set_status(format!("Tests {tags} dans {container}…"));
+        self.set_status(tf!("Tests {tags} dans {container}…", "Tests {tags} in {container}…"));
         self.jobs.spawn(move || JobResult::TestsReady { result: crate::docker::exec_in(&container, &cmd), tags });
     }
 
@@ -116,7 +116,7 @@ impl App {
         let tags = run.tags.clone();
         let msg = match odoo_test::summary(&out) {
             Some(s) => format!("Tests {tags} : {}", s.text()),
-            None => format!("Tests {tags} terminés (pas de résumé d'Odoo : voir l'onglet)"),
+            None => tf!("Tests {tags} terminés (pas de résumé d'Odoo : voir l'onglet)", "Tests {tags} finished (no summary from Odoo: see the tab)"),
         };
         self.log(msg.clone());
         self.set_status(msg);
@@ -143,7 +143,7 @@ impl App {
         let mut run = None;
         ui.horizontal(|ui| {
             ui.label("Tags");
-            let r = ui.add(egui::TextEdit::singleline(&mut self.tests.draft).desired_width(280.0).hint_text(":MaClasse, /mon_module, :MaClasse.test_x").font(egui::TextStyle::Monospace));
+            let r = ui.add(egui::TextEdit::singleline(&mut self.tests.draft).desired_width(280.0).hint_text(t!(":MaClasse, /mon_module, :MaClasse.test_x", ":MyClass, /my_module, :MyClass.test_x")).font(egui::TextStyle::Monospace));
             if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                 run = Some(self.tests.draft.clone());
             }
@@ -158,19 +158,19 @@ impl App {
                     }
                 })
                 .response
-                .on_hover_text("Tags lancés récemment");
+                .on_hover_text(t!("Tags lancés récemment", "Recently run tags"));
             });
             if let Some(here) = self.test_tags_here() {
-                if ui.small_button(format!("↳ {here}")).on_hover_text("D'après le curseur dans le dernier fichier").clicked() {
+                if ui.small_button(format!("↳ {here}")).on_hover_text(t!("D'après le curseur dans le dernier fichier", "From the cursor in the last file")).clicked() {
                     self.tests.draft = here;
                 }
             }
-            if ui.add_enabled(!self.tests.draft.trim().is_empty(), egui::Button::new("▶ Lancer")).on_hover_text("Ctrl+F6 relance ensuite le dernier, de n'importe où").clicked() {
+            if ui.add_enabled(!self.tests.draft.trim().is_empty(), egui::Button::new(t!("▶ Lancer", "▶ Run"))).on_hover_text(t!("Ctrl+F6 relance ensuite le dernier, de n'importe où", "Ctrl+F6 then runs the last one again, from anywhere")).clicked() {
                 run = Some(self.tests.draft.clone());
             }
         });
         ui.horizontal(|ui| {
-            ui.label(RichText::new("Commande").small().weak());
+            ui.label(RichText::new(t!("Commande", "Command")).small().weak());
             let r = ui.add(
                 egui::TextEdit::singleline(&mut self.settings.odoo_test_command)
                     .desired_width(f32::INFINITY)

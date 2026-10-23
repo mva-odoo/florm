@@ -82,7 +82,7 @@ pub(super) fn code_block(ui: &mut egui::Ui, lang: &str, code: &str) {
                 let what = if lang.is_empty() { "code" } else { lang };
                 ui.label(RichText::new(what).small().weak());
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    copy_button(ui, code, if shell { "Copier la commande" } else { "Copier" });
+                    copy_button(ui, code, if shell { t!("Copier la commande", "Copy the command") } else { t!("Copier", "Copy") });
                 });
             });
             // id by place, not by content: it changes at each letter of an answer being written
@@ -103,8 +103,8 @@ pub(super) fn copy_button(ui: &mut egui::Ui, text: &str, label: &str) {
     let id = egui::Id::new(("copied", text));
     let now = ui.input(|i| i.time);
     let recent = ui.data(|d| d.get_temp::<f64>(id)).is_some_and(|t| now - t < 1.5);
-    let shown = if recent { "✔ Copié".to_string() } else { format!("🗐 {label}") };
-    if ui.small_button(shown).on_hover_text("Copier dans le presse-papiers").clicked() {
+    let shown = if recent { t!("✔ Copié", "✔ Copied").to_string() } else { format!("🗐 {label}") };
+    if ui.small_button(shown).on_hover_text(t!("Copier dans le presse-papiers", "Copy to the clipboard")).clicked() {
         ui.ctx().copy_text(text.to_string());
         ui.data_mut(|d| d.insert_temp(id, now));
     }

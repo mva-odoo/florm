@@ -257,7 +257,7 @@ impl Terminal {
     fn spawn(&mut self, ctx: &egui::Context, shell: Option<&str>, cwd: Option<PathBuf>) -> Result<Session, String> {
         let shell = shell.map(str::to_string).filter(|s| !s.trim().is_empty()).unwrap_or_else(default_shell);
         let cwd = cwd.unwrap_or_else(|| self.cwd());
-        let mut s = Session::spawn(&shell, cwd, ctx).map_err(|e| format!("Impossible de lancer le terminal : {e}"))?;
+        let mut s = Session::spawn(&shell, cwd, ctx).map_err(|e| tf!("Impossible de lancer le terminal : {e}", "Cannot start the terminal: {e}"))?;
         s.id = self.next_id;
         self.next_id += 1;
         Ok(s)
@@ -356,7 +356,7 @@ impl Terminal {
         ui.horizontal(|ui| {
             for (i, s) in self.sessions.iter().enumerate().filter(|(_, s)| s.in_panel()) {
                 let done = s.exited.load(Ordering::Relaxed);
-                let label = format!("{}{}", s.title(), if done { " (terminé)" } else { "" });
+                let label = format!("{}{}", s.title(), if done { t!(" (terminé)", " (ended)") } else { "" });
                 let r = ui.selectable_label(i == self.active, RichText::new(label).monospace());
                 if r.clicked() {
                     self.active = i;
@@ -366,25 +366,25 @@ impl Terminal {
                 if r.middle_clicked() {
                     close = Some(i);
                 }
-                if ui.small_button("×").on_hover_text("Fermer ce terminal").clicked() {
+                if ui.small_button("×").on_hover_text(t!("Fermer ce terminal", "Close this terminal")).clicked() {
                     close = Some(i);
                 }
                 ui.add_space(6.0);
             }
             let plus = egui::Button::new(RichText::new("+").size(16.0).strong()).min_size(egui::vec2(26.0, 22.0));
-            if ui.add(plus).on_hover_text("Nouveau terminal").clicked() {
+            if ui.add(plus).on_hover_text(t!("Nouveau terminal", "New terminal")).clicked() {
                 new = true;
             }
             if ui
-                .add_enabled(self.sessions.get(self.active).is_some_and(Session::in_panel), egui::Button::new("⇱ Onglet"))
-                .on_hover_text("Mettre ce terminal dans un onglet de l'éditeur (il peut alors être placé à côté d'un fichier, ou en bas)")
+                .add_enabled(self.sessions.get(self.active).is_some_and(Session::in_panel), egui::Button::new(t!("⇱ Onglet", "⇱ Tab")))
+                .on_hover_text(t!("Mettre ce terminal dans un onglet de l'éditeur (il peut alors être placé à côté d'un fichier, ou en bas)", "Put this terminal in an editor tab (it can then be placed next to a file, or at the bottom)"))
                 .clicked()
             {
                 dock = true;
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.label(
-                    RichText::new("Ctrl+C : interrompre (ou copier la sélection) · Ctrl+V : coller · clic droit : menu")
+                    RichText::new(t!("Ctrl+C : interrompre (ou copier la sélection) · Ctrl+V : coller · clic droit : menu", "Ctrl+C: interrupt (or copy the selection) · Ctrl+V: paste · right click: menu"))
                         .small()
                         .weak(),
                 );
@@ -404,14 +404,14 @@ impl Terminal {
         }
         if let Some(e) = &self.error {
             ui.label(RichText::new(e).color(crate::highlight::red()));
-            if ui.button("Réessayer").clicked() {
+            if ui.button(t!("Réessayer", "Retry")).clicked() {
                 self.error = None;
             }
             return;
         }
         let i = self.active;
         if !self.sessions.get(i).is_some_and(Session::in_panel) {
-            ui.label(RichText::new("Aucun terminal ouvert — « + » pour en ouvrir un.").weak());
+            ui.label(RichText::new(t!("Aucun terminal ouvert — « + » pour en ouvrir un.", "No terminal open — “+” to open one.")).weak());
             return;
         }
         let focus = std::mem::take(&mut self.want_focus);
@@ -426,7 +426,7 @@ impl Terminal {
     pub fn tab_ui(&mut self, ui: &mut egui::Ui, id: u64, shell: Option<&str>, colors: Colors, light: bool) {
         let ctx = ui.ctx().clone();
         let Some(i) = self.sessions.iter().position(|s| s.id == id) else {
-            ui.label(RichText::new("Ce terminal est fermé.").weak());
+            ui.label(RichText::new(t!("Ce terminal est fermé.", "This terminal is closed.")).weak());
             return;
         };
         let focus = self.focus_tab == Some(id);
@@ -439,7 +439,7 @@ impl Terminal {
                 let s = &self.sessions[i];
                 ui.label(RichText::new(s.cwd.display().to_string()).small().weak());
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.small_button("⇲ Panneau du bas").on_hover_text("Remettre ce terminal dans le panneau du bas").clicked() {
+                    if ui.small_button(t!("⇲ Panneau du bas", "⇲ Bottom panel")).on_hover_text(t!("Remettre ce terminal dans le panneau du bas", "Put this terminal back in the bottom panel")).clicked() {
                         back = true;
                     }
                 });
@@ -670,11 +670,11 @@ impl Terminal {
         let mut action = None;
         resp.context_menu(|ui| {
             for (label, a, on) in [
-                ("Copier", 0, has_sel),
-                ("Coller", 1, true),
-                ("Tout effacer", 2, true),
-                ("Interrompre (Ctrl+C)", 3, true),
-                ("Nouveau terminal", 4, true),
+                (t!("Copier", "Copy"), 0, has_sel),
+                (t!("Coller", "Paste"), 1, true),
+                (t!("Tout effacer", "Clear all"), 2, true),
+                (t!("Interrompre (Ctrl+C)", "Interrupt (Ctrl+C)"), 3, true),
+                (t!("Nouveau terminal", "New terminal"), 4, true),
             ] {
                 if ui.add_enabled(on, egui::Button::new(label)).clicked() {
                     action = Some(a);
@@ -843,7 +843,7 @@ fn paint(ui: &egui::Ui, rect: Rect, pad: f32, rh: f32, cw: f32, font: &FontId, s
         }
     }
     if screen.scrollback() > 0 {
-        let t = format!("↑ historique ({} lignes) — molette vers le bas ou tape pour revenir", screen.scrollback());
+        let t = tf!("↑ historique ({} lignes) — molette vers le bas ou tape pour revenir", "↑ history ({} lines) — scroll down or type to come back", screen.scrollback());
         let galley = painter.layout_no_wrap(t, FontId::proportional(11.5), c.bg);
         let pos = rect.right_top() + egui::vec2(-12.0 - galley.size().x, 6.0);
         painter.rect_filled(Rect::from_min_size(pos, galley.size()).expand(4.0), 4.0, c.caret);
@@ -854,7 +854,7 @@ fn paint(ui: &egui::Ui, rect: Rect, pad: f32, rh: f32, cw: f32, font: &FontId, s
         painter.text(
             Pos2::new(rect.left() + pad, y),
             Align2::LEFT_TOP,
-            "[processus terminé — Entrée pour relancer un terminal]",
+            t!("[processus terminé — Entrée pour relancer un terminal]", "[process ended — Enter to start a terminal again]"),
             font.clone(),
             crate::highlight::yellow(),
         );

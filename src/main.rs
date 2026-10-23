@@ -1,6 +1,9 @@
 // No console window behind the editor on Windows.
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
+#[macro_use]
+mod i18n;
+
 mod app;
 mod claude;
 mod commands;

@@ -139,7 +139,7 @@ impl App {
                     continue;
                 }
                 if STD_MODULES.contains(&name.as_str()) {
-                    out.push((format!("Importer {name} : import {name}"), Fix::Insert(at, format!("import {name}\n"))));
+                    out.push((tf!("Importer {name} : import {name}", "Import {name}: import {name}"), Fix::Insert(at, format!("import {name}\n"))));
                 }
                 let found = self.index.symbols.as_ref().map(|ix| ix.lookup(&name)).unwrap_or_default();
                 let mut modules = Vec::new();
@@ -153,20 +153,20 @@ impl App {
                     }
                 }
                 for m in modules.into_iter().take(5) {
-                    out.push((format!("Importer {name} : from {m} import {name}"), Fix::Insert(at, format!("from {m} import {name}\n"))));
+                    out.push((tf!("Importer {name} : from {m} import {name}", "Import {name}: from {m} import {name}"), Fix::Insert(at, format!("from {m} import {name}\n"))));
                 }
             }
         }
         let codes = noqa_codes(d, line);
         if !codes.is_empty() && !d.read_only {
-            out.push((format!("Ignorer {} sur cette ligne (# noqa)", codes.join(", ")), Fix::Cmd(Cmd::NoqaLine)));
+            out.push((tf!("Ignorer {} sur cette ligne (# noqa)", "Ignore {} on this line (# noqa)", codes.join(", ")), Fix::Cmd(Cmd::NoqaLine)));
         }
         if python && !d.read_only && lint::is_installed("ruff") && problems.iter().any(|g| matches!(g.source.as_str(), "ruff" | "flake8" | "pyflakes")) {
-            out.push(("Corriger tout ce qui peut l'être dans le fichier (ruff --fix)".into(), Fix::Cmd(Cmd::FixDocument)));
+            out.push((t!("Corriger tout ce qui peut l'être dans le fichier (ruff --fix)", "Fix everything that can be in the file (ruff --fix)").into(), Fix::Cmd(Cmd::FixDocument)));
         }
         if let Some(g) = problems.first() {
-            let ask = format!("Corrige ce problème signalé par {} : {}", g.source, g.message);
-            out.push((format!("✳ Corriger avec Claude : {}", g.message), Fix::Claude(ask)));
+            let ask = tf!("Corrige ce problème signalé par {} : {}", "Fix this problem reported by {}: {}", g.source, g.message);
+            out.push((tf!("✳ Corriger avec Claude : {}", "✳ Fix with Claude: {}", g.message), Fix::Claude(ask)));
         }
         out
     }
@@ -210,7 +210,7 @@ impl App {
             }
         }
         if items.is_empty() && !waiting {
-            self.set_status("Aucune correction rapide ici");
+            self.set_status(t!("Aucune correction rapide ici", "No quick fix here"));
             return;
         }
         self.quick_fix = Some(QuickFix { uid, at, items, sel: 0, waiting });
@@ -230,7 +230,7 @@ impl App {
         }
         if q.items.is_empty() {
             self.quick_fix = None;
-            self.set_status("Aucune correction rapide ici");
+            self.set_status(t!("Aucune correction rapide ici", "No quick fix here"));
         }
     }
 
@@ -239,7 +239,7 @@ impl App {
             Fix::Insert(at, text) => {
                 if let Some(d) = self.docs.get_mut(self.active) {
                     d.replace_keep(EditKind::Other, vec![(at, at, text.clone())]);
-                    self.set_status(format!("Ajouté : {}", text.trim()));
+                    self.set_status(tf!("Ajouté : {}", "Added: {}", text.trim()));
                 }
             }
             Fix::Cmd(cmd) => self.pending.push(cmd),
@@ -270,7 +270,7 @@ impl App {
         }
         if let Some(edit) = a.get("edit") {
             let (n, files) = self.apply_workspace_edit(edit);
-            self.set_status(format!("{} : {n} modification(s) dans {files} fichier(s)", a["title"].as_str().unwrap_or("Correction")));
+            self.set_status(tf!("{} : {n} modification(s) dans {files} fichier(s)", "{}: {n} change(s) in {files} file(s)", a["title"].as_str().unwrap_or(t!("Correction", "Fix"))));
         }
         if a["command"].is_object() {
             self.lsp_command(ci, &a["command"]);
@@ -339,7 +339,7 @@ impl App {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
                 ui.set_min_width(320.0);
                 ui.set_max_width(640.0);
-                ui.label(RichText::new("Corrections rapides").small().strong().color(accent));
+                ui.label(RichText::new(t!("Corrections rapides", "Quick fixes")).small().strong().color(accent));
                 for (k, (label, _)) in q.items.iter().enumerate() {
                     if ui.selectable_label(k == q.sel, label.as_str()).clicked() {
                         act = Some(QfAct::Apply(k));
@@ -348,10 +348,10 @@ impl App {
                 if q.waiting {
                     ui.horizontal(|ui| {
                         ui.spinner();
-                        ui.label(RichText::new("le serveur de langage cherche…").small().weak());
+                        ui.label(RichText::new(t!("le serveur de langage cherche…", "the language server is looking…")).small().weak());
                     });
                 }
-                ui.label(RichText::new("↑ ↓ Entrée · Échap pour fermer").small().weak());
+                ui.label(RichText::new(t!("↑ ↓ Entrée · Échap pour fermer", "↑ ↓ Enter · Escape to close")).small().weak());
             });
         });
         // a click elsewhere closes it

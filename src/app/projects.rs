@@ -14,7 +14,7 @@ impl App {
             return;
         }
         if !path.is_dir() {
-            self.set_status(format!("Dossier introuvable : {}", path.display()));
+            self.set_status(tf!("Dossier introuvable : {}", "Folder not found: {}", path.display()));
             return;
         }
         // with hot exit, the unsaved changes stay in the session of the project we leave
@@ -36,7 +36,7 @@ impl App {
     /// Writes one value into settings.toml so UI choices survive a restart.
     pub(super) fn persist(&mut self, key: &str, value: String) {
         if let Err(e) = config::set_setting(key, &value) {
-            self.log(format!("Préférences non enregistrées : {e}"));
+            self.log(tf!("Préférences non enregistrées : {e}", "Preferences not saved: {e}"));
         }
     }
 
@@ -52,7 +52,7 @@ impl App {
 
     pub(super) fn close_folder(&mut self) {
         if self.docs.iter().any(|d| d.is_dirty()) {
-            self.set_status("Enregistre ou ferme d'abord les fichiers modifiés");
+            self.set_status(t!("Enregistre ou ferme d'abord les fichiers modifiés", "Save or close the changed files first"));
             return;
         }
         self.save_session();
@@ -172,7 +172,7 @@ impl App {
             self.active = *i;
         }
         if restored > 0 {
-            self.set_status(format!("{restored} fichier(s) avec des modifications non enregistrées restauré(s)"));
+            self.set_status(tf!("{restored} fichier(s) avec des modifications non enregistrées restauré(s)", "{restored} file(s) with unsaved changes restored"));
         }
     }
 
@@ -194,9 +194,9 @@ impl App {
         self.prefs.exclude = self.settings.exclude.join(", ");
         let still = crate::walk::Exclusions::new(&root, &self.settings.exclude).excludes_here_or_above(path, true);
         self.set_status(match (on, still) {
-            (true, _) => format!("{} exclu de l'index ({pattern})", rel.display()),
-            (false, false) => format!("{} remis dans l'index", rel.display()),
-            (false, true) => "Toujours exclu par une autre règle : Préférences → Avancé → Fichiers exclus".to_string(),
+            (true, _) => tf!("{} exclu de l'index ({pattern})", "{} excluded from the index ({pattern})", rel.display()),
+            (false, false) => tf!("{} remis dans l'index", "{} put back in the index", rel.display()),
+            (false, true) => t!("Toujours exclu par une autre règle : Préférences → Avancé → Fichiers exclus", "Still excluded by another rule: Preferences → Advanced → Excluded files").to_string(),
         });
     }
 
@@ -214,17 +214,17 @@ impl App {
         let Some(name) = src.file_name() else { return };
         let dest = dir.join(name);
         if dest.exists() {
-            self.set_status(format!("{} existe déjà", dest.display()));
+            self.set_status(tf!("{} existe déjà", "{} already exists", dest.display()));
             return;
         }
         match std::fs::rename(&src, &dest) {
             Ok(()) => {
                 self.relocate_docs(&src, &dest);
-                self.log(format!("Déplacé : {} → {}", src.display(), dest.display()));
-                self.set_status(format!("Déplacé vers {}", dir.display()));
+                self.log(tf!("Déplacé : {} → {}", "Moved: {} → {}", src.display(), dest.display()));
+                self.set_status(tf!("Déplacé vers {}", "Moved to {}", dir.display()));
                 self.exec_refresh_tree();
             }
-            Err(e) => self.set_status(format!("Déplacement impossible : {e}")),
+            Err(e) => self.set_status(tf!("Déplacement impossible : {e}", "Cannot move: {e}")),
         }
     }
 

@@ -134,7 +134,7 @@ pub fn exec(dir: &Path, run: &str, input: &str, env: &[(String, String)]) -> Res
     if out.status.success() {
         Ok(so)
     } else {
-        Err(format!("{run} a échoué :\n{so}{}", String::from_utf8_lossy(&out.stderr)))
+        Err(tf!("{run} a échoué :\n{so}{}", "{run} failed:\n{so}{}", String::from_utf8_lossy(&out.stderr)))
     }
 }
 

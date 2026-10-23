@@ -242,7 +242,7 @@ impl Client {
                     (Some(id), None) => {
                         let id = id.as_i64().unwrap_or(-1);
                         let result = match v.get("error") {
-                            Some(e) => Err(e["message"].as_str().unwrap_or("erreur du serveur").to_string()),
+                            Some(e) => Err(e["message"].as_str().unwrap_or(t!("erreur du serveur", "server error")).to_string()),
                             None => Ok(v.get("result").cloned().unwrap_or(Value::Null)),
                         };
                         let _ = events.send((idx, Incoming::Response { id, result }));
@@ -406,7 +406,7 @@ impl Manager {
         }
         let Some(spec) = find_server(family, overrides) else {
             self.failed.insert(key);
-            return Err(format!("aucun serveur de langage pour {family}"));
+            return Err(tf!("aucun serveur de langage pour {family}", "no language server for {family}"));
         };
         let idx = self.clients.len();
         let ctx = ctx.clone();

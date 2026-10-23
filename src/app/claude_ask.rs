@@ -5,10 +5,19 @@
 use super::*;
 
 /// What is added to a message when the questions are asked for.
-pub(super) const INSTRUCTION: &str = "(Avant de commencer : si la demande laisse des choix importants ouverts — où mettre quelque chose, quel \
+pub(super) fn instruction() -> &'static str {
+    t!(INSTRUCTION, INSTRUCTION_EN)
+}
+
+const INSTRUCTION: &str = "(Avant de commencer : si la demande laisse des choix importants ouverts — où mettre quelque chose, quel \
 comportement, quel périmètre —, ne modifie rien et réponds seulement par 1 à 3 questions, chacune dans ce format exact :\n\
 [[QUESTION]] La question ?\n- première option\n- deuxième option\n[[/QUESTION]]\n\
 Mets d'abord l'option que tu conseilles. Si la demande est assez claire, fais directement la tâche, sans question.)";
+
+const INSTRUCTION_EN: &str = "(Before starting: if the request leaves important choices open — where to put something, which \
+behavior, which scope —, change nothing and answer only with 1 to 3 questions, each in this exact format:\n\
+[[QUESTION]] The question?\n- first option\n- second option\n[[/QUESTION]]\n\
+Put the option you recommend first. If the request is clear enough, do the task directly, without questions.)";
 
 const OPEN: &str = "[[QUESTION]]";
 const CLOSE: &str = "[[/QUESTION]]";
@@ -74,13 +83,13 @@ impl Answers {
 
     /// The message sent back: each question with its answer.
     pub(super) fn message(&self, questions: &[Question]) -> String {
-        let mut out = String::from("Mes réponses :");
+        let mut out = String::from(t!("Mes réponses :", "My answers:"));
         for (k, q) in questions.iter().enumerate() {
             let other = self.other.get(k).map(|o| o.trim()).unwrap_or("");
             let a = if !other.is_empty() {
                 other.to_string()
             } else {
-                self.picked.get(k).copied().flatten().and_then(|i| q.options.get(i)).cloned().unwrap_or_else(|| "comme tu le juges bon".into())
+                self.picked.get(k).copied().flatten().and_then(|i| q.options.get(i)).cloned().unwrap_or_else(|| t!("comme tu le juges bon", "as you see fit").into())
             };
             out.push_str(&format!("\n- {} → {a}", q.text));
         }
@@ -100,7 +109,7 @@ pub(super) fn questions_ui(ui: &mut egui::Ui, questions: &[Question], answers: O
         .inner_margin(egui::Margin::symmetric(12.0, 8.0))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.label(RichText::new("Claude a besoin de précisions").small().strong().color(accent));
+            ui.label(RichText::new(t!("Claude a besoin de précisions", "Claude needs more details")).small().strong().color(accent));
             match answers {
                 Some(a) => {
                     for (k, q) in questions.iter().enumerate() {
@@ -114,12 +123,12 @@ pub(super) fn questions_ui(ui: &mut egui::Ui, questions: &[Question], answers: O
                             }
                         }
                         ui.horizontal(|ui| {
-                            ui.label(RichText::new("Autre :").small().weak());
-                            ui.add(egui::TextEdit::singleline(&mut a.other[k]).hint_text("ta réponse").desired_width(320.0));
+                            ui.label(RichText::new(t!("Autre :", "Other:")).small().weak());
+                            ui.add(egui::TextEdit::singleline(&mut a.other[k]).hint_text(t!("ta réponse", "your answer")).desired_width(320.0));
                         });
                     }
                     ui.add_space(4.0);
-                    send = ui.add(filled_button("Répondre", accent)).on_hover_text("Envoie tes choix ; Claude continue la tâche").clicked();
+                    send = ui.add(filled_button(t!("Répondre", "Answer"), accent)).on_hover_text(t!("Envoie tes choix ; Claude continue la tâche", "Sends your choices; Claude goes on with the task")).clicked();
                 }
                 None => {
                     for q in questions {

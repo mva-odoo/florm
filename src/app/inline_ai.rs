@@ -73,7 +73,7 @@ impl App {
         let Some(st) = self.inline.as_mut() else { return };
         let mut act = None;
         let mut open = true;
-        let name = st.path.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "sans titre".into());
+        let name = st.path.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| t!("sans titre", "untitled").into());
         let place = if st.lines.0 == st.lines.1 { format!("{name}:{}", st.lines.0) } else { format!("{name}:{}-{}", st.lines.0, st.lines.1) };
         egui::Window::new(RichText::new(format!("✳ Claude · {place}")).strong())
             .id(egui::Id::new("inline_ai"))
@@ -85,7 +85,7 @@ impl App {
             .show(ctx, |ui| {
                 let resp = ui.add(
                     egui::TextEdit::singleline(&mut st.ask)
-                        .hint_text("Que faire ? « gère le cas vide », « simplifie », « explique »… (Entrée)")
+                        .hint_text(t!("Que faire ? « gère le cas vide », « simplifie », « explique »… (Entrée)", "What to do? “handle the empty case”, “simplify”, “explain”… (Enter)"))
                         .desired_width(f32::INFINITY),
                 );
                 if std::mem::take(&mut st.focus) {
@@ -95,20 +95,20 @@ impl App {
                     act = Some(InlineAct::Send);
                 }
                 ui.horizontal(|ui| {
-                    let label = if st.result.is_some() { "Redemander" } else { "Proposer" };
-                    if ui.add_enabled(!st.busy && !st.ask.trim().is_empty(), filled_button(label, accent)).on_hover_text("Entrée").clicked() {
+                    let label = if st.result.is_some() { t!("Redemander", "Ask again") } else { t!("Proposer", "Suggest") };
+                    if ui.add_enabled(!st.busy && !st.ask.trim().is_empty(), filled_button(label, accent)).on_hover_text(t!("Entrée", "Enter")).clicked() {
                         act = Some(InlineAct::Send);
                     }
                     if ui
-                        .add_enabled(!st.ask.trim().is_empty(), egui::Button::new("Continuer dans le chat"))
-                        .on_hover_text("Donne la sélection et ta demande à l'onglet Claude (à relire puis envoyer)")
+                        .add_enabled(!st.ask.trim().is_empty(), egui::Button::new(t!("Continuer dans le chat", "Go on in the chat")))
+                        .on_hover_text(t!("Donne la sélection et ta demande à l'onglet Claude (à relire puis envoyer)", "Gives the selection and your request to the Claude tab (to read over then send)"))
                         .clicked()
                     {
                         act = Some(InlineAct::ToChat);
                     }
                     if st.busy {
                         ui.spinner();
-                        ui.label(RichText::new("Claude réfléchit…").weak());
+                        ui.label(RichText::new(t!("Claude réfléchit…", "Claude is thinking…")).weak());
                     }
                 });
                 match &st.result {
@@ -125,17 +125,17 @@ impl App {
                     }
                     Some(Ok(Inline::Code(code))) => {
                         ui.separator();
-                        ui.label(RichText::new("Proposition (rien n'est changé avant « Remplacer ») :").small().weak());
+                        ui.label(RichText::new(t!("Proposition (rien n'est changé avant « Remplacer ») :", "Suggestion (nothing changes before “Replace”):")).small().weak());
                         egui::ScrollArea::both().max_height(420.0).auto_shrink([false, true]).show(ui, |ui| {
                             diff_lines(ui, &st.original, code);
                         });
                         ui.add_space(4.0);
                         ui.horizontal(|ui| {
-                            if ui.add_enabled(!st.busy, filled_button("✔ Remplacer", ok())).on_hover_text("Remplace la sélection (Ctrl+Z pour annuler)").clicked() {
+                            if ui.add_enabled(!st.busy, filled_button(t!("✔ Remplacer", "✔ Replace"), ok())).on_hover_text(t!("Remplace la sélection (Ctrl+Z pour annuler)", "Replaces the selection (Ctrl+Z to undo)")).clicked() {
                                 act = Some(InlineAct::Replace);
                             }
-                            super::md::copy_button(ui, code, "Copier");
-                            if ui.button("Annuler").clicked() {
+                            super::md::copy_button(ui, code, t!("Copier", "Copy"));
+                            if ui.button(t!("Annuler", "Cancel")).clicked() {
                                 act = Some(InlineAct::Close);
                             }
                         });
@@ -164,7 +164,7 @@ impl App {
         let before: String = (first.saturating_sub(40)..first).map(|l| d.line_text(l)).collect::<Vec<_>>().join("\n");
         let after: String = ((last + 1).min(n_lines)..(last + 41).min(n_lines)).map(|l| d.line_text(l)).collect::<Vec<_>>().join("\n");
         let dir = st.path.as_deref().and_then(|p| self.repo_for(p)).or_else(|| self.root.clone()).unwrap_or_else(|| PathBuf::from("."));
-        let file = st.path.as_ref().map(|p| p.strip_prefix(&dir).unwrap_or(p).display().to_string()).unwrap_or_else(|| "sans titre".into());
+        let file = st.path.as_ref().map(|p| p.strip_prefix(&dir).unwrap_or(p).display().to_string()).unwrap_or_else(|| t!("sans titre", "untitled").into());
         let (n, selection, ask) = (N.fetch_add(1, Ordering::Relaxed), st.original.clone(), st.ask.trim().to_string());
         if let Some(st) = self.inline.as_mut() {
             st.n = n;
@@ -179,7 +179,7 @@ impl App {
         let Some(st) = self.inline.as_ref() else { return };
         let Some(Ok(Inline::Code(code))) = &st.result else { return };
         let Some(i) = self.docs.iter().position(|d| d.uid == st.uid) else {
-            self.set_status("Le fichier a été fermé");
+            self.set_status(t!("Le fichier a été fermé", "The file was closed"));
             return;
         };
         let d = &mut self.docs[i];
@@ -193,7 +193,7 @@ impl App {
                     (a, a + st.original.chars().count())
                 }
                 None => {
-                    self.set_status("La sélection a changé depuis la demande : rien n'est remplacé");
+                    self.set_status(t!("La sélection a changé depuis la demande : rien n'est remplacé", "The selection changed since the request: nothing is replaced"));
                     return;
                 }
             }
@@ -208,7 +208,7 @@ impl App {
         self.inline = None;
         self.activate_tab(i);
         self.pending_focus = true;
-        self.set_status("Remplacé par la proposition de Claude (Ctrl+Z pour annuler)");
+        self.set_status(t!("Remplacé par la proposition de Claude (Ctrl+Z pour annuler)", "Replaced by Claude's suggestion (Ctrl+Z to undo)"));
     }
 
     /// The selection and the request handed to the Claude tab (not sent).

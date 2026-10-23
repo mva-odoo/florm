@@ -88,8 +88,8 @@ pub(super) fn diff_row(diff: &HistoryDiff, path: &str, line: usize, side: &str) 
 fn severity(s: &str, accent: Color32) -> (&'static str, Color32) {
     match s {
         "bug" => ("Bug", err()),
-        "risk" => ("Risque", warn()),
-        "nit" => ("Détail", Color32::GRAY),
+        "risk" => (t!("Risque", "Risk"), warn()),
+        "nit" => (t!("Détail", "Nit"), Color32::GRAY),
         _ => ("Suggestion", accent),
     }
 }
@@ -119,35 +119,35 @@ pub(super) fn note_card(ui: &mut egui::Ui, cache: &mut egui_commonmark::CommonMa
                 pill(ui, label, color);
                 if !n.note.path.is_empty() {
                     let place = match (in_diff, n.note.line) {
-                        (true, l) => format!("ligne {l}"),
+                        (true, l) => tf!("ligne {l}", "line {l}"),
                         (false, 0) => n.note.path.clone(),
                         (false, l) => format!("{}:{l}", n.note.path),
                     };
-                    if ui.link(RichText::new(place).monospace().small()).on_hover_text("Ouvrir le fichier à cette ligne").clicked() {
+                    if ui.link(RichText::new(place).monospace().small()).on_hover_text(t!("Ouvrir le fichier à cette ligne", "Open the file at this line")).clicked() {
                         *act = Some(NoteAct::Open(n.note.path.clone(), n.note.line.max(1)));
                     }
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.small_button("×").on_hover_text("Écarter cette remarque").clicked() {
+                    if ui.small_button("×").on_hover_text(t!("Écarter cette remarque", "Drop this remark")).clicked() {
                         *act = Some(NoteAct::Dismiss(k));
                     }
-                    let (edit, tip) = if n.editing { ("✔ Fini", "Revenir au rendu") } else { ("✏", "Modifier le texte avant de le garder") };
+                    let (edit, tip) = if n.editing { (t!("✔ Fini", "✔ Done"), t!("Revenir au rendu", "Back to the rendering")) } else { ("✏", t!("Modifier le texte avant de le garder", "Edit the text before keeping it")) };
                     if ui.small_button(edit).on_hover_text(tip).clicked() {
                         n.editing = !n.editing;
                     }
                     let keep = if n.keep {
-                        egui::Button::new(RichText::new("✔ Gardée").small().strong().color(text_on(color))).fill(color)
+                        egui::Button::new(RichText::new(t!("✔ Gardée", "✔ Kept")).small().strong().color(text_on(color))).fill(color)
                     } else {
-                        egui::Button::new(RichText::new("Garder").small().color(color)).fill(Color32::TRANSPARENT).stroke(egui::Stroke::new(1.0_f32, color))
+                        egui::Button::new(RichText::new(t!("Garder", "Keep")).small().color(color)).fill(Color32::TRANSPARENT).stroke(egui::Stroke::new(1.0_f32, color))
                     };
-                    if ui.add(keep.rounding(10.0)).on_hover_text(if n.keep { "Ne plus la garder" } else { "La garder" }).clicked() {
+                    if ui.add(keep.rounding(10.0)).on_hover_text(if n.keep { t!("Ne plus la garder", "Stop keeping it") } else { t!("La garder", "Keep it") }).clicked() {
                         n.keep = !n.keep;
                     }
                 });
             });
             ui.add_space(4.0);
             if n.editing {
-                ui.add(egui::TextEdit::multiline(&mut n.note.body).desired_rows(3).desired_width(f32::INFINITY).hint_text("Markdown ; ```suggestion pour proposer du code"));
+                ui.add(egui::TextEdit::multiline(&mut n.note.body).desired_rows(3).desired_width(f32::INFINITY).hint_text(t!("Markdown ; ```suggestion pour proposer du code", "Markdown; ```suggestion to suggest code")));
                 return;
             }
             for part in github::parts(&n.note.body) {
@@ -177,9 +177,9 @@ fn suggestion(ui: &mut egui::Ui, code: &str) {
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.horizontal(|ui| {
-                ui.label(RichText::new("Changement suggéré").small().strong().color(ok()));
+                ui.label(RichText::new(t!("Changement suggéré", "Suggested change")).small().strong().color(ok()));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    super::md::copy_button(ui, code, "Copier");
+                    super::md::copy_button(ui, code, t!("Copier", "Copy"));
                 });
             });
             ui.spacing_mut().item_spacing.y = 0.0;
@@ -216,29 +216,29 @@ pub(super) fn review_bar(
             ui.set_width(ui.available_width());
             // title and state on the left, what to do on the right
             ui.horizontal(|ui| {
-                ui.label(RichText::new("✳ Revue IA").strong().size(14.0).color(accent));
+                ui.label(RichText::new(t!("✳ Revue IA", "✳ AI review")).strong().size(14.0).color(accent));
                 if r.loading {
                     ui.spinner();
-                    ui.label(RichText::new("Claude relit les changements… (une à quelques minutes)").weak());
+                    ui.label(RichText::new(t!("Claude relit les changements… (une à quelques minutes)", "Claude is reading over the changes… (one to a few minutes)")).weak());
                 } else if r.error.is_none() && !r.notes.is_empty() {
                     let kept = r.notes.iter().filter(|n| n.keep).count();
-                    for (key, label) in [("bug", "bug"), ("risk", "risque"), ("suggestion", "suggestion"), ("nit", "détail")] {
+                    for (key, label) in [("bug", "bug"), ("risk", t!("risque", "risk")), ("suggestion", "suggestion"), ("nit", t!("détail", "nit"))] {
                         let n = r.notes.iter().filter(|x| severity(&x.note.severity, accent).0 == severity(key, accent).0).count();
                         if n > 0 {
                             pill(ui, &format!("{n} {label}{}", if n > 1 { "s" } else { "" }), severity(key, accent).1);
                         }
                     }
-                    pill(ui, &format!("{kept} gardée(s)"), if kept > 0 { ok() } else { Color32::GRAY });
+                    pill(ui, &tf!("{kept} gardée(s)", "{kept} kept"), if kept > 0 { ok() } else { Color32::GRAY });
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.small_button("×").on_hover_text("Fermer et oublier cette revue").clicked() {
+                    if ui.small_button("×").on_hover_text(t!("Fermer et oublier cette revue", "Close and forget this review")).clicked() {
                         *act = Some(NoteAct::Close);
                     }
                     if !r.loading && r.error.is_none() && !r.notes.is_empty() {
                         let kept = r.notes.iter().filter(|n| n.keep).count();
                         actions(ui, kept);
                         let all = kept == r.notes.len();
-                        if ui.small_button(if all { "Tout retirer" } else { "Tout garder" }).clicked() {
+                        if ui.small_button(if all { t!("Tout retirer", "Remove all") } else { t!("Tout garder", "Keep all") }).clicked() {
                             r.notes.iter_mut().for_each(|n| n.keep = !all);
                         }
                     }
@@ -247,9 +247,9 @@ pub(super) fn review_bar(
             if let Some(e) = &r.error {
                 ui.label(RichText::new(format!("⚠ {e}")).color(err()));
             } else if r.done && r.notes.is_empty() {
-                ui.label(RichText::new("✔ Rien à redire.").color(ok()));
+                ui.label(RichText::new(t!("✔ Rien à redire.", "✔ Nothing to say.")).color(ok()));
             } else if !r.loading {
-                ui.label(RichText::new("Rien n'est envoyé tout seul : garde les remarques utiles (✏ pour les retoucher), écarte les autres.").small().weak());
+                ui.label(RichText::new(t!("Rien n'est envoyé tout seul : garde les remarques utiles (✏ pour les retoucher), écarte les autres.", "Nothing is sent by itself: keep the useful remarks (✏ to touch them up), drop the others.")).small().weak());
             }
             for (k, n) in r.notes.iter_mut().enumerate() {
                 if rows.get(k).copied().flatten().is_none() {
@@ -276,15 +276,15 @@ impl App {
                 let n = notes.len();
                 rev.notes = notes.into_iter().map(|note| AiNote { note, keep: false, editing: false }).collect();
                 if n == 0 {
-                    "Revue IA : rien à redire".to_string()
+                    t!("Revue IA : rien à redire", "AI review: nothing to say").to_string()
                 } else {
-                    format!("Revue IA : {n} remarque(s) proposée(s), à trier (rien n'est envoyé)")
+                    tf!("Revue IA : {n} remarque(s) proposée(s), à trier (rien n'est envoyé)", "AI review: {n} remark(s) suggested, to sort (nothing is sent)")
                 }
             }
             Err(e) => {
                 let first = e.lines().next().unwrap_or("").to_string();
                 rev.error = Some(e);
-                format!("Revue IA : échec — {first}")
+                tf!("Revue IA : échec — {first}", "AI review: failed — {first}")
             }
         };
         self.set_status(status);
@@ -298,13 +298,13 @@ impl App {
         let wish = self.claude.wish.clone().filter(|_| self.claude.dir.as_ref() == Some(&repo)).unwrap_or_default();
         self.git.ai.start(repo.clone(), "wip");
         let key = self.git.ai.key.clone();
-        self.set_status("Revue IA des changements non commités…");
+        self.set_status(t!("Revue IA des changements non commités…", "AI review of the uncommitted changes…"));
         self.jobs.spawn(move || {
             let r = match super::git_view::worktree_diff(&repo, &["diff", "HEAD"]) {
-                Ok(d) if d.trim().is_empty() => Err("Aucun changement à relire.".to_string()),
+                Ok(d) if d.trim().is_empty() => Err(t!("Aucun changement à relire.", "No change to read over.").to_string()),
                 Ok(d) => {
-                    let about = if wish.trim().is_empty() { String::new() } else { format!("Ce que le développeur voulait faire : {wish}") };
-                    claude::review(&repo, &d, &about, "français")
+                    let about = if wish.trim().is_empty() { String::new() } else { tf!("Ce que le développeur voulait faire : {wish}", "What the developer meant to do: {wish}") };
+                    claude::review(&repo, &d, &about, t!("français", "English"))
                 }
                 Err(e) => Err(e),
             };
@@ -314,15 +314,15 @@ impl App {
 
     /// Claude reviews pull request `d` (its title and description say what it is about).
     pub(super) fn ai_review_pr(&mut self, repo: PathBuf, d: &github::PrDetail) {
-        let (n, diff, about) = (d.number, d.diff.clone(), format!("Pull request « {} »\n{}", d.title, d.body));
+        let (n, diff, about) = (d.number, d.diff.clone(), tf!("Pull request « {} »\n{}", "Pull request “{}”\n{}", d.title, d.body));
         self.pr.ai.start(repo.clone(), &format!("pr{n}"));
         let key = self.pr.ai.key.clone();
-        self.set_status(format!("Revue IA de la PR #{n}…"));
+        self.set_status(tf!("Revue IA de la PR #{n}…", "AI review of PR #{n}…"));
         self.jobs.spawn(move || {
             let r = if diff.trim().is_empty() {
-                Err("La pull request ne change rien.".to_string())
+                Err(t!("La pull request ne change rien.", "The pull request changes nothing.").to_string())
             } else {
-                claude::review(&repo, &diff, &about, "celle du titre et de la description de la pull request (l'anglais s'ils sont en anglais)")
+                claude::review(&repo, &diff, &about, t!("celle du titre et de la description de la pull request (l'anglais s'ils sont en anglais)", "the one of the title and description of the pull request"))
             };
             JobResult::AiReview(key, r)
         });
@@ -344,7 +344,7 @@ impl App {
         if points.is_empty() {
             return;
         }
-        self.claude_prefill(repo, format!("Corrige ces points relevés à la revue de mes changements non commités :\n{}", points.join("\n")));
+        self.claude_prefill(repo, tf!("Corrige ces points relevés à la revue de mes changements non commités :\n{}", "Fix these points raised in the review of my uncommitted changes:\n{}", points.join("\n")));
     }
 
     /// A remark asked something in the view of the changes not committed.
@@ -368,7 +368,7 @@ impl App {
         for n in self.git.ai.notes.iter().map(|n| &n.note).filter(|n| !n.path.is_empty() && n.line > 0 && n.side == "RIGHT") {
             let (label, _) = severity(&n.severity, Color32::GRAY);
             let body: String = n.body.lines().take(6).collect::<Vec<_>>().join("\n");
-            notes.entry(repo.join(&n.path)).or_default().push((n.line - 1, format!("✳ Revue IA · {label} :\n{body}")));
+            notes.entry(repo.join(&n.path)).or_default().push((n.line - 1, tf!("✳ Revue IA · {label} :\n{body}", "✳ AI review · {label}:\n{body}")));
         }
     }
 }

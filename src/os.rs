@@ -60,7 +60,7 @@ pub fn reveal(path: &Path) -> Result<(), String> {
             .ok()
             .filter(|o| o.status.success())
             .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-            .ok_or("wslpath a échoué")?;
+            .ok_or(t!("wslpath a échoué", "wslpath failed"))?;
         let mut c = Command::new("explorer.exe");
         c.arg(format!("/select,{win}"));
         spawn(c)
@@ -89,7 +89,7 @@ pub fn reveal(path: &Path) -> Result<(), String> {
             spawn(c)
         }
     };
-    r.map_err(|e| format!("Impossible d'ouvrir le gestionnaire de fichiers : {e}"))
+    r.map_err(|e| tf!("Impossible d'ouvrir le gestionnaire de fichiers : {e}", "Cannot open the file manager: {e}"))
 }
 
 /// What a file chooser asks for.
@@ -107,7 +107,7 @@ pub fn portal_pick(kind: Pick, dir: &Path, name: Option<&str>) -> Result<Option<
     use std::collections::HashMap;
     use std::os::unix::ffi::OsStrExt;
     use zbus::zvariant::{OwnedObjectPath, Value};
-    let e = |e: zbus::Error| format!("Sélecteur de fichiers du bureau indisponible : {e}");
+    let e = |e: zbus::Error| tf!("Sélecteur de fichiers du bureau indisponible : {e}", "Desktop file chooser unavailable: {e}");
     let conn = zbus::blocking::Connection::session().map_err(e)?;
     // the request object path is known in advance: listen to its answer before asking
     let token = format!("florm{}", std::process::id());
@@ -121,9 +121,9 @@ pub fn portal_pick(kind: Pick, dir: &Path, name: Option<&str>) -> Result<Option<
     opts.insert("handle_token", Value::from(token.as_str()));
     opts.insert("current_folder", Value::from(folder));
     let (method, title) = match kind {
-        Pick::Folder => ("OpenFile", "Ouvrir un dossier"),
-        Pick::File => ("OpenFile", "Ouvrir un fichier"),
-        Pick::SaveAs => ("SaveFile", "Enregistrer sous"),
+        Pick::Folder => ("OpenFile", t!("Ouvrir un dossier", "Open a folder")),
+        Pick::File => ("OpenFile", t!("Ouvrir un fichier", "Open a file")),
+        Pick::SaveAs => ("SaveFile", t!("Enregistrer sous", "Save as")),
     };
     if kind == Pick::Folder {
         opts.insert("directory", Value::from(true));

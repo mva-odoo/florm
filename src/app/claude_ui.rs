@@ -43,10 +43,10 @@ impl Attach {
         match &self.lines {
             Some((_, _, text)) => {
                 let lang = self.path.extension().and_then(|e| e.to_str()).unwrap_or("");
-                format!("Extrait de {label} :\n```{lang}\n{text}\n```")
+                tf!("Extrait de {label} :\n```{lang}\n{text}\n```", "Excerpt of {label}:\n```{lang}\n{text}\n```")
             }
-            None if self.path.is_dir() => format!("Dossier à prendre en compte : {label}"),
-            None => format!("Fichier à prendre en compte : {label}"),
+            None if self.path.is_dir() => tf!("Dossier à prendre en compte : {label}", "Folder to take into account: {label}"),
+            None => tf!("Fichier à prendre en compte : {label}", "File to take into account: {label}"),
         }
     }
 }
@@ -344,7 +344,7 @@ impl App {
                     }
                     reload = true;
                     save = true;
-                    task_done = Some(if error { Err(if text.is_empty() { "Claude s'est arrêté sur une erreur".to_string() } else { text }) } else { Ok(()) });
+                    task_done = Some(if error { Err(if text.is_empty() { t!("Claude s'est arrêté sur une erreur", "Claude stopped on an error").to_string() } else { text }) } else { Ok(()) });
                 }
                 Event::Exited(err) => {
                     self.claude.busy = false;
@@ -353,12 +353,12 @@ impl App {
                     if !self.claude.started && self.claude.session_id.is_some() {
                         // the session to continue could not be found: the next message starts afresh
                         self.claude.session_id = None;
-                        items.push(Item::Info("La session d'avant n'a pas pu être reprise : le prochain message repart sans son contexte.".into()));
+                        items.push(Item::Info(t!("La session d'avant n'a pas pu être reprise : le prochain message repart sans son contexte.", "The previous session could not be resumed: the next message starts without its context.").into()));
                     }
                     let msg = match (err.is_empty(), self.claude.session_id.is_some()) {
                         (false, _) => err,
-                        (true, true) => "Claude s'est arrêté : le prochain message reprend la conversation.".to_string(),
-                        (true, false) => "Claude s'est arrêté : un nouveau message démarre une nouvelle conversation.".to_string(),
+                        (true, true) => t!("Claude s'est arrêté : le prochain message reprend la conversation.", "Claude stopped: the next message resumes the conversation.").to_string(),
+                        (true, false) => t!("Claude s'est arrêté : un nouveau message démarre une nouvelle conversation.", "Claude stopped: a new message starts a new conversation.").to_string(),
                     };
                     items.push(Item::Error(msg.clone()));
                     save = true;
@@ -394,7 +394,7 @@ impl App {
     /// `ask_first`; false when it could not be sent.
     fn claude_send_text(&mut self, text: String, ask_first: bool) -> bool {
         let Some(dir) = self.claude.dir.clone() else {
-            self.set_status("Aucun dossier ouvert");
+            self.set_status(t!("Aucun dossier ouvert", "No folder open"));
             return false;
         };
         if text.is_empty() || self.claude.busy {
@@ -422,11 +422,11 @@ impl App {
         if !self.claude.no_defs {
             if let Some((defs, names)) = self.cited_definitions(&text, &dir) {
                 message = format!("{message}\n\n{defs}");
-                given.push(format!("définitions : {}", names.join(", ")));
+                given.push(tf!("définitions : {}", "definitions: {}", names.join(", ")));
             }
         }
         if ask_first {
-            message = format!("{message}\n\n{}", claude_ask::INSTRUCTION);
+            message = format!("{message}\n\n{}", claude_ask::instruction());
         }
         if self.claude.session.is_none() {
             let model = claude::MODELS[self.claude.model].0;
@@ -485,9 +485,9 @@ impl App {
                 q.tasks[k].state = TaskState::Failed;
                 q.tasks[k].note = e;
                 q.running = false;
-                self.set_status("File de tâches en pause : une tâche a échoué");
+                self.set_status(t!("File de tâches en pause : une tâche a échoué", "Task queue paused: a task failed"));
             }
-            Ok(()) if asks => self.set_status("Claude pose des questions : la file reprend après tes réponses"),
+            Ok(()) if asks => self.set_status(t!("Claude pose des questions : la file reprend après tes réponses", "Claude is asking questions: the queue resumes after your answers")),
             Ok(()) if q.commit_each => {
                 q.tasks[k].state = TaskState::Committing;
                 let (dir, wish, id) = (self.claude.dir.clone(), q.tasks[k].text.clone(), self.claude.id);
@@ -521,16 +521,16 @@ impl App {
         match r {
             Ok(first) => {
                 q.tasks[k].state = TaskState::Done;
-                q.tasks[k].note = format!("Commit : {first}");
+                q.tasks[k].note = tf!("Commit : {first}", "Commit: {first}");
                 self.claude.items.push(Item::Info(format!("— commit : {first} —")));
                 self.git_refresh();
                 self.claude_queue_next();
             }
             Err(e) => {
                 q.tasks[k].state = TaskState::Failed;
-                q.tasks[k].note = format!("Le commit a échoué : {e}");
+                q.tasks[k].note = tf!("Le commit a échoué : {e}", "The commit failed: {e}");
                 q.running = false;
-                self.claude.items.push(Item::Error(format!("Commit après la tâche : {e}")));
+                self.claude.items.push(Item::Error(tf!("Commit après la tâche : {e}", "Commit after the task: {e}")));
             }
         }
         self.claude_save();
@@ -544,7 +544,7 @@ impl App {
         }
         let Some(k) = q.next_waiting() else {
             self.claude.queue.running = false;
-            self.set_status("File de tâches terminée");
+            self.set_status(t!("File de tâches terminée", "Task queue done"));
             return;
         };
         let mut text = q.tasks[k].text.trim().to_string();
@@ -558,13 +558,13 @@ impl App {
             c.session = None;
             c.session_id = None;
             c.context.0 = 0;
-            c.items.push(Item::Info("— conversation neuve pour cette tâche —".into()));
+            c.items.push(Item::Info(t!("— conversation neuve pour cette tâche —", "— new conversation for this task —").into()));
             if let (Some(prev), Some(last)) = (previous, last) {
                 let mut said: String = last.chars().take(1200).collect();
                 if said.len() < last.len() {
                     said.push('…');
                 }
-                text = format!("Pour info, la tâche d'avant (« {prev} ») vient d'être faite ; sa conclusion :\n{said}\n\nTâche :\n{text}");
+                text = tf!("Pour info, la tâche d'avant (« {prev} ») vient d'être faite ; sa conclusion :\n{said}\n\nTâche :\n{text}", "For information, the previous task (“{prev}”) has just been done; its conclusion:\n{said}\n\nTask:\n{text}");
             }
         }
         // another model: the process starts again, the conversation goes on (--resume)
@@ -577,7 +577,7 @@ impl App {
         if !self.claude_send_text(text, ask) {
             let q = &mut self.claude.queue;
             q.tasks[k].state = TaskState::Failed;
-            q.tasks[k].note = "Pas pu être envoyée".into();
+            q.tasks[k].note = t!("Pas pu être envoyée", "Could not be sent").into();
             q.running = false;
         }
     }
@@ -609,7 +609,7 @@ impl App {
     pub(super) fn claude_attach_lines(&mut self, i: usize, a: usize, b: usize) {
         let Some(d) = self.docs.get(i) else { return };
         let Some(path) = d.path.clone() else {
-            self.set_status("Enregistre d'abord le fichier pour le donner à Claude");
+            self.set_status(t!("Enregistre d'abord le fichier pour le donner à Claude", "Save the file first to give it to Claude"));
             return;
         };
         let b = b.min(d.rope.len_lines().saturating_sub(1));
@@ -642,11 +642,11 @@ impl App {
                 let subject = git::stdout(repo, &["log", "-1", "--format=%s", hash]).unwrap_or_default();
                 let mut text: String = text.chars().take(60_000).collect();
                 if text.len() >= 60_000 {
-                    text.push_str("\n[… diff coupé, trop long]");
+                    text.push_str(t!("\n[… diff coupé, trop long]", "\n[… diff cut, too long]"));
                 }
                 self.claude.dir.get_or_insert_with(|| repo.to_path_buf());
                 let short = &hash[..hash.len().min(8)];
-                self.claude_attach_note(format!("Commit {short} : {}", subject.trim()), text);
+                self.claude_attach_note(tf!("Commit {short} : {}", "Commit {short}: {}", subject.trim()), text);
             }
             Err(e) => self.set_status(format!("git show : {}", e.lines().next().unwrap_or(""))),
         }
@@ -662,7 +662,7 @@ impl App {
             }
             CtxAdd::File => match doc.and_then(|i| self.docs[i].path.clone()) {
                 Some(p) => self.claude_attach_path(p),
-                None => self.set_status("Aucun fichier ouvert"),
+                None => self.set_status(t!("Aucun fichier ouvert", "No file open")),
             },
             CtxAdd::Selection => match doc {
                 Some(i) => {
@@ -672,7 +672,7 @@ impl App {
                     let b = d.rope.char_to_line(s.end().saturating_sub(usize::from(s.end() > s.start())));
                     self.claude_attach_lines(i, a, b.max(a));
                 }
-                None => self.set_status("Aucun fichier ouvert"),
+                None => self.set_status(t!("Aucun fichier ouvert", "No file open")),
             },
             CtxAdd::Tabs => {
                 let paths: Vec<PathBuf> = self.docs.iter().filter(|d| d.view == document::View::Text).filter_map(|d| d.path.clone()).collect();
@@ -685,15 +685,15 @@ impl App {
                 match super::git_view::worktree_diff(&dir, &["diff", "HEAD"]) {
                     Ok(d) if !d.trim().is_empty() => {
                         let d: String = d.chars().take(60_000).collect();
-                        self.claude_attach_note("Changements non commités".into(), d);
+                        self.claude_attach_note(t!("Changements non commités", "Uncommitted changes").into(), d);
                     }
-                    Ok(_) => self.set_status("Aucun changement non commité"),
+                    Ok(_) => self.set_status(t!("Aucun changement non commité", "No uncommitted change")),
                     Err(e) => self.set_status(format!("git diff : {}", e.lines().next().unwrap_or(""))),
                 }
             }
             CtxAdd::Problems => {
                 let Some(i) = doc else {
-                    self.set_status("Aucun fichier ouvert");
+                    self.set_status(t!("Aucun fichier ouvert", "No file open"));
                     return;
                 };
                 let d = &self.docs[i];
@@ -701,12 +701,12 @@ impl App {
                 let list: Vec<String> = d
                     .diagnostics
                     .iter()
-                    .map(|g| format!("ligne {} : {}{} ({})", g.line + 1, g.code.as_ref().map(|c| format!("{c} ")).unwrap_or_default(), g.message, g.source))
+                    .map(|g| tf!("ligne {} : {}{} ({})", "line {}: {}{} ({})", g.line + 1, g.code.as_ref().map(|c| format!("{c} ")).unwrap_or_default(), g.message, g.source))
                     .collect();
                 if list.is_empty() {
-                    self.set_status(format!("Aucun problème dans {name}"));
+                    self.set_status(tf!("Aucun problème dans {name}", "No problem in {name}"));
                 } else {
-                    self.claude_attach_note(format!("Problèmes de {name}"), list.join("\n"));
+                    self.claude_attach_note(tf!("Problèmes de {name}", "Problems of {name}"), list.join("\n"));
                 }
             }
         }
@@ -726,7 +726,7 @@ impl App {
         } else {
             self.claude.attach.push(a);
         }
-        self.set_status(format!("✳ {label} ajouté au contexte de Claude ({} élément(s)) — Ctrl+Alt+C pour lui écrire", self.claude.attach.len()));
+        self.set_status(tf!("✳ {label} ajouté au contexte de Claude ({} élément(s)) — Ctrl+Alt+C pour lui écrire", "✳ {label} added to Claude's context ({} item(s)) — Ctrl+Alt+C to write to it", self.claude.attach.len()));
     }
 
     /// The selection (else the line of the cursor) of the current file for Claude; `ask`: and
@@ -779,7 +779,7 @@ impl App {
             }
             names.push(name);
         }
-        (!parts.is_empty()).then(|| (format!("(Définitions trouvées dans le projet pour les noms cités :\n{})", parts.join("\n")), names))
+        (!parts.is_empty()).then(|| (tf!("(Définitions trouvées dans le projet pour les noms cités :\n{})", "(Definitions found in the project for the names mentioned:\n{})", parts.join("\n")), names))
     }
 
     fn editor_context(&self, dir: &Path) -> Option<String> {
@@ -788,10 +788,10 @@ impl App {
         let rel = path.strip_prefix(dir).unwrap_or(path).display().to_string();
         let sel = d.primary_sel();
         let (line, _) = d.line_col(sel.head);
-        let mut s = format!("(Fichier ouvert dans l'éditeur : {rel}, ligne {}.", line + 1);
+        let mut s = tf!("(Fichier ouvert dans l'éditeur : {rel}, ligne {}.", "(File open in the editor: {rel}, line {}.", line + 1);
         if !sel.is_empty() {
             let text: String = d.slice(sel.start(), sel.end()).chars().take(8000).collect();
-            s.push_str(&format!(" Texte sélectionné :\n```\n{text}\n```"));
+            s.push_str(&tf!(" Texte sélectionné :\n```\n{text}\n```", " Selected text:\n```\n{text}\n```"));
         }
         s.push(')');
         Some(s)
@@ -808,7 +808,7 @@ impl App {
                 self.claude.review = None;
                 self.claude.collapsed.clear();
             }
-            Err(e) => self.claude.items.push(Item::Error(format!("Revue impossible : {e}"))),
+            Err(e) => self.claude.items.push(Item::Error(tf!("Revue impossible : {e}", "Review impossible: {e}"))),
         }
     }
 
@@ -1057,7 +1057,7 @@ impl App {
         self.claude_saved.insert(0, saved);
         self.claude_saved.truncate(SAVED_MAX);
         if let Err(e) = write_saved(&self.claude_saved) {
-            self.log(format!("Conversations Claude non enregistrées : {e}"));
+            self.log(tf!("Conversations Claude non enregistrées : {e}", "Claude conversations not saved: {e}"));
         }
     }
 
@@ -1074,7 +1074,7 @@ impl App {
         c.items = s.items.clone();
         c.queue = s.queue.clone();
         c.queue.settle();
-        c.items.push(Item::Info("— conversation reprise : le prochain message continue avec son contexte —".into()));
+        c.items.push(Item::Info(t!("— conversation reprise : le prochain message continue avec son contexte —", "— conversation resumed: the next message goes on with its context —").into()));
         c
     }
 
@@ -1115,7 +1115,7 @@ impl App {
     fn claude_forget_saved(&mut self, key: u64) {
         self.claude_saved.retain(|s| s.key != key);
         if let Err(e) = write_saved(&self.claude_saved) {
-            self.log(format!("Conversations Claude non enregistrées : {e}"));
+            self.log(tf!("Conversations Claude non enregistrées : {e}", "Claude conversations not saved: {e}"));
         }
     }
 
@@ -1178,35 +1178,35 @@ impl App {
                         } else {
                             ui.label(RichText::new(&dir_name).weak());
                         }
-                        egui::ComboBox::from_id_salt(("claude_model", conv)).selected_text(claude::MODELS[c.model].1).show_ui(ui, |ui| {
+                        egui::ComboBox::from_id_salt(("claude_model", conv)).selected_text(claude::label(claude::MODELS[c.model].1)).show_ui(ui, |ui| {
                             for (k, (_, label)) in claude::MODELS.iter().enumerate() {
-                                ui.selectable_value(&mut c.model, k, *label);
+                                ui.selectable_value(&mut c.model, k, claude::label(label));
                             }
                         });
-                        egui::ComboBox::from_id_salt(("claude_mode", conv)).selected_text(claude::MODES[c.mode].1).show_ui(ui, |ui| {
+                        egui::ComboBox::from_id_salt(("claude_mode", conv)).selected_text(claude::label(claude::MODES[c.mode].1)).show_ui(ui, |ui| {
                             for (k, (_, label, tip)) in claude::MODES.iter().enumerate() {
-                                ui.selectable_value(&mut c.mode, k, *label).on_hover_text(*tip);
+                                ui.selectable_value(&mut c.mode, k, claude::label(label)).on_hover_text(claude::label(tip));
                             }
                         });
                     })
                     .response
-                    .on_disabled_hover_text("Pour changer : « Nouvelle conversation »");
+                    .on_disabled_hover_text(t!("Pour changer : « Nouvelle conversation »", "To change: “New conversation”"));
                     let n_perms = perms.iter().filter(|p| claude::PERMS.iter().any(|(k, ..)| k == p)).count();
                     ui.menu_button(format!("🔒 Permissions ({n_perms})"), |ui| {
                         ui.set_min_width(330.0);
                         if running {
-                            ui.label(RichText::new("S'applique à la prochaine conversation").small().color(warn()));
+                            ui.label(RichText::new(t!("S'applique à la prochaine conversation", "Applies to the next conversation")).small().color(warn()));
                         }
                         if c.mode != 0 {
-                            ui.label(RichText::new(format!("Mode « {} » : seules les deux dernières cases comptent", claude::MODES[c.mode].1)).small().weak());
+                            ui.label(RichText::new(tf!("Mode « {} » : seules les deux dernières cases comptent", "“{}” mode: only the last two boxes count", claude::label(claude::MODES[c.mode].1))).small().weak());
                         }
-                        ui.add_enabled(false, egui::Checkbox::new(&mut true, "Lire les fichiers du projet")).on_disabled_hover_text("Toujours : Claude doit lire pour aider");
+                        ui.add_enabled(false, egui::Checkbox::new(&mut true, t!("Lire les fichiers du projet", "Read the project files"))).on_disabled_hover_text(t!("Toujours : Claude doit lire pour aider", "Always: Claude has to read to help"));
                         for (key, label, tip) in claude::PERMS {
                             let mut on = perms.iter().any(|p| p == key);
                             if key == "sandbox" {
                                 ui.separator();
                             }
-                            if ui.checkbox(&mut on, label).on_hover_text(tip).changed() {
+                            if ui.checkbox(&mut on, claude::label(label)).on_hover_text(claude::label(tip)).changed() {
                                 perms.retain(|p| p != key);
                                 if on {
                                     perms.push(key.to_string());
@@ -1215,38 +1215,38 @@ impl App {
                             }
                         }
                         if perms.iter().any(|p| p == "sandbox") && crate::lsp::in_path("bwrap").is_none() {
-                            ui.label(RichText::new("⚠ Le bac à sable demande bubblewrap (paquet bubblewrap) et socat").small().color(warn()));
+                            ui.label(RichText::new(t!("⚠ Le bac à sable demande bubblewrap (paquet bubblewrap) et socat", "⚠ The sandbox needs bubblewrap (bubblewrap package) and socat")).small().color(warn()));
                         }
                         ui.separator();
                         ui.horizontal(|ui| {
-                            ui.label("Budget max par conversation");
+                            ui.label(t!("Budget max par conversation", "Max budget per conversation"));
                             let r = ui.add(egui::DragValue::new(budget).speed(0.1).range(0.0..=100.0).prefix("$ ").max_decimals(2));
                             if r.changed() {
                                 perms_changed = true;
                             }
-                            r.on_hover_text("La conversation s'arrête au-delà (0 : sans limite)");
+                            r.on_hover_text(t!("La conversation s'arrête au-delà (0 : sans limite)", "The conversation stops beyond it (0: no limit)"));
                         });
                     })
                     .response
-                    .on_hover_text("Ce que Claude a le droit de faire");
-                    if ui.button("Nouvelle conversation").on_hover_text("Dans un nouvel onglet : celle-ci continue dans le sien (l'onglet devient vert quand Claude a fini)").clicked() {
+                    .on_hover_text(t!("Ce que Claude a le droit de faire", "What Claude is allowed to do"));
+                    if ui.button(t!("Nouvelle conversation", "New conversation")).on_hover_text(t!("Dans un nouvel onglet : celle-ci continue dans le sien (l'onglet devient vert quand Claude a fini)", "In a new tab: this one goes on in its own (the tab turns green when Claude is done)")).clicked() {
                         new_conv = true;
                     }
-                    ui.menu_button(format!("Historique ({})", history.len()), |ui| {
+                    ui.menu_button(tf!("Historique ({})", "History ({})", history.len()), |ui| {
                         ui.set_min_width(420.0);
                         if history.is_empty() {
-                            ui.label(RichText::new("Les conversations sont gardées ici, même après avoir fermé Florm (50 au plus).").weak());
+                            ui.label(RichText::new(t!("Les conversations sont gardées ici, même après avoir fermé Florm (50 au plus).", "Conversations are kept here, even after closing Florm (50 at most).")).weak());
                         }
                         egui::ScrollArea::vertical().max_height(420.0).show(ui, |ui| {
                             for (key, title, info) in &history {
                                 ui.horizontal(|ui| {
-                                    if ui.button(title).on_hover_text("La rouvrir : la suite continue avec son contexte").clicked() {
+                                    if ui.button(title).on_hover_text(t!("La rouvrir : la suite continue avec son contexte", "Reopen it: what follows goes on with its context")).clicked() {
                                         open_saved = Some(*key);
                                         ui.close_menu();
                                     }
                                     ui.label(RichText::new(info).small().weak());
                                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                        if ui.small_button("×").on_hover_text("L'oublier").clicked() {
+                                        if ui.small_button("×").on_hover_text(t!("L'oublier", "Forget it")).clicked() {
                                             forget_saved = Some(*key);
                                         }
                                     });
@@ -1255,49 +1255,49 @@ impl App {
                         });
                     })
                     .response
-                    .on_hover_text("Les conversations d'avant, gardées entre les sessions");
+                    .on_hover_text(t!("Les conversations d'avant, gardées entre les sessions", "The earlier conversations, kept between sessions"));
                     if c.cost > 0.0 {
-                        ui.label(RichText::new(format!("{:.2} $", c.cost)).weak().small()).on_hover_text("Coût estimé de la conversation");
+                        ui.label(RichText::new(format!("{:.2} $", c.cost)).weak().small()).on_hover_text(t!("Coût estimé de la conversation", "Estimated cost of the conversation"));
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         // the review of the changes on the right, or the whole width for the conversation
                         let n = c.review.as_ref().map_or(0, |d| d.files.len());
                         let label = match (show_review, n) {
-                            (true, _) => "Revue ▶".to_string(),
-                            (false, 0) => "◀ Revue".to_string(),
-                            (false, n) => format!("◀ Revue ({n})"),
+                            (true, _) => t!("Revue ▶", "Review ▶").to_string(),
+                            (false, 0) => t!("◀ Revue", "◀ Review").to_string(),
+                            (false, n) => tf!("◀ Revue ({n})", "◀ Review ({n})"),
                         };
                         let text = if !show_review && n > 0 { RichText::new(label).color(accent).strong() } else { RichText::new(label) };
-                        let tip = if show_review { "Masquer la revue des changements : la conversation prend toute la largeur" } else { "Afficher à droite la revue de ce que Claude a changé" };
+                        let tip = if show_review { t!("Masquer la revue des changements : la conversation prend toute la largeur", "Hide the review of the changes: the conversation takes the whole width") } else { t!("Afficher à droite la revue de ce que Claude a changé", "Show on the right the review of what Claude changed") };
                         if ui.small_button(text).on_hover_text(tip).clicked() {
                             show_review = !show_review;
                         }
                         if in_tab {
-                            if ui.small_button("⇲ Panneau du bas").on_hover_text("Afficher Claude dans le panneau du bas").clicked() {
+                            if ui.small_button(t!("⇲ Panneau du bas", "⇲ Bottom panel")).on_hover_text(t!("Afficher Claude dans le panneau du bas", "Show Claude in the bottom panel")).clicked() {
                                 move_to = Some(false);
                             }
-                        } else if ui.small_button("⇱ Onglet").on_hover_text("Afficher Claude dans un onglet de l'éditeur (plus de place)").clicked() {
+                        } else if ui.small_button("⇱ Onglet").on_hover_text(t!("Afficher Claude dans un onglet de l'éditeur (plus de place)", "Show Claude in an editor tab (more room)")).clicked() {
                             move_to = Some(true);
                         }
                         ui.add_space(8.0);
                         // right to left: the plan's quotas (always shown, the last known ones), then the context
                         for window in ["seven_day", "five_hour"] {
                             let (label, what) = match window {
-                                "five_hour" => ("5 h", "sur 5 heures"),
-                                _ => ("7 j", "sur 7 jours"),
+                                "five_hour" => ("5 h", t!("sur 5 heures", "over 5 hours")),
+                                _ => ("7 j", t!("sur 7 jours", "over 7 days")),
                             };
                             match limits.iter().find(|l| l.0 == window) {
                                 // its window is over since: back to zero
                                 Some((_, _, reset)) if *reset > 0 && *reset <= now_secs() => {
-                                    gauge(ui, label, 0.0, accent, format!("Quota de ton abonnement {what} : remis à zéro depuis la dernière réponse de Claude"));
+                                    gauge(ui, label, 0.0, accent, tf!("Quota de ton abonnement {what} : remis à zéro depuis la dernière réponse de Claude", "Quota of your subscription {what}: reset since Claude's last answer"));
                                 }
                                 Some((_, used, reset)) => {
-                                    let tip = format!("Quota de ton abonnement {what} : {:.0} % utilisé, remis à zéro {}", used * 100.0, until(*reset));
+                                    let tip = tf!("Quota de ton abonnement {what} : {:.0} % utilisé, remis à zéro {}", "Quota of your subscription {what}: {:.0} % used, reset {}", used * 100.0, until(*reset));
                                     gauge(ui, label, *used, accent, tip);
                                 }
                                 None => {
                                     ui.label(RichText::new(format!("{label} – %")).small().weak())
-                                        .on_hover_text(format!("Quota de ton abonnement {what} : connu à la première réponse de Claude"));
+                                        .on_hover_text(tf!("Quota de ton abonnement {what} : connu à la première réponse de Claude", "Quota of your subscription {what}: known at Claude's first answer"));
                                     ui.add_space(6.0);
                                 }
                             }
@@ -1305,12 +1305,11 @@ impl App {
                         let (tokens, window) = c.context;
                         if tokens > 0 && window > 0 {
                             let used = (tokens as f32 / window as f32).min(1.0);
-                            let tip = format!(
-                                "Contexte de la conversation : {} / {} tokens.\nPlein, Claude résume le début de la conversation ; « Nouvelle conversation » repart de zéro.",
+                            let tip = tf!("Contexte de la conversation : {} / {} tokens.\nPlein, Claude résume le début de la conversation ; « Nouvelle conversation » repart de zéro.", "Context of the conversation: {} / {} tokens.\nWhen full, Claude summarizes the start of the conversation; “New conversation” starts from scratch.",
                                 thousands(tokens),
                                 thousands(window)
                             );
-                            gauge(ui, "Contexte", used, accent, tip);
+                            gauge(ui, t!("Contexte", "Context"), used, accent, tip);
                         }
                     });
                 });
@@ -1322,10 +1321,10 @@ impl App {
         let review_ui = |ui: &mut egui::Ui| {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
-                ui.label(RichText::new("CE QUE CLAUDE A CHANGÉ").small().strong().color(accent));
+                ui.label(RichText::new(t!("CE QUE CLAUDE A CHANGÉ", "WHAT CLAUDE CHANGED")).small().strong().color(accent));
                 let n = c.review.as_ref().map_or(0, |d| d.files.len());
                 if n > 0 {
-                    ui.label(RichText::new(format!("{n} fichier(s)")).small().weak());
+                    ui.label(RichText::new(tf!("{n} fichier(s)", "{n} file(s)")).small().weak());
                 }
                 if c.review_loading {
                     ui.spinner();
@@ -1333,15 +1332,15 @@ impl App {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     maximize::button(ui, view, "review");
                     if n > 0 {
-                        let label = if c.confirm_reject { "Confirmer : tout rejeter" } else { "↺ Tout rejeter" };
-                        if ui.add(egui::Button::new(RichText::new(label).color(err())).small()).on_hover_text("Remettre les fichiers comme au début de la revue (les nouveaux fichiers sont supprimés)").clicked() {
+                        let label = if c.confirm_reject { t!("Confirmer : tout rejeter", "Confirm: reject all") } else { t!("↺ Tout rejeter", "↺ Reject all") };
+                        if ui.add(egui::Button::new(RichText::new(label).color(err())).small()).on_hover_text(t!("Remettre les fichiers comme au début de la revue (les nouveaux fichiers sont supprimés)", "Put the files back as at the start of the review (the new files are deleted)")).clicked() {
                             if c.confirm_reject {
                                 all = Some(false);
                             } else {
                                 c.confirm_reject = true;
                             }
                         }
-                        if ui.small_button("✔ Tout garder").on_hover_text("Tout accepter : la revue repart de là").clicked() {
+                        if ui.small_button(t!("✔ Tout garder", "✔ Keep all")).on_hover_text(t!("Tout accepter : la revue repart de là", "Accept all: the review starts again from there")).clicked() {
                             all = Some(true);
                         }
                     }
@@ -1350,20 +1349,20 @@ impl App {
             ui.separator();
             match &c.review {
                 _ if c.review_index.is_none() => {
-                    ui.label(RichText::new("Les fichiers modifiés par Claude apparaîtront ici, bloc par bloc : tu gardes ou tu rejettes chaque partie.").weak());
+                    ui.label(RichText::new(t!("Les fichiers modifiés par Claude apparaîtront ici, bloc par bloc : tu gardes ou tu rejettes chaque partie.", "The files changed by Claude will show here, block by block: you keep or reject each part.")).weak());
                 }
                 Some(d) if d.files.is_empty() => {
-                    ui.label(RichText::new("Aucun changement à revoir.").weak());
+                    ui.label(RichText::new(t!("Aucun changement à revoir.", "No change to review.")).weak());
                 }
                 Some(d) => {
                     let hunk_buttons: &[history::DiffButton] = &[
-                        ("✔ Garder", "Accepter ce bloc (il quitte la revue, il reste dans le fichier)", DiffAct::Stage),
-                        ("↺ Rejeter", "Retirer ce bloc du fichier", DiffAct::Discard),
+                        (t!("✔ Garder", "✔ Keep"), t!("Accepter ce bloc (il quitte la revue, il reste dans le fichier)", "Accept this block (it leaves the review, it stays in the file)"), DiffAct::Stage),
+                        (t!("↺ Rejeter", "↺ Reject"), t!("Retirer ce bloc du fichier", "Remove this block from the file"), DiffAct::Discard),
                     ];
                     let file_buttons: &[history::DiffButton] = &[
-                        ("Ouvrir", "Ouvrir le fichier", DiffAct::Open),
-                        ("✔ Garder", "Accepter tout le fichier", DiffAct::Stage),
-                        ("↺ Rejeter", "Remettre le fichier comme avant (supprimé s'il est nouveau)", DiffAct::Discard),
+                        (t!("Ouvrir", "Open"), t!("Ouvrir le fichier", "Open the file"), DiffAct::Open),
+                        (t!("✔ Garder", "✔ Keep"), t!("Accepter tout le fichier", "Accept the whole file"), DiffAct::Stage),
+                        (t!("↺ Rejeter", "↺ Reject"), t!("Remettre le fichier comme avant (supprimé s'il est nouveau)", "Put the file back as before (deleted if it is new)"), DiffAct::Discard),
                     ];
                     let jump = c.jump.take();
                     review_click = history::stacked_diff_view(ui, &d.lines, &d.files, &mut c.collapsed, "claude_review", hunk_buttons, file_buttons, jump, None);
@@ -1390,7 +1389,7 @@ impl App {
                     if !c.attach.is_empty() {
                         let mut remove = None;
                         ui.horizontal_wrapped(|ui| {
-                            ui.label(RichText::new("Contexte :").small().weak());
+                            ui.label(RichText::new(t!("Contexte :", "Context:")).small().weak());
                             for (k, a) in c.attach.iter().enumerate() {
                                 let chip = egui::Button::new(RichText::new(format!("✳ {}  ×", a.label(c.dir.as_deref()))).small().color(accent))
                                     .fill(icons::mix(fill, accent, 0.12))
@@ -1416,7 +1415,7 @@ impl App {
                     };
                     let resp = ui.add(
                         egui::TextEdit::multiline(&mut c.input)
-                            .hint_text("Demande à Claude… (Ctrl+Entrée pour envoyer)")
+                            .hint_text(t!("Demande à Claude… (Ctrl+Entrée pour envoyer)", "Ask Claude… (Ctrl+Enter to send)"))
                             .desired_rows(rows)
                             .desired_width(f32::INFINITY)
                             .layouter(&mut layout_cutting),
@@ -1429,28 +1428,28 @@ impl App {
                     }
                     ui.horizontal(|ui| {
                         if c.busy {
-                            if ui.button("■ Arrêter").on_hover_text("Arrêter la réponse en cours (la conversation continue)").clicked() {
+                            if ui.button(t!("■ Arrêter", "■ Stop")).on_hover_text(t!("Arrêter la réponse en cours (la conversation continue)", "Stop the current answer (the conversation goes on)")).clicked() {
                                 stop = true;
                             }
                             ui.spinner();
-                            ui.label(RichText::new("Claude travaille…").weak());
-                        } else if ui.add_enabled(!c.input.trim().is_empty(), filled_button("Envoyer", accent)).clicked() {
+                            ui.label(RichText::new(t!("Claude travaille…", "Claude is working…")).weak());
+                        } else if ui.add_enabled(!c.input.trim().is_empty(), filled_button(t!("Envoyer", "Send"), accent)).clicked() {
                             send = true;
                         }
-                        let tip = "Ajoute la demande à la file de tâches au lieu de l'envoyer.\nUne liste (- …, * …, 1. …) donne une tâche par élément ; la phrase avant la liste va avec chacune.\n« Lancer » les envoie une à une, chacune quand Claude a fini la précédente.";
-                        if ui.add_enabled(!c.input.trim().is_empty(), egui::Button::new("+ File")).on_hover_text(tip).clicked() {
+                        let tip = t!("Ajoute la demande à la file de tâches au lieu de l'envoyer.\nUne liste (- …, * …, 1. …) donne une tâche par élément ; la phrase avant la liste va avec chacune.\n« Lancer » les envoie une à une, chacune quand Claude a fini la précédente.", "Adds the request to the task queue instead of sending it.\nA list (- …, * …, 1. …) gives one task per item; the sentence before the list goes with each.\n“Run” sends them one by one, each when Claude is done with the previous one.");
+                        if ui.add_enabled(!c.input.trim().is_empty(), egui::Button::new(t!("+ File", "+ Queue"))).on_hover_text(tip).clicked() {
                             let n = c.queue.add(&c.input);
                             c.input.clear();
                             queued = Some(n);
                         }
-                        let ctx_menu = ui.menu_button("+ Contexte", |ui| {
+                        let ctx_menu = ui.menu_button(t!("+ Contexte", "+ Context"), |ui| {
                             ui.set_min_width(260.0);
                             for (label, tip, what) in [
-                                ("Fichier ouvert", "Le fichier en entier (Claude le lit)", CtxAdd::File),
-                                ("Sélection (ou ligne du curseur)", "Les lignes sélectionnées dans l'éditeur, avec leur texte", CtxAdd::Selection),
-                                ("Tous les onglets ouverts", "Chaque fichier ouvert dans l'éditeur", CtxAdd::Tabs),
-                                ("Changements non commités", "Le diff de ce qui n'est pas commité (git diff HEAD, nouveaux fichiers compris)", CtxAdd::Diff),
-                                ("Problèmes du fichier", "Les erreurs et avertissements du linter dans le fichier ouvert", CtxAdd::Problems),
+                                (t!("Fichier ouvert", "Open file"), t!("Le fichier en entier (Claude le lit)", "The whole file (Claude reads it)"), CtxAdd::File),
+                                (t!("Sélection (ou ligne du curseur)", "Selection (or cursor line)"), t!("Les lignes sélectionnées dans l'éditeur, avec leur texte", "The lines selected in the editor, with their text"), CtxAdd::Selection),
+                                (t!("Tous les onglets ouverts", "All open tabs"), t!("Chaque fichier ouvert dans l'éditeur", "Each file open in the editor"), CtxAdd::Tabs),
+                                (t!("Changements non commités", "Uncommitted changes"), t!("Le diff de ce qui n'est pas commité (git diff HEAD, nouveaux fichiers compris)", "The diff of what is not committed (git diff HEAD, new files included)"), CtxAdd::Diff),
+                                (t!("Problèmes du fichier", "Problems of the file"), t!("Les erreurs et avertissements du linter dans le fichier ouvert", "The linter errors and warnings in the open file"), CtxAdd::Problems),
                             ] {
                                 if ui.button(label).on_hover_text(tip).clicked() {
                                     ctx_add = Some(what);
@@ -1458,15 +1457,15 @@ impl App {
                                 }
                             }
                             // the last commits of the folder of the conversation, read when the menu opens
-                            ui.menu_button("Un commit", |ui| {
+                            ui.menu_button(t!("Un commit", "A commit"), |ui| {
                                 ui.set_min_width(420.0);
                                 if c.recent_commits.is_empty() {
-                                    ui.label(RichText::new("Aucun commit").weak());
+                                    ui.label(RichText::new(t!("Aucun commit", "No commit")).weak());
                                 }
                                 egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
                                     for (hash, short, subject, ago) in &c.recent_commits {
                                         let text = format!("{short}  {subject}");
-                                        if ui.button(text).on_hover_text(format!("{ago} — son message et son diff partent avec le prochain message\n(aussi : clic droit sur un commit dans la vue Git)")).clicked() {
+                                        if ui.button(text).on_hover_text(tf!("{ago} — son message et son diff partent avec le prochain message\n(aussi : clic droit sur un commit dans la vue Git)", "{ago} — its message and diff go with the next message\n(also: right click on a commit in the Git view)")).clicked() {
                                             ctx_add = Some(CtxAdd::Commit(hash.clone()));
                                             ui.close_menu();
                                         }
@@ -1474,16 +1473,16 @@ impl App {
                                 });
                             });
                             ui.separator();
-                            ui.label(RichText::new("Aussi : clic droit dans l'éditeur, ou ✳ dans la marge pour des lignes").small().weak());
+                            ui.label(RichText::new(t!("Aussi : clic droit dans l'éditeur, ou ✳ dans la marge pour des lignes", "Also: right click in the editor, or ✳ in the margin for lines")).small().weak());
                         });
                         if ctx_menu.response.clicked() {
                             read_commits = true;
                         }
-                        ctx_menu.response.on_hover_text("Donner à Claude un fichier, la sélection, le diff, un commit, les problèmes…");
-                        ui.checkbox(&mut c.with_context, "Fichier ouvert et sélection").on_hover_text("Dit à Claude quel fichier tu édites, la ligne du curseur et le texte sélectionné");
-                        ui.checkbox(&mut c.ask_first, "Questions d'abord").on_hover_text("Si la demande laisse des choix ouverts, Claude pose d'abord 1 à 3 questions avec des options à cocher, au lieu de partir dans une direction à refaire (moins de tokens)");
+                        ctx_menu.response.on_hover_text(t!("Donner à Claude un fichier, la sélection, le diff, un commit, les problèmes…", "Give Claude a file, the selection, the diff, a commit, the problems…"));
+                        ui.checkbox(&mut c.with_context, t!("Fichier ouvert et sélection", "Open file and selection")).on_hover_text(t!("Dit à Claude quel fichier tu édites, la ligne du curseur et le texte sélectionné", "Tells Claude which file you are editing, the cursor line and the selected text"));
+                        ui.checkbox(&mut c.ask_first, t!("Questions d'abord", "Questions first")).on_hover_text(t!("Si la demande laisse des choix ouverts, Claude pose d'abord 1 à 3 questions avec des options à cocher, au lieu de partir dans une direction à refaire (moins de tokens)", "If the request leaves choices open, Claude first asks 1 to 3 questions with options to tick, instead of going in a direction to redo (fewer tokens)"));
                         let mut defs = !c.no_defs;
-                        if ui.checkbox(&mut defs, "Définitions citées").on_hover_text("Les classes et fonctions du projet nommées dans le message (SaleOrder, _compute_total, `foo`…) partent avec lui, leurs premières lignes comprises : Claude n'a pas à les chercher (moins de tokens)").changed() {
+                        if ui.checkbox(&mut defs, t!("Définitions citées", "Mentioned definitions")).on_hover_text(t!("Les classes et fonctions du projet nommées dans le message (SaleOrder, _compute_total, `foo`…) partent avec lui, leurs premières lignes comprises : Claude n'a pas à les chercher (moins de tokens)", "The classes and functions of the project named in the message (SaleOrder, _compute_total, `foo`…) go with it, their first lines included: Claude does not have to look for them (fewer tokens)")).changed() {
                             c.no_defs = !defs;
                         }
                     });
@@ -1500,9 +1499,9 @@ impl App {
                     ui.set_max_width(ui.available_width().min(900.0));
                     if c.items.is_empty() {
                         ui.add_space(20.0);
-                        ui.label(RichText::new("Demande quelque chose à Claude : il lit le projet et modifie les fichiers. Tu revois ses changements à droite, bloc par bloc.").weak());
+                        ui.label(RichText::new(t!("Demande quelque chose à Claude : il lit le projet et modifie les fichiers. Tu revois ses changements à droite, bloc par bloc.", "Ask Claude something: it reads the project and changes the files. You review its changes on the right, block by block.")).weak());
                         ui.add_space(6.0);
-                        ui.label(RichText::new("Florm utilise la commande claude (Claude Code) et ta connexion : pas de clé à configurer.").weak().small());
+                        ui.label(RichText::new(t!("Florm utilise la commande claude (Claude Code) et ta connexion : pas de clé à configurer.", "Florm uses the claude command (Claude Code) and your login: no key to set up.")).weak().small());
                     }
                     // who speaks is said once, at the start of their turn
                     let mut claude_said = true;
@@ -1523,9 +1522,9 @@ impl App {
                                     .show(ui, |ui| {
                                         ui.set_width(ui.available_width());
                                         ui.horizontal(|ui| {
-                                            ui.label(RichText::new("Toi").small().strong().color(accent));
+                                            ui.label(RichText::new(t!("Toi", "You")).small().strong().color(accent));
                                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                                super::md::copy_button(ui, t, "Copier");
+                                                super::md::copy_button(ui, t, t!("Copier", "Copy"));
                                             });
                                         });
                                         ui.add(egui::Label::new(t.as_str()).wrap());
@@ -1578,7 +1577,7 @@ impl App {
                                                 ui.horizontal_wrapped(|ui| {
                                                     let clicked = ui.add(egui::Label::new(head).sense(egui::Sense::click())).clicked();
                                                     if let Some(cmd) = command {
-                                                        super::md::copy_button(ui, cmd, "Copier");
+                                                        super::md::copy_button(ui, cmd, t!("Copier", "Copy"));
                                                     }
                                                     clicked
                                                 })
@@ -1602,7 +1601,7 @@ impl App {
                                                 ui.spinner();
                                             }
                                             if let Some(cmd) = command {
-                                                super::md::copy_button(ui, cmd, "Copier");
+                                                super::md::copy_button(ui, cmd, t!("Copier", "Copy"));
                                             }
                                         });
                                     }
@@ -1623,8 +1622,8 @@ impl App {
                 if below > 40.0 {
                     let r = out.inner_rect;
                     let at = egui::Rect::from_min_size(egui::pos2(r.right() - 170.0, r.bottom() - 36.0), egui::vec2(150.0, 26.0));
-                    let b = egui::Button::new(RichText::new("⬇ Dernier message").strong()).fill(ui.visuals().widgets.inactive.weak_bg_fill).rounding(13.0);
-                    if ui.put(at, b).on_hover_text("Descendre à la fin de la conversation").clicked() {
+                    let b = egui::Button::new(RichText::new(t!("⬇ Dernier message", "⬇ Last message")).strong()).fill(ui.visuals().widgets.inactive.weak_bg_fill).rounding(13.0);
+                    if ui.put(at, b).on_hover_text(t!("Descendre à la fin de la conversation", "Go down to the end of the conversation")).clicked() {
                         ui.data_mut(|d| d.insert_temp(to_end_id, true));
                         ui.ctx().request_repaint();
                     }
@@ -1680,7 +1679,7 @@ impl App {
             let q = &mut self.claude.queue;
             if let Some(k) = q.current().filter(|k| q.tasks[*k].state == TaskState::Running) {
                 q.tasks[k].state = TaskState::Failed;
-                q.tasks[k].note = "Arrêtée".into();
+                q.tasks[k].note = t!("Arrêtée", "Stopped").into();
             }
             q.running = false;
         }
@@ -1692,7 +1691,7 @@ impl App {
             self.claude_send_text(m, false);
         }
         if let Some(n) = queued {
-            self.set_status(format!("{n} tâche(s) ajoutée(s) à la file — « Lancer » pour les envoyer une à une"));
+            self.set_status(tf!("{n} tâche(s) ajoutée(s) à la file — « Lancer » pour les envoyer une à une", "{n} task(s) added to the queue — “Run” to send them one by one"));
             self.claude_save();
         }
         if let Some(a) = queue_act {
@@ -1715,7 +1714,7 @@ impl App {
         self.jobs.spawn(move || {
             let diff = if staged { git::run(&repo, &["diff", "--cached"]) } else { git::run(&repo, &["diff", "HEAD"]) }.unwrap_or_default();
             let recent = git::stdout(&repo, &["log", "-12", "--format=%s"]).unwrap_or_default();
-            let r = if diff.trim().is_empty() { Err("Rien à décrire : aucun changement".to_string()) } else { claude::commit_message(&repo, &diff, &recent, &wish) };
+            let r = if diff.trim().is_empty() { Err(t!("Rien à décrire : aucun changement", "Nothing to describe: no change").to_string()) } else { claude::commit_message(&repo, &diff, &recent, &wish) };
             JobResult::CommitMessage(r)
         });
     }
@@ -1725,9 +1724,9 @@ impl App {
         match r {
             Ok(m) => {
                 self.git.commit_msg = m;
-                self.set_status("Message de commit proposé par Claude — à relire");
+                self.set_status(t!("Message de commit proposé par Claude — à relire", "Commit message suggested by Claude — to read over"));
             }
-            Err(e) => self.set_status(format!("Pas de message proposé : {}", e.lines().next().unwrap_or(""))),
+            Err(e) => self.set_status(tf!("Pas de message proposé : {}", "No message suggested: {}", e.lines().next().unwrap_or(""))),
         }
     }
 }
@@ -1910,10 +1909,10 @@ fn until(ts: i64) -> String {
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
     let s = (ts - now).max(0);
     match s {
-        0..=59 => "maintenant".into(),
-        60..=3599 => format!("dans {} min", s / 60),
-        3600..=86_399 => format!("dans {} h {:02}", s / 3600, s % 3600 / 60),
-        _ => format!("dans {} j {} h", s / 86_400, s % 86_400 / 3600),
+        0..=59 => t!("maintenant", "now").into(),
+        60..=3599 => tf!("dans {} min", "in {} min", s / 60),
+        3600..=86_399 => tf!("dans {} h {:02}", "in {} h {:02}", s / 3600, s % 3600 / 60),
+        _ => tf!("dans {} j {} h", "in {} d {} h", s / 86_400, s % 86_400 / 3600),
     }
 }
 

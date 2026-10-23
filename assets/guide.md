@@ -211,7 +211,7 @@ dans l'onglet Claude.
 
 ## Apparence
 
-**Préférences → Apparence** : thème (aperçus cliquables), couleur d'accentuation,
+**Préférences → Apparence** : langue (Français / English), thème (aperçus cliquables), couleur d'accentuation,
 **texte adouci** (texte moins « gras », utile sur les thèmes clairs), polices de l'éditeur et
 de l'interface, minimap, fil d'Ariane, **barre de menus** (masquée, les menus restent sous **☰**
 en bas à gauche).

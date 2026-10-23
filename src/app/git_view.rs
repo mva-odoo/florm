@@ -6,7 +6,7 @@ use history::DiffAct;
 impl App {
     pub(super) fn load_history(&mut self) {
         let Some(repo) = self.repo.clone() else {
-            self.history.error = Some("Aucun dépôt git dans ce dossier.".into());
+            self.history.error = Some(t!("Aucun dépôt git dans ce dossier.", "No git repository in this folder.").into());
             return;
         };
         if self.history.repo.as_ref() != Some(&repo) {
@@ -79,17 +79,17 @@ impl App {
     pub(super) fn open_line_history(&mut self) {
         let Some(d) = self.docs.get(self.active) else { return };
         let Some(path) = d.path.clone() else {
-            self.set_status("Le fichier n'est pas enregistré");
+            self.set_status(t!("Le fichier n'est pas enregistré", "The file is not saved"));
             return;
         };
         let line = d.rope.char_to_line(d.primary_sel().head);
         let name = d.title();
         let Some(head_line) = d.head_line(line) else {
-            self.set_status("Ligne ajoutée depuis le dernier commit : pas encore d'historique");
+            self.set_status(t!("Ligne ajoutée depuis le dernier commit : pas encore d'historique", "Line added since the last commit: no history yet"));
             return;
         };
         self.line_history = Some(LineHistoryUi {
-            title: format!("Historique de la ligne {} — {name}", line + 1),
+            title: tf!("Historique de la ligne {} — {name}", "History of line {} — {name}", line + 1),
             loading: true,
             error: None,
             commits: Vec::new(),
@@ -114,7 +114,7 @@ impl App {
                 if lh.loading {
                     ui.horizontal(|ui| {
                         ui.spinner();
-                        ui.label("Recherche des commits qui ont modifié cette ligne…");
+                        ui.label(t!("Recherche des commits qui ont modifié cette ligne…", "Looking for the commits that changed this line…"));
                     });
                     return;
                 }
@@ -123,7 +123,7 @@ impl App {
                     return;
                 }
                 if lh.commits.is_empty() {
-                    ui.label(RichText::new("Aucun commit trouvé pour cette ligne.").weak());
+                    ui.label(RichText::new(t!("Aucun commit trouvé pour cette ligne.", "No commit found for this line.")).weak());
                     return;
                 }
                 ui.set_min_size(ui.available_size());
@@ -132,7 +132,7 @@ impl App {
                     // commit list
                     ui.vertical(|ui| {
                         ui.set_width(320.0);
-                        ui.label(RichText::new(format!("{} COMMIT(S) ONT MODIFIÉ CETTE LIGNE", lh.commits.len())).small().strong());
+                        ui.label(RichText::new(tf!("{} COMMIT(S) ONT MODIFIÉ CETTE LIGNE", "{} COMMIT(S) CHANGED THIS LINE", lh.commits.len())).small().strong());
                         egui::ScrollArea::vertical().id_salt("lh_list").max_height(height - 24.0).auto_shrink([false, false]).show(ui, |ui| {
                             for (i, c) in lh.commits.iter().enumerate() {
                                 let (rect, r) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 44.0), Sense::click());
@@ -164,10 +164,10 @@ impl App {
                         ui.horizontal(|ui| {
                             ui.label(RichText::new(&c.subject).strong());
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                if ui.button("Voir dans le graphe").clicked() {
+                                if ui.button(t!("Voir dans le graphe", "Show in the graph")).clicked() {
                                     show_graph = Some(c.hash.clone());
                                 }
-                                if ui.button("Copier le hash").clicked() {
+                                if ui.button(t!("Copier le hash", "Copy the hash")).clicked() {
                                     copy = Some(c.hash.clone());
                                 }
                             });
@@ -183,7 +183,7 @@ impl App {
         }
         if let Some(h) = copy {
             ctx.output_mut(|o| o.copied_text = h);
-            self.set_status("Hash copié");
+            self.set_status(t!("Hash copié", "Hash copied"));
         }
         if let Some(h) = show_graph {
             self.line_history = None;
@@ -273,7 +273,7 @@ impl App {
         let untracked = source == DiffSource::Worktree && history::file_patch(&text, idx).is_some_and(|f| f.contains("\n--- /dev/null"));
         let Some(path) = history::file_at(&text, idx).or_else(|| d.path.clone()) else { return };
         let line = history::target_line(lines, idx);
-        let lose = |what: &str| format!("{what}\n\nCe changement n'est pas encore dans un commit : il sera perdu.");
+        let lose = |what: &str| tf!("{what}\n\nCe changement n'est pas encore dans un commit : il sera perdu.", "{what}\n\nThis change is not in a commit yet: it will be lost.");
         let stage_file = DiffOp::Git(vec!["add".into(), "--".into(), path.clone()]);
         use history::DiffClick;
         let (label, op, confirm) = match click {
@@ -285,16 +285,16 @@ impl App {
             DiffClick::File(_, DiffAct::Stage) => ("add", stage_file, None),
             DiffClick::Hunk(_, DiffAct::Stage | DiffAct::Discard) if untracked && source == DiffSource::Worktree => match click {
                 DiffClick::Hunk(_, DiffAct::Stage) => ("add", stage_file, None),
-                _ => ("rm", DiffOp::Delete(repo.join(&path)), Some(lose(&format!("Supprimer le nouveau fichier « {path} » ?")))),
+                _ => ("rm", DiffOp::Delete(repo.join(&path)), Some(lose(&tf!("Supprimer le nouveau fichier « {path} » ?", "Delete the new file “{path}”?")))),
             },
             DiffClick::File(_, DiffAct::Unstage) => ("restore", DiffOp::Git(vec!["restore".into(), "--staged".into(), "--".into(), path.clone()]), None),
             DiffClick::File(_, DiffAct::Discard) if untracked => {
-                ("rm", DiffOp::Delete(repo.join(&path)), Some(lose(&format!("Supprimer le nouveau fichier « {path} » ?"))))
+                ("rm", DiffOp::Delete(repo.join(&path)), Some(lose(&tf!("Supprimer le nouveau fichier « {path} » ?", "Delete the new file “{path}”?"))))
             }
             DiffClick::File(_, DiffAct::Discard) => (
                 "restore",
                 DiffOp::Git(vec!["restore".into(), "--".into(), path.clone()]),
-                Some(lose(&format!("Annuler toutes les modifications non indexées de « {path} » ?"))),
+                Some(lose(&tf!("Annuler toutes les modifications non indexées de « {path} » ?", "Discard all the unstaged changes of “{path}”?"))),
             ),
             DiffClick::File(_, DiffAct::Revert) => {
                 let Some(patch) = history::file_patch(&text, idx) else { return };
@@ -308,7 +308,7 @@ impl App {
                     DiffAct::Discard => (
                         "apply",
                         DiffOp::Apply { patch, flags: vec!["-R"] },
-                        Some(lose(&format!("Annuler ce bloc de modifications dans « {path} » (vers la ligne {line}) ?"))),
+                        Some(lose(&tf!("Annuler ce bloc de modifications dans « {path} » (vers la ligne {line}) ?", "Discard this block of changes in “{path}” (around line {line})?"))),
                     ),
                     DiffAct::Revert => ("apply", DiffOp::Apply { patch, flags: vec!["-R"] }, None),
                     DiffAct::Open => return,
@@ -347,7 +347,7 @@ impl App {
                     let a: Vec<&str> = args.iter().map(String::as_str).collect();
                     git::run(&repo, &a)
                 }
-                DiffOp::Delete(p) => std::fs::remove_file(&p).map(|()| format!("{} supprimé", p.display())).map_err(|e| e.to_string()),
+                DiffOp::Delete(p) => std::fs::remove_file(&p).map(|()| tf!("{} supprimé", "{} deleted", p.display())).map_err(|e| e.to_string()),
             };
             JobResult::GitOp { label, result, status: Some((repo.clone(), git::status(&repo))) }
         });
@@ -357,7 +357,7 @@ impl App {
     fn jump_to_file(&mut self, repo: &Path, rel: &str, line: usize) {
         let path = repo.join(rel);
         if !path.is_file() {
-            self.history.notice = Some((format!("« {rel} » n'existe plus dans tes fichiers."), err()));
+            self.history.notice = Some((tf!("« {rel} » n'existe plus dans tes fichiers.", "“{rel}” no longer exists in your files."), err()));
             return;
         }
         if self.open_path(path) {
@@ -444,34 +444,34 @@ impl App {
             }
             if let Some(short) = &split_hidden {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new(format!("✂ Le découpage de {short} est en cours.")).color(warn()).strong());
-                    if ui.button("Revenir au découpage").clicked() {
+                    ui.label(RichText::new(tf!("✂ Le découpage de {short} est en cours.", "✂ The splitting of {short} is in progress.")).color(warn()).strong());
+                    if ui.button(t!("Revenir au découpage", "Back to the splitting")).clicked() {
                         resume = true;
                     }
                 });
             } else if let Some((op, n)) = op_banner {
                 ui.horizontal_wrapped(|ui| {
-                    let what = if n > 0 { format!(" — {n} fichier(s) en conflit à résoudre") } else { String::new() };
-                    ui.label(RichText::new(format!("⚠ {} en cours{what}", op.label())).color(warn()).strong());
-                    if ui.add_enabled(n == 0, egui::Button::new("Continuer")).clicked() {
+                    let what = if n > 0 { tf!(" — {n} fichier(s) en conflit à résoudre", " — {n} conflicting file(s) to resolve") } else { String::new() };
+                    ui.label(RichText::new(tf!("⚠ {} en cours{what}", "⚠ {} in progress{what}", op.label())).color(warn()).strong());
+                    if ui.add_enabled(n == 0, egui::Button::new(t!("Continuer", "Continue"))).clicked() {
                         let mut a = vec!["-c".to_string(), "core.editor=true".to_string()];
                         a.extend(op.continue_args().iter().map(|s| s.to_string()));
                         op_cmd = Some(a);
                     }
-                    if ui.button("Abandonner").on_hover_text("Remet la branche comme avant l'opération").clicked() {
+                    if ui.button(t!("Abandonner", "Abort")).on_hover_text(t!("Remet la branche comme avant l'opération", "Puts the branch back as before the operation")).clicked() {
                         op_cmd = Some(op.abort_args().iter().map(|s| s.to_string()).collect());
                     }
-                    if op == git::Operation::Rebase && ui.button("Reprendre le découpage").clicked() {
+                    if op == git::Operation::Rebase && ui.button(t!("Reprendre le découpage", "Resume the splitting")).clicked() {
                         resume = true;
                     }
                 });
             } else if h.graph.as_ref().is_some_and(|g| g.rebasing) {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("⚠ Un rebase est en cours dans ce dépôt (découpage pas terminé ?)").color(warn()));
-                    if ui.button("Reprendre le découpage").clicked() {
+                    ui.label(RichText::new(t!("⚠ Un rebase est en cours dans ce dépôt (découpage pas terminé ?)", "⚠ A rebase is in progress in this repository (splitting not finished?)")).color(warn()));
+                    if ui.button(t!("Reprendre le découpage", "Resume the splitting")).clicked() {
                         resume = true;
                     }
-                    if ui.button("Annuler le rebase").on_hover_text("git rebase --abort : remet la branche comme avant").clicked() {
+                    if ui.button(t!("Annuler le rebase", "Abort the rebase")).on_hover_text(t!("git rebase --abort : remet la branche comme avant", "git rebase --abort: puts the branch back as before")).clicked() {
                         abort_rebase = true;
                     }
                 });
@@ -511,8 +511,8 @@ impl App {
                 let staged: Vec<&git::Entry> = st.entries.iter().filter(|e| e.staged()).collect();
                 let unstaged: Vec<&git::Entry> = st.entries.iter().filter(|e| e.unstaged()).collect();
                 for (is_staged, list, color, label, stats) in [
-                    (false, &unstaged, warn(), "Modifications non indexées", &st.unstaged_stats),
-                    (true, &staged, ok(), "Modifications indexées", &st.staged_stats),
+                    (false, &unstaged, warn(), t!("Modifications non indexées", "Unstaged changes"), &st.unstaged_stats),
+                    (true, &staged, ok(), t!("Modifications indexées", "Staged changes"), &st.staged_stats),
                 ] {
                     if list.is_empty() {
                         continue;
@@ -533,11 +533,11 @@ impl App {
                         p.circle_stroke(egui::pos2(cx, rect.center().y), 4.5, egui::Stroke::new(1.5_f32, color));
                     }
                     let r = p.text(egui::pos2(rect.left() + 26.0, rect.center().y), Align2::LEFT_CENTER, label, egui::FontId::proportional(13.5), color);
-                    let info = format!("{} fichier(s)", list.len());
+                    let info = tf!("{} fichier(s)", "{} file(s)", list.len());
                     let r = p.text(egui::pos2(r.right() + 10.0, rect.center().y), Align2::LEFT_CENTER, info, egui::FontId::proportional(12.0), ui.visuals().weak_text_color());
                     let r = p.text(egui::pos2(r.right() + 10.0, rect.center().y), Align2::LEFT_CENTER, format!("+{a}"), egui::FontId::monospace(11.5), ok());
                     p.text(egui::pos2(r.right() + 6.0, rect.center().y), Align2::LEFT_CENTER, format!("−{d}"), egui::FontId::monospace(11.5), err());
-                    if resp.on_hover_text("Voir les changements, indexer / désindexer").clicked() {
+                    if resp.on_hover_text(t!("Voir les changements, indexer / désindexer", "See the changes, stage / unstage")).clicked() {
                         wip_pick = Some(is_staged);
                     }
                 }
@@ -548,7 +548,7 @@ impl App {
             let Some(g) = &h.graph else {
                 match &h.error {
                     Some(e) => ui.label(RichText::new(e).color(err())),
-                    None => ui.label(RichText::new("Chargement…").weak()),
+                    None => ui.label(RichText::new(t!("Chargement…", "Loading…")).weak()),
                 };
                 return;
             };
@@ -567,7 +567,7 @@ impl App {
                     .collect()
             };
             if idx.is_empty() {
-                ui.label(RichText::new("Aucun commit").weak());
+                ui.label(RichText::new(t!("Aucun commit", "No commit")).weak());
                 return;
             }
             // ↑ / ↓ move the selection (and keep it in view)
@@ -650,20 +650,23 @@ impl App {
                 let r = ui.max_rect();
                 if h.rebase.is_none() {
                     let at = egui::Rect::from_min_size(egui::pos2(r.right() - 26.0, r.top() + 2.0), egui::vec2(24.0, 24.0));
-                    if ui.put(at, egui::Button::new(RichText::new("×").size(16.0)).frame(false)).on_hover_text("Fermer le détail (Échap)").clicked() {
+                    if ui.put(at, egui::Button::new(RichText::new("×").size(16.0)).frame(false)).on_hover_text(t!("Fermer le détail (Échap)", "Close the details (Escape)")).clicked() {
                         close_detail = true;
                     }
                 }
                 let at = egui::Rect::from_min_size(egui::pos2(r.right() - if h.rebase.is_none() { 50.0 } else { 24.0 }, r.top() + 4.0), egui::vec2(20.0, 20.0));
                 maximize::button_at(ui, at, view, "detail");
                 if let Some(rb) = h.rebase.as_mut() {
-                    ui.label(RichText::new("Rebase interactif").size(16.0).strong());
+                    ui.label(RichText::new(t!("Rebase interactif", "Interactive rebase")).size(16.0).strong());
                     ui.label(
-                        RichText::new(
+                        RichText::new(t!(
                             "Du plus ancien (en haut) au plus récent. Change l'ordre avec ↑ ↓ et choisis quoi faire de chaque commit. \
                              « Découper » s'arrête sur le commit et ouvre l'assistant de découpage. \
                              Les commits sont réécrits : si la branche est déjà poussée, il faudra un push --force.",
-                        )
+                            "From the oldest (at the top) to the newest. Change the order with ↑ ↓ and choose what to do with each commit. \
+                             “Split” stops on the commit and opens the splitting assistant. \
+                             The commits are rewritten: if the branch is already pushed, a push --force will be needed."
+                        ))
                         .weak()
                         .small(),
                     );
@@ -680,10 +683,10 @@ impl App {
                                 .show(ui, |ui| {
                                     ui.set_width(ui.available_width());
                                     ui.horizontal(|ui| {
-                                        if ui.add_enabled(k > 0, egui::Button::new("↑").small()).on_hover_text("Plus tôt").clicked() {
+                                        if ui.add_enabled(k > 0, egui::Button::new("↑").small()).on_hover_text(t!("Plus tôt", "Earlier")).clicked() {
                                             swap = Some((k, k - 1));
                                         }
-                                        if ui.add_enabled(k + 1 < n, egui::Button::new("↓").small()).on_hover_text("Plus tard").clicked() {
+                                        if ui.add_enabled(k + 1 < n, egui::Button::new("↓").small()).on_hover_text(t!("Plus tard", "Later")).clicked() {
                                             swap = Some((k, k + 1));
                                         }
                                         egui::ComboBox::from_id_salt(("rebase_action", k)).selected_text(st.action.label()).width(220.0).show_ui(ui, |ui| {
@@ -703,13 +706,13 @@ impl App {
                                             ui.add(egui::TextEdit::multiline(&mut st.message).desired_rows(2).desired_width(f32::INFINITY));
                                         }
                                         crate::rebase::Action::Squash => {
-                                            ui.label(RichText::new("↳ fusionné dans le commit gardé au-dessus (messages mis bout à bout)").small().weak());
+                                            ui.label(RichText::new(t!("↳ fusionné dans le commit gardé au-dessus (messages mis bout à bout)", "↳ merged into the kept commit above (messages joined)")).small().weak());
                                         }
                                         crate::rebase::Action::Fixup => {
-                                            ui.label(RichText::new("↳ fusionné dans le commit gardé au-dessus (son message est oublié)").small().weak());
+                                            ui.label(RichText::new(t!("↳ fusionné dans le commit gardé au-dessus (son message est oublié)", "↳ merged into the kept commit above (its message is dropped)")).small().weak());
                                         }
                                         crate::rebase::Action::Split => {
-                                            ui.label(RichText::new("↳ le rebase s'arrête ici : tu répartis ses changements (blocs ou lignes) en plusieurs commits").small().weak());
+                                            ui.label(RichText::new(t!("↳ le rebase s'arrête ici : tu répartis ses changements (blocs ou lignes) en plusieurs commits", "↳ the rebase stops here: you share its changes (blocks or lines) out into several commits")).small().weak());
                                         }
                                         _ => {}
                                     }
@@ -725,17 +728,17 @@ impl App {
                         ui.label(RichText::new(e).color(err()));
                     }
                     ui.horizontal(|ui| {
-                        if ui.add_enabled(check.is_ok(), filled_button("Lancer le rebase", accent)).clicked() {
+                        if ui.add_enabled(check.is_ok(), filled_button(t!("Lancer le rebase", "Run the rebase"), accent)).clicked() {
                             rb_run = true;
                         }
-                        if ui.button("Annuler").clicked() {
+                        if ui.button(t!("Annuler", "Cancel")).clicked() {
                             rb_cancel = true;
                         }
                     });
                     return;
                 }
                 // --- header of what is selected
-                let (mut chips, mut file_buttons): (Vec<(char, String, Option<(Option<u32>, Option<u32>)>)>, &[history::DiffButton]) = (Vec::new(), &[]);
+                let (mut chips, mut file_buttons): (Vec<(char, String, Option<(Option<u32>, Option<u32>)>)>, Vec<history::DiffButton>) = (Vec::new(), Vec::new());
                 if let Some((_, _, title)) = &h.compare {
                     ui.label(RichText::new(title).size(16.0).strong());
                     if let Some(d) = &h.details {
@@ -744,16 +747,16 @@ impl App {
                         }
                         chips = d.files.clone();
                     }
-                    file_buttons = &[("Ouvrir", "Ouvrir le fichier (tel qu'il est dans tes fichiers)", DiffAct::Open)];
+                    file_buttons = vec![(t!("Ouvrir", "Open"), t!("Ouvrir le fichier (tel qu'il est dans tes fichiers)", "Open the file (as it is in your files)"), DiffAct::Open)];
                 } else if let Some(staged) = h.wip_sel {
-                    let (title, color) = if staged { ("Modifications indexées", ok()) } else { ("Modifications non indexées", warn()) };
+                    let (title, color) = if staged { (t!("Modifications indexées", "Staged changes"), ok()) } else { (t!("Modifications non indexées", "Unstaged changes"), warn()) };
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(title).size(16.0).strong().color(color));
                         ui.label(
                             RichText::new(if staged {
-                                "elles iront dans le prochain commit"
+                                t!("elles iront dans le prochain commit", "they will go in the next commit")
                             } else {
-                                "pas encore indexées : « + Indexer » pour les ajouter au prochain commit"
+                                t!("pas encore indexées : « + Indexer » pour les ajouter au prochain commit", "not staged yet: “+ Stage” to add them to the next commit")
                             })
                             .weak(),
                         );
@@ -761,14 +764,14 @@ impl App {
                     if let Some(st) = &wip {
                         ui.horizontal(|ui| {
                             if staged {
-                                if ui.button("Tout désindexer").clicked() {
+                                if ui.button(t!("Tout désindexer", "Unstage all")).clicked() {
                                     wip_ops.push(vec!["restore".into(), "--staged".into(), ".".into()]);
                                 }
-                            } else if ui.button("Tout indexer").clicked() {
+                            } else if ui.button(t!("Tout indexer", "Stage all")).clicked() {
                                 wip_ops.push(vec!["add".into(), "-A".into()]);
                             }
-                            let tip = "Claude relit tout ce qui n'est pas commité (indexé ou non, nouveaux fichiers compris) et propose des remarques sous les lignes : tu gardes celles qui comptent";
-                            if ui.add_enabled(!ai.loading, egui::Button::new("✳ Revue IA")).on_hover_text(tip).clicked() {
+                            let tip = t!("Claude relit tout ce qui n'est pas commité (indexé ou non, nouveaux fichiers compris) et propose des remarques sous les lignes : tu gardes celles qui comptent", "Claude reads over everything not committed (staged or not, new files included) and suggests remarks under the lines: you keep the ones that matter");
+                            if ui.add_enabled(!ai.loading, egui::Button::new(t!("✳ Revue IA", "✳ AI review"))).on_hover_text(tip).clicked() {
                                 ai_start = true;
                             }
                         });
@@ -783,15 +786,15 @@ impl App {
                             .collect();
                     }
                     file_buttons = if staged {
-                        &[
-                            ("Ouvrir", "Ouvrir le fichier", DiffAct::Open),
-                            ("− Désindexer", "Le retirer du prochain commit (les modifications restent dans le fichier)", DiffAct::Unstage),
+                        vec![
+                            (t!("Ouvrir", "Open"), t!("Ouvrir le fichier", "Open the file"), DiffAct::Open),
+                            (t!("− Désindexer", "− Unstage"), t!("Le retirer du prochain commit (les modifications restent dans le fichier)", "Take it out of the next commit (the changes stay in the file)"), DiffAct::Unstage),
                         ]
                     } else {
-                        &[
-                            ("Ouvrir", "Ouvrir le fichier", DiffAct::Open),
-                            ("+ Indexer", "Ajouter tout le fichier au prochain commit", DiffAct::Stage),
-                            ("↺ Annuler", "Remettre le fichier comme au dernier commit (demande confirmation)", DiffAct::Discard),
+                        vec![
+                            (t!("Ouvrir", "Open"), t!("Ouvrir le fichier", "Open the file"), DiffAct::Open),
+                            (t!("+ Indexer", "+ Stage"), t!("Ajouter tout le fichier au prochain commit", "Add the whole file to the next commit"), DiffAct::Stage),
+                            (t!("↺ Annuler", "↺ Discard"), t!("Remettre le fichier comme au dernier commit (demande confirmation)", "Put the file back as at the last commit (asks for confirmation)"), DiffAct::Discard),
                         ]
                     };
                 } else if let Some(c) = &selected_commit {
@@ -808,7 +811,7 @@ impl App {
                                     ui.menu_button("Actions ▾", |ui| {
                                         commit_menu(ui, c, h.graph.as_ref().map_or(&[][..], |g| &g.local[..]), None, &mut menu_act);
                                     });
-                                    if ui.button("Diff dans un onglet").on_hover_text("Tout le diff du commit dans un onglet de l'éditeur (double-clic sur le commit)").clicked() {
+                                    if ui.button(t!("Diff dans un onglet", "Diff in a tab")).on_hover_text(t!("Tout le diff du commit dans un onglet de l'éditeur (double-clic sur le commit)", "The whole diff of the commit in an editor tab (double-click on the commit)")).clicked() {
                                         diff_to_tab = true;
                                     }
                                 });
@@ -822,7 +825,7 @@ impl App {
                                 }
                                 for pr in &commit_links {
                                     let (state, color) = super::pulls::state_badge(&pr.state, false);
-                                    let tip = if pr.title.is_empty() { format!("Pull request {state} — clic : l'ouvrir") } else { format!("{}\n{state} — clic : l'ouvrir", pr.title) };
+                                    let tip = if pr.title.is_empty() { tf!("Pull request {state} — clic : l'ouvrir", "Pull request {state} — click: open it") } else { tf!("{}\n{state} — clic : l'ouvrir", "{}\n{state} — click: open it", pr.title) };
                                     if ui.add(egui::Button::new(RichText::new(format!("⇄ PR #{}", pr.number)).small().color(color)).small()).on_hover_text(tip).clicked() {
                                         open_pr = Some(pr.number);
                                     }
@@ -830,7 +833,7 @@ impl App {
                             });
                             let body = body.trim();
                             if !body.is_empty() {
-                                egui::CollapsingHeader::new(RichText::new("Message complet").small().weak())
+                                egui::CollapsingHeader::new(RichText::new(t!("Message complet", "Full message")).small().weak())
                                     .default_open(body.lines().count() <= 6)
                                     .show(ui, |ui| {
                                         egui::ScrollArea::vertical().id_salt("commit_msg").max_height(120.0).auto_shrink([false, true]).show(ui, |ui| {
@@ -841,11 +844,11 @@ impl App {
                             chips = d.files.clone();
                         }
                     }
-                    file_buttons = &[
-                        ("Ouvrir", "Ouvrir le fichier (tel qu'il est dans tes fichiers)", DiffAct::Open),
+                    file_buttons = vec![
+                        (t!("Ouvrir", "Open"), t!("Ouvrir le fichier (tel qu'il est dans tes fichiers)", "Open the file (as it is in your files)"), DiffAct::Open),
                         (
-                            "↺ Annuler dans mes fichiers",
-                            "Défaire ce que ce commit a changé dans ce fichier, dans tes fichiers actuels (à valider ensuite)",
+                            t!("↺ Annuler dans mes fichiers", "↺ Undo in my files"),
+                            t!("Défaire ce que ce commit a changé dans ce fichier, dans tes fichiers actuels (à valider ensuite)", "Undo what this commit changed in this file, in your current files (to commit afterwards)"),
                             DiffAct::Revert,
                         ),
                     ];
@@ -864,7 +867,7 @@ impl App {
                     .frame(egui::Frame::none().inner_margin(egui::Margin { left: 0.0, right: 6.0, top: 2.0, bottom: 0.0 }))
                     .show_inside(ui, |ui| {
                         ui.horizontal(|ui| {
-                            ui.label(RichText::new(format!("{} FICHIER(S)", chips.len())).small().strong().color(accent));
+                            ui.label(RichText::new(tf!("{} FICHIER(S)", "{} FILE(S)", chips.len())).small().strong().color(accent));
                             ui.label(RichText::new(format!("+{adds}")).small().monospace().color(ok()));
                             ui.label(RichText::new(format!("−{dels}")).small().monospace().color(err()));
                             if h.diff_loading {
@@ -891,10 +894,10 @@ impl App {
                         // in a row: alone, the right-to-left layout would take the whole height
                         ui.horizontal(|ui| {
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                if ui.small_button("Tout déplier").clicked() {
+                                if ui.small_button(t!("Tout déplier", "Unfold all")).clicked() {
                                     h.collapsed.clear();
                                 }
-                                if ui.small_button("Tout replier").clicked() {
+                                if ui.small_button(t!("Tout replier", "Fold all")).clicked() {
                                     h.collapsed = d.files.iter().map(|f| f.start).collect();
                                 }
                             });
@@ -905,8 +908,8 @@ impl App {
                     let ai_rows = if wip_view { ai.rows(h.diff.as_ref()) } else { Vec::new() };
                     if wip_view {
                         ai_review::review_bar(ui, cache, ai, &ai_rows, accent, &mut ai_act, |ui, kept| {
-                            let tip = "Écrit les remarques gardées dans l'onglet Claude : tu relis, puis tu envoies";
-                            ai_fix = ui.add_enabled(kept > 0, filled_button(format!("Faire corriger les {kept} gardée(s) par Claude"), accent)).on_hover_text(tip).clicked();
+                            let tip = t!("Écrit les remarques gardées dans l'onglet Claude : tu relis, puis tu envoies", "Writes the kept remarks in the Claude tab: you read them over, then send");
+                            ai_fix = ui.add_enabled(kept > 0, filled_button(tf!("Faire corriger les {kept} gardée(s) par Claude", "Have Claude fix the {kept} kept"), accent)).on_hover_text(tip).clicked();
                         });
                     }
                     let mut ai_at: HashMap<usize, Vec<usize>> = HashMap::new();
@@ -924,27 +927,27 @@ impl App {
                     };
                     match &h.diff {
                         Some(d) => {
-                            let hunk_buttons: &[history::DiffButton] = match source {
-                                DiffSource::Worktree => &[
-                                    ("+ Indexer ce bloc", "Ajouter ce bloc au prochain commit", DiffAct::Stage),
-                                    ("↺ Annuler ce bloc", "Supprimer ce changement du fichier (demande confirmation)", DiffAct::Discard),
+                            let hunk_buttons: Vec<history::DiffButton> = match source {
+                                DiffSource::Worktree => vec![
+                                    (t!("+ Indexer ce bloc", "+ Stage this block"), t!("Ajouter ce bloc au prochain commit", "Add this block to the next commit"), DiffAct::Stage),
+                                    (t!("↺ Annuler ce bloc", "↺ Discard this block"), t!("Supprimer ce changement du fichier (demande confirmation)", "Remove this change from the file (asks for confirmation)"), DiffAct::Discard),
                                 ],
                                 DiffSource::Index => {
-                                    &[("− Désindexer ce bloc", "Retirer ce bloc du prochain commit (le changement reste dans le fichier)", DiffAct::Unstage)]
+                                    vec![(t!("− Désindexer ce bloc", "− Unstage this block"), t!("Retirer ce bloc du prochain commit (le changement reste dans le fichier)", "Take this block out of the next commit (the change stays in the file)"), DiffAct::Unstage)]
                                 }
-                                DiffSource::Commit => &[("↺ Annuler ce changement", "Défaire ce bloc dans tes fichiers actuels (à valider ensuite)", DiffAct::Revert)],
-                                DiffSource::Compare => &[],
+                                DiffSource::Commit => vec![(t!("↺ Annuler ce changement", "↺ Undo this change"), t!("Défaire ce bloc dans tes fichiers actuels (à valider ensuite)", "Undo this block in your current files (to commit afterwards)"), DiffAct::Revert)],
+                                DiffSource::Compare => Vec::new(),
                             };
                             let jump = h.jump.take();
                             let notes = if ai_lines.is_empty() { None } else { Some(history::Notes { at: &ai_lines, show: &mut show_ai }) };
-                            if let Some(c) = history::stacked_diff_view(ui, &d.lines, &d.files, &mut h.collapsed, "history_stacked", hunk_buttons, file_buttons, jump, notes) {
+                            if let Some(c) = history::stacked_diff_view(ui, &d.lines, &d.files, &mut h.collapsed, "history_stacked", &hunk_buttons, &file_buttons, jump, notes) {
                                 diff_click = Some(c);
                             }
                         }
                         None if h.diff_loading => {
                             ui.horizontal(|ui| {
                                 ui.spinner();
-                                ui.label(RichText::new("Chargement du diff…").weak());
+                                ui.label(RichText::new(t!("Chargement du diff…", "Loading the diff…")).weak());
                             });
                         }
                         None => {}
@@ -983,7 +986,7 @@ impl App {
                     self.history.open = false;
                     self.new_scratch(title, text, "Diff", true);
                 }
-                None => self.set_status("Le diff est en cours de chargement"),
+                None => self.set_status(t!("Le diff est en cours de chargement", "The diff is loading")),
             }
         }
         if resume {
@@ -1006,7 +1009,7 @@ impl App {
                 }
                 (HistAct::Copy(text), _) => {
                     ui.ctx().output_mut(|o| o.copied_text = text.clone());
-                    self.set_status(format!("Copié : {text}"));
+                    self.set_status(tf!("Copié : {text}", "Copied: {text}"));
                 }
                 (HistAct::Diff(hash), _) => {
                     if let Some(i) = self.history.graph.as_ref().and_then(|g| g.commits.iter().position(|c| c.hash == hash)) {
@@ -1046,9 +1049,9 @@ impl App {
         if rb_run {
             if let (Some(rb), Some(repo)) = (self.history.rebase.take(), self.history.repo.clone()) {
                 self.git.busy += 1;
-                self.set_status("Rebase en cours…");
+                self.set_status(t!("Rebase en cours…", "Rebase in progress…"));
                 self.jobs.spawn(move || JobResult::GitOp {
-                    label: if crate::rebase::splits(&rb.steps) { "rebase (découpage)".into() } else { "rebase".into() },
+                    label: if crate::rebase::splits(&rb.steps) { t!("rebase (découpage)", "rebase (splitting)").into() } else { "rebase".into() },
                     result: crate::rebase::run(&repo, &rb.from, &rb.steps, crate::rebase::self_editor),
                     status: None,
                 });
@@ -1069,7 +1072,7 @@ impl App {
         if !wip_ops.is_empty() {
             // everything leaves the side shown: empty at once, git's new diff follows
             if let Some(d) = self.history.diff.as_mut() {
-                d.text = "(aucune différence)".into();
+                d.text = t!("(aucune différence)", "(no difference)").into();
                 d.lines = history::parse_diff(&d.text);
                 d.files = Vec::new();
             }
@@ -1122,9 +1125,9 @@ pub(super) fn worktree_diff(repo: &Path, args: &[&str]) -> Result<String, String
 /// (commit now, ask Claude).
 fn commit_box(ui: &mut egui::Ui, msg: &mut String, focus: bool, n_staged: usize, n_changed: usize, suggesting: bool, accent: Color32) -> (bool, bool) {
     let (label, tip) = if n_staged > 0 {
-        (format!("✔ Commit ({n_staged} indexé(s))"), "Valide les fichiers indexés")
+        (tf!("✔ Commit ({n_staged} indexé(s))", "✔ Commit ({n_staged} staged)"), t!("Valide les fichiers indexés", "Commits the staged files"))
     } else {
-        (format!("✔ Commit tout ({n_changed})"), "Rien d'indexé : valide toutes les modifications des fichiers suivis")
+        (tf!("✔ Commit tout ({n_changed})", "✔ Commit all ({n_changed})"), t!("Rien d'indexé : valide toutes les modifications des fichiers suivis", "Nothing staged: commits all the changes of the tracked files"))
     };
     let can = !msg.trim().is_empty() && (n_staged > 0 || n_changed > 0);
     let (mut go, mut suggest) = (false, false);
@@ -1133,10 +1136,10 @@ fn commit_box(ui: &mut egui::Ui, msg: &mut String, focus: bool, n_staged: usize,
             let clicked = ui.add_enabled(can, filled_button(label, accent)).on_hover_text(tip).clicked();
             if suggesting {
                 ui.spinner();
-            } else if ui.button("✨").on_hover_text("Claude propose le message d'après les changements (indexés, sinon tous) et ta demande dans l'onglet Claude").clicked() {
+            } else if ui.button("✨").on_hover_text(t!("Claude propose le message d'après les changements (indexés, sinon tous) et ta demande dans l'onglet Claude", "Claude suggests the message from the changes (staged, else all) and your request in the Claude tab")).clicked() {
                 suggest = true;
             }
-            let resp = ui.add(egui::TextEdit::multiline(msg).hint_text("Message du commit (Ctrl+Entrée)").desired_rows(1).desired_width(f32::INFINITY));
+            let resp = ui.add(egui::TextEdit::multiline(msg).hint_text(t!("Message du commit (Ctrl+Entrée)", "Commit message (Ctrl+Enter)")).desired_rows(1).desired_width(f32::INFINITY));
             if focus {
                 resp.request_focus();
             }

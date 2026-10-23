@@ -21,7 +21,7 @@ fn gh_with(dir: &Path, args: &[&str], input: Option<String>) -> Result<String, S
         .env("GH_PROMPT_DISABLED", "1")
         .env("NO_COLOR", "1")
         .spawn()
-        .map_err(|_| NOT_INSTALLED.to_string())?;
+        .map_err(|_| not_installed())?;
     if let (Some(mut stdin), Some(text)) = (child.stdin.take(), input) {
         std::thread::spawn(move || {
             use std::io::Write;
@@ -34,12 +34,20 @@ fn gh_with(dir: &Path, args: &[&str], input: Option<String>) -> Result<String, S
         Ok(stdout)
     } else {
         let e = String::from_utf8_lossy(&out.stderr).trim().to_string();
-        Err(if e.contains("gh auth login") { NOT_LOGGED.to_string() } else { e })
+        Err(if e.contains("gh auth login") { not_logged().to_string() } else { e })
     }
 }
 
-pub const NOT_INSTALLED: &str = "La commande gh (GitHub CLI) est introuvable. Installe-la (paquet « github-cli » ou « gh »), puis connecte-toi avec : gh auth login";
-pub const NOT_LOGGED: &str = "gh n'est pas connecté à GitHub. Lance une fois dans un terminal : gh auth login (connexion par le navigateur, sans token à créer)";
+pub fn not_installed() -> String {
+    t!(
+        "La commande gh (GitHub CLI) est introuvable. Installe-la (paquet « github-cli » ou « gh »), puis connecte-toi avec : gh auth login",
+        "The gh command (GitHub CLI) was not found. Install it (package “github-cli” or “gh”), then log in with: gh auth login"
+    )
+    .to_string()
+}
+fn not_logged() -> &'static str {
+    t!("gh n'est pas connecté à GitHub. Lance une fois dans un terminal : gh auth login (connexion par le navigateur, sans token à créer)", "gh is not logged in to GitHub. Run once in a terminal: gh auth login (login through the browser, no token to create)")
+}
 
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct Author {
@@ -66,7 +74,12 @@ pub struct PrSummary {
 }
 
 /// Which pull requests: all, mine, those where my review is asked, those I reviewed.
-pub const WHO: [(&str, &str); 4] = [("", "Toutes"), ("author:@me", "Les miennes"), ("review-requested:@me", "À relire par moi"), ("reviewed-by:@me", "Relues par moi")];
+pub const WHO: [(&str, &str, &str); 4] = [
+    ("", "Toutes", "All"),
+    ("author:@me", "Les miennes", "Mine"),
+    ("review-requested:@me", "À relire par moi", "To review by me"),
+    ("reviewed-by:@me", "Relues par moi", "Reviewed by me"),
+];
 
 /// Pull requests of the repository of `dir`: "open", "closed", "merged" or "all"; `search`: a
 /// GitHub search filter of `WHO`.

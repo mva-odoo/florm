@@ -87,9 +87,9 @@ fn pref_group(ui: &mut egui::Ui, rc: &RowCtx, title: &str, color: Color32) {
 /// « Installé » in green, or « Non installé ».
 fn install_state(ui: &mut egui::Ui, installed: bool) {
     if installed {
-        ui.label(RichText::new("Installé").color(ok()));
+        ui.label(RichText::new(t!("Installé", "Installed")).color(ok()));
     } else {
-        ui.label(RichText::new("Non installé").weak());
+        ui.label(RichText::new(t!("Non installé", "Not installed")).weak());
     }
 }
 
@@ -133,9 +133,10 @@ impl App {
             .resizable(false)
             .frame(egui::Frame::none().fill(panel).inner_margin(egui::Margin::symmetric(12.0, 16.0)))
             .show_inside(ui, |ui| {
-                ui.label(RichText::new("Préférences").size(19.0).strong());
+                ui.label(RichText::new(t!("Préférences", "Preferences")).size(19.0).strong());
                 ui.add_space(12.0);
-                for (sec, label) in PREF_SECTIONS {
+                for (sec, fr, en) in PREF_SECTIONS {
+                    let label = t!(fr, en);
                     let selected = self.prefs.section == sec && self.prefs.filter.is_empty();
                     let (rect, r) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 32.0), Sense::click());
                     let v = ui.visuals();
@@ -164,7 +165,7 @@ impl App {
             .show_inside(ui, |ui| {
                 ui.add(
                     egui::TextEdit::singleline(&mut self.prefs.filter)
-                        .hint_text("Rechercher un réglage…")
+                        .hint_text(t!("Rechercher un réglage…", "Search a setting…"))
                         .desired_width(420.0)
                         .font(egui::FontId::proportional(15.0)),
                 );
@@ -174,11 +175,11 @@ impl App {
                     let sections: Vec<PrefSection> = if self.prefs.filter.is_empty() {
                         vec![self.prefs.section]
                     } else {
-                        PREF_SECTIONS.iter().map(|(s, _)| *s).collect()
+                        PREF_SECTIONS.iter().map(|(s, _, _)| *s).collect()
                     };
                     let searching = !self.prefs.filter.is_empty();
                     for sec in sections {
-                        let name = PREF_SECTIONS.iter().find(|(s, _)| *s == sec).map(|(_, n)| *n).unwrap_or("");
+                        let name = PREF_SECTIONS.iter().find(|(s, _, _)| *s == sec).map(|(_, fr, en)| t!(*fr, *en)).unwrap_or("");
                         let mut rc = RowCtx { filter: self.prefs.filter.clone(), header: None };
                         if searching {
                             rc.header = Some((name.to_uppercase(), self.hl.colors.accent));
@@ -200,16 +201,26 @@ impl App {
         let mut note: Option<String> = None;
         match sec {
             PrefSection::Appearance => {
+                pref_row(ui, rc, t!("Langue", "Language"), t!("Langue des menus, des panneaux et des messages (Language).", "Language of the menus, panels and messages (Langue)."), |ui| {
+                    let cur = crate::i18n::from_code(&s.language);
+                    egui::ComboBox::from_id_salt("pref_language").selected_text(crate::i18n::name(cur)).width(220.0).show_ui(ui, |ui| {
+                        for (l, code, name) in crate::i18n::LANGS {
+                            if ui.selectable_label(cur == l, name).clicked() {
+                                s.language = code.to_string();
+                            }
+                        }
+                    });
+                });
                 let themes: Vec<(String, Option<highlight::ThemePreview>)> =
                     self.hl.theme_names().into_iter().map(|n| (n.clone(), self.hl.preview(&n))).collect();
-                pref_row(ui, rc, "Thème", "Couleurs de l'éditeur et de l'interface. Les .tmTheme du dossier « themes » de la configuration sont listés aussi.", |ui| {
+                pref_row(ui, rc, t!("Thème", "Theme"), t!("Couleurs de l'éditeur et de l'interface. Les .tmTheme du dossier « themes » de la configuration sont listés aussi.", "Colors of the editor and of the interface. The .tmTheme files of the “themes” folder of the configuration are listed too."), |ui| {
                     egui::ComboBox::from_id_salt("pref_theme").selected_text(&s.theme).width(220.0).show_ui(ui, |ui| {
                         for (t, _) in &themes {
                             ui.selectable_value(&mut s.theme, t.clone(), t);
                         }
                     });
                 });
-                if rc.matches(&["Thème", "couleurs", "aperçu"]) {
+                if rc.matches(&[t!("Thème", "Theme"), t!("couleurs", "colors"), t!("aperçu", "preview")]) {
                     // the themes side by side, with a few colors of each: a click chooses it
                     ui.horizontal_wrapped(|ui| {
                         ui.spacing_mut().item_spacing = egui::vec2(10.0, 10.0);
@@ -228,16 +239,16 @@ impl App {
                 let mut theme_act = None;
                 let mut drop_theme = false;
                 if self.prefs.theme_draft.is_none() {
-                    pref_row(ui, rc, "Couleurs du thème", "Un thème à toi : les couleurs de l'éditeur et du code, à partir du thème choisi, enregistré dans le dossier « themes » de la configuration.", |ui| {
-                        if current_is_user && ui.button("Supprimer ce thème").clicked() {
+                    pref_row(ui, rc, t!("Couleurs du thème", "Theme colors"), t!("Un thème à toi : les couleurs de l'éditeur et du code, à partir du thème choisi, enregistré dans le dossier « themes » de la configuration.", "A theme of your own: the colors of the editor and of the code, starting from the chosen theme, saved in the “themes” folder of the configuration."), |ui| {
+                        if current_is_user && ui.button(t!("Supprimer ce thème", "Delete this theme")).clicked() {
                             drop_theme = true;
                         }
-                        let label = if current_is_user { "Modifier ce thème".to_string() } else { format!("Créer un thème à partir de « {} »", s.theme) };
+                        let label = if current_is_user { t!("Modifier ce thème", "Edit this theme").to_string() } else { tf!("Créer un thème à partir de « {} »", "Create a theme from “{}”", s.theme) };
                         if ui.button(label).clicked() {
                             theme_act = Some(None);
                         }
                     });
-                } else if rc.matches(&["Couleurs du thème", "thème", "couleurs"]) {
+                } else if rc.matches(&[t!("Couleurs du thème", "Theme colors"), t!("thème", "theme"), t!("couleurs", "colors")]) {
                     let builtin: Vec<String> = self.hl.theme_names().into_iter().filter(|n| !user_theme(n)).collect();
                     let accent = self.hl.colors.accent;
                     if let Some(d) = self.prefs.theme_draft.as_mut() {
@@ -267,7 +278,7 @@ impl App {
                                     self.hl.set_theme(&name);
                                     s.theme = name;
                                 }
-                                Err(e) => note = Some(format!("Thème non enregistré : {e}")),
+                                Err(e) => note = Some(tf!("Thème non enregistré : {e}", "Theme not saved: {e}")),
                             }
                         }
                     }
@@ -287,12 +298,12 @@ impl App {
                     s.theme = "Florm".into();
                 }
                 let theme_accent = self.hl.preview(&s.theme).map(|p| p.accent).unwrap_or(self.hl.colors.accent);
-                pref_row(ui, rc, "Couleur d'accentuation", "Boutons principaux, onglet actif, sélection dans les listes. Par défaut celle du thème.", |ui| {
+                pref_row(ui, rc, t!("Couleur d'accentuation", "Accent color"), t!("Boutons principaux, onglet actif, sélection dans les listes. Par défaut celle du thème.", "Main buttons, active tab, selection in lists. By default the theme's."), |ui| {
                     let mut c = highlight::parse_hex(&s.accent_color).unwrap_or(theme_accent);
                     if egui::color_picker::color_edit_button_srgba(ui, &mut c, egui::color_picker::Alpha::Opaque).changed() {
                         s.accent_color = highlight::to_hex(c);
                     }
-                    for (hex, tip) in [("#4F8CFF", "Bleu"), ("#2EA043", "Vert"), ("#D2A8FF", "Violet"), ("#F0883E", "Orange"), ("#E5534B", "Rouge"), ("#39C5CF", "Cyan")] {
+                    for (hex, tip) in [("#4F8CFF", t!("Bleu", "Blue")), ("#2EA043", t!("Vert", "Green")), ("#D2A8FF", t!("Violet", "Purple")), ("#F0883E", "Orange"), ("#E5534B", t!("Rouge", "Red")), ("#39C5CF", "Cyan")] {
                         let col = highlight::parse_hex(hex).unwrap();
                         let (r, resp) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), Sense::click());
                         ui.painter().circle_filled(r.center(), 8.0, col);
@@ -303,17 +314,17 @@ impl App {
                             s.accent_color = hex.to_string();
                         }
                     }
-                    if !s.accent_color.is_empty() && ui.small_button("↺ Celle du thème").clicked() {
+                    if !s.accent_color.is_empty() && ui.small_button(t!("↺ Celle du thème", "↺ The theme's")).clicked() {
                         s.accent_color.clear();
                     }
                 });
-                pref_row(ui, rc, "Texte adouci", "Éclaircit les couleurs du texte (code et interface) : le texte paraît moins gras, surtout sur les thèmes clairs.", |ui| {
+                pref_row(ui, rc, t!("Texte adouci", "Softened text"), t!("Éclaircit les couleurs du texte (code et interface) : le texte paraît moins gras, surtout sur les thèmes clairs.", "Lightens the text colors (code and interface): the text looks less bold, especially on light themes."), |ui| {
                     let mut pct = (s.text_softness * 100.0).round();
                     if ui.add(egui::Slider::new(&mut pct, 0.0..=40.0).step_by(5.0).suffix(" %")).changed() {
                         s.text_softness = pct / 100.0;
                     }
                 });
-                pref_row(ui, rc, "Taille du texte", "Taille de la police de l'éditeur (Ctrl+= / Ctrl+- aussi).", |ui| {
+                pref_row(ui, rc, t!("Taille du texte", "Text size"), t!("Taille de la police de l'éditeur (Ctrl+= / Ctrl+- aussi).", "Font size of the editor (Ctrl+= / Ctrl+- too)."), |ui| {
                     ui.add(egui::Slider::new(&mut s.font_size, 9.0..=28.0).step_by(0.5).suffix(" px"));
                 });
                 if self.prefs.font_list.is_none() && !self.prefs.font_list_loading {
@@ -322,9 +333,9 @@ impl App {
                 }
                 let fonts = self.prefs.font_list.clone();
                 let font_combo = |ui: &mut egui::Ui, id: &str, value: &mut String, mono_only: bool, default: &str| {
-                    let shown = if value.is_empty() { format!("Par défaut ({default})") } else { value.clone() };
+                    let shown = if value.is_empty() { tf!("Par défaut ({default})", "Default ({default})") } else { value.clone() };
                     egui::ComboBox::from_id_salt(id).selected_text(shown).width(260.0).height(400.0).show_ui(ui, |ui| {
-                        ui.selectable_value(value, String::new(), format!("Par défaut ({default})"));
+                        ui.selectable_value(value, String::new(), tf!("Par défaut ({default})", "Default ({default})"));
                         match &fonts {
                             None => {
                                 ui.spinner();
@@ -339,68 +350,68 @@ impl App {
                 };
                 let def_editor = crate::fonts::default_editor_font().first().copied().unwrap_or("Hack");
                 let def_ui = crate::fonts::default_ui_font().first().copied().unwrap_or("Ubuntu");
-                pref_row(ui, rc, "Police de l'éditeur", "Polices à chasse fixe installées sur le système (code, terminal).", |ui| {
+                pref_row(ui, rc, t!("Police de l'éditeur", "Editor font"), t!("Polices à chasse fixe installées sur le système (code, terminal).", "Monospaced fonts installed on the system (code, terminal)."), |ui| {
                     font_combo(ui, "editor_font", &mut s.editor_font, true, def_editor);
                 });
-                pref_row(ui, rc, "Police de l'interface", "Menus, panneaux, onglets.", |ui| {
+                pref_row(ui, rc, t!("Police de l'interface", "Interface font"), t!("Menus, panneaux, onglets.", "Menus, panels, tabs."), |ui| {
                     font_combo(ui, "ui_font", &mut s.ui_font, false, def_ui);
                 });
-                pref_row(ui, rc, "Minimap", "Aperçu du fichier à droite de l'éditeur.", |ui| {
+                pref_row(ui, rc, "Minimap", t!("Aperçu du fichier à droite de l'éditeur.", "Overview of the file on the right of the editor."), |ui| {
                     toggle_switch(ui, &mut s.show_minimap);
                 });
-                pref_row(ui, rc, "Retour à la ligne automatique", "Les lignes plus longues que l'éditeur continuent sur les rangées suivantes, coupées après un espace et indentées comme la ligne (Alt+Z). Le fichier n'est pas modifié.", |ui| {
+                pref_row(ui, rc, t!("Retour à la ligne automatique", "Word wrap"), t!("Les lignes plus longues que l'éditeur continuent sur les rangées suivantes, coupées après un espace et indentées comme la ligne (Alt+Z). Le fichier n'est pas modifié.", "Lines longer than the editor go on over the next rows, cut after a space and indented like the line (Alt+Z). The file is not changed."), |ui| {
                     toggle_switch(ui, &mut s.word_wrap);
                 });
-                pref_row(ui, rc, "Classe et fonction figées en haut", "En défilant, les lignes class / def (ou les titres, les records…) qui contiennent le haut de l'écran y restent ; clic : y aller.", |ui| {
+                pref_row(ui, rc, t!("Classe et fonction figées en haut", "Sticky class and function"), t!("En défilant, les lignes class / def (ou les titres, les records…) qui contiennent le haut de l'écran y restent ; clic : y aller.", "While scrolling, the class / def lines (or the headings, the records…) containing the top of the screen stay there; click: go to it."), |ui| {
                     toggle_switch(ui, &mut s.sticky_scroll);
                 });
                 let rulers = &mut self.prefs.rulers;
-                pref_row(ui, rc, "Règles verticales", "Lignes verticales aux colonnes données, séparées par des virgules (ex. 79, 120). Vide : aucune.", |ui| {
+                pref_row(ui, rc, t!("Règles verticales", "Vertical rulers"), t!("Lignes verticales aux colonnes données, séparées par des virgules (ex. 79, 120). Vide : aucune.", "Vertical lines at the given columns, separated by commas (e.g. 79, 120). Empty: none."), |ui| {
                     let r = ui.add(egui::TextEdit::singleline(rulers).desired_width(120.0).font(egui::TextStyle::Monospace).hint_text("79, 120"));
                     if r.lost_focus() || r.changed() && ui.input(|i| i.key_pressed(Key::Enter)) {
                         s.rulers = rulers.split(',').filter_map(|c| c.trim().parse().ok()).filter(|c| *c > 0).collect();
                     }
                 });
-                pref_row(ui, rc, "Barre de menus", "Fichier, Édition, Sélection… en haut de la fenêtre. Masquée, les menus restent accessibles par ☰ en bas à gauche.", |ui| {
+                pref_row(ui, rc, t!("Barre de menus", "Menu bar"), t!("Fichier, Édition, Sélection… en haut de la fenêtre. Masquée, les menus restent accessibles par ☰ en bas à gauche.", "File, Edit, Selection… at the top of the window. Hidden, the menus are still under ☰ at the bottom left."), |ui| {
                     toggle_switch(ui, &mut s.show_menu_bar);
                 });
-                pref_row(ui, rc, "Fil d'Ariane", "Dossier › fichier › classe › fonction au-dessus de l'éditeur ; clic sur un élément pour y aller.", |ui| {
+                pref_row(ui, rc, t!("Fil d'Ariane", "Breadcrumbs"), t!("Dossier › fichier › classe › fonction au-dessus de l'éditeur ; clic sur un élément pour y aller.", "Folder › file › class › function above the editor; click an item to go to it."), |ui| {
                     toggle_switch(ui, &mut s.breadcrumbs);
                 });
             }
             PrefSection::Editor => {
-                pref_row(ui, rc, "Largeur des tabulations", "Nombre de colonnes d'une tabulation et d'un niveau d'indentation.", |ui| {
+                pref_row(ui, rc, t!("Largeur des tabulations", "Tab width"), t!("Nombre de colonnes d'une tabulation et d'un niveau d'indentation.", "Number of columns of a tab and of an indentation level."), |ui| {
                     ui.add(egui::Slider::new(&mut s.tab_size, 1..=8));
                 });
-                pref_row(ui, rc, "Indenter avec des espaces", "Tab insère des espaces plutôt qu'un caractère de tabulation (les fichiers existants gardent leur style).", |ui| {
+                pref_row(ui, rc, t!("Indenter avec des espaces", "Indent with spaces"), t!("Tab insère des espaces plutôt qu'un caractère de tabulation (les fichiers existants gardent leur style).", "Tab inserts spaces rather than a tab character (existing files keep their style)."), |ui| {
                     toggle_switch(ui, &mut s.translate_tabs_to_spaces);
                 });
-                pref_row(ui, rc, "Fermeture automatique", "Ferme automatiquement ( [ { \" ' ` et entoure la sélection.", |ui| {
+                pref_row(ui, rc, t!("Fermeture automatique", "Auto-close brackets"), t!("Ferme automatiquement ( [ { \" ' ` et entoure la sélection.", "Closes ( [ { \" ' ` automatically and surrounds the selection."), |ui| {
                     toggle_switch(ui, &mut s.auto_pair);
                 });
-                pref_row(ui, rc, "Supprimer les espaces en fin de ligne", "À chaque enregistrement.", |ui| {
+                pref_row(ui, rc, t!("Supprimer les espaces en fin de ligne", "Trim trailing whitespace"), t!("À chaque enregistrement.", "On every save."), |ui| {
                     toggle_switch(ui, &mut s.trim_trailing_whitespace_on_save);
                 });
-                pref_row(ui, rc, "Serveurs de langage (LSP)", "Complétion (Ctrl+Espace), aller à la définition (F12), renommer (F2). Serveurs détectés : pyright / pylsp, typescript-language-server, rust-analyzer, gopls, clangd.", |ui| {
+                pref_row(ui, rc, t!("Serveurs de langage (LSP)", "Language servers (LSP)"), t!("Complétion (Ctrl+Espace), aller à la définition (F12), renommer (F2). Serveurs détectés : pyright / pylsp, typescript-language-server, rust-analyzer, gopls, clangd.", "Completion (Ctrl+Space), go to definition (F12), rename (F2). Servers detected: pyright / pylsp, typescript-language-server, rust-analyzer, gopls, clangd."), |ui| {
                     toggle_switch(ui, &mut s.lsp);
                 });
-                pref_row(ui, rc, "Recherche dans le dossier en onglet", "Ctrl+Shift+F ouvre la recherche dans un onglet de l'éditeur plutôt que dans le panneau du bas (boutons ⇱ / ⇲ pour changer).", |ui| {
+                pref_row(ui, rc, t!("Recherche dans le dossier en onglet", "Find in folder in a tab"), t!("Ctrl+Shift+F ouvre la recherche dans un onglet de l'éditeur plutôt que dans le panneau du bas (boutons ⇱ / ⇲ pour changer).", "Ctrl+Shift+F opens the search in an editor tab rather than in the bottom panel (⇱ / ⇲ buttons to switch)."), |ui| {
                     toggle_switch(ui, &mut s.search_in_tab);
                 });
-                pref_row(ui, rc, "Claude en onglet", "Ctrl+Alt+C ouvre Claude dans un onglet de l'éditeur plutôt que dans le panneau du bas (boutons ⇱ / ⇲ pour changer).", |ui| {
+                pref_row(ui, rc, t!("Claude en onglet", "Claude in a tab"), t!("Ctrl+Alt+C ouvre Claude dans un onglet de l'éditeur plutôt que dans le panneau du bas (boutons ⇱ / ⇲ pour changer).", "Ctrl+Alt+C opens Claude in an editor tab rather than in the bottom panel (⇱ / ⇲ buttons to switch)."), |ui| {
                     toggle_switch(ui, &mut s.claude_in_tab);
                 });
-                pref_row(ui, rc, "Garder le travail non enregistré", "À la fermeture (ou en changeant de projet), les modifications non enregistrées sont gardées et rouvertes ensuite, sans question.", |ui| {
+                pref_row(ui, rc, t!("Garder le travail non enregistré", "Keep unsaved work"), t!("À la fermeture (ou en changeant de projet), les modifications non enregistrées sont gardées et rouvertes ensuite, sans question.", "When closing (or switching project), unsaved changes are kept and reopened later, without asking."), |ui| {
                     toggle_switch(ui, &mut s.hot_exit);
                 });
             }
             PrefSection::Lint => {
                 let accent = self.hl.colors.accent;
-                pref_group(ui, rc, "Quand vérifier", accent);
-                pref_row(ui, rc, "Vérifier pendant la frappe", "Les fichiers Python sont vérifiés une demi-seconde après la dernière touche, sans enregistrer.", |ui| {
+                pref_group(ui, rc, t!("Quand vérifier", "When to check"), accent);
+                pref_row(ui, rc, t!("Vérifier pendant la frappe", "Check while typing"), t!("Les fichiers Python sont vérifiés une demi-seconde après la dernière touche, sans enregistrer.", "Python files are checked half a second after the last key, without saving."), |ui| {
                     toggle_switch(ui, &mut s.lint_live);
                 });
-                pref_row(ui, rc, "Vérifier à l'enregistrement", "Lance le linter (Python, JavaScript) à chaque enregistrement.", |ui| {
+                pref_row(ui, rc, t!("Vérifier à l'enregistrement", "Check on save"), t!("Lance le linter (Python, JavaScript) à chaque enregistrement.", "Runs the linter (Python, JavaScript) on every save."), |ui| {
                     toggle_switch(ui, &mut s.lint_on_save);
                 });
                 let status: Vec<(&str, bool)> =
@@ -408,10 +419,10 @@ impl App {
                 let installed = |n: &str| status.iter().any(|(m, i)| *m == n && *i);
 
                 pref_group(ui, rc, "Python", accent);
-                pref_row(ui, rc, "Linter Python", "« Automatique » prend flake8, sinon ruff, sinon pyflakes ; un linter qui plante est signalé en ligne 1 et le suivant prend le relais. ruff est le plus rapide et le plus léger (quelques Mo, en Rust). La configuration du projet (setup.cfg, .flake8, tox.ini, pyproject.toml) est lue.", |ui| {
+                pref_row(ui, rc, t!("Linter Python", "Python linter"), t!("« Automatique » prend flake8, sinon ruff, sinon pyflakes ; un linter qui plante est signalé en ligne 1 et le suivant prend le relais. ruff est le plus rapide et le plus léger (quelques Mo, en Rust). La configuration du projet (setup.cfg, .flake8, tox.ini, pyproject.toml) est lue.", "“Automatic” takes flake8, else ruff, else pyflakes; a linter that crashes is reported on line 1 and the next one takes over. ruff is the fastest and lightest (a few MB, in Rust). The project configuration (setup.cfg, .flake8, tox.ini, pyproject.toml) is read."), |ui| {
                     let label = |n: &str| match n {
-                        "auto" => "Automatique".to_string(),
-                        n => format!("{n}{}", if installed(n) { " — installé" } else { " — non installé" }),
+                        "auto" => t!("Automatique", "Automatic").to_string(),
+                        n => format!("{n}{}", if installed(n) { t!(" — installé", " — installed") } else { t!(" — non installé", " — not installed") }),
                     };
                     egui::ComboBox::from_id_salt("pref_linter").selected_text(label(&s.python_linter)).width(220.0).show_ui(ui, |ui| {
                         for n in ["auto", "flake8", "ruff", "pyflakes", "pylint"] {
@@ -420,7 +431,7 @@ impl App {
                     });
                 });
                 let args = &mut self.prefs.lint_args;
-                pref_row(ui, rc, "Arguments du linter", "Ajoutés à la ligne de commande, séparés par des espaces. Ex. : --max-line-length=120 (en automatique, ruff ne reçoit que la longueur de ligne).", |ui| {
+                pref_row(ui, rc, t!("Arguments du linter", "Linter arguments"), t!("Ajoutés à la ligne de commande, séparés par des espaces. Ex. : --max-line-length=120 (en automatique, ruff ne reçoit que la longueur de ligne).", "Added to the command line, separated by spaces. E.g.: --max-line-length=120 (in automatic mode, ruff only gets the line length)."), |ui| {
                     let r = ui.add(egui::TextEdit::singleline(args).desired_width(260.0).font(egui::TextStyle::Monospace).hint_text("--max-line-length=120"));
                     if r.lost_focus() || r.changed() && ui.input(|i| i.key_pressed(Key::Enter)) {
                         s.python_lint_args = args.split_whitespace().map(String::from).collect();
@@ -429,10 +440,10 @@ impl App {
 
                 // each linter: where it comes from, then the codes it should not report
                 let about = [
-                    ("flake8", format!("pycodestyle + pyflakes, codes E / W / F. Installé par Florm dans {} (sans toucher au Python du système).", lint::tools_dir().display())),
-                    ("ruff", "Le plus rapide (en Rust), mêmes codes que flake8 et bien d'autres (I, B, UP…). Cherché dans le PATH (pip install ruff).".to_string()),
-                    ("pylint", "Le plus complet et le plus lent, codes C / R / W / E (ou leur nom). Utilisé seulement quand il est choisi plus haut.".to_string()),
-                    ("eslint", "JavaScript et TypeScript, à l'enregistrement. Celui du projet (node_modules/.bin) d'abord, sinon celui du PATH ; sa configuration est lue.".to_string()),
+                    ("flake8", tf!("pycodestyle + pyflakes, codes E / W / F. Installé par Florm dans {} (sans toucher au Python du système).", "pycodestyle + pyflakes, codes E / W / F. Installed by Florm in {} (without touching the system's Python).", lint::tools_dir().display())),
+                    ("ruff", t!("Le plus rapide (en Rust), mêmes codes que flake8 et bien d'autres (I, B, UP…). Cherché dans le PATH (pip install ruff).", "The fastest (in Rust), same codes as flake8 and many more (I, B, UP…). Looked for in the PATH (pip install ruff).").to_string()),
+                    ("pylint", t!("Le plus complet et le plus lent, codes C / R / W / E (ou leur nom). Utilisé seulement quand il est choisi plus haut.", "The most complete and the slowest, codes C / R / W / E (or their name). Used only when chosen above.").to_string()),
+                    ("eslint", t!("JavaScript et TypeScript, à l'enregistrement. Celui du projet (node_modules/.bin) d'abord, sinon celui du PATH ; sa configuration est lue.", "JavaScript and TypeScript, on save. The project's one (node_modules/.bin) first, else the one in the PATH; its configuration is read.").to_string()),
                 ];
                 for (k, (name, example)) in lint::WITH_CODES.iter().enumerate() {
                     let title = if *name == "eslint" { "JavaScript — ESLint" } else { name };
@@ -440,7 +451,7 @@ impl App {
                     let desc = about.iter().find(|(n, _)| n == name).map_or("", |(_, d)| d.as_str());
                     pref_row(ui, rc, name, desc, |ui| match *name {
                         "flake8" => {
-                            if ui.button(if installed(name) { "Mettre à jour" } else { "Installer flake8" }).clicked() {
+                            if ui.button(if installed(name) { t!("Mettre à jour", "Update") } else { t!("Installer flake8", "Install flake8") }).clicked() {
                                 actions.push(Cmd::InstallFlake8);
                             }
                             install_state(ui, installed(name));
@@ -449,8 +460,8 @@ impl App {
                         _ => install_state(ui, installed(name)),
                     });
                     let buf = &mut self.prefs.lint_ignore[k];
-                    let desc = format!("Problèmes de {name} à ne pas afficher, séparés par des virgules : un code, un préfixe (E5 : tous les E5xx){}.", if matches!(*name, "pylint" | "eslint") { " ou le nom d'une règle" } else { "" });
-                    pref_row(ui, rc, &format!("Codes ignorés par {name}"), &desc, |ui| {
+                    let desc = tf!("Problèmes de {name} à ne pas afficher, séparés par des virgules : un code, un préfixe (E5 : tous les E5xx){}.", "Problems of {name} not to show, separated by commas: a code, a prefix (E5: all the E5xx){}.", if matches!(*name, "pylint" | "eslint") { t!(" ou le nom d'une règle", " or the name of a rule") } else { "" });
+                    pref_row(ui, rc, &tf!("Codes ignorés par {name}", "Codes ignored by {name}"), &desc, |ui| {
                         let r = ui.add(egui::TextEdit::singleline(buf).desired_width(260.0).font(egui::TextStyle::Monospace).hint_text(*example));
                         if r.lost_focus() || r.changed() && ui.input(|i| i.key_pressed(Key::Enter)) {
                             *s.lint_ignore_mut(name) = codes_of(buf);
@@ -459,23 +470,23 @@ impl App {
                 }
 
                 pref_group(ui, rc, "pyflakes", accent);
-                pref_row(ui, rc, "pyflakes", "Le dernier recours de « Automatique », seulement les erreurs. Ses messages n'ont pas de code : rien à ignorer (flake8 l'inclut, avec des codes).", |ui| {
+                pref_row(ui, rc, "pyflakes", t!("Le dernier recours de « Automatique », seulement les erreurs. Ses messages n'ont pas de code : rien à ignorer (flake8 l'inclut, avec des codes).", "The last resort of “Automatic”, errors only. Its messages have no code: nothing to ignore (flake8 includes it, with codes)."), |ui| {
                     install_state(ui, installed("pyflakes"));
                 });
-                pref_group(ui, rc, "XML et JSON", accent);
-                pref_row(ui, rc, "XML et JSON", "La syntaxe est vérifiée par Florm lui-même, sans rien installer.", |ui| {
-                    ui.label(RichText::new("Intégré").color(ok()));
+                pref_group(ui, rc, t!("XML et JSON", "XML and JSON"), accent);
+                pref_row(ui, rc, t!("XML et JSON", "XML and JSON"), t!("La syntaxe est vérifiée par Florm lui-même, sans rien installer.", "The syntax is checked by Florm itself, with nothing to install."), |ui| {
+                    ui.label(RichText::new(t!("Intégré", "Built in")).color(ok()));
                 });
             }
             PrefSection::Git => {
-                pref_row(ui, rc, "Branche et remote dans l'arborescence", "Sur le dossier de chaque dépôt git : sa branche, la branche distante suivie (↑ à pousser, ↓ à récupérer) et le nombre de fichiers modifiés ; survol : les remotes.", |ui| {
+                pref_row(ui, rc, t!("Branche et remote dans l'arborescence", "Branch and remote in the tree"), t!("Sur le dossier de chaque dépôt git : sa branche, la branche distante suivie (↑ à pousser, ↓ à récupérer) et le nombre de fichiers modifiés ; survol : les remotes.", "On the folder of each git repository: its branch, the tracked remote branch (↑ to push, ↓ to pull) and the number of changed files; hover: the remotes."), |ui| {
                     toggle_switch(ui, &mut s.tree_git_info);
                 });
-                pref_row(ui, rc, "Diff dans l'éditeur", "Lignes ajoutées en vert et anciennes lignes en rouge directement dans le code (Ctrl+Alt+D).", |ui| {
+                pref_row(ui, rc, t!("Diff dans l'éditeur", "Diff in the editor"), t!("Lignes ajoutées en vert et anciennes lignes en rouge directement dans le code (Ctrl+Alt+D).", "Added lines in green and old lines in red right in the code (Ctrl+Alt+D)."), |ui| {
                     toggle_switch(ui, &mut s.inline_diff);
                 });
                 let mut blame = self.blame_mode;
-                pref_row(ui, rc, "Blame de la ligne", "Auteur et commit de la ligne courante en fin de ligne (Ctrl+B). Non mémorisé entre les sessions.", |ui| {
+                pref_row(ui, rc, t!("Blame de la ligne", "Line blame"), t!("Auteur et commit de la ligne courante en fin de ligne (Ctrl+B). Non mémorisé entre les sessions.", "Author and commit of the current line at the end of the line (Ctrl+B). Not kept between sessions."), |ui| {
                     if toggle_switch(ui, &mut blame).changed() {
                         actions.push(Cmd::GitBlame);
                     }
@@ -483,7 +494,7 @@ impl App {
             }
             PrefSection::Terminal => {
                 let shell = &mut self.prefs.shell;
-                pref_row(ui, rc, "Shell", "Shell lancé dans le terminal intégré (ex. bash, zsh, fish, powershell). Vide : $SHELL (Linux / macOS) ou cmd (Windows). Pris en compte pour les nouveaux terminaux.", |ui| {
+                pref_row(ui, rc, "Shell", t!("Shell lancé dans le terminal intégré (ex. bash, zsh, fish, powershell). Vide : $SHELL (Linux / macOS) ou cmd (Windows). Pris en compte pour les nouveaux terminaux.", "Shell run in the built-in terminal (e.g. bash, zsh, fish, powershell). Empty: $SHELL (Linux / macOS) or cmd (Windows). Applies to new terminals."), |ui| {
                     let r = ui.add(egui::TextEdit::singleline(shell).desired_width(260.0).font(egui::TextStyle::Monospace).hint_text("/bin/bash"));
                     if r.lost_focus() {
                         s.shell = (!shell.trim().is_empty()).then(|| shell.trim().to_string());
@@ -494,7 +505,7 @@ impl App {
                 let mut key_action = None;
                 if rc.filter.is_empty() {
                     ui.label(
-                        RichText::new("Clique sur un raccourci puis appuie sur la nouvelle combinaison (Ctrl+K puis une touche pour un enchaînement). Échap annule.")
+                        RichText::new(t!("Clique sur un raccourci puis appuie sur la nouvelle combinaison (Ctrl+K puis une touche pour un enchaînement). Échap annule.", "Click a shortcut then press the new combination (Ctrl+K then a key for a chord). Escape cancels."))
                             .weak()
                             .size(12.5),
                     );
@@ -509,17 +520,18 @@ impl App {
                         .rounding(8.0)
                         .inner_margin(egui::Margin::same(10.0))
                         .show(ui, |ui| {
-                            ui.label(format!(
+                            ui.label(tf!(
                                 "« {} » est déjà utilisé par « {} ». L'attribuer à « {} » ?",
+                                "“{}” is already used by “{}”. Assign it to “{}”?",
                                 keymap::seq_label(seq),
                                 other.map(name).unwrap_or_default(),
                                 name(*cmd)
                             ));
                             ui.horizontal(|ui| {
-                                if ui.button(RichText::new("Remplacer").color(warn())).clicked() {
+                                if ui.button(RichText::new(t!("Remplacer", "Replace")).color(warn())).clicked() {
                                     key_action = Some(KeyAction::Confirm);
                                 }
-                                if ui.button("Annuler").clicked() {
+                                if ui.button(t!("Annuler", "Cancel")).clicked() {
                                     key_action = Some(KeyAction::Cancel);
                                 }
                             });
@@ -528,6 +540,7 @@ impl App {
                 }
                 let capturing = self.prefs.capture;
                 for (id, label, cmd) in commands::ALL.iter().filter(|(_, l, _)| !l.is_empty()) {
+                    let label = &commands::label(id, label);
                     let keys = self.keymap.label(*cmd);
                     if !rc.matches(&[label, &keys, id]) {
                         continue;
@@ -550,27 +563,27 @@ impl App {
                             Some(c) => (
                                 match c.first {
                                     Some(f) => format!("{} …", f.label()),
-                                    None => "Appuyez sur une combinaison…".to_string(),
+                                    None => t!("Appuyez sur une combinaison…", "Press a combination…").to_string(),
                                 },
                                 self.hl.colors.accent,
                             ),
-                            None if keys.is_empty() => ("Ajouter".to_string(), ui.visuals().weak_text_color()),
+                            None if keys.is_empty() => (t!("Ajouter", "Add").to_string(), ui.visuals().weak_text_color()),
                             None => (keys.clone(), ui.visuals().strong_text_color()),
                         };
                         let chip = egui::Button::new(RichText::new(text).monospace().color(color))
                             .fill(ui.visuals().widgets.inactive.bg_fill)
                             .min_size(egui::vec2(210.0, 24.0));
-                        if ui.add(chip).on_hover_text("Cliquer pour changer").clicked() {
+                        if ui.add(chip).on_hover_text(t!("Cliquer pour changer", "Click to change")).clicked() {
                             key_action = Some(KeyAction::Capture(*cmd));
                         }
-                        if !keys.is_empty() && ui.button("×").on_hover_text("Supprimer ce raccourci").clicked() {
+                        if !keys.is_empty() && ui.button("×").on_hover_text(t!("Supprimer ce raccourci", "Remove this shortcut")).clicked() {
                             key_action = Some(KeyAction::Unbind(*cmd));
                         }
                         if customized {
-                            if ui.button("↺").on_hover_text("Revenir au raccourci par défaut").clicked() {
+                            if ui.button("↺").on_hover_text(t!("Revenir au raccourci par défaut", "Back to the default shortcut")).clicked() {
                                 key_action = Some(KeyAction::Reset(*cmd));
                             }
-                            ui.label(RichText::new("modifié").small().color(self.hl.colors.accent));
+                            ui.label(RichText::new(t!("modifié", "changed")).small().color(self.hl.colors.accent));
                         }
                         ui.label(RichText::new(*id).weak().small());
                     });
@@ -580,7 +593,7 @@ impl App {
                 }
             }
             PrefSection::Templates => {
-                if rc.matches(&["Modèles", "modèle", "template", "snippet", "déclencheur"]) {
+                if rc.matches(&["Modèles", "modèle", "template", "snippet", "déclencheur", "trigger"]) {
                     rc.header(ui);
                     if self.templates.is_empty() {
                         self.templates = crate::templates::load(&crate::templates::dir());
@@ -600,7 +613,7 @@ impl App {
                         Some(template_edit::TplAct::Delete) => {
                             if let Some(d) = self.prefs.template.take() {
                                 if let Err(e) = d.delete() {
-                                    self.log(format!("Modèle non supprimé : {e}"));
+                                    self.log(tf!("Modèle non supprimé : {e}", "Template not deleted: {e}"));
                                 }
                                 reload = true;
                             }
@@ -618,8 +631,8 @@ impl App {
                 pref_row(
                     ui,
                     rc,
-                    "Fichiers exclus",
-                    "Ni dans « aller au fichier » (Ctrl+P), ni dans l'index des symboles, ni dans la recherche. Séparés par des virgules, syntaxe .gitignore (dossier/ ou *.ext). Le .gitignore des dépôts et .git sont toujours appliqués.",
+                    t!("Fichiers exclus", "Excluded files"),
+                    t!("Ni dans « aller au fichier » (Ctrl+P), ni dans l'index des symboles, ni dans la recherche. Séparés par des virgules, syntaxe .gitignore (dossier/ ou *.ext). Le .gitignore des dépôts et .git sont toujours appliqués.", "Not in “go to file” (Ctrl+P), nor in the symbol index, nor in the search. Separated by commas, .gitignore syntax (folder/ or *.ext). The .gitignore of the repositories and .git always apply."),
                     |ui| {
                         let r = ui.add(egui::TextEdit::singleline(exclude).desired_width(320.0).font(egui::TextStyle::Monospace).hint_text("__pycache__/, *.pyc"));
                         if r.lost_focus() || r.changed() && ui.input(|i| i.key_pressed(Key::Enter)) {
@@ -627,33 +640,33 @@ impl App {
                         }
                     },
                 );
-                pref_row(ui, rc, "Taille de l'index des symboles", "Fichiers source lus au plus (définitions F12, survol, complétion). Les dépôts des fichiers ouverts passent en premier ; plus grand = plus de mémoire et un chargement plus long.", |ui| {
+                pref_row(ui, rc, t!("Taille de l'index des symboles", "Size of the symbol index"), t!("Fichiers source lus au plus (définitions F12, survol, complétion). Les dépôts des fichiers ouverts passent en premier ; plus grand = plus de mémoire et un chargement plus long.", "Most source files read (F12 definitions, hover, completion). The repositories of the open files come first; bigger = more memory and a longer load."), |ui| {
                     // fixed choices: each change builds the index again
-                    let label = |n: usize| format!("{} fichiers", n.to_string().as_bytes().rchunks(3).rev().map(|c| std::str::from_utf8(c).unwrap()).collect::<Vec<_>>().join(" "));
+                    let label = |n: usize| tf!("{} fichiers", "{} files", n.to_string().as_bytes().rchunks(3).rev().map(|c| std::str::from_utf8(c).unwrap()).collect::<Vec<_>>().join(t!(" ", ",")));
                     egui::ComboBox::from_id_salt("pref_index_max").selected_text(label(s.index_max_files)).show_ui(ui, |ui| {
                         for n in [50_000, 150_000, 300_000, 600_000, 1_500_000] {
                             ui.selectable_value(&mut s.index_max_files, n, label(n));
                         }
                     });
                 });
-                pref_row(ui, rc, "Chercher les mises à jour", &format!("Au démarrage, Florm regarde s'il existe une version plus récente que la {} sur GitHub et la propose en bas à droite.", crate::update::current()), |ui| {
+                pref_row(ui, rc, t!("Chercher les mises à jour", "Check for updates"), &tf!("Au démarrage, Florm regarde s'il existe une version plus récente que la {} sur GitHub et la propose en bas à droite.", "At startup, Florm checks GitHub for a version newer than {} and offers it at the bottom right.", crate::update::current()), |ui| {
                     toggle_switch(ui, &mut s.check_updates);
                 });
-                pref_row(ui, rc, "Fichier de préférences", &config::settings_path().display().to_string(), |ui| {
-                    if ui.button("Ouvrir settings.toml").clicked() {
+                pref_row(ui, rc, t!("Fichier de préférences", "Preferences file"), &config::settings_path().display().to_string(), |ui| {
+                    if ui.button(t!("Ouvrir settings.toml", "Open settings.toml")).clicked() {
                         actions.push(Cmd::OpenSettingsFile);
                     }
                 });
                 pref_row(ui, rc, "Plugins", &config::plugins_dir().display().to_string(), |ui| {
-                    if ui.button("Recharger").clicked() {
+                    if ui.button(t!("Recharger", "Reload")).clicked() {
                         actions.push(Cmd::ReloadPlugins);
                     }
-                    if ui.button("Ouvrir le dossier").clicked() {
+                    if ui.button(t!("Ouvrir le dossier", "Open the folder")).clicked() {
                         actions.push(Cmd::OpenPluginsFolder);
                     }
                 });
-                pref_row(ui, rc, "Historique de recherche", "Recherches et filtres mémorisés.", |ui| {
-                    if ui.button("Effacer").clicked() {
+                pref_row(ui, rc, t!("Historique de recherche", "Search history"), t!("Recherches et filtres mémorisés.", "Remembered searches and filters."), |ui| {
+                    if ui.button(t!("Effacer", "Clear")).clicked() {
                         actions.push(Cmd::ClearSearchHistory);
                     }
                 });
@@ -695,12 +708,12 @@ impl App {
                 return format!("plugin {} : {}", self.plugins[pi].name, self.plugins[pi].commands[ci].title);
             }
         }
-        commands::ALL.iter().find(|(_, _, c)| *c == cmd).map(|(_, l, _)| l.to_string()).unwrap_or_else(|| format!("{cmd:?}"))
+        commands::ALL.iter().find(|(_, _, c)| *c == cmd).map(|(id, l, _)| commands::label(id, l).to_string()).unwrap_or_else(|| format!("{cmd:?}"))
     }
 
     fn write_key(&mut self, key: String, value: Option<String>) {
         if let Err(e) = config::set_key(&key, value.as_deref()) {
-            self.log(format!("Raccourci non enregistré : {e}"));
+            self.log(tf!("Raccourci non enregistré : {e}", "Shortcut not saved: {e}"));
         }
         match value {
             Some(v) => {
@@ -742,7 +755,7 @@ impl App {
     /// Called when a combination was recorded: binds it, or asks first if it is taken.
     pub(super) fn propose_shortcut(&mut self, cmd: Cmd, seq: Seq) {
         match self.keymap.lookup_seq(&seq) {
-            Some(other) if other == cmd => self.set_status("C'est déjà ce raccourci"),
+            Some(other) if other == cmd => self.set_status(t!("C'est déjà ce raccourci", "That is already the shortcut")),
             Some(_) => self.prefs.proposed = Some((cmd, seq)),
             None => self.bind_shortcut(cmd, seq),
         }
@@ -756,7 +769,7 @@ impl App {
         }
         self.write_key(keymap::seq_config(&seq), Some(id.to_string()));
         self.rebuild_keymap();
-        self.set_status(format!("Raccourci {} enregistré", keymap::seq_label(&seq)));
+        self.set_status(tf!("Raccourci {} enregistré", "Shortcut {} saved", keymap::seq_label(&seq)));
     }
 
     fn unbind_shortcut(&mut self, cmd: Cmd) {
@@ -778,12 +791,16 @@ impl App {
             self.write_key(k, None);
         }
         self.rebuild_keymap();
-        self.set_status("Raccourci par défaut rétabli");
+        self.set_status(t!("Raccourci par défaut rétabli", "Default shortcut restored"));
     }
 
     /// Saves changed settings to settings.toml and applies their effects right away.
     pub(super) fn apply_settings_change(&mut self, before: &Settings) {
         let s = self.settings.clone();
+        if s.language != before.language {
+            crate::i18n::set(crate::i18n::from_code(&s.language));
+            self.persist("language", config::toml_str(&s.language));
+        }
         if s.theme != before.theme {
             if self.hl.set_theme(&s.theme) {
                 self.visuals_dirty = true;
