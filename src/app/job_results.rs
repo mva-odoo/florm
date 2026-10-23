@@ -442,7 +442,7 @@ impl App {
                         self.log(e);
                     }
                 },
-                JobResult::DockerList(list) => self.docker_listed(list),
+                JobResult::DockerList(list, composes) => self.docker_listed(list, composes),
                 JobResult::DockerFollow { name, result } => self.docker_followed(name, result),
                 JobResult::DockerDone { label, result } => self.docker_done(label, result),
                 JobResult::TestsReady { tags, result } => self.tests_ready(tags, result),

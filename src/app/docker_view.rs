@@ -11,6 +11,8 @@ const REFRESH: Duration = Duration::from_secs(3);
 #[derive(Default)]
 pub(super) struct DockerUi {
     list: Option<Result<Vec<Container>, String>>,
+    /// Compose projects of the open folder (and its subfolders).
+    composes: Vec<docker::Compose>,
     loading: bool,
     loaded_at: Option<Instant>,
     /// Name of the chosen container.
@@ -38,6 +40,8 @@ enum DockAct {
     Select(String),
     Run(&'static str, Vec<String>),
     Shell(String),
+    /// `docker compose up -d` of a project, in a tab.
+    Up(docker::Compose),
     Move(bool),
     /// The container may have restarted: its logs again if so.
     Refollow,
@@ -61,12 +65,14 @@ impl App {
             return;
         }
         self.docker.loading = true;
-        self.jobs.spawn(|| JobResult::DockerList(docker::list()));
+        let root = self.root.clone();
+        self.jobs.spawn(move || JobResult::DockerList(docker::list(), root.as_deref().map(docker::composes_in).unwrap_or_default()));
     }
 
-    pub(super) fn docker_listed(&mut self, list: Result<Vec<Container>, String>) {
+    pub(super) fn docker_listed(&mut self, list: Result<Vec<Container>, String>, composes: Vec<docker::Compose>) {
         let d = &mut self.docker;
         d.loading = false;
+        d.composes = composes;
         d.loaded_at = Some(Instant::now());
         if d.selected.is_none() {
             // the first running one, from the folder's compose project if there is one
@@ -237,10 +243,29 @@ impl App {
                 ui.label(RichText::new(e).color(crate::highlight::red()));
                 return;
             }
-            if d.list.is_some() && list.is_empty() {
+            // compose projects of the folder that have no container yet
+            let idle: Vec<&docker::Compose> = d.composes.iter().filter(|c| !list.iter().any(|k| k.project.as_ref() == Some(&c.name))).collect();
+            if d.list.is_some() && list.is_empty() && idle.is_empty() {
                 ui.label(RichText::new("Aucun conteneur.").weak());
             }
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                for c in idle {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(&c.name).strong());
+                        ui.label(RichText::new("aucun conteneur").small().color(weak));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let file = c.file.as_deref().map_or(String::new(), |f| f.display().to_string());
+                            if ui
+                                .add_enabled(!busy, egui::Button::new("⬆ compose up").small())
+                                .on_hover_text(format!("docker compose up -d : crée et démarre les conteneurs de {file}"))
+                                .clicked()
+                            {
+                                act = Some(DockAct::Up(c.clone()));
+                            }
+                        });
+                    });
+                    ui.add_space(6.0);
+                }
                 let mut k = 0;
                 while k < list.len() {
                     let project = list[k].project.clone();
@@ -257,6 +282,20 @@ impl App {
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                 let stopped = names(|c| !c.running());
                                 let running = names(Container::running);
+                                // the files its containers were made from, else those found in the folder
+                                let compose = group
+                                    .iter()
+                                    .find_map(|c| Some(docker::Compose { name: project.clone()?, dir: c.compose_dir.clone().filter(|d| d.is_dir())?, files: c.compose_files.iter().filter(|f| f.is_file()).cloned().collect(), file: None }))
+                                    .or_else(|| d.composes.iter().find(|c| project.as_ref() == Some(&c.name)).cloned());
+                                if let Some(compose) = compose {
+                                    if ui
+                                        .add_enabled(!busy, egui::Button::new("⬆").small())
+                                        .on_hover_text("docker compose up -d : crée et démarre tous les services du projet, même ceux sans conteneur, et recrée ceux dont la configuration a changé")
+                                        .clicked()
+                                    {
+                                        act = Some(DockAct::Up(compose));
+                                    }
+                                }
                                 if ui
                                     .add_enabled(!busy && !running.is_empty(), egui::Button::new("■ tout").small())
                                     .on_hover_text("Arrêter tous les conteneurs du projet, du bas de la liste vers le haut")
@@ -459,6 +498,20 @@ impl App {
                     Ok((id, _)) => self.open_view_tab(document::View::Terminal(id), title),
                     Err(e) => self.set_status(e),
                 }
+            }
+            Some(DockAct::Up(c)) => {
+                let (argv, cwd) = docker::compose_up(&c);
+                let ctx = self.egui_ctx.clone();
+                match self.term.open_command_tab(&ctx, &argv, Some(cwd)) {
+                    Ok(id) => {
+                        let title = format!("compose up {}", c.name);
+                        self.term.set_name(id, title.clone());
+                        self.open_view_tab(document::View::Terminal(id), title);
+                    }
+                    Err(e) => self.set_status(e),
+                }
+                // its containers appear in the list as they are created
+                self.docker.loaded_at = None;
             }
             Some(DockAct::Move(true)) => self.show_big(BottomTab::Docker),
             Some(DockAct::Move(false)) => self.show_bottom(BottomTab::Docker, false),

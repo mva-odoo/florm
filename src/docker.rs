@@ -28,6 +28,9 @@ pub struct Container {
     /// docker compose project and service, when it is one of theirs.
     pub project: Option<String>,
     pub service: Option<String>,
+    /// Folder and files of its compose project (`docker compose` is run there with them).
+    pub compose_dir: Option<PathBuf>,
+    pub compose_files: Vec<PathBuf>,
 }
 
 impl Container {
@@ -79,10 +82,13 @@ pub fn list() -> Result<Vec<Container>, String> {
 
 fn parse_ps(line: &str) -> Result<Container, serde_json::Error> {
     let p: PsLine = serde_json::from_str(line)?;
-    let label = |key: &str| p.labels.split(',').find_map(|kv| kv.strip_prefix(key)?.strip_prefix('=')).map(str::to_string);
+    let labels = parse_labels(&p.labels);
+    let label = |key: &str| labels.iter().find(|(k, v)| k == key && !v.is_empty()).map(|(_, v)| v.clone());
     Ok(Container {
         project: label("com.docker.compose.project"),
         service: label("com.docker.compose.service"),
+        compose_dir: label("com.docker.compose.project.working_dir").map(PathBuf::from),
+        compose_files: label("com.docker.compose.project.config_files").map_or(Vec::new(), |v| v.split(',').map(PathBuf::from).collect()),
         id: p.id,
         name: p.names,
         image: p.image,
@@ -90,6 +96,83 @@ fn parse_ps(line: &str) -> Result<Container, serde_json::Error> {
         status: p.status,
         ports: p.ports,
     })
+}
+
+/// `docker ps` labels, `k=v,k=v`: a value may itself hold commas (the compose files), a piece
+/// without `=` belongs to the value before it.
+fn parse_labels(s: &str) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    for piece in s.split(',') {
+        match (piece.split_once('='), out.last_mut()) {
+            (Some((k, v)), _) => out.push((k.to_string(), v.to_string())),
+            (None, Some((_, v))) => {
+                v.push(',');
+                v.push_str(piece);
+            }
+            (None, None) => {}
+        }
+    }
+    out
+}
+
+/// A compose project that `docker compose up` can bring up.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Compose {
+    /// Its project name (that of its containers).
+    pub name: String,
+    pub dir: PathBuf,
+    /// Its files, none when found on disk (compose then reads those of `dir`, override included).
+    pub files: Vec<PathBuf>,
+    /// The file found, shown to say where it comes from.
+    pub file: Option<PathBuf>,
+}
+
+/// Names compose looks for in a folder, in its order.
+const COMPOSE_FILES: [&str; 4] = ["compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml"];
+
+/// The compose projects of the folder `root` and of its direct subfolders.
+pub fn composes_in(root: &Path) -> Vec<Compose> {
+    let mut dirs = vec![root.to_path_buf()];
+    if let Ok(rd) = std::fs::read_dir(root) {
+        let mut subs: Vec<PathBuf> = rd
+            .flatten()
+            .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()) && !e.file_name().to_string_lossy().starts_with('.'))
+            .map(|e| e.path())
+            .collect();
+        subs.sort();
+        dirs.extend(subs);
+    }
+    dirs.into_iter()
+        .filter_map(|dir| {
+            let file = COMPOSE_FILES.iter().map(|f| dir.join(f)).find(|f| f.is_file())?;
+            let text = std::fs::read_to_string(&file).unwrap_or_default();
+            let name = top_level_name(&text).unwrap_or_else(|| dir.file_name().map_or(String::new(), |n| n.to_string_lossy().into_owned()));
+            Some(Compose { name: normalize_project(&name), dir, files: Vec::new(), file: Some(file) })
+        })
+        .collect()
+}
+
+/// `name:` at the top level of a compose file.
+fn top_level_name(text: &str) -> Option<String> {
+    text.lines().find_map(|l| l.strip_prefix("name:")).map(|v| v.trim().trim_matches(['"', '\'']).to_string()).filter(|v| !v.is_empty() && !v.contains('$'))
+}
+
+/// The project name as compose makes it: lowercase, only letters, digits, `-` and `_`.
+fn normalize_project(name: &str) -> String {
+    name.to_lowercase().chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect()
+}
+
+/// `docker compose up -d` for the project `c`, and the folder to run it in.
+pub fn compose_up(c: &Compose) -> (Vec<String>, PathBuf) {
+    let mut a = vec!["docker".to_string(), "compose".into()];
+    if !c.files.is_empty() {
+        a.extend(["-p".to_string(), c.name.clone()]);
+        for f in &c.files {
+            a.extend(["-f".to_string(), f.to_string_lossy().into_owned()]);
+        }
+    }
+    a.extend(["up".to_string(), "-d".into()]);
+    (a, c.dir.clone())
 }
 
 /// A command to run in a container.
@@ -296,6 +379,23 @@ mod tests {
         let c = parse_ps(l).unwrap();
         assert_eq!(c.label(), "web");
         assert_eq!(c.project, None);
+        assert_eq!(c.compose_dir, None);
+    }
+
+    #[test]
+    fn labels_with_commas() {
+        let l = parse_labels("com.docker.compose.project=p,com.docker.compose.project.config_files=/x/a.yml,/x/b.yml,com.docker.compose.service=web");
+        assert_eq!(l[1], ("com.docker.compose.project.config_files".to_string(), "/x/a.yml,/x/b.yml".to_string()));
+        assert_eq!(l[2].1, "web");
+    }
+
+    #[test]
+    fn compose_names() {
+        assert_eq!(top_level_name("services:\n  name: x\nname: \"Mon.Projet\"\n").as_deref(), Some("Mon.Projet"));
+        assert_eq!(top_level_name("services:\n  web:\n    name: x\n"), None);
+        assert_eq!(normalize_project("Mon.Projet"), "monprojet");
+        let c = Compose { name: "p".into(), dir: "/x".into(), files: vec!["/x/a.yml".into()], file: None };
+        assert_eq!(compose_up(&c).0, ["docker", "compose", "-p", "p", "-f", "/x/a.yml", "up", "-d"]);
     }
 
     #[test]
