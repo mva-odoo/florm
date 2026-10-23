@@ -17,6 +17,32 @@ pub fn command(program: impl AsRef<std::ffi::OsStr>) -> Command {
     c
 }
 
+/// Where the window buttons (─ □ ✕) of Florm's title bar are drawn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Controls {
+    /// macOS: round buttons at the left, as the system draws them.
+    Mac,
+    /// Windows and Linux desktops: square buttons at the right.
+    Side,
+    /// Tiling window managers (Hyprland, Sway, i3, niri): the keyboard does it, no buttons.
+    None,
+}
+
+pub fn window_controls() -> Controls {
+    if cfg!(target_os = "macos") {
+        Controls::Mac
+    } else if ["HYPRLAND_INSTANCE_SIGNATURE", "SWAYSOCK", "I3SOCK", "NIRI_SOCKET"].iter().any(|v| std::env::var_os(v).is_some()) {
+        Controls::None
+    } else {
+        Controls::Side
+    }
+}
+
+/// Florm draws a title bar: the setting is on, and there is something in it (buttons, or menus).
+pub fn draws_title_bar(custom_title_bar: bool, show_menu_bar: bool) -> bool {
+    custom_title_bar && (window_controls() != Controls::None || show_menu_bar)
+}
+
 /// Gives back to the system the memory freed after a big job (the symbol index: its threads read
 /// hundreds of thousands of files): glibc keeps it in its pools otherwise.
 pub fn release_memory() {

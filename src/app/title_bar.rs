@@ -2,8 +2,9 @@
 //! has no system title bar then; dragging the bar moves the window, its edges resize it.
 
 use super::*;
+use crate::os::{self, Controls};
 use egui::viewport::ResizeDirection;
-use egui::{Pos2, Rect, Stroke, ViewportCommand};
+use egui::{Color32, Pos2, Rect, Stroke, ViewportCommand};
 
 /// Height of the bar.
 pub(super) const TITLE_H: f32 = 32.0;
@@ -15,9 +16,9 @@ const EDGE: f32 = 5.0;
 const CORNER: f32 = 12.0;
 
 impl App {
-    /// Florm draws the title bar (setting on).
+    /// Florm draws the title bar (see `os::draws_title_bar`).
     pub(super) fn own_title_bar(&self) -> bool {
-        self.settings.custom_title_bar
+        os::draws_title_bar(self.settings.custom_title_bar, self.settings.show_menu_bar)
     }
 
     /// The window loses (or gets back) the system's title bar when the setting changes.
@@ -29,12 +30,13 @@ impl App {
         }
     }
 
-    /// The bar: logo and menus at the left (unless hidden), the title in the middle, ─ □ ✕ at the right.
+    /// The bar: the menus at the left (unless hidden), ─ □ ✕ at the right (round ones at the left
+    /// on macOS, none under a tiling window manager).
     pub(super) fn title_bar(&mut self, ctx: &egui::Context) {
         let mut pending = Vec::new();
         let panel = ctx.style().visuals.panel_fill;
         let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
-        let title = self.last_title.clone();
+        let controls = os::window_controls();
         egui::TopBottomPanel::top("menu")
             .exact_height(TITLE_H)
             .frame(egui::Frame::none().fill(panel).inner_margin(egui::Margin { left: 10.0, right: 0.0, top: 0.0, bottom: 0.0 }))
@@ -49,31 +51,19 @@ impl App {
                     ctx.send_viewport_cmd(ViewportCommand::StartDrag);
                 }
                 ui.horizontal_centered(|ui| {
-                    // the bar of menus fills the width: where its last menu ends
-                    let mut menus_end = 0.0;
-                    if self.settings.show_menu_bar {
-                        egui::menu::bar(ui, |ui| {
-                            let (r, _) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), Sense::hover());
-                            logo::paint(ui.painter(), r, false);
-                            ui.add_space(2.0);
-                            self.menus(ui, &mut pending);
-                            menus_end = ui.cursor().left();
-                        });
-                    } else {
-                        let (r, _) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), Sense::hover());
-                        logo::paint(ui.painter(), r, false);
-                        menus_end = r.right();
+                    if controls == Controls::Mac {
+                        mac_buttons(ui, ctx, maximized);
+                        ui.add_space(6.0);
                     }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.spacing_mut().item_spacing.x = 0.0;
-                        let buttons = window_buttons(ui, maximized);
-                        // the title in the middle of the window, or between the menus and the
-                        // buttons when it does not fit there (cut with "…")
-                        let room = (menus_end + 16.0)..=(buttons.left() - 16.0);
-                        if room.end() - room.start() > 40.0 {
-                            paint_title(ui, &title, bar, *room.start(), *room.end());
-                        }
-                    });
+                    if self.settings.show_menu_bar {
+                        egui::menu::bar(ui, |ui| self.menus(ui, &mut pending));
+                    }
+                    if controls == Controls::Side {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.spacing_mut().item_spacing.x = 0.0;
+                            window_buttons(ui, maximized);
+                        });
+                    }
                 });
             });
         self.pending.extend(pending);
@@ -119,24 +109,11 @@ fn edge_at(screen: Rect, p: Pos2) -> Option<ResizeDirection> {
     })
 }
 
-/// The window title centered on the bar when it fits between `left` and `right`, else just after `left`.
-fn paint_title(ui: &egui::Ui, title: &str, bar: Rect, left: f32, right: f32) {
-    let color = ui.visuals().weak_text_color();
-    let mut job = LayoutJob::simple_singleline(title.to_string(), egui::FontId::proportional(12.5), color);
-    job.wrap = egui::text::TextWrapping { max_width: right - left, max_rows: 1, break_anywhere: true, overflow_character: Some('…') };
-    let g = ui.painter().layout_job(job);
-    let w = g.size().x;
-    let x = (bar.center().x - w / 2.0).clamp(left, (right - w).max(left));
-    ui.painter().galley(Pos2::new(x, bar.center().y - g.size().y / 2.0), g, color);
-}
-
-/// ✕ □ ─ from the right (the layout is right to left); the rect they take.
-fn window_buttons(ui: &mut egui::Ui, maximized: bool) -> Rect {
+/// ✕ □ ─ from the right (the layout is right to left).
+fn window_buttons(ui: &mut egui::Ui, maximized: bool) {
     let h = ui.available_height();
-    let mut all = Rect::NOTHING;
     for kind in [Button::Close, Button::Maximize, Button::Minimize] {
         let (rect, r) = ui.allocate_exact_size(egui::vec2(BUTTON_W, h), Sense::click());
-        all = all.union(rect);
         let v = ui.visuals();
         let close = matches!(kind, Button::Close);
         let fg = if r.hovered() && close { Color32::WHITE } else if r.hovered() { v.strong_text_color() } else { v.text_color() };
@@ -156,14 +133,34 @@ fn window_buttons(ui: &mut egui::Ui, maximized: bool) -> Rect {
             Button::Minimize => t!("Réduire", "Minimize"),
         };
         if r.on_hover_text(tip).clicked() {
-            ui.ctx().send_viewport_cmd(match kind {
-                Button::Close => ViewportCommand::Close,
-                Button::Maximize => ViewportCommand::Maximized(!maximized),
-                Button::Minimize => ViewportCommand::Minimized(true),
-            });
+            send(ui.ctx(), kind, maximized);
         }
     }
-    all
+}
+
+/// macOS: round buttons at the left, in the system's colors.
+fn mac_buttons(ui: &mut egui::Ui, ctx: &egui::Context, maximized: bool) {
+    ui.spacing_mut().item_spacing.x = 8.0;
+    for (kind, color, tip) in [
+        (Button::Close, Color32::from_rgb(0xFF, 0x5F, 0x57), t!("Fermer", "Close")),
+        (Button::Minimize, Color32::from_rgb(0xFE, 0xBC, 0x2E), t!("Réduire", "Minimize")),
+        (Button::Maximize, Color32::from_rgb(0x28, 0xC8, 0x40), if maximized { t!("Restaurer", "Restore") } else { t!("Agrandir", "Maximize") }),
+    ] {
+        let (rect, r) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), Sense::click());
+        ui.painter().circle_filled(rect.center(), 6.0, color);
+        if r.on_hover_text(tip).clicked() {
+            send(ctx, kind, maximized);
+        }
+    }
+}
+
+/// What a window button does.
+fn send(ctx: &egui::Context, kind: Button, maximized: bool) {
+    ctx.send_viewport_cmd(match kind {
+        Button::Close => ViewportCommand::Close,
+        Button::Maximize => ViewportCommand::Maximized(!maximized),
+        Button::Minimize => ViewportCommand::Minimized(true),
+    });
 }
 
 #[derive(Clone, Copy)]

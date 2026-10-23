@@ -107,7 +107,8 @@ fn main() -> eframe::Result<()> {
     os::macos_path();
     let arg = std::env::args().nth(1).map(PathBuf::from);
     // Florm's own title bar (menus and ─ □ ✕ in the window), see app/title_bar.rs
-    let own_title_bar = config::load().0.custom_title_bar;
+    let settings = config::load().0;
+    let own_title_bar = os::draws_title_bar(settings.custom_title_bar, settings.show_menu_bar);
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1280.0, 800.0])
