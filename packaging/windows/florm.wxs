@@ -1,0 +1,34 @@
+<!-- Installateur MSI de Florm (WiX 5, voir .github/workflows/release.yml).
+     Par utilisateur, sans droits admin : %LOCALAPPDATA%\Programs\Florm, comme install.ps1, pour que
+     la mise à jour intégrée puisse remplacer florm.exe. Un raccourci dans le menu Démarrer, la
+     commande `florm` dans le PATH, désinstallation dans Paramètres → Applications. -->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Florm" Manufacturer="Florm" Version="$(var.Version)" Scope="perUser"
+           UpgradeCode="6B0E5B1F-3C2A-4E0B-9D47-2F6A1C8E4B37">
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="Une version plus récente de Florm est déjà installée." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="ProgramsDir" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="Florm" />
+      </Directory>
+    </StandardDirectory>
+
+    <!-- dans le profil de l'utilisateur, Windows Installer veut une clé HKCU comme KeyPath -->
+    <Component Id="Florm" Directory="INSTALLFOLDER" Guid="3E8C1D52-7A4B-4F19-B6E0-5D2C9A7F1E84">
+      <File Source="$(var.Exe)" Name="florm.exe" KeyPath="no" />
+      <RegistryValue Root="HKCU" Key="Software\Florm" Name="msi" Type="integer" Value="1" KeyPath="yes" />
+      <Environment Id="Path" Name="PATH" Value="[INSTALLFOLDER]" Part="last" Action="set" System="no" />
+      <!-- le .old laissé par une mise à jour intégrée -->
+      <RemoveFile Id="OldExe" Name="florm.exe.old" On="both" />
+      <RemoveFolder Id="RemoveInstallFolder" Directory="INSTALLFOLDER" On="uninstall" />
+      <RemoveFolder Id="RemoveProgramsDir" Directory="ProgramsDir" On="uninstall" />
+    </Component>
+
+    <Component Id="Shortcut" Directory="ProgramMenuFolder" Guid="9F4A2C61-0B7D-4E35-A8C2-6E1B3D5F7A90">
+      <Shortcut Id="StartMenu" Name="Florm" Target="[INSTALLFOLDER]florm.exe" WorkingDirectory="INSTALLFOLDER" />
+      <RegistryValue Root="HKCU" Key="Software\Florm" Name="shortcut" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+  </Package>
+</Wix>

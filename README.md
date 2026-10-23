@@ -51,23 +51,40 @@ Il faut les bibliothèques OpenGL (`libGL`, `libEGL`) et `libxkbcommon-x11`, pre
 
 ### Windows
 
-Téléchargez `florm-<version>-windows-x86_64.exe`. Il est **autonome** : pas d'installation, double-clic pour le lancer. Rangez-le où vous voulez (par exemple `C:\Users\<vous>\Florm\florm.exe`) et épinglez-le à la barre des tâches.
+**Le plus simple, sans avertissement de sécurité ni droits admin** : dans PowerShell (menu Démarrer → « PowerShell »), collez
 
-Au premier lancement, **Windows SmartScreen** peut afficher « Windows a protégé votre ordinateur » : le fichier n'est pas signé. Cliquez sur **Informations complémentaires** puis **Exécuter quand même**.
+```powershell
+irm https://raw.githubusercontent.com/mva-odoo/florm/main/packaging/install.ps1 | iex
+```
 
-Les préférences sont dans `%APPDATA%\florm`.
+Le script télécharge la dernière version, la vérifie (SHA-256) et l'installe dans `%LOCALAPPDATA%\Programs\Florm`, avec **Florm** dans le menu Démarrer et la commande `florm` dans le terminal. Désinstaller : Paramètres → Applications → Florm. Relancer la commande met à jour.
+
+Sans PowerShell, la release contient aussi :
+
+- `florm-<version>-windows-x86_64.msi` : installateur classique (double-clic), même emplacement, même désinstallation ;
+- `florm-<version>-windows-x86_64.exe` : le programme seul, **autonome**, à ranger où vous voulez.
+
+Ces deux fichiers ne sont pas signés : téléchargés par le navigateur, **Windows SmartScreen** affiche « Windows a protégé votre ordinateur » au premier lancement. Cliquez sur **Informations complémentaires** puis **Exécuter quand même**. Le script PowerShell évite ce message : SmartScreen ne contrôle que les fichiers marqués par le navigateur.
+
+Les préférences sont dans `%APPDATA%\florm`. Pour avoir Git, GitHub, Python… voir [Tout installer sous Windows](#tout-installer-sous-windows).
 
 ### macOS
 
-Téléchargez `Florm-<version>-macos-universal.dmg` (Mac Intel et Apple Silicon), ouvrez-le et glissez **Florm** dans **Applications**.
+**Le plus simple, sans avertissement ni `xattr`** : dans le Terminal, collez
 
-Florm n'est pas signé par un compte développeur Apple : au **premier lancement**, faites **clic droit sur Florm → Ouvrir**, puis **Ouvrir** dans la fenêtre d'avertissement. Ensuite, il se lance normalement.
+```bash
+curl -fsSL https://raw.githubusercontent.com/mva-odoo/florm/main/packaging/install.sh | sh
+```
 
-Si macOS dit que l'application « est endommagée », retirez la quarantaine :
+Le script télécharge la dernière version (Mac Intel et Apple Silicon), la vérifie (SHA-256) et installe **Florm** dans Applications (`~/Applications` si le dossier n'est pas modifiable). Relancer la commande met à jour.
+
+Ou à la main : téléchargez `Florm-<version>-macos-universal.dmg`, ouvrez-le et glissez **Florm** dans **Applications**. Florm n'est pas signé par un compte développeur Apple : macOS met en quarantaine ce que télécharge le navigateur et peut dire que l'application « est endommagée ». Il faut alors retirer la quarantaine une fois :
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/Florm.app
 ```
+
+Le script n'en a pas besoin : `curl` ne met pas la quarantaine. Les mises à jour intégrées (⬆ Florm x.y.z) non plus.
 
 ### Depuis les sources
 
@@ -93,8 +110,8 @@ Inutile de désinstaller l'ancienne version : la nouvelle s'installe **par-dessu
 | openSUSE | `sudo zypper install ./florm-<version>.x86_64.rpm` |
 | Arch | `sudo pacman -U florm-<version>-1-x86_64.pkg.tar.zst` |
 | Binaire seul | remplacer `~/.local/bin/florm` par le nouveau fichier |
-| Windows | fermer Florm, remplacer l'ancien `.exe` par le nouveau |
-| macOS | fermer Florm, glisser le nouveau Florm dans Applications → **Remplacer** |
+| Windows | relancer la commande `irm … \| iex`, ou ouvrir le nouveau `.msi`, ou remplacer l'ancien `.exe` |
+| macOS | relancer la commande `curl … \| sh`, ou glisser le nouveau Florm dans Applications → **Remplacer** |
 
 ### Premier lancement
 
@@ -122,6 +139,21 @@ L'édition, la recherche, la coloration, l'index des symboles (F12, complétion)
 | Complétion intelligente, F2 renommer | un serveur de langage | Voir plus bas |
 | Plugins d'exemple | `python3` | Les plugins écrits en Python |
 | Icônes du terminal | une Nerd Font | Les symboles des prompts (starship, powerline) |
+
+### Tout installer sous Windows
+
+Dans PowerShell, d'un coup (chaque ligne est facultative) :
+
+```powershell
+winget install Git.Git                  # Git (aussi demandé par Claude Code)
+winget install GitHub.cli               # Pull requests ; puis : gh auth login
+winget install Python.Python.3.13       # lint Python, plugins
+winget install OpenJS.NodeJS.LTS        # lint JavaScript, serveurs de langage npm
+winget install Docker.DockerDesktop     # vue Docker
+irm https://claude.ai/install.ps1 | iex # Claude Code ; puis : claude (pour se connecter)
+```
+
+Puis, **dans un nouveau terminal** (pour qu'il voie le nouveau `PATH`) : `pip install ruff flake8`. Relancez Florm après ces installations : il lit le `PATH` au démarrage. Le détail de chaque outil est ci-dessous.
 
 ### Git
 
@@ -369,7 +401,14 @@ déposés dans `~/.config/florm/themes/` sont chargés au démarrage.
 gh workflow run release.yml -f version=0.2.0    # ou Actions → Release → Run workflow
 ```
 
-Compile sur GitHub Actions et publie dans la release `v0.2.0` (créée si besoin) : `.deb`, `.rpm`, `.pkg.tar.zst` (Arch), binaire Linux, `.exe` Windows et `.dmg` macOS (universel Intel + Apple Silicon). Sans `version` : celle de `Cargo.toml`. Un push sur `main` ne crée pas de release.
+Compile sur GitHub Actions et publie dans la release `v0.2.0` (créée si besoin) : `.deb`, `.rpm`, `.pkg.tar.zst` (Arch), binaire Linux, `.exe` et `.msi` Windows, `.dmg` macOS (universel Intel + Apple Silicon). Sans `version` : celle de `Cargo.toml`. Un push sur `main` ne crée pas de release.
+
+### Signer les versions
+
+Les scripts `packaging/install.sh` et `packaging/install.ps1` évitent les avertissements sans signature. Pour que les fichiers téléchargés **dans le navigateur** s'ouvrent aussi sans avertissement, il faut les signer, et ce n'est pas gratuit partout :
+
+- **macOS** : un compte [Apple Developer](https://developer.apple.com/programs/) (99 $ par an). Créez un certificat « Developer ID Application », exportez-le en `.p12`, et un [mot de passe d'application](https://account.apple.com) pour votre identifiant Apple. Ajoutez ces secrets au dépôt (Settings → Secrets and variables → Actions) : `APPLE_CERTIFICATE_P12` (le `.p12` en base64 : `base64 -i cert.p12 | pbcopy`), `APPLE_CERTIFICATE_PASSWORD`, `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD`. La release signe et notarise alors `Florm.app` et le `.dmg` toute seule ; sans ces secrets, elle garde la signature ad hoc.
+- **Windows** : un certificat de signature de code. Florm est open source (MIT) : la [SignPath Foundation](https://signpath.org) en fournit un gratuitement aux projets open source qui le demandent, signé depuis GitHub Actions. Les autres options sont payantes (certificat d'une autorité, environ 200 à 400 € par an ; Azure Artifact Signing est réservé aux particuliers des États-Unis et du Canada). Même signé, SmartScreen peut encore avertir pour les premières versions, le temps que le certificat se fasse une réputation.
 
 ## Licence
 
