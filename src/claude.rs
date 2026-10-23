@@ -17,7 +17,7 @@ pub fn not_installed() -> String {
 }
 
 /// Models offered: (value of --model, label). Empty: the default of Claude Code.
-pub const MODELS: [(&str, &str); 5] = [("", "Modèle par défaut"), ("opus", "Opus"), ("sonnet", "Sonnet"), ("haiku", "Haiku (rapide)"), ("fable", "Fable")];
+pub const MODELS: [(&str, &str); 5] = [("", "Modèle par défaut"), ("opus", "Opus 5.5"), ("sonnet", "Sonnet 5.5"), ("haiku", "Haiku 5.5 (rapide)"), ("fable", "Fable 5.1")];
 
 /// Permission modes: (value of --permission-mode, label, explanation). "custom": what is checked
 /// in the permissions.
@@ -44,7 +44,7 @@ pub fn label(fr: &'static str) -> &'static str {
     }
     match fr {
         "Modèle par défaut" => "Default model",
-        "Haiku (rapide)" => "Haiku (fast)",
+        "Haiku 5.5 (rapide)" => "Haiku 5.5 (fast)",
         "Selon les permissions" => "By permissions",
         "Claude fait seulement ce qui est coché dans 🔒 Permissions ; tu gardes ou rejettes ses changements dans la revue" => {
             "Claude only does what is ticked in 🔒 Permissions; you keep or reject its changes in the review"
