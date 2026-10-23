@@ -22,9 +22,12 @@ symbols, a class or a function takes you there.
 
 ## Sidebar
 
-- **Ctrl+Shift+E**: the keyboard goes to the tree. **↑ ↓** to move, **→** opens a folder,
-  **←** closes it (or goes up to the parent folder), **Enter** opens the file, **F2** renames,
-  **Delete** deletes, **Escape** goes back to the editor.
+- **Ctrl+Shift+E** (or a click on a file): the keyboard goes to the tree. **↑ ↓** to move,
+  **→** opens a folder, **←** closes it (or goes up to the parent folder), **Space** shows the
+  file keeping the keyboard in the tree, **Enter** opens it and goes to the editor, **F2**
+  renames, **Delete** deletes, **Escape** goes back to the editor.
+- While scrolling, the folders holding the top of the list stay pinned there; a click goes back
+  up to the folder.
 - **Double-click the edge** between the sidebar and the editor: the sidebar hides. A click on the
   thin strip on the left (or **Ctrl+K Ctrl+B**) shows it again. Drag the edge to change the width.
 - On the folder of a git repository: its branch, the tracked remote branch (↑ to push, ↓ to

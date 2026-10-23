@@ -56,6 +56,7 @@ mod find;
 mod overlay;
 mod panels;
 mod prefs;
+mod title_bar;
 
 /// The same colors whatever egui thinks the system theme is.
 fn apply_visuals(ctx: &egui::Context, v: egui::Visuals) {
@@ -810,6 +811,8 @@ pub struct App {
     claude_limits: Vec<(String, f32, i64)>,
     /// For the places without a context at hand (prompt submission).
     egui_ctx: egui::Context,
+    /// The window has no system title bar: Florm draws its own (`title_bar`).
+    title_bar_on: bool,
     /// File to bring into view in the tree ("afficher dans l'arborescence").
     tree_scroll: Option<PathBuf>,
     /// Keyboard cursor of the tree.
@@ -1011,6 +1014,7 @@ impl App {
             claude_loaded: false,
             claude_limits: claude_ui::load_limits(),
             egui_ctx: cc.egui_ctx.clone(),
+            title_bar_on: settings.custom_title_bar && crate::os::own_title_bar_possible(),
             tree_scroll: None,
             tree_nav: sidebar::Nav::default(),
             repo_info: HashMap::new(),
@@ -1261,6 +1265,7 @@ impl eframe::App for App {
             apply_visuals(ctx, self.hl.visuals());
         }
         self.process_jobs();
+        self.sync_decorations(ctx);
         let dropped: Vec<PathBuf> = ctx.input(|i| i.raw.dropped_files.iter().filter_map(|f| f.path.clone()).collect());
         for p in dropped {
             self.open_path(p);
@@ -1344,6 +1349,9 @@ impl eframe::App for App {
             && ctx.memory(|m| m.focused().is_none())
         {
             self.focus_editor(ctx);
+        }
+        if self.title_bar_on {
+            self.resize_edges(ctx);
         }
     }
 }

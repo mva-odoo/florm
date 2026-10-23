@@ -4,6 +4,9 @@ use super::*;
 
 impl App {
     pub(super) fn menu_bar(&mut self, ctx: &egui::Context) {
+        if self.own_title_bar() {
+            return self.title_bar(ctx);
+        }
         if !self.settings.show_menu_bar {
             return;
         }
@@ -31,7 +34,7 @@ impl App {
     }
 
     /// The menus (in the menu bar, or under ☰ in the status bar when the bar is hidden).
-    fn menus(&self, ui: &mut egui::Ui, pending: &mut Vec<Cmd>) {
+    pub(super) fn menus(&self, ui: &mut egui::Ui, pending: &mut Vec<Cmd>) {
         let km = &self.keymap;
         let plugins = &self.plugins;
         let plugin_cmds = &self.plugin_cmds;
@@ -756,6 +759,9 @@ impl App {
             TreeAction::Open(p) => {
                 self.open_path(p);
                 self.focus_editor(ctx);
+            }
+            TreeAction::Show(p) => {
+                self.open_path(p);
             }
             TreeAction::NewFile(d) => self.open_prompt(Prompt::NewFile(d)),
             TreeAction::NewFolder(d) => self.open_prompt(Prompt::NewFolder(d)),

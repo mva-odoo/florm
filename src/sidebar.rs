@@ -6,7 +6,10 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 pub enum TreeAction {
+    /// Open the file, the keyboard going to the editor (Enter).
     Open(PathBuf),
+    /// Open the file, the keyboard staying in the tree (click, Space): the arrows keep moving in it.
+    Show(PathBuf),
     NewFile(PathBuf),
     NewFolder(PathBuf),
     Rename(PathBuf),
@@ -214,7 +217,13 @@ pub fn show(
     }
     let cursor = nav.cursor.clone().filter(|_| focused);
     let mut clicked = None;
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+    // a click on a pinned folder: its row at the top of the tree
+    let offset_id = tree_id().with("scroll_to_top");
+    let mut area = egui::ScrollArea::vertical().auto_shrink([false, false]);
+    if let Some(y) = ui.data_mut(|d| d.remove_temp::<f32>(offset_id)) {
+        area = area.vertical_scroll_offset(y);
+    }
+    area.show(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 0.0;
         // the folder name, centered: a click shows the projects to switch to
         ui.add_space(4.0);
@@ -258,18 +267,23 @@ pub fn show(
         ui.add_space(6.0);
         drop_target(ui, &r, &root.path, &mut act);
         r.context_menu(|ui| menu(ui, &root.path, true, None, &mut act));
+        let rows_top = ui.cursor().top();
         if let Some(children) = root.children.as_mut() {
             for c in children {
                 node_ui(ui, c, 0, active, git, repos, ex, false, &mut act, scroll_to, cursor.as_deref(), &mut clicked);
             }
         }
-    });
-    // a click moves the keyboard cursor there; on a folder, the tree keeps the keyboard
-    if let Some((p, is_dir)) = clicked {
-        nav.cursor = Some(p);
-        if is_dir {
+        if let Some((path, y)) = sticky(ui, root, rows_top, &mut act) {
+            nav.cursor = Some(path);
             bg.request_focus();
+            let content_top = ui.min_rect().top();
+            ui.data_mut(|d| d.insert_temp(offset_id, y - content_top));
         }
+    });
+    // a click moves the keyboard cursor there, and the tree keeps the keyboard (as in VS Code)
+    if let Some(p) = clicked {
+        nav.cursor = Some(p);
+        bg.request_focus();
     }
     if let Some(p) = DragAndDrop::payload::<PathBuf>(ui.ctx()) {
         ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
@@ -306,7 +320,7 @@ fn node_ui(
     act: &mut Option<TreeAction>,
     scroll_to: &mut Option<PathBuf>,
     cursor: Option<&Path>,
-    clicked: &mut Option<(PathBuf, bool)>,
+    clicked: &mut Option<PathBuf>,
 ) {
     // out of sight (a big folder opened): its rows only take their room
     let wanted = scroll_to.as_deref().is_some_and(|p| p.starts_with(&node.path));
@@ -403,11 +417,11 @@ fn node_ui(
     let target = if node.is_dir { node.path.clone() } else { node.path.parent().map(Path::to_path_buf).unwrap_or_default() };
     drop_target(ui, &r, &target, act);
     if r.clicked() {
-        *clicked = Some((node.path.clone(), node.is_dir));
+        *clicked = Some(node.path.clone());
         if node.is_dir {
             node.toggle();
         } else {
-            *act = Some(TreeAction::Open(node.path.clone()));
+            *act = Some(TreeAction::Show(node.path.clone()));
         }
     }
     let note = if excluded { t!("\n\nExclu de l'index : ni dans Ctrl+P, ni dans F12, ni dans la recherche", "\n\nExcluded from the index: not in Ctrl+P, F12 or the search") } else { "" };
@@ -482,6 +496,10 @@ fn keyboard(ui: &Ui, root: &mut Node, nav: &mut Nav, scroll_to: &mut Option<Path
                 act = Some(TreeAction::Open(path.clone()));
                 None
             }
+            egui::Key::Space => {
+                act = Some(TreeAction::Show(path.clone()));
+                None
+            }
             egui::Key::F2 => {
                 act = Some(TreeAction::Rename(path.clone()));
                 None
@@ -501,6 +519,101 @@ fn keyboard(ui: &Ui, root: &mut Node, nav: &mut Nav, scroll_to: &mut Option<Path
         }
     }
     act
+}
+
+/// The folders to pin when the top of the tree is at `view_top` (at most `max`), from the
+/// outermost: (row index, path, how much it is pushed up by the end of its content, ≤ 0).
+fn pinned(root: &Node, rows_top: f32, view_top: f32, max: usize) -> Vec<(usize, PathBuf, f32)> {
+    let mut flat = Vec::new();
+    root.visible(&mut flat);
+    let k = ((view_top - rows_top) / ROW_H).floor();
+    if k < 0.0 || k as usize >= flat.len() {
+        return Vec::new();
+    }
+    let k = k as usize;
+    // the folders holding the first row on screen (and itself, an open folder)
+    let (p, is_dir, expanded) = &flat[k];
+    let Ok(rel) = p.strip_prefix(&root.path) else { return Vec::new() };
+    let n = rel.components().count() - usize::from(!(*is_dir && *expanded));
+    let mut out = Vec::new();
+    for d in 0..n.min(max) {
+        let path = root.path.join(rel.components().take(d + 1).collect::<PathBuf>());
+        let Some(i) = (0..=k).rev().find(|&i| flat[i].0 == path) else { break };
+        let slot = view_top + d as f32 * ROW_H;
+        // at its place already
+        if rows_top + i as f32 * ROW_H >= slot {
+            break;
+        }
+        // the entry after its content pushes it up
+        let end = (i + 1..flat.len()).find(|&j| !flat[j].0.starts_with(&path)).unwrap_or(flat.len());
+        let end_y = rows_top + end as f32 * ROW_H;
+        if end_y <= slot {
+            break;
+        }
+        out.push((i, path, (end_y - slot - ROW_H).min(0.0)));
+    }
+    out
+}
+
+/// Most folders pinned at the top of the tree.
+const STICKY_MAX: usize = 5;
+
+/// The folders containing the first entry on screen stay pinned at the top of the tree, the
+/// deepest one pushed up by the end of its content (as the class / def lines in the editor).
+/// `rows_top`: top of the first entry. A click on one: (the folder, top of its row) to scroll to.
+fn sticky(ui: &mut Ui, root: &Node, rows_top: f32, act: &mut Option<TreeAction>) -> Option<(PathBuf, f32)> {
+    let view = ui.clip_rect();
+    if view.top() <= rows_top {
+        return None;
+    }
+    let max = STICKY_MAX.min(((view.height() * 0.4) / ROW_H) as usize);
+    let stack = pinned(root, rows_top, view.top(), max);
+    if stack.is_empty() {
+        return None;
+    }
+    let depth = |p: &Path| p.strip_prefix(&root.path).map_or(0, |r| r.components().count().saturating_sub(1));
+    let v = ui.visuals().clone();
+    let bg = v.panel_fill;
+    let folder = mix(v.hyperlink_color, v.weak_text_color(), 0.75);
+    let mut go = None;
+    // drawn from the deepest, the others over it
+    for (s, (i, path, push)) in stack.iter().enumerate().rev() {
+        let top = view.top() + s as f32 * ROW_H + push;
+        let rect = Rect::from_min_max(Pos2::new(ui.max_rect().left(), top), Pos2::new(ui.max_rect().right(), top + ROW_H));
+        let r = ui.interact(rect, Id::new(("tree_sticky", path)), Sense::click());
+        let painter = ui.painter().with_clip_rect(view);
+        painter.rect_filled(rect, 0.0, bg);
+        if r.hovered() {
+            painter.rect_filled(rect, 5.0, v.widgets.hovered.weak_bg_fill);
+        }
+        let painter = painter.with_clip_rect(rect.intersect(view));
+        let cy = rect.center().y;
+        let x = rect.left() + 4.0 + depth(path) as f32 * 14.0;
+        icons::paint_chevron(&painter, Pos2::new(x + 5.0, cy), true, v.weak_text_color());
+        let icon = Rect::from_center_size(Pos2::new(x + 22.0, cy), egui::vec2(16.0, 16.0));
+        icons::paint_folder(&painter, icon, true, folder, bg);
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let g = painter.layout_no_wrap(name, FontId::proportional(13.5), v.text_color());
+        painter.galley(Pos2::new(x + 37.0, cy - g.size().y / 2.0), g, v.text_color());
+        let r = r.on_hover_text_at_pointer(path.display().to_string());
+        if r.clicked() {
+            go = Some((path.clone(), rows_top + *i as f32 * ROW_H));
+        }
+        r.context_menu(|ui| menu(ui, path, true, None, act));
+    }
+    // a thin shadow under the pinned folders
+    let bottom = stack.iter().enumerate().map(|(s, (.., push))| view.top() + (s + 1) as f32 * ROW_H + push).fold(view.top(), f32::max);
+    let shadow = Rect::from_min_max(Pos2::new(view.left(), bottom), Pos2::new(view.right(), bottom + 4.0));
+    let dark = Color32::from_black_alpha(if bg.r() as u32 + bg.g() as u32 + bg.b() as u32 > 384 { 30 } else { 70 });
+    let mut mesh = egui::epaint::Mesh::default();
+    mesh.colored_vertex(shadow.left_top(), dark);
+    mesh.colored_vertex(shadow.right_top(), dark);
+    mesh.colored_vertex(shadow.right_bottom(), Color32::TRANSPARENT);
+    mesh.colored_vertex(shadow.left_bottom(), Color32::TRANSPARENT);
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(0, 2, 3);
+    ui.painter().with_clip_rect(view).add(mesh);
+    go
 }
 
 fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
@@ -578,6 +691,39 @@ mod tests {
         tree.expanded_paths(&mut open);
         assert_eq!(open, [root.join("a"), root.join("a/b")]);
         assert!(!tree.reveal(Path::new("/ailleurs/x.py")));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn parent_folders_stay_pinned() {
+        let root = std::env::temp_dir().join(format!("florm_tree_sticky_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        // rows: a, a/b, a/b/1..4, a/z.py, c.txt
+        std::fs::create_dir_all(root.join("a/b")).unwrap();
+        for f in ["1", "2", "3", "4"] {
+            std::fs::write(root.join("a/b").join(f), "").unwrap();
+        }
+        std::fs::write(root.join("a/z.py"), "").unwrap();
+        std::fs::write(root.join("c.txt"), "").unwrap();
+        let mut tree = Node::new(root.clone(), true);
+        assert!(tree.reveal(&root.join("a/b/1")));
+        let paths = |v: &[(usize, PathBuf, f32)]| v.iter().map(|(_, p, _)| p.clone()).collect::<Vec<_>>();
+        // not scrolled: nothing pinned
+        assert!(pinned(&tree, 0.0, 0.0, 5).is_empty());
+        // the top of the view on a/b/2 (row 3): a and a/b pinned, in place
+        let s = pinned(&tree, 0.0, 3.0 * ROW_H, 5);
+        assert_eq!(paths(&s), [root.join("a"), root.join("a/b")]);
+        assert!(s.iter().all(|(.., push)| *push == 0.0));
+        // further: the content of a/b ends under its slot, it goes up (a stays)
+        let s = pinned(&tree, 0.0, 4.0 * ROW_H + 10.0, 5);
+        assert_eq!(paths(&s), [root.join("a"), root.join("a/b")]);
+        assert_eq!(s[0].2, 0.0);
+        assert_eq!(s[1].2, -10.0);
+        // its content all gone above: a/b too
+        assert_eq!(paths(&pinned(&tree, 0.0, 5.0 * ROW_H + 10.0, 5)), [root.join("a")]);
+        // on z.py: only a
+        assert_eq!(paths(&pinned(&tree, 0.0, 6.0 * ROW_H, 5)), [root.join("a")]);
+        assert_eq!(pinned(&tree, 0.0, 3.0 * ROW_H, 1).len(), 1);
         let _ = std::fs::remove_dir_all(&root);
     }
 

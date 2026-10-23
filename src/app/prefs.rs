@@ -375,6 +375,11 @@ impl App {
                 pref_row(ui, rc, t!("Barre de menus", "Menu bar"), t!("Fichier, Édition, Sélection… en haut de la fenêtre. Masquée, les menus restent accessibles par ☰ en bas à gauche.", "File, Edit, Selection… at the top of the window. Hidden, the menus are still under ☰ at the bottom left."), |ui| {
                     toggle_switch(ui, &mut s.show_menu_bar);
                 });
+                if crate::os::own_title_bar_possible() {
+                    pref_row(ui, rc, t!("Barre de titre intégrée", "Built-in title bar"), t!("Les menus, le titre et les boutons réduire / agrandir / fermer dans la fenêtre, comme VS Code, au lieu de la barre de titre du système. Glisser la barre déplace la fenêtre, double clic : l'agrandir.", "The menus, the title and the minimize / maximize / close buttons inside the window, as in VS Code, instead of the system's title bar. Dragging the bar moves the window, double click: maximize it."), |ui| {
+                        toggle_switch(ui, &mut s.custom_title_bar);
+                    });
+                }
                 pref_row(ui, rc, t!("Fil d'Ariane", "Breadcrumbs"), t!("Dossier › fichier › classe › fonction au-dessus de l'éditeur ; clic sur un élément pour y aller.", "Folder › file › class › function above the editor; click an item to go to it."), |ui| {
                     toggle_switch(ui, &mut s.breadcrumbs);
                 });
@@ -834,6 +839,7 @@ impl App {
             ("sticky_scroll", s.sticky_scroll, before.sticky_scroll),
             ("breadcrumbs", s.breadcrumbs, before.breadcrumbs),
             ("show_menu_bar", s.show_menu_bar, before.show_menu_bar),
+            ("custom_title_bar", s.custom_title_bar, before.custom_title_bar),
             ("search_in_tab", s.search_in_tab, before.search_in_tab),
             ("claude_in_tab", s.claude_in_tab, before.claude_in_tab),
             ("tree_git_info", s.tree_git_info, before.tree_git_info),

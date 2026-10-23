@@ -22,9 +22,12 @@ liste ses symboles, une classe ou une fonction y emmène.
 
 ## Barre latérale
 
-- **Ctrl+Shift+E** : le clavier va dans l'arborescence. **↑ ↓** pour se déplacer, **→** ouvre un
-  dossier, **←** le referme (ou remonte au dossier parent), **Entrée** ouvre le fichier,
-  **F2** renomme, **Suppr** supprime, **Échap** revient à l'éditeur.
+- **Ctrl+Shift+E** (ou un clic sur un fichier) : le clavier va dans l'arborescence. **↑ ↓** pour se
+  déplacer, **→** ouvre un dossier, **←** le referme (ou remonte au dossier parent), **Espace**
+  affiche le fichier en gardant le clavier dans l'arborescence, **Entrée** l'ouvre et passe à
+  l'éditeur, **F2** renomme, **Suppr** supprime, **Échap** revient à l'éditeur.
+- En défilant, les dossiers qui contiennent le haut de la liste restent figés en haut ; un clic
+  remonte au dossier.
 - **Double-clic sur le bord** entre la barre et l'éditeur : la barre se masque. Un clic sur la fine
   bande à gauche (ou **Ctrl+K Ctrl+B**) la réaffiche. Le bord se glisse pour changer la largeur.
 - Sur le dossier d'un dépôt git : sa branche, la branche distante suivie (↑ à pousser, ↓ à

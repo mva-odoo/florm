@@ -17,6 +17,15 @@ pub fn command(program: impl AsRef<std::ffi::OsStr>) -> Command {
     c
 }
 
+/// Florm can draw its own title bar (─ □ ✕ in the window, as VS Code): on Windows and on Linux
+/// desktops; macOS keeps its buttons, tiling window managers (Hyprland, Sway, i3, niri) draw none.
+pub fn own_title_bar_possible() -> bool {
+    if cfg!(target_os = "macos") {
+        return false;
+    }
+    !["HYPRLAND_INSTANCE_SIGNATURE", "SWAYSOCK", "I3SOCK", "NIRI_SOCKET"].iter().any(|v| std::env::var_os(v).is_some())
+}
+
 /// Gives back to the system the memory freed after a big job (the symbol index: its threads read
 /// hundreds of thousands of files): glibc keeps it in its pools otherwise.
 pub fn release_memory() {
