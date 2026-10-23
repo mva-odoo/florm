@@ -286,6 +286,10 @@ pub fn home() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
+/// Held by the tests that change `FLORM_CONFIG` (one at a time).
+#[cfg(test)]
+pub static TEST_CONFIG_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 pub fn config_dir() -> PathBuf {
     if let Some(d) = std::env::var_os("FLORM_CONFIG") {
         return PathBuf::from(d);

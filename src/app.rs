@@ -1942,6 +1942,37 @@ mod font_tests {
         assert_eq!(at("    record.amo", 14).1, 11);
     }
 
+    /// The view tabs come back with the project. It changes the configuration folder of the
+    /// process: `FLORM_TEST_APP=1 cargo test view_tabs`.
+    #[test]
+    fn view_tabs_come_back() {
+        if std::env::var_os("FLORM_TEST_APP").is_none() {
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("florm_views_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (conf, proj) = (dir.join("conf"), dir.join("proj"));
+        std::fs::create_dir_all(&conf).unwrap();
+        std::fs::create_dir_all(&proj).unwrap();
+        std::fs::write(conf.join("settings.toml"), "check_updates = false\nlsp = false\n").unwrap();
+        std::fs::write(proj.join("a.py"), "x = 1\n").unwrap();
+        let _lock = config::TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("FLORM_CONFIG", &conf);
+        let ctx = egui::Context::default();
+        let mut app = App::with_ctx(&ctx, Some(proj.clone()));
+        app.open_path(proj.join("a.py"));
+        app.claude_restore_tab(0);
+        app.open_debug();
+        app.open_view_tab(document::View::Help, "Guide".into());
+        app.save_session();
+        let views = |app: &App| app.docs.iter().map(|d| d.view.clone()).collect::<Vec<_>>();
+        let before = views(&app);
+        let again = App::with_ctx(&ctx, Some(proj.clone()));
+        assert_eq!(views(&again), before);
+        assert_eq!(again.docs[again.active].view, document::View::Help);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn readable_text_on_filled_buttons() {
         // white on dark fills (Light+ accent), dark on light ones (yellow)

@@ -61,6 +61,10 @@ pub struct SessionFile {
     /// Bookmarked lines.
     #[serde(default)]
     pub bookmarks: Vec<usize>,
+    /// A view tab instead of a file: "claude:<conversation>", "docker", "pulls", "debug",
+    /// "search", "help", "welcome".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub view: Option<String>,
 }
 
 /// State remembered across projects and restarts.
@@ -207,7 +211,10 @@ mod tests {
         let s = Session {
             active: 1,
             search_include: "*.py".into(),
-            files: vec![SessionFile { path: "/a/b.py".into(), line: 3, col: 4, backup: Some("doc0.txt".into()), bookmarks: vec![2, 7] }],
+            files: vec![
+                SessionFile { path: "/a/b.py".into(), line: 3, col: 4, backup: Some("doc0.txt".into()), bookmarks: vec![2, 7], view: None },
+                SessionFile { path: PathBuf::new(), line: 0, col: 0, backup: None, bookmarks: Vec::new(), view: Some("claude:12".into()) },
+            ],
             recent: vec!["/a/b.py".into()],
             breakpoints: vec![SessionBreakpoint { path: "/a/b.py".into(), line: 4, condition: "x > 1".into() }, SessionBreakpoint { path: "/a/b.py".into(), line: 9, condition: String::new() }],
             ..Default::default()
@@ -218,6 +225,7 @@ mod tests {
         assert_eq!(back.files[0].bookmarks, [2, 7]);
         assert_eq!(back.recent.len(), 1);
         assert_eq!(back.breakpoints, s.breakpoints);
+        assert_eq!((back.files[0].view.as_deref(), back.files[1].view.as_deref()), (None, Some("claude:12")));
         // sessions written before hot exit still load
         let old: Session = toml::from_str("active = 0\n[[files]]\npath = \"/x\"\nline = 1\ncol = 2\n").unwrap();
         assert!(old.files[0].backup.is_none() && old.files[0].bookmarks.is_empty() && old.recent.is_empty());

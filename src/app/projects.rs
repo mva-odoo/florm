@@ -86,6 +86,14 @@ impl App {
         let mut backups = Vec::new();
         let mut active = 0;
         for (i, d) in self.docs.iter().enumerate() {
+            // the views come back in their tab (not the terminals: their programs are gone)
+            if let Some(view) = self.session_view(d) {
+                if i == self.active {
+                    active = files.len();
+                }
+                files.push(SessionFile { path: PathBuf::new(), line: 0, col: 0, backup: None, bookmarks: Vec::new(), view: Some(view) });
+                continue;
+            }
             if d.read_only {
                 continue;
             }
@@ -103,7 +111,7 @@ impl App {
             if let Some(name) = &backup {
                 backups.push((name.clone(), d.rope.to_string()));
             }
-            files.push(SessionFile { path, line, col, backup, bookmarks: d.bookmark_lines() });
+            files.push(SessionFile { path, line, col, backup, bookmarks: d.bookmark_lines(), view: None });
         }
         let mut expanded = Vec::new();
         if let Some(t) = &self.tree {
@@ -150,6 +158,10 @@ impl App {
         let mut opened = Vec::new();
         let mut restored = 0;
         for f in &s.files {
+            if let Some(view) = &f.view {
+                opened.push(self.restore_view(view).then_some(self.active));
+                continue;
+            }
             let backup = f.backup.as_deref().and_then(|b| project::load_backup(&root, b));
             let ok = if f.path.as_os_str().is_empty() || (!f.path.is_file() && backup.is_some()) {
                 // untitled document, or a file deleted since: recreate it from its backup
@@ -187,6 +199,36 @@ impl App {
         if restored > 0 {
             self.set_status(tf!("{restored} fichier(s) avec des modifications non enregistrées restauré(s)", "{restored} file(s) with unsaved changes restored"));
         }
+    }
+
+    /// What a view tab is called in the session.
+    fn session_view(&self, d: &Document) -> Option<String> {
+        use document::View;
+        Some(match d.view {
+            View::Claude => format!("claude:{}", self.claude_tab_key(d.uid)),
+            View::Docker => "docker".into(),
+            View::PullRequests => "pulls".into(),
+            View::Debug => "debug".into(),
+            View::Search => "search".into(),
+            View::Help => "help".into(),
+            View::Welcome => "welcome".into(),
+            View::Text | View::Image | View::Preview(_) | View::Terminal(_) => return None,
+        })
+    }
+
+    /// Opens again a view tab of the session; false when it is unknown.
+    fn restore_view(&mut self, view: &str) -> bool {
+        match view.split_once(':').unwrap_or((view, "")) {
+            ("claude", key) => self.claude_restore_tab(key.parse().unwrap_or(0)),
+            ("docker", _) => self.open_docker(),
+            ("pulls", _) => self.open_pulls(),
+            ("debug", _) => self.open_debug(),
+            ("search", _) => self.open_search_tab(),
+            ("help", _) => self.open_view_tab(document::View::Help, t!("Guide de Florm", "Florm guide").into()),
+            ("welcome", _) => self.open_view_tab(document::View::Welcome, t!("Accueil", "Welcome").into()),
+            _ => return false,
+        }
+        true
     }
 
     /// A folder of the tree left out of the index (go to file, F12, find in files) or taken back:

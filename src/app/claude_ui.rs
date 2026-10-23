@@ -1124,6 +1124,34 @@ impl App {
         }
     }
 
+    /// The saved conversation shown in the tab `uid` (0: not saved yet), for the session.
+    pub(super) fn claude_tab_key(&self, uid: u64) -> u64 {
+        std::iter::once(&self.claude).chain(&self.claude_others).find(|c| c.tab == Some(uid)).map_or(0, |c| c.saved_key)
+    }
+
+    /// The tab of the conversation `key` at the start (0: a new conversation).
+    pub(super) fn claude_restore_tab(&mut self, key: u64) {
+        let saved = self.claude_saved.iter().find(|s| s.key == key).cloned();
+        let taken = key != 0 && (self.claude.saved_key == key || self.claude_others.iter().any(|o| o.saved_key == key));
+        if taken {
+            return;
+        }
+        if self.claude.tab.is_none() && self.claude.items.is_empty() && self.claude.session.is_none() {
+            // the first one is the current conversation (not the last one of the history)
+            self.claude_loaded = true;
+            if let Some(s) = &saved {
+                self.claude = self.claude_from_saved(s, None);
+            }
+            if self.claude.dir.is_none() {
+                self.claude.dir = self.repo.clone().or_else(|| self.root.clone());
+            }
+            let uid = self.new_claude_tab(self.claude_title());
+            self.claude.tab = Some(uid);
+        } else if saved.is_some() {
+            self.claude_open_saved(key);
+        }
+    }
+
     /// A conversation of the history: shown where it is open, else in a new tab.
     fn claude_open_saved(&mut self, key: u64) {
         if self.claude.saved_key == key {

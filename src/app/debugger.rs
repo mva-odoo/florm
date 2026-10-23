@@ -1621,6 +1621,7 @@ mod tests {
         std::fs::write(conf.join("settings.toml"), format!("check_updates = false\nlsp = false\ndebug_python = {}\ndebug_command = \"t.py\"\n", config::toml_str(&python))).unwrap();
         let file = proj.join("t.py");
         std::fs::write(&file, "def f(x):\n    y = x * 2\n    return y\n\nprint('result', f(21))\n").unwrap();
+        let _lock = config::TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         std::env::set_var("FLORM_CONFIG", &conf);
         let ctx = egui::Context::default();
         let mut app = App::with_ctx(&ctx, Some(proj.clone()));
@@ -1698,6 +1699,7 @@ mod tests {
         std::fs::write(conf.join("settings.toml"), format!("check_updates = false\nlsp = false\ndebug_target = {}\ndebug_docker_command = \"florm_t.py\"\n", config::toml_str(&container))).unwrap();
         let file = proj.join("florm_t.py");
         std::fs::write(&file, "import textwrap\n\ndef f(x):\n    y = textwrap.dedent('  a')\n    return y\n\nprint('result', f(21))\n").unwrap();
+        let _lock = config::TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         std::env::set_var("FLORM_CONFIG", &conf);
         let ctx = egui::Context::default();
         let mut app = App::with_ctx(&ctx, Some(proj.clone()));
