@@ -96,7 +96,7 @@ impl App {
                 ui.label(RichText::new(&s.info.short).monospace().color(accent).size(15.0));
                 ui.label(RichText::new(&s.info.subject).size(15.0));
                 if s.busy {
-                    ui.spinner();
+                    spinner(ui);
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if s.confirm_abort {

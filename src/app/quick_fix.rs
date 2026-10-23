@@ -347,7 +347,7 @@ impl App {
                 }
                 if q.waiting {
                     ui.horizontal(|ui| {
-                        ui.spinner();
+                        spinner(ui);
                         ui.label(RichText::new(t!("le serveur de langage cherche…", "the language server is looking…")).small().weak());
                     });
                 }

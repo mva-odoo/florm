@@ -223,7 +223,7 @@ impl App {
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(&title).small().weak());
                         if ov.pending {
-                            ui.add(egui::Spinner::new().size(10.0));
+                            spinner_sized(ui, 10.0);
                         }
                         if dialog_kind.is_some() {
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -411,7 +411,7 @@ impl App {
                         }
                         if n == 0 && indexing {
                             ui.horizontal(|ui| {
-                                ui.spinner();
+                                spinner(ui);
                                 ui.label(RichText::new(t!("Liste des fichiers du projet en cours…", "Listing the project files…")).weak());
                             });
                         } else if n == 0 {

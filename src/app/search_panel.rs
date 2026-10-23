@@ -162,7 +162,7 @@ impl App {
                 go = true;
             }
             if s.running {
-                ui.spinner();
+                spinner(ui);
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if in_tab {

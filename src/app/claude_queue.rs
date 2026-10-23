@@ -178,7 +178,7 @@ pub(super) fn queue_ui(ui: &mut egui::Ui, q: &mut Queue, busy: bool, accent: Col
             ui.horizontal(|ui| {
                 match t.state {
                     TaskState::Running | TaskState::Committing => {
-                        ui.spinner();
+                        spinner(ui);
                     }
                     TaskState::Done => {
                         ui.label(RichText::new("✔").color(ok()));

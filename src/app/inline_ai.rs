@@ -107,7 +107,7 @@ impl App {
                         act = Some(InlineAct::ToChat);
                     }
                     if st.busy {
-                        ui.spinner();
+                        spinner(ui);
                         ui.label(RichText::new(t!("Claude réfléchit…", "Claude is thinking…")).weak());
                     }
                 });

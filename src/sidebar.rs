@@ -37,6 +37,8 @@ pub struct Nav {
 }
 
 /// Focus id of the tree (arrows, Enter… move in it instead of the editor).
+const ROW_H: f32 = 23.0;
+
 pub fn tree_id() -> Id {
     Id::new("florm_tree")
 }
@@ -134,6 +136,11 @@ impl Node {
                 c.visible(out);
             }
         }
+    }
+
+    /// Rows this node takes in the tree: itself and its shown descendants.
+    fn rows(&self) -> usize {
+        1 + if self.is_dir && self.expanded { self.children.iter().flatten().map(Node::rows).sum() } else { 0 }
     }
 
     fn toggle(&mut self) {
@@ -301,12 +308,25 @@ fn node_ui(
     cursor: Option<&Path>,
     clicked: &mut Option<(PathBuf, bool)>,
 ) {
+    // out of sight (a big folder opened): its rows only take their room
+    let wanted = scroll_to.as_deref().is_some_and(|p| p.starts_with(&node.path));
+    if !wanted {
+        let h = node.rows() as f32 * ROW_H;
+        let top = ui.cursor().top();
+        let clip = ui.clip_rect();
+        if top + h < clip.top() || top > clip.bottom() {
+            ui.allocate_space(egui::vec2(ui.available_width(), h));
+            return;
+        }
+    }
     // left out of the index (exclusions of the preferences): a crossed out eye after the name of
     // what a rule excludes (the content of an excluded folder is excluded with it)
     let own_rule = ex.excludes(&node.path, node.is_dir);
     let excluded = parent_excluded || own_rule;
     let selected = !node.is_dir && active == Some(node.path.as_path());
-    let (rect, r) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 23.0), Sense::click_and_drag());
+    // the id of the row is its path: the rows skipped above do not change it (hover, drag)
+    let (_, rect) = ui.allocate_space(egui::vec2(ui.available_width(), ROW_H));
+    let r = ui.interact(rect, Id::new(("tree_row", &node.path)), Sense::click_and_drag());
     if scroll_to.as_deref() == Some(node.path.as_path()) {
         r.scroll_to_me(Some(egui::Align::Center));
         *scroll_to = None;
@@ -428,7 +448,7 @@ fn keyboard(ui: &Ui, root: &mut Node, nav: &mut Nav, scroll_to: &mut Option<Path
         }
         let pos = nav.cursor.as_ref().and_then(|c| flat.iter().position(|(p, ..)| p == c));
         let (path, is_dir, expanded) = flat[pos.unwrap_or(0)].clone();
-        let page = ((ui.available_height() / 23.0) as usize).max(1);
+        let page = ((ui.available_height() / ROW_H) as usize).max(1);
         let to = |k: usize| Some(flat[k.min(flat.len() - 1)].0.clone());
         let next = match key {
             egui::Key::ArrowDown => pos.map_or(to(0), |p| to(p + 1)),

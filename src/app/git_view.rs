@@ -113,7 +113,7 @@ impl App {
             .show(ctx, |ui| {
                 if lh.loading {
                     ui.horizontal(|ui| {
-                        ui.spinner();
+                        spinner(ui);
                         ui.label(t!("Recherche des commits qui ont modifié cette ligne…", "Looking for the commits that changed this line…"));
                     });
                     return;
@@ -800,7 +800,7 @@ impl App {
                 } else if let Some(c) = &selected_commit {
                     match &h.details {
                         None => {
-                            ui.spinner();
+                            spinner(ui);
                         }
                         Some(d) => {
                             let (subject, body) = d.message.split_once('\n').unwrap_or((&d.message, ""));
@@ -871,7 +871,7 @@ impl App {
                             ui.label(RichText::new(format!("+{adds}")).small().monospace().color(ok()));
                             ui.label(RichText::new(format!("−{dels}")).small().monospace().color(err()));
                             if h.diff_loading {
-                                ui.spinner();
+                                spinner(ui);
                             }
                         });
                         ui.add_space(2.0);
@@ -946,7 +946,7 @@ impl App {
                         }
                         None if h.diff_loading => {
                             ui.horizontal(|ui| {
-                                ui.spinner();
+                                spinner(ui);
                                 ui.label(RichText::new(t!("Chargement du diff…", "Loading the diff…")).weak());
                             });
                         }
@@ -1135,7 +1135,7 @@ fn commit_box(ui: &mut egui::Ui, msg: &mut String, focus: bool, n_staged: usize,
         ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
             let clicked = ui.add_enabled(can, filled_button(label, accent)).on_hover_text(tip).clicked();
             if suggesting {
-                ui.spinner();
+                spinner(ui);
             } else if ui.button("✨").on_hover_text(t!("Claude propose le message d'après les changements (indexés, sinon tous) et ta demande dans l'onglet Claude", "Claude suggests the message from the changes (staged, else all) and your request in the Claude tab")).clicked() {
                 suggest = true;
             }

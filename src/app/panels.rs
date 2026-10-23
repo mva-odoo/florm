@@ -391,7 +391,7 @@ impl App {
                         }
                     } else if let (Some(u), true) = (&self.update, self.update_installing) {
                         ui.label(RichText::new(tf!("Mise à jour vers Florm {}…", "Updating to Florm {}…", u.version)).weak());
-                        ui.spinner();
+                        spinner(ui);
                     } else if let Some(u) = self.update.clone() {
                         let text = RichText::new(format!("⬆ Florm {}", u.version)).color(ui.visuals().hyperlink_color);
                         ui.menu_button(text, |ui| {
@@ -824,7 +824,7 @@ impl App {
                 create_pr = true;
             }
             if self.git.busy > 0 {
-                ui.spinner();
+                spinner(ui);
             }
             ui.add_space(8.0);
             let mut sync_cmd = None;
@@ -871,7 +871,7 @@ impl App {
                 }
                 let h = &mut self.history;
                 if h.loading {
-                    ui.spinner();
+                    spinner(ui);
                 }
                 if ui.button("⟳").on_hover_text(t!("Rafraîchir l'état et le graphe", "Refresh the status and the graph")).clicked() {
                     reload = true;

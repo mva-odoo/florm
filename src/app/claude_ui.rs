@@ -126,6 +126,22 @@ pub(super) struct ClaudeUi {
     answers: Option<claude_ask::Answers>,
     /// Last commits of its folder for « + Contexte → Un commit »: (hash, short hash, subject, when).
     recent_commits: Vec<(String, String, String, String)>,
+    /// Height of each item when it was last drawn, with the key of what it showed (`item_key`).
+    heights: Vec<(u64, f32)>,
+}
+
+/// What the height of a message depends on: its content, its place and the width.
+fn item_key(it: &Item, claude_said: bool, busy: bool, last_turn: bool, width: f32, ppp: f32) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    std::mem::discriminant(it).hash(&mut h);
+    match it {
+        Item::User(t, given) => (t, given).hash(&mut h),
+        Item::Text(t) | Item::Streaming(t) | Item::Info(t) | Item::Error(t) => t.hash(&mut h),
+        Item::Tool { name, summary, result, .. } => (name, summary, result).hash(&mut h),
+    }
+    (claude_said, busy, last_turn, width.to_bits(), ppp.to_bits()).hash(&mut h);
+    h.finish()
 }
 
 /// A conversation kept between sessions of Florm: what was said, and the Claude Code session to
@@ -1327,7 +1343,7 @@ impl App {
                     ui.label(RichText::new(tf!("{n} fichier(s)", "{n} file(s)")).small().weak());
                 }
                 if c.review_loading {
-                    ui.spinner();
+                    spinner(ui);
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     maximize::button(ui, view, "review");
@@ -1368,7 +1384,7 @@ impl App {
                     review_click = history::stacked_diff_view(ui, &d.lines, &d.files, &mut c.collapsed, "claude_review", hunk_buttons, file_buttons, jump, None);
                 }
                 None => {
-                    ui.spinner();
+                    spinner(ui);
                 }
             }
         };
@@ -1431,7 +1447,7 @@ impl App {
                             if ui.button(t!("■ Arrêter", "■ Stop")).on_hover_text(t!("Arrêter la réponse en cours (la conversation continue)", "Stop the current answer (the conversation goes on)")).clicked() {
                                 stop = true;
                             }
-                            ui.spinner();
+                            spinner(ui);
                             ui.label(RichText::new(t!("Claude travaille…", "Claude is working…")).weak());
                         } else if ui.add_enabled(!c.input.trim().is_empty(), filled_button(t!("Envoyer", "Send"), accent)).clicked() {
                             send = true;
@@ -1507,9 +1523,26 @@ impl App {
                     let mut claude_said = true;
                     // the questions of the last answer can be answered (not those of before)
                     let last_user = c.items.iter().rposition(|i| matches!(i, Item::User(..)));
+                    // only the messages in sight are drawn (a long conversation would be laid out
+                    // at every frame): the others take the height they had when last drawn
+                    let ppp = ui.ctx().pixels_per_point();
+                    let sight = ui.clip_rect().expand(300.0);
+                    c.heights.resize(c.items.len(), (0, 0.0));
                     for (k, it) in c.items.iter().enumerate() {
                         ui.add_space(6.0);
-                        match it {
+                        let key = item_key(it, claude_said, c.busy, last_user.is_none_or(|u| k > u), ui.available_width(), ppp);
+                        let top = ui.cursor().top();
+                        let (known, h) = c.heights[k];
+                        if known == key && (top + h < sight.top() || top > sight.bottom()) {
+                            ui.allocate_space(egui::vec2(ui.available_width(), h));
+                            match it {
+                                Item::User(..) => claude_said = false,
+                                Item::Text(_) | Item::Streaming(_) => claude_said = true,
+                                _ => {}
+                            }
+                            continue;
+                        }
+                        ui.push_id(k, |ui| match it {
                             Item::User(t, given) => {
                                 claude_said = false;
                                 ui.add_space(6.0);
@@ -1541,7 +1574,7 @@ impl App {
                                 let (rest, questions) = claude_ask::parse(t);
                                 if questions.is_empty() {
                                     super::md::markdown(ui, cache, t);
-                                    continue;
+                                    return;
                                 }
                                 super::md::markdown(ui, cache, &rest);
                                 let open = matches!(it, Item::Text(_)) && !c.busy && last_user.is_none_or(|u| k > u);
@@ -1598,7 +1631,7 @@ impl App {
                                         ui.horizontal_wrapped(|ui| {
                                             ui.label(head);
                                             if result.is_none() {
-                                                ui.spinner();
+                                                spinner(ui);
                                             }
                                             if let Some(cmd) = command {
                                                 super::md::copy_button(ui, cmd, t!("Copier", "Copy"));
@@ -1613,7 +1646,9 @@ impl App {
                             Item::Error(t) => {
                                 ui.label(RichText::new(format!("⚠ {t}")).color(err()));
                             }
-                        }
+                        });
+                        // allocate_space adds the spacing after it again
+                        c.heights[k] = (key, ui.cursor().top() - top - ui.spacing().item_spacing.y);
                     }
                     ui.add_space(10.0);
                 });

@@ -234,7 +234,7 @@ impl App {
                     ui.label(RichText::new(t!("Vers", "To")).weak());
                     ui.horizontal(|ui| match &base {
                         None => {
-                            ui.spinner();
+                            spinner(ui);
                             ui.label(RichText::new(t!("dépôt GitHub…", "GitHub repository…")).weak());
                         }
                         Some((full, _)) => {
@@ -271,7 +271,7 @@ impl App {
                         cancel = true;
                     }
                     if c.busy {
-                        ui.spinner();
+                        spinner(ui);
                         ui.label(RichText::new(t!("push et création…", "pushing and creating…")).weak());
                     }
                 });

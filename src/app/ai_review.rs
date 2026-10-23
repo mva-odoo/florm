@@ -218,7 +218,7 @@ pub(super) fn review_bar(
             ui.horizontal(|ui| {
                 ui.label(RichText::new(t!("✳ Revue IA", "✳ AI review")).strong().size(14.0).color(accent));
                 if r.loading {
-                    ui.spinner();
+                    spinner(ui);
                     ui.label(RichText::new(t!("Claude relit les changements… (une à quelques minutes)", "Claude is reading over the changes… (one to a few minutes)")).weak());
                 } else if r.error.is_none() && !r.notes.is_empty() {
                     let kept = r.notes.iter().filter(|n| n.keep).count();

@@ -285,7 +285,7 @@ impl App {
                         act = Some(PrAct::Reload);
                     }
                     if p.loading || p.busy {
-                        ui.spinner();
+                        spinner(ui);
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if big {
@@ -312,7 +312,7 @@ impl App {
         let mut list_ui = |ui: &mut egui::Ui| {
             let list = match &p.list {
                 None => {
-                    ui.spinner();
+                    spinner(ui);
                     return;
                 }
                 Some(Err(e)) => {
@@ -370,7 +370,7 @@ impl App {
             egui::CentralPanel::default().show_inside(ui, |ui| {
                 let d = match &p.detail {
                     None if p.detail_loading => {
-                        ui.spinner();
+                        spinner(ui);
                         return;
                     }
                     None => {
@@ -389,7 +389,7 @@ impl App {
                     ui.add(egui::Label::new(RichText::new(&d.title).size(17.0).strong()).truncate());
                     ui.label(RichText::new(format!("#{}", d.number)).size(17.0).weak());
                     if p.detail_loading {
-                        ui.spinner();
+                        spinner(ui);
                     }
                 });
                 ui.horizontal(|ui| {
@@ -810,7 +810,7 @@ fn line_composer(ui: &mut egui::Ui, draft: &mut String, new_line: &mut Option<(S
 fn diff_area(ui: &mut egui::Ui, id: &str, pd: &mut PrDiff, threads: &[github::Thread], notes: Option<history::Notes>) -> Option<DiffClick> {
     let Some(diff) = &pd.diff else {
         if pd.loading {
-            ui.spinner();
+            spinner(ui);
         }
         return None;
     };

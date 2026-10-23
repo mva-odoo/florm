@@ -220,7 +220,7 @@ impl App {
                 ui.label(RichText::new("Docker").strong().size(15.0));
                 // only the first reading: the list is read again every few seconds
                 if d.loading && d.list.is_none() {
-                    ui.spinner();
+                    spinner(ui);
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if current.is_some() {
@@ -426,7 +426,7 @@ impl App {
                                 act = Some(DockAct::Run("start", one()));
                             }
                             if let Some(b) = &self.docker.busy {
-                                ui.spinner();
+                                spinner(ui);
                                 ui.label(RichText::new(b).weak());
                             }
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -455,7 +455,7 @@ impl App {
                         ui.add_space(12.0);
                         ui.horizontal(|ui| {
                             ui.add_space(12.0);
-                            ui.spinner();
+                            spinner(ui);
                             ui.label(RichText::new(t!("Lecture des logs…", "Reading the logs…")).weak());
                         });
                     }

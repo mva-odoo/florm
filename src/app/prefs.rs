@@ -338,7 +338,7 @@ impl App {
                         ui.selectable_value(value, String::new(), tf!("Par défaut ({default})", "Default ({default})"));
                         match &fonts {
                             None => {
-                                ui.spinner();
+                                spinner(ui);
                             }
                             Some(list) => {
                                 for f in list.iter().filter(|f| !mono_only || f.mono) {

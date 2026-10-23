@@ -93,6 +93,33 @@ fn text_on(fill: Color32) -> Color32 {
     }
 }
 
+const MIN_FRAME: Duration = Duration::from_millis(8);
+
+/// Loading spinner like egui's, which repaints the whole window at every frame (hundreds per
+/// second without vsync): this one asks for the next frame at ~30 per second.
+fn spinner(ui: &mut egui::Ui) -> egui::Response {
+    spinner_sized(ui, ui.style().spacing.interact_size.y)
+}
+
+fn spinner_sized(ui: &mut egui::Ui, size: f32) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::hover());
+    if ui.is_rect_visible(rect) {
+        ui.ctx().request_repaint_after(Duration::from_millis(33));
+        let radius = rect.height() / 2.0 - 2.0;
+        let time = ui.input(|i| i.time);
+        let start = time * std::f64::consts::TAU;
+        let end = start + 240f64.to_radians() * time.sin();
+        let points: Vec<egui::Pos2> = (0..20)
+            .map(|i| {
+                let (sin, cos) = egui::emath::lerp(start..=end, i as f64 / 20.0).sin_cos();
+                rect.center() + radius * egui::vec2(cos as f32, sin as f32)
+            })
+            .collect();
+        ui.painter().add(egui::Shape::line(points, egui::Stroke::new(3.0_f32, ui.visuals().strong_text_color())));
+    }
+    resp
+}
+
 /// Main action button, filled with `fill` (the theme accent, or a status color).
 /// Field of a replacement: Maj+Entrée puts a line break in it (Entrée stays for the action).
 fn replace_field<'t>(text: &'t mut String, hint: &str) -> egui::TextEdit<'t> {
@@ -706,6 +733,8 @@ pub struct App {
     update_ready: Option<PathBuf>,
     /// Program started when Florm quits ("Redémarrer" after an update).
     restart: Option<PathBuf>,
+    /// Start of the last frame, when there is no vsync to pace the frames (Wayland).
+    paced_frame: Option<Instant>,
     pending: Vec<Cmd>,
     last_disk_check: Instant,
     /// Last command run in a terminal: git and the files are checked more often for a while.
@@ -920,6 +949,7 @@ impl App {
             update_installing: false,
             update_ready: None,
             restart: None,
+            paced_frame: std::env::var_os("WAYLAND_DISPLAY").is_some().then(Instant::now),
             pending: Vec::new(),
             last_disk_check: Instant::now(),
             term_enter: None,
@@ -1171,6 +1201,15 @@ impl eframe::App for App {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Without vsync, an animation (scrolling, panel opening) would redraw as fast as the processor
+        // allows: at most ~120 frames per second, and never later than an input (key, mouse).
+        if let Some(last) = self.paced_frame {
+            let el = last.elapsed();
+            if el < MIN_FRAME && ctx.input(|i| i.raw.events.is_empty()) {
+                std::thread::sleep(MIN_FRAME - el);
+            }
+            self.paced_frame = Some(Instant::now());
+        }
         if std::mem::take(&mut self.visuals_dirty) {
             apply_visuals(ctx, self.hl.visuals());
         }
