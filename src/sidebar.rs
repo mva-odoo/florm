@@ -52,6 +52,9 @@ pub struct Node {
     pub is_dir: bool,
     pub expanded: bool,
     pub children: Option<Vec<Node>>,
+    /// Modification time of the folder when its children were read (an entry added or removed
+    /// by another program changes it).
+    mtime: Option<std::time::SystemTime>,
 }
 
 impl Node {
@@ -60,10 +63,11 @@ impl Node {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| path.display().to_string());
-        Node { path, name, is_dir, expanded: false, children: None }
+        Node { path, name, is_dir, expanded: false, children: None, mtime: None }
     }
 
     fn load(&mut self) {
+        self.mtime = std::fs::metadata(&self.path).and_then(|m| m.modified()).ok();
         let mut v = Vec::new();
         if let Ok(rd) = std::fs::read_dir(&self.path) {
             for e in rd.flatten() {
@@ -151,6 +155,24 @@ impl Node {
         if self.expanded && self.children.is_none() {
             self.load();
         }
+    }
+
+    /// Reads again the shown folders whose entries changed on disk (a folder created in a
+    /// terminal, by git…); true when one did.
+    pub fn refresh_changed(&mut self) -> bool {
+        if self.children.is_none() {
+            return false;
+        }
+        let now = std::fs::metadata(&self.path).and_then(|m| m.modified()).ok();
+        if now != self.mtime {
+            self.refresh();
+            return true;
+        }
+        let mut any = false;
+        for c in self.children.iter_mut().flatten().filter(|c| c.is_dir && c.expanded) {
+            any |= c.refresh_changed();
+        }
+        any
     }
 
     /// Re-reads expanded directories while keeping what was open.
@@ -677,6 +699,24 @@ fn menu(ui: &mut Ui, path: &Path, is_dir: bool, excluded: Option<bool>, act: &mu
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn folders_changed_on_disk_are_read_again() {
+        let root = std::env::temp_dir().join(format!("florm_tree_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src/a")).unwrap();
+        let mut t = Node::new(root.clone(), true);
+        t.expand_paths(&HashSet::from([root.join("src")]));
+        assert!(!t.refresh_changed());
+        // a folder created by another program in an open folder
+        std::fs::create_dir(root.join("src/b")).unwrap();
+        assert!(t.refresh_changed());
+        let src = t.find_mut(&root.join("src")).unwrap();
+        assert!(src.expanded);
+        assert_eq!(src.children.as_ref().unwrap().iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["a", "b"]);
+        assert!(!t.refresh_changed());
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn reveal_opens_the_folders() {

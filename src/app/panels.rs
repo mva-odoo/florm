@@ -1586,6 +1586,10 @@ impl App {
         if self.last_disk_check.elapsed() > every {
             self.last_disk_check = Instant::now();
             self.check_git_stamps();
+            // folders added or removed by another program show up in the tree
+            if self.tree.as_mut().is_some_and(|t| t.refresh_changed()) {
+                self.index.files_at = None;
+            }
             let mut msgs = Vec::new();
             for d in self.docs.iter_mut() {
                 let Some(p) = d.path.clone() else { continue };
