@@ -548,7 +548,7 @@ impl App {
             return;
         };
         let mut text = q.tasks[k].text.trim().to_string();
-        let model = q.model.or(q.base_model);
+        let model = q.model_of(k);
         let previous = q.tasks[..k].iter().rev().find(|t| t.state == TaskState::Done).map(|t| t.text.lines().next().unwrap_or("").to_string());
         let fresh = q.fresh_each;
         let c = &mut self.claude;

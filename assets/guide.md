@@ -202,7 +202,8 @@ panneau du bas (⇱ Onglet pour lui donner tout un onglet de l'éditeur, ⇲ pou
   file la ferme.
   Pour moins de tokens : **Conversation neuve par tâche** (Claude ne relit pas tout l'historique,
   la conclusion de la tâche d'avant lui est donnée) et un **modèle pour la file** (Haiku ou
-  Sonnet pour des petites tâches, le modèle de la conversation sinon).
+  Sonnet pour des petites tâches, le modèle de la conversation sinon), qu'une tâche en attente
+  peut remplacer par le sien (menu à côté de la tâche).
 
 **✨ à côté du message de commit** (vue Git) : Claude propose le message d'après les changements
 indexés (sinon tous), dans le style des derniers commits du dépôt et d'après ta première demande

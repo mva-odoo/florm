@@ -16,10 +16,11 @@ pub(super) struct Queue {
     /// with what the one before did said in a few lines.
     #[serde(default)]
     pub(super) fresh_each: bool,
-    /// Model of all the tasks (index in `claude::MODELS`); None: the one of the conversation.
+    /// Model of the tasks without one of their own (index in `claude::MODELS`); None: the one of
+    /// the conversation.
     #[serde(default)]
     pub(super) model: Option<usize>,
-    /// Model of the conversation when the queue was started: what the tasks use when `model` is None.
+    /// Model of the conversation when the queue was started: what the tasks use when no model is chosen.
     #[serde(skip)]
     pub(super) base_model: Option<usize>,
 }
@@ -31,6 +32,9 @@ pub(super) struct Task {
     /// What went wrong, or the first line of its commit.
     #[serde(default)]
     pub(super) note: String,
+    /// Model for this task (index in `claude::MODELS`); None: the one of the queue.
+    #[serde(default)]
+    pub(super) model: Option<usize>,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
@@ -99,13 +103,18 @@ impl Queue {
     pub(super) fn add(&mut self, text: &str) -> usize {
         let new = split_tasks(text);
         let n = new.len();
-        self.tasks.extend(new.into_iter().map(|text| Task { text, state: TaskState::Waiting, note: String::new() }));
+        self.tasks.extend(new.into_iter().map(|text| Task { text, state: TaskState::Waiting, note: String::new(), model: None }));
         n
     }
 
     /// The task being done or committed.
     pub(super) fn current(&self) -> Option<usize> {
         self.tasks.iter().position(|t| matches!(t.state, TaskState::Running | TaskState::Committing))
+    }
+
+    /// The model task `k` is sent with: its own, else the one of the queue, else the one of the conversation.
+    pub(super) fn model_of(&self, k: usize) -> Option<usize> {
+        self.tasks[k].model.or(self.model).or(self.base_model)
     }
 
     pub(super) fn next_waiting(&self) -> Option<usize> {
@@ -141,8 +150,8 @@ pub(super) fn queue_ui(ui: &mut egui::Ui, q: &mut Queue, busy: bool, accent: Col
                 act = Some(QueueAct::Start);
             }
         }
-        // one model for all the tasks: a smaller one for small tasks is cheaper and faster
-        let shown = q.model.map_or("Modèle de la conversation", |m| crate::claude::MODELS[m.min(crate::claude::MODELS.len() - 1)].1);
+        // the model of the tasks without one of their own: a smaller one for small tasks is cheaper and faster
+        let shown = q.model.map_or("Modèle de la conversation", model_label);
         egui::ComboBox::from_id_salt(id).selected_text(RichText::new(shown).small()).width(120.0).show_ui(ui, |ui| {
             ui.selectable_value(&mut q.model, None, "Modèle de la conversation");
             for (m, (_, label)) in crate::claude::MODELS.iter().enumerate().skip(1) {
@@ -163,6 +172,7 @@ pub(super) fn queue_ui(ui: &mut egui::Ui, q: &mut Queue, busy: bool, accent: Col
             act = Some(QueueAct::Close);
         }
     });
+    let queue_model = q.model.map_or("Modèle de la conversation", model_label);
     egui::ScrollArea::vertical().id_salt("claude_queue").max_height(170.0).show(ui, |ui| {
         for (k, t) in q.tasks.iter_mut().enumerate() {
             ui.horizontal(|ui| {
@@ -181,7 +191,7 @@ pub(super) fn queue_ui(ui: &mut egui::Ui, q: &mut Queue, busy: bool, accent: Col
                     }
                 }
                 let editable = t.state == TaskState::Waiting;
-                let w = (ui.available_width() - 120.0).max(120.0);
+                let w = (ui.available_width() - 190.0).max(120.0);
                 if editable {
                     ui.add(egui::TextEdit::multiline(&mut t.text).desired_rows(1).desired_width(w).layouter(&mut layout_cutting));
                 } else {
@@ -198,6 +208,16 @@ pub(super) fn queue_ui(ui: &mut egui::Ui, q: &mut Queue, busy: bool, accent: Col
                 if t.state == TaskState::Failed && ui.small_button("Réessayer").clicked() {
                     act = Some(QueueAct::Retry(k));
                 }
+                if editable {
+                    // a model for this task only: Haiku for a small one in a list sent with Opus
+                    let shown = t.model.map_or("Modèle de la file", model_label);
+                    egui::ComboBox::from_id_salt(id.with(("task_model", k))).selected_text(RichText::new(shown).small()).width(96.0).show_ui(ui, |ui| {
+                        ui.selectable_value(&mut t.model, None, "Modèle de la file").on_hover_text(queue_model);
+                        for (m, (_, label)) in crate::claude::MODELS.iter().enumerate().skip(1) {
+                            ui.selectable_value(&mut t.model, Some(m), *label);
+                        }
+                    });
+                }
                 if editable && k > 0 && ui.small_button("↑").on_hover_text("Plus tôt").clicked() {
                     act = Some(QueueAct::Up(k));
                 }
@@ -210,6 +230,10 @@ pub(super) fn queue_ui(ui: &mut egui::Ui, q: &mut Queue, busy: bool, accent: Col
     });
     ui.add_space(4.0);
     act
+}
+
+fn model_label(m: usize) -> &'static str {
+    crate::claude::MODELS[m.min(crate::claude::MODELS.len() - 1)].1
 }
 
 /// `git add -A`, a message written by Claude for `wish`, `git commit`; returns the first line of
@@ -240,12 +264,18 @@ mod tests {
         assert!(split_tasks("  \n").is_empty());
         // a queue saved before the models and the fresh conversations
         let old: Queue = serde_json::from_str(r#"{"tasks":[{"text":"a","state":"Waiting"}],"commit_each":true}"#).unwrap();
-        assert_eq!((old.model, old.fresh_each, old.commit_each), (None, false, true));
+        assert_eq!((old.model, old.tasks[0].model, old.fresh_each, old.commit_each), (None, None, false, true));
         let mut q = Queue::default();
         assert_eq!(q.add("- a\n- b"), 2);
         q.tasks[0].state = TaskState::Running;
         assert_eq!((q.current(), q.next_waiting()), (Some(0), Some(1)));
         q.settle();
         assert_eq!((q.current(), q.next_waiting()), (None, Some(0)));
+        // the model of a task: its own, else the queue's, else the conversation's
+        q.base_model = Some(1);
+        assert_eq!(q.model_of(0), Some(1));
+        q.model = Some(2);
+        q.tasks[1].model = Some(3);
+        assert_eq!((q.model_of(0), q.model_of(1)), (Some(2), Some(3)));
     }
 }
