@@ -204,8 +204,23 @@ pub fn paint_backdrop(painter: &Painter, rect: Rect, light: bool) {
     }
 }
 
-/// Window icon: navy rounded square with the gradient F, 4×4 supersampled.
-pub fn icon(size: usize) -> egui::IconData {
+/// Empty margin around the rounded square of the icon, as a fraction of its side: macOS draws
+/// icons as given (Apple's grid: an 824 px square in a 1024 px canvas), the other systems
+/// expect a full-bleed image.
+#[cfg_attr(not(any(test, target_os = "macos")), allow(dead_code))]
+pub const MACOS_INSET: f32 = 100.0 / 1024.0;
+#[cfg(target_os = "macos")]
+pub const ICON_INSET: f32 = MACOS_INSET;
+#[cfg(not(target_os = "macos"))]
+pub const ICON_INSET: f32 = 0.0;
+/// Height of the F relative to the icon's rounded square.
+const LETTER: f32 = 0.72;
+/// Horizontal point of the F (unit coordinates) put at the center of the icon.
+const LETTER_CX: f32 = 0.53;
+
+/// Window icon: navy rounded square with the gradient F, 4×4 supersampled, `inset` of empty
+/// margin around the square.
+pub fn icon(size: usize, inset: f32) -> egui::IconData {
     let pieces = pieces();
     let inside = |poly: &[Vec2], p: Vec2| {
         let n = poly.len();
@@ -221,16 +236,20 @@ pub fn icon(size: usize) -> egui::IconData {
             let (mut r, mut g, mut b, mut a) = (0.0, 0.0, 0.0, 0.0);
             for sy in 0..ss {
                 for sx in 0..ss {
-                    let u = (x as f32 + (sx as f32 + 0.5) / ss as f32) / size as f32;
-                    let v = (y as f32 + (sy as f32 + 0.5) / ss as f32) / size as f32;
+                    let side = 1.0 - 2.0 * inset;
+                    let u = ((x as f32 + (sx as f32 + 0.5) / ss as f32) / size as f32 - inset) / side;
+                    let v = ((y as f32 + (sy as f32 + 0.5) / ss as f32) / size as f32 - inset) / side;
                     // rounded square background
                     let (dx, dy) = ((u - 0.5).abs() - 0.32, (v - 0.5).abs() - 0.32);
                     let outside = Vec2::new(dx.max(0.0), dy.max(0.0)).length() - 0.18;
                     if outside > 0.0 {
                         continue;
                     }
-                    // letter scaled to 80% inside the square
-                    let p = Vec2::new((u - 0.1) / 0.8, (v - 0.1) / 0.8);
+                    // Letter scaled to LETTER inside the square. Its box (x 0.20..0.96) is wider on
+                    // the right than its ink (the stem is on the left): centering the box would
+                    // push the F to the right, centering the ink to the left, so the point halfway
+                    // between both centers goes in the middle.
+                    let p = Vec2::new((u - 0.5) / LETTER + LETTER_CX, (v - 0.5) / LETTER + 0.5);
                     let c = if pieces.iter().any(|poly| inside(poly, p)) { grad_at(p) } else { NAVY };
                     r += c.r() as f32;
                     g += c.g() as f32;
@@ -245,4 +264,17 @@ pub fn icon(size: usize) -> egui::IconData {
         }
     }
     egui::IconData { rgba, width: size as u32, height: size as u32 }
+}
+
+/// Regenerates the packaging icons: `cargo test --release write_icons -- --ignored`.
+#[cfg(test)]
+mod tests {
+    #[test]
+    #[ignore]
+    fn write_icons() {
+        for (path, inset) in [("packaging/florm.png", 0.0), ("packaging/macos/florm.png", super::MACOS_INSET)] {
+            let icon = super::icon(512, inset);
+            image::RgbaImage::from_raw(icon.width, icon.height, icon.rgba).unwrap().save(path).unwrap();
+        }
+    }
 }

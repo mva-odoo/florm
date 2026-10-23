@@ -107,7 +107,7 @@ fn main() -> eframe::Result<()> {
             .with_inner_size([1280.0, 800.0])
             .with_min_inner_size([400.0, 300.0])
             .with_drag_and_drop(true)
-            .with_icon(logo::icon(64))
+            .with_icon(logo::icon(if cfg!(target_os = "macos") { 256 } else { 64 }, logo::ICON_INSET))
             .with_title("Florm"),
         // Under Wayland, with vsync, eglSwapBuffers waits for a frame callback that a hidden window
         // (other workspace, minimized) never gets: the event loop blocks and the compositor reports
