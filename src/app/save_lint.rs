@@ -86,8 +86,7 @@ impl App {
         if let (Some(ix), Some(d)) = (self.index.symbols.as_mut(), self.docs.get(idx)) {
             ix.update(path, &d.rope.to_string());
         }
-        let canon = |p: &Path| crate::os::canon(p);
-        if canon(path) == canon(&config::settings_path()) {
+        if config::is_settings_file(path) {
             self.reload_settings();
         }
         if path.file_name().is_some_and(|n| n == "plugin.toml") {

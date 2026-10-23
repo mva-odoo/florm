@@ -151,6 +151,13 @@ impl Highlighting {
         Ok(())
     }
 
+    /// Adds (or replaces) the .tmTheme files of `dir`.
+    pub fn add_folder(&mut self, dir: &Path) {
+        if let Ok(ts) = ThemeSet::load_from_folder(dir) {
+            self.themes.extend(ts.themes);
+        }
+    }
+
     pub fn remove_theme(&mut self, name: &str) {
         self.themes.remove(name);
     }

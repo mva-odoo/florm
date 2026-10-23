@@ -54,7 +54,7 @@ impl App {
                 None => Vec::new().into(),
             },
             Mode::Templates => {
-                self.templates = crate::templates::load(&crate::templates::dir());
+                self.templates = crate::templates::load_all();
                 let ext = self
                     .docs
                     .get(self.active)

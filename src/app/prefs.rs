@@ -234,7 +234,8 @@ impl App {
                     ui.add_space(8.0);
                 }
                 // a theme of one's own: the colors of the current one, changed here
-                let user_theme = |name: &str| config::themes_dir().join(format!("{name}.tmTheme")).is_file();
+                let theme_dirs = config::theme_dirs();
+                let user_theme = |name: &str| theme_dirs.iter().any(|d| d.join(format!("{name}.tmTheme")).is_file());
                 let current_is_user = user_theme(&s.theme);
                 let mut theme_act = None;
                 let mut drop_theme = false;
@@ -293,7 +294,9 @@ impl App {
                     None => {}
                 }
                 if drop_theme {
-                    let _ = std::fs::remove_file(config::themes_dir().join(format!("{}.tmTheme", s.theme)));
+                    for d in &theme_dirs {
+                        let _ = std::fs::remove_file(d.join(format!("{}.tmTheme", s.theme)));
+                    }
                     self.hl.remove_theme(&s.theme);
                     s.theme = "Florm".into();
                 }
@@ -599,7 +602,7 @@ impl App {
                 if rc.matches(&["Modèles", "modèle", "template", "snippet", "déclencheur", "trigger"]) {
                     rc.header(ui);
                     if self.templates.is_empty() {
-                        self.templates = crate::templates::load(&crate::templates::dir());
+                        self.templates = crate::templates::load_all();
                     }
                     let accent = self.hl.colors.accent;
                     let act = template_edit::section(ui, &self.templates, &mut self.prefs.template, accent);
@@ -625,7 +628,7 @@ impl App {
                         None => {}
                     }
                     if reload {
-                        self.templates = crate::templates::load(&crate::templates::dir());
+                        self.templates = crate::templates::load_all();
                     }
                 }
             }
@@ -655,6 +658,49 @@ impl App {
                 pref_row(ui, rc, t!("Chercher les mises à jour", "Check for updates"), &tf!("Au démarrage, Florm regarde s'il existe une version plus récente que la {} sur GitHub et la propose avec un symbole vert en haut.", "At startup, Florm checks GitHub for a version newer than {} and offers it with a green symbol at the top.", crate::update::current()), |ui| {
                     toggle_switch(ui, &mut s.check_updates);
                 });
+                let shared = &mut self.prefs.shared;
+                let shared_dir = crate::shared::dir();
+                let busy = self.shared_busy;
+                let mut shared_op = None;
+                let mut open_shared = false;
+                let help = match &shared_dir {
+                    Some(d) => tf!("Récupérée dans {}. Publier envoie les changements (préférences, modèles, thèmes) sur GitHub.", "Fetched in {}. Publish sends the changes (preferences, templates, themes) to GitHub.", d.display()),
+                    None => t!("Un dépôt GitHub avec settings.toml, templates/, themes/ et plugins/, utilisé sur chaque ordinateur : « login » (= login/florm-config), « owner/repo » ou une adresse git. « Créer » le fait sur GitHub (privé, avec gh) à partir de cet ordinateur.", "A GitHub repository with settings.toml, templates/, themes/ and plugins/, used on every computer: “login” (= login/florm-config), “owner/repo” or a git address. “Create” makes it on GitHub (private, with gh) from this computer.").to_string(),
+                };
+                pref_row(ui, rc, t!("Configuration partagée", "Shared configuration"), &help, |ui| {
+                    let r = ui.add(egui::TextEdit::singleline(shared).desired_width(220.0).font(egui::TextStyle::Monospace).hint_text("login/florm-config"));
+                    if r.lost_focus() || r.changed() && ui.input(|i| i.key_pressed(Key::Enter)) {
+                        s.shared_config = shared.trim().to_string();
+                    }
+                    ui.add_enabled_ui(!busy, |ui| {
+                        if shared_dir.is_some() {
+                            if ui.button(t!("Synchroniser", "Synchronize")).clicked() {
+                                shared_op = Some(crate::shared::Op::Sync);
+                            }
+                            if ui.button(t!("Publier", "Publish")).clicked() {
+                                shared_op = Some(crate::shared::Op::Publish);
+                            }
+                            if ui.button(t!("Ouvrir le dossier", "Open the folder")).clicked() {
+                                open_shared = true;
+                            }
+                        } else if ui.button(t!("Créer sur GitHub", "Create on GitHub")).on_hover_text(t!("Nouveau dépôt privé avec les préférences, modèles, thèmes et plugins de cet ordinateur", "New private repository with the preferences, templates, themes and plugins of this computer")).clicked() {
+                            s.shared_config = shared.trim().to_string();
+                            shared_op = Some(crate::shared::Op::Create);
+                        }
+                    });
+                    if busy {
+                        ui.spinner();
+                    }
+                });
+                if let Some(op) = shared_op {
+                    self.shared_op = Some(op);
+                }
+                if open_shared {
+                    if let Some(d) = crate::shared::dir() {
+                        let p = if d.join("settings.toml").is_file() { d.join("settings.toml") } else { d.join("README.md") };
+                        self.open_path(p);
+                    }
+                }
                 pref_row(ui, rc, t!("Fichier de préférences", "Preferences file"), &config::settings_path().display().to_string(), |ui| {
                     if ui.button(t!("Ouvrir settings.toml", "Open settings.toml")).clicked() {
                         actions.push(Cmd::OpenSettingsFile);
@@ -900,6 +946,17 @@ impl App {
         }
         if s.shell != before.shell {
             self.persist("shell", config::toml_str(s.shell.as_deref().unwrap_or("")));
+        }
+        if s.shared_config != before.shared_config {
+            self.persist("shared_config", config::toml_str(&s.shared_config));
+            if s.shared_config.is_empty() {
+                self.reload_shared();
+            } else if self.shared_op.is_none() {
+                self.shared_op = Some(crate::shared::Op::Sync);
+            }
+        }
+        if let Some(op) = self.shared_op.take() {
+            self.shared_job(op);
         }
     }
 }

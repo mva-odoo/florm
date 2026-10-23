@@ -32,6 +32,7 @@ mod plugins;
 mod project;
 mod rebase;
 mod search;
+mod shared;
 mod sidebar;
 mod split;
 mod update;

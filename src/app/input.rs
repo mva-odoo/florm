@@ -354,6 +354,7 @@ impl App {
             ClaudeAddSelection => self.claude_attach_selection(false),
             ClaudeAsk => self.claude_attach_selection(true),
             ClaudeInline => self.inline_ai_open(),
+            ClaudeResumeFile => self.claude_resume_file(),
             ClaudeAddFile => {
                 if let Some(p) = self.docs.get(self.active).and_then(|d| d.path.clone()) {
                     self.claude_attach_path(p);
@@ -586,6 +587,7 @@ impl App {
                 self.prefs.exclude = self.settings.exclude.join(", ");
                 self.prefs.rulers = self.settings.rulers.iter().map(|c| c.to_string()).collect::<Vec<_>>().join(", ");
                 self.prefs.shell = self.settings.shell.clone().unwrap_or_default();
+                self.prefs.shared = self.settings.shared_config.clone();
             }
             OpenSettingsFile => {
                 self.prefs.open = false;
@@ -596,6 +598,8 @@ impl App {
                 self.set_status(tf!("{} plugin(s) chargé(s)", "{} plugin(s) loaded", self.plugins.len()));
             }
             CheckUpdate => self.check_update(true),
+            SharedSync => self.shared_job(crate::shared::Op::Sync),
+            SharedPublish => self.shared_job(crate::shared::Op::Publish),
             ShowGuide => self.open_view_tab(document::View::Help, t!("Guide de Florm", "Florm guide").into()),
             ShowWelcome => self.open_view_tab(document::View::Welcome, t!("Accueil", "Welcome").into()),
             InsertTemplate => self.open_overlay(Mode::Templates),

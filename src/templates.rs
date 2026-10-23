@@ -39,8 +39,15 @@ Variables remplacées à l'insertion, d'après le fichier courant :\n\n\
 - `${module}` : le module Odoo (dossier qui contient __manifest__.py)\n\
 - `$0` : la position du curseur après l'insertion\n";
 
+/// Where new templates are written: the shared configuration when there is one.
 pub fn dir() -> PathBuf {
-    crate::config::config_dir().join("templates")
+    crate::shared::sub("templates").unwrap_or_else(|| crate::config::config_dir().join("templates"))
+}
+
+/// Built-in, local and shared templates (the shared ones win).
+pub fn load_all() -> Vec<Template> {
+    let dirs: Vec<PathBuf> = std::iter::once(crate::config::config_dir().join("templates")).chain(crate::shared::sub("templates")).collect();
+    load_dirs(&dirs)
 }
 
 /// Creates the folder with its README the first time.
@@ -51,12 +58,18 @@ pub fn install_readme(dir: &Path) {
 }
 
 /// Built-in templates, then the user's (a user template with the same name replaces the built-in one).
+#[cfg(test)]
 pub fn load(dir: &Path) -> Vec<Template> {
+    load_dirs(&[dir.to_path_buf()])
+}
+
+/// Built-in templates, then those of `dirs` in order (a later one with the same name wins).
+fn load_dirs(dirs: &[PathBuf]) -> Vec<Template> {
     let mut v: Vec<Template> = BUILTIN
         .iter()
         .map(|(n, e, tr, b)| Template { name: n.to_string(), ext: e.to_string(), trigger: tr.to_string(), body: b.to_string(), path: None })
         .collect();
-    if let Ok(rd) = std::fs::read_dir(dir) {
+    for rd in dirs.iter().filter_map(|d| std::fs::read_dir(d).ok()) {
         let mut files: Vec<PathBuf> = rd.flatten().map(|e| e.path()).filter(|p| p.is_file()).collect();
         files.sort();
         for p in files {

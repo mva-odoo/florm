@@ -89,6 +89,9 @@ pub struct Settings {
     /// Order of the services of each compose project in the Docker view (▶ tout starts them in
     /// it, ■ tout stops them the other way): project → services.
     pub docker_order: HashMap<String, Vec<String>>,
+    /// Shared configuration (settings.toml, templates/, themes/, plugins/) in a git repository:
+    /// "login" (login/florm-config on GitHub), "owner/repo" or a git address; empty: none.
+    pub shared_config: String,
 }
 
 impl Settings {
@@ -152,6 +155,7 @@ impl Default for Settings {
             odoo_test_history: Vec::new(),
             odoo_test_container: String::new(),
             docker_order: HashMap::new(),
+            shared_config: String::new(),
         }
     }
 }
@@ -232,6 +236,9 @@ check_updates = true
 # tests Odoo dans un conteneur (vue Docker → 🧪 Tests) : commande lancée, {tags} = les tags
 # vide = "odoo --stop-after-init --test-enable --test-tags {tags}"
 odoo_test_command = ""
+# configuration partagée entre ordinateurs : un dépôt GitHub avec settings.toml, templates/,
+# themes/ et plugins/ ; "login" (= login/florm-config), "owner/repo" ou une adresse git
+shared_config = ""
 
 [keys]
 # Raccourcis personnalisés : "combinaison" = "id_de_commande"
@@ -285,26 +292,66 @@ pub fn plugins_dir() -> PathBuf {
     config_dir().join("plugins")
 }
 
+/// Where new themes are saved: the shared configuration when there is one.
 pub fn themes_dir() -> PathBuf {
-    config_dir().join("themes")
+    crate::shared::sub("themes").unwrap_or_else(|| config_dir().join("themes"))
 }
 
-/// Loads settings, creating a commented default file on first run.
+/// Folders the .tmTheme files are loaded from (the shared ones last: they win).
+pub fn theme_dirs() -> Vec<PathBuf> {
+    std::iter::once(config_dir().join("themes")).chain(crate::shared::sub("themes")).collect()
+}
+
+/// settings.toml, local or shared.
+pub fn is_settings_file(path: &std::path::Path) -> bool {
+    let canon = |p: &std::path::Path| crate::os::canon(p);
+    canon(path) == canon(&settings_path()) || crate::shared::settings_path().is_some_and(|s| canon(path) == canon(&s))
+}
+
+/// `over` written on `base`; tables ([keys]…) merged key by key.
+fn merge(base: &mut toml::Table, over: toml::Table) {
+    for (k, v) in over {
+        match (base.get_mut(&k), v) {
+            (Some(toml::Value::Table(b)), toml::Value::Table(o)) => merge(b, o),
+            (_, v) => {
+                base.insert(k, v);
+            }
+        }
+    }
+}
+
+/// Loads settings, creating a commented default file on first run. The shared settings.toml
+/// (see `shared`) goes over the local one.
 pub fn load() -> (Settings, Option<String>) {
     let p = settings_path();
     if !p.exists() {
         let _ = std::fs::create_dir_all(config_dir());
         let _ = std::fs::write(&p, DEFAULT_SETTINGS);
     }
-    match std::fs::read_to_string(&p) {
-        Ok(s) => match toml::from_str::<Settings>(&s) {
-            Ok(v) => {
-                crate::i18n::set(crate::i18n::from_code(&v.language));
-                (v, None)
+    let Ok(text) = std::fs::read_to_string(&p) else { return (Settings::default(), None) };
+    let mut table = match toml::from_str::<toml::Table>(&text) {
+        Ok(t) => t,
+        Err(e) => return (Settings::default(), Some(format!("settings.toml : {e}"))),
+    };
+    crate::shared::set_spec(table.get("shared_config").and_then(|v| v.as_str()).unwrap_or(""));
+    let mut err = None;
+    if let Some(sp) = crate::shared::settings_path().filter(|sp| sp.is_file()) {
+        match std::fs::read_to_string(&sp).map_err(|e| e.to_string()).and_then(|t| toml::from_str::<toml::Table>(&t).map_err(|e| e.to_string())) {
+            Ok(mut shared) => {
+                for k in crate::shared::LOCAL_KEYS {
+                    shared.remove(*k);
+                }
+                merge(&mut table, shared);
             }
-            Err(e) => (Settings::default(), Some(format!("settings.toml : {e}"))),
-        },
-        Err(_) => (Settings::default(), None),
+            Err(e) => err = Some(format!("{} : {e}", sp.display())),
+        }
+    }
+    match toml::Value::Table(table).try_into::<Settings>() {
+        Ok(v) => {
+            crate::i18n::set(crate::i18n::from_code(&v.language));
+            (v, err)
+        }
+        Err(e) => (Settings::default(), Some(format!("settings.toml : {e}"))),
     }
 }
 
@@ -317,8 +364,17 @@ pub fn toml_str(s: &str) -> String {
 /// and the rest of the file as is.
 /// Sets (`Some`) or removes (`None`) the entry `"key" = "value"` of the [keys] section.
 pub fn set_key(key: &str, value: Option<&str>) -> Result<(), String> {
-    let p = settings_path();
-    let text = std::fs::read_to_string(&p).unwrap_or_default();
+    // the shared file has shortcuts: they go there too (it goes over the local ones)
+    if let Some(sp) = crate::shared::settings_path() {
+        if std::fs::read_to_string(&sp).is_ok_and(|t| t.lines().any(|l| l.trim() == "[keys]")) {
+            set_key_in(&sp, key, value)?;
+        }
+    }
+    set_key_in(&settings_path(), key, value)
+}
+
+fn set_key_in(p: &std::path::Path, key: &str, value: Option<&str>) -> Result<(), String> {
+    let text = std::fs::read_to_string(p).unwrap_or_default();
     let mut lines: Vec<String> = text.lines().map(String::from).collect();
     let header = match lines.iter().position(|l| l.trim() == "[keys]") {
         Some(i) => i,
@@ -350,7 +406,7 @@ pub fn set_key(key: &str, value: Option<&str>) -> Result<(), String> {
         }
         (None, None) => {}
     }
-    std::fs::write(&p, lines.join("\n") + "\n").map_err(|e| e.to_string())
+    std::fs::write(p, lines.join("\n") + "\n").map_err(|e| e.to_string())
 }
 
 /// TOML array of strings.
@@ -358,22 +414,38 @@ pub fn toml_str_array(v: &[String]) -> String {
     format!("[{}]", v.iter().map(|s| toml_str(s)).collect::<Vec<_>>().join(", "))
 }
 
+/// Sets `key = value` (value already in TOML syntax) in settings.toml, keeping comments and the
+/// rest of the file as is; in the shared settings.toml too when it sets this key.
 pub fn set_setting(key: &str, value: &str) -> Result<(), String> {
-    let p = settings_path();
-    let text = std::fs::read_to_string(&p).unwrap_or_default();
-    let mut lines: Vec<String> = text.lines().map(String::from).collect();
-    let section = lines.iter().position(|l| l.trim_start().starts_with('[')).unwrap_or(lines.len());
-    let existing = lines[..section].iter().position(|l| {
+    if let Some(sp) = crate::shared::settings_path().filter(|_| !crate::shared::LOCAL_KEYS.contains(&key)) {
+        if let Ok(text) = std::fs::read_to_string(&sp) {
+            if top_level_index(&text, key).is_some() {
+                let _ = set_setting_in(&sp, key, value);
+            }
+        }
+    }
+    let _ = std::fs::create_dir_all(config_dir());
+    set_setting_in(&settings_path(), key, value)
+}
+
+/// Line of `key = …` before the first [section].
+fn top_level_index(text: &str, key: &str) -> Option<usize> {
+    text.lines().take_while(|l| !l.trim_start().starts_with('[')).position(|l| {
         let t = l.trim_start();
         t.strip_prefix(key).is_some_and(|rest| rest.trim_start().starts_with('='))
-    });
+    })
+}
+
+fn set_setting_in(p: &std::path::Path, key: &str, value: &str) -> Result<(), String> {
+    let text = std::fs::read_to_string(p).unwrap_or_default();
+    let mut lines: Vec<String> = text.lines().map(String::from).collect();
+    let section = lines.iter().position(|l| l.trim_start().starts_with('[')).unwrap_or(lines.len());
     let line = format!("{key} = {value}");
-    match existing {
+    match top_level_index(&text, key) {
         Some(i) => lines[i] = line,
         None => lines.insert(section, line),
     }
-    let _ = std::fs::create_dir_all(config_dir());
-    std::fs::write(&p, lines.join("\n") + "\n").map_err(|e| e.to_string())
+    std::fs::write(p, lines.join("\n") + "\n").map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

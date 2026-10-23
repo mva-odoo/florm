@@ -155,6 +155,9 @@ impl App {
             ui.separator();
             item(ui, t!("Recharger les plugins", "Reload plugins"), Cmd::ReloadPlugins);
             item(ui, t!("Dossier des plugins", "Plugins folder"), Cmd::OpenPluginsFolder);
+            ui.separator();
+            item(ui, t!("Synchroniser la configuration partagée", "Synchronize the shared configuration"), Cmd::SharedSync);
+            item(ui, t!("Publier la configuration partagée", "Publish the shared configuration"), Cmd::SharedPublish);
         });
         ui.menu_button(t!("Aide", "Help"), |ui| {
             item(ui, t!("Guide de Florm (recherche, Git, terminal, modèles…)", "Florm guide (search, Git, terminal, templates…)"), Cmd::ShowGuide);

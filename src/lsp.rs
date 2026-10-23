@@ -8,6 +8,12 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
 use std::sync::mpsc::{channel, Receiver, Sender};
+use std::time::{Duration, Instant};
+
+/// A server nobody asked for this long, with no document open on it, is stopped (it restarts when needed).
+const IDLE_STOP: Duration = Duration::from_secs(10 * 60);
+/// How often the servers are looked at for that.
+const IDLE_CHECK: Duration = Duration::from_secs(60);
 
 /// Language family (one server each) and LSP language id of a file.
 pub fn language_of(path: &Path) -> Option<(&'static str, &'static str)> {
@@ -183,6 +189,8 @@ pub struct Client {
     init_id: i64,
     /// Document uid -> (version sent, file).
     pub opened: HashMap<u64, (u64, PathBuf)>,
+    /// Last request or change sent to it.
+    used: Instant,
     child: Child,
 }
 
@@ -264,6 +272,7 @@ impl Client {
             queue: Vec::new(),
             init_id: 0,
             opened: HashMap::new(),
+            used: Instant::now(),
             child,
         };
         let root_uri = path_to_uri(root);
@@ -385,12 +394,14 @@ pub struct Manager {
     events: Receiver<(usize, Incoming)>,
     /// (family, root) whose server is missing or crashed: not retried until `reset`.
     pub failed: HashSet<(String, PathBuf)>,
+    /// When the idle servers were last looked at.
+    checked: Instant,
 }
 
 impl Default for Manager {
     fn default() -> Self {
         let (events_tx, events) = channel();
-        Manager { clients: Vec::new(), events_tx, events, failed: HashSet::new() }
+        Manager { clients: Vec::new(), events_tx, events, failed: HashSet::new(), checked: Instant::now() }
     }
 }
 
@@ -423,11 +434,28 @@ impl Manager {
     }
 
     pub fn client(&mut self, i: usize) -> Option<&mut Client> {
-        self.clients.get_mut(i)?.as_mut()
+        let c = self.clients.get_mut(i)?.as_mut()?;
+        c.used = Instant::now();
+        Some(c)
+    }
+
+    /// Stops the servers unused for `IDLE_STOP` and with no document open: they use memory for
+    /// nothing. The slot stays (the indexes of the others do not move); `ensure` starts it again.
+    fn stop_idle(&mut self) {
+        if self.checked.elapsed() < IDLE_CHECK {
+            return;
+        }
+        self.checked = Instant::now();
+        for slot in self.clients.iter_mut() {
+            if slot.as_ref().is_some_and(|c| c.opened.is_empty() && c.used.elapsed() >= IDLE_STOP) {
+                *slot = None;
+            }
+        }
     }
 
     /// Responses received since the last call (the end of `initialize` is handled here).
     pub fn poll(&mut self) -> Vec<(usize, Incoming)> {
+        self.stop_idle();
         let mut out = Vec::new();
         while let Ok((i, msg)) = self.events.try_recv() {
             match &msg {

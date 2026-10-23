@@ -32,6 +32,10 @@ pub(super) struct PrCreate {
     draft: bool,
     busy: bool,
     error: Option<String>,
+    /// Remote holding the base branch ("" if none): the description is written from its changes.
+    base_remote: String,
+    /// Claude is writing the description.
+    writing: bool,
 }
 
 impl GhUi {
@@ -170,7 +174,20 @@ impl App {
             draft: false,
             busy: false,
             error: None,
+            base_remote: String::new(),
+            writing: false,
         });
+    }
+
+    /// The description written by Claude goes in the box, if it is empty (else a message says so).
+    pub(super) fn pr_body_ready(&mut self, r: Result<String, String>) {
+        let Some(c) = self.gh.create.as_mut() else { return };
+        c.writing = false;
+        match r {
+            Ok(text) if c.body.trim().is_empty() => c.body = text,
+            Ok(_) => c.error = Some(t!("La description n'est pas vide : efface-la pour la faire rédiger par Claude", "The description is not empty: clear it to have Claude write it").into()),
+            Err(e) => c.error = Some(e),
+        }
     }
 
     pub(super) fn pr_created(&mut self, repo: PathBuf, r: Result<String, String>) {
@@ -199,6 +216,7 @@ impl App {
         if let (Some((full, default)), true) = (&base, c.bases.is_empty()) {
             let owner = full.split('/').next().unwrap_or("");
             let base_remote = c.remotes.iter().find(|(_, o)| o.eq_ignore_ascii_case(owner)).map(|(n, _)| n.clone());
+            c.base_remote = base_remote.clone().unwrap_or_default();
             if let Some(r) = base_remote {
                 let refs = git::stdout(&repo, &["for-each-ref", "--format=%(refname:short)", &format!("refs/remotes/{r}")]).unwrap_or_default();
                 c.bases = refs.lines().filter_map(|l| l.strip_prefix(&format!("{r}/"))).filter(|b| *b != "HEAD").map(String::from).collect();
@@ -210,7 +228,7 @@ impl App {
             c.base = github::guess_base(&c.branch, &c.bases, default);
         }
         let mut open = true;
-        let (mut create, mut cancel) = (false, false);
+        let (mut create, mut cancel, mut write) = (false, false, false);
         egui::Window::new(t!("Créer une pull request", "Create a pull request"))
             .open(&mut open)
             .collapsible(false)
@@ -250,7 +268,16 @@ impl App {
                     ui.label(RichText::new(t!("Titre", "Title")).weak());
                     ui.add(egui::TextEdit::singleline(&mut c.title).desired_width(f32::INFINITY));
                     ui.end_row();
-                    ui.label(RichText::new("Description").weak());
+                    ui.vertical(|ui| {
+                        ui.label(RichText::new("Description").weak());
+                        let can = base.is_some() && !c.base_remote.is_empty() && !c.writing && !c.busy;
+                        if ui.add_enabled(can, egui::Button::new(t!("✳ Rédiger", "✳ Write")).small()).on_hover_text(t!("Claude rédige la description à partir des commits et du diff de la branche (si elle est vide)", "Claude writes the description from the commits and the diff of the branch (if it is empty)")).clicked() {
+                            write = true;
+                        }
+                        if c.writing {
+                            spinner(ui);
+                        }
+                    });
                     ui.add(egui::TextEdit::multiline(&mut c.body).desired_rows(8).desired_width(f32::INFINITY).hint_text("Markdown"));
                     ui.end_row();
                     ui.label("");
@@ -279,6 +306,19 @@ impl App {
         if !open || cancel {
             self.gh.create = None;
             return;
+        }
+        if write {
+            let Some(c) = self.gh.create.as_mut() else { return };
+            c.writing = true;
+            c.error = None;
+            let (repo, base_ref) = (c.repo.clone(), format!("{}/{}", c.base_remote, c.base));
+            self.jobs.spawn(move || {
+                let r = git::run(&repo, &["log", "--format=- %s", &format!("{base_ref}..HEAD")]).and_then(|log| {
+                    let diff = git::run(&repo, &["diff", &format!("{base_ref}...HEAD")])?;
+                    crate::claude::pr_description(&repo, &log, &diff)
+                });
+                JobResult::PrBody(r)
+            });
         }
         if create {
             let (Some(c), Some((full, _))) = (self.gh.create.as_mut(), base) else { return };

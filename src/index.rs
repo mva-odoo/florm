@@ -7,11 +7,27 @@
 use crate::symbols::{self, Kind};
 use crate::walk::{self, Exclusions};
 use std::collections::HashMap;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc};
 
 const MAX_FILE: u64 = 1_500_000;
+/// First bytes of the file of the index kept between two runs (and its version: change it when the
+/// layout or the symbols change).
+const MAGIC: &[u8; 8] = b"FLIDX\0\0\x01";
+
+/// Size and modification time of a file: when both are the same, its symbols are the same.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Stamp {
+    len: u64,
+    mtime: u128,
+}
+
+fn stamp_of(m: &std::fs::Metadata) -> Option<Stamp> {
+    let mtime = m.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos();
+    Some(Stamp { len: m.len(), mtime })
+}
 
 #[derive(Clone, Debug)]
 pub struct Entry {
@@ -65,6 +81,9 @@ impl Strings {
 #[derive(Default, Clone)]
 pub struct Index {
     files: HashMap<PathBuf, Box<[Sym]>>,
+    /// Every indexable file of the last walk (the ones without symbols too), with its stamp: what
+    /// `save` writes and what a later build reuses when the file did not change.
+    stamps: HashMap<PathBuf, Stamp>,
     strings: Strings,
     /// Distinct names (string numbers), sorted by text (completion by prefix).
     names: Vec<u32>,
@@ -82,13 +101,14 @@ impl Index {
     /// many repositories, only the ones far from the work are left out.
     #[cfg(test)]
     pub fn build(root: &Path, first: &[PathBuf], ex: &Exclusions, max_files: usize) -> Index {
-        Index::build_in_steps(root, first, ex, max_files, |_| {})
+        Index::build_in_steps(root, first, ex, max_files, None, |_| {})
     }
 
     /// Like `build`, and `first_done` gets the index of the `first` folders as soon as they are
     /// walked: go to definition works there long before a big folder is done. Half the processor
-    /// cores at most, the interface keeps the others.
-    pub fn build_in_steps(root: &Path, first: &[PathBuf], ex: &Exclusions, max_files: usize, first_done: impl FnOnce(Index)) -> Index {
+    /// cores at most, the interface keeps the others. `cache`: the index of the last run; a file
+    /// whose size and modification time did not change is not read again.
+    pub fn build_in_steps(root: &Path, first: &[PathBuf], ex: &Exclusions, max_files: usize, cache: Option<&Index>, first_done: impl FnOnce(Index)) -> Index {
         let threads = std::thread::available_parallelism().map_or(2, |n| n.get()).div_ceil(2);
         let mut first_done = Some(first_done);
         let mut idx = Index::default();
@@ -112,7 +132,7 @@ impl Index {
             }
             // the symbols found by the walking threads are kept by this one: what stays in memory is
             // not scattered in the memory pools of short-lived threads, between freed file texts
-            let (tx, rx) = mpsc::sync_channel::<(PathBuf, Vec<symbols::Symbol>)>(256);
+            let (tx, rx) = mpsc::sync_channel::<(PathBuf, Option<Stamp>, Option<Vec<symbols::Symbol>>)>(256);
             std::thread::scope(|s| {
                 let count = &count;
                 s.spawn(move || {
@@ -128,27 +148,113 @@ impl Index {
                             }
                             let p = e.path();
                             let Some(syntax) = symbols::syntax_for(p).filter(|s| *s != "Markdown") else { return ignore::WalkState::Continue };
-                            if e.metadata().map_or(true, |m| m.len() > MAX_FILE) {
+                            let Ok(meta) = e.metadata() else { return ignore::WalkState::Continue };
+                            if meta.len() > MAX_FILE {
                                 return ignore::WalkState::Continue;
                             }
                             count.fetch_add(1, Ordering::Relaxed);
+                            let stamp = stamp_of(&meta);
+                            // the same size and date as in the last run: its symbols are kept, not read again
+                            if let (Some(old), Some(s)) = (cache, stamp) {
+                                if old.stamps.get(p) == Some(&s) {
+                                    return if tx.send((p.to_path_buf(), stamp, None)).is_err() { ignore::WalkState::Quit } else { ignore::WalkState::Continue };
+                                }
+                            }
                             let Ok(text) = std::fs::read_to_string(p) else { return ignore::WalkState::Continue };
                             let v = entries(&text, syntax);
-                            if !v.is_empty() && tx.send((p.to_path_buf(), v)).is_err() {
+                            if tx.send((p.to_path_buf(), stamp, Some(v))).is_err() {
                                 return ignore::WalkState::Quit;
                             }
                             ignore::WalkState::Continue
                         })
                     });
                 });
-                for (p, v) in rx {
-                    idx.insert(p, v);
+                for (p, stamp, v) in rx {
+                    match v {
+                        Some(v) if !v.is_empty() => idx.insert(p.clone(), v),
+                        Some(_) => {}
+                        None => {
+                            if let Some(old) = cache {
+                                idx.adopt(old, &p);
+                            }
+                        }
+                    }
+                    if let Some(s) = stamp {
+                        idx.stamps.insert(p, s);
+                    }
                 }
             });
         }
         idx.files.shrink_to_fit();
         idx.rebuild_names();
         idx
+    }
+
+    /// Takes the symbols of `path` from `from` (the index of the last run), numbers renumbered.
+    fn adopt(&mut self, from: &Index, path: &Path) {
+        let Some(syms) = from.files.get(path) else { return };
+        let syms: Box<[Sym]> = syms
+            .iter()
+            .map(|s| Sym { name: self.strings.id(from.strings.get(s.name)), detail: self.strings.id(from.strings.get(s.detail)), line: s.line, kind: s.kind })
+            .collect();
+        self.files.insert(path.to_path_buf(), syms);
+    }
+
+    /// Writes the index to `path` (through a temporary file: a stop in the middle leaves the old one).
+    pub fn save(&self, path: &Path) -> std::io::Result<()> {
+        if let Some(d) = path.parent() {
+            std::fs::create_dir_all(d)?;
+        }
+        let tmp = path.with_extension("tmp");
+        let mut w = std::io::BufWriter::new(std::fs::File::create(&tmp)?);
+        w.write_all(MAGIC)?;
+        // a path that is not text cannot be kept: its file is read again next time
+        let files: Vec<(&str, &PathBuf, &Stamp)> = self.stamps.iter().filter_map(|(p, s)| Some((p.to_str()?, p, s))).collect();
+        w.write_all(&(files.len() as u64).to_le_bytes())?;
+        for (name, p, s) in files {
+            put_str(&mut w, name)?;
+            w.write_all(&s.len.to_le_bytes())?;
+            w.write_all(&s.mtime.to_le_bytes())?;
+            let syms: &[Sym] = self.files.get(p).map_or(&[], |v| &v[..]);
+            w.write_all(&(syms.len() as u32).to_le_bytes())?;
+            for sym in syms {
+                put_str(&mut w, self.strings.get(sym.name))?;
+                put_str(&mut w, self.strings.get(sym.detail))?;
+                w.write_all(&sym.line.to_le_bytes())?;
+                w.write_all(&[kind_code(sym.kind)])?;
+            }
+        }
+        w.flush()?;
+        drop(w);
+        std::fs::rename(&tmp, path)
+    }
+
+    /// The index written by `save`; None when there is none or it is not readable (then the
+    /// folder is walked and read as before).
+    pub fn load(path: &Path) -> Option<Index> {
+        let data = std::fs::read(path).ok()?;
+        let mut r = Reader { data: &data, pos: 0 };
+        if r.take(MAGIC.len())? != MAGIC {
+            return None;
+        }
+        let mut idx = Index::default();
+        for _ in 0..r.u64()? {
+            let p = PathBuf::from(r.str()?);
+            let stamp = Stamp { len: r.u64()?, mtime: r.u128()? };
+            let mut syms = Vec::new();
+            for _ in 0..r.u32()? {
+                let name = idx.strings.id(r.str()?);
+                let detail = idx.strings.id(r.str()?);
+                let line = r.u32()?;
+                syms.push(Sym { name, detail, line, kind: kind_of(r.u8()?)? });
+            }
+            if !syms.is_empty() {
+                idx.files.insert(p.clone(), syms.into_boxed_slice());
+            }
+            idx.stamps.insert(p, stamp);
+        }
+        idx.rebuild_names();
+        Some(idx)
     }
 
     fn insert(&mut self, path: PathBuf, v: Vec<symbols::Symbol>) {
@@ -226,6 +332,69 @@ impl Index {
     }
 }
 
+fn kind_code(k: Kind) -> u8 {
+    match k {
+        Kind::Class => 0,
+        Kind::Function => 1,
+        Kind::Method => 2,
+        Kind::Record => 3,
+        Kind::Heading => 4,
+        Kind::Other => 5,
+    }
+}
+
+fn kind_of(c: u8) -> Option<Kind> {
+    [Kind::Class, Kind::Function, Kind::Method, Kind::Record, Kind::Heading, Kind::Other].get(c as usize).copied()
+}
+
+/// A text as its length (u32) and its bytes.
+fn put_str(w: &mut impl Write, s: &str) -> std::io::Result<()> {
+    w.write_all(&(s.len() as u32).to_le_bytes())?;
+    w.write_all(s.as_bytes())
+}
+
+/// Reads what `Index::save` wrote; None at the end or on anything unexpected.
+struct Reader<'a> {
+    data: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> Reader<'a> {
+    fn take(&mut self, n: usize) -> Option<&'a [u8]> {
+        let s = self.data.get(self.pos..self.pos.checked_add(n)?)?;
+        self.pos += n;
+        Some(s)
+    }
+
+    fn u8(&mut self) -> Option<u8> {
+        Some(self.take(1)?[0])
+    }
+
+    fn u32(&mut self) -> Option<u32> {
+        Some(u32::from_le_bytes(self.take(4)?.try_into().ok()?))
+    }
+
+    fn u64(&mut self) -> Option<u64> {
+        Some(u64::from_le_bytes(self.take(8)?.try_into().ok()?))
+    }
+
+    fn u128(&mut self) -> Option<u128> {
+        Some(u128::from_le_bytes(self.take(16)?.try_into().ok()?))
+    }
+
+    fn str(&mut self) -> Option<&'a str> {
+        let n = self.u32()? as usize;
+        std::str::from_utf8(self.take(n)?).ok()
+    }
+}
+
+/// Where the index of the folder `root` is kept between two runs of Florm.
+pub fn cache_path(root: &Path) -> PathBuf {
+    // FNV-1a: the same name in every run (the standard hasher may change between Rust versions)
+    let h = root.to_string_lossy().bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| (h ^ b as u64).wrapping_mul(0x0100_0000_01b3));
+    crate::config::data_dir().join("index").join(format!("{h:016x}.bin"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -288,5 +457,34 @@ mod tests {
         let t = std::time::Instant::now();
         let n = idx.lookup("sale.order").len();
         eprintln!("lookup sale.order : {n} résultat(s) en {:?}", t.elapsed());
+    }
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+
+    #[test]
+    fn saved_index_is_reused_and_changed_files_read_again() {
+        let dir = std::env::temp_dir().join(format!("florm-index-cache-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        std::fs::write(dir.join("a.py"), "class Foo:\n    pass\n").unwrap();
+        std::fs::write(dir.join("sub/b.py"), "def bar():\n    pass\n").unwrap();
+        let file = dir.join("cache.bin");
+
+        let first = Index::build(&dir, &[], &Exclusions::none(), usize::MAX);
+        first.save(&file).unwrap();
+        let old = Index::load(&file).unwrap();
+        assert_eq!(old.lookup("Foo").len(), 1);
+        assert_eq!(old.file_count(), first.file_count());
+
+        // a file of another length is read again; the others come from the cache
+        std::fs::write(dir.join("a.py"), "class Quux:\n    pass\n").unwrap();
+        let again = Index::build_in_steps(&dir, &[], &Exclusions::none(), usize::MAX, Some(&old), |_| {});
+        assert_eq!(again.lookup("bar").len(), 1);
+        assert_eq!(again.lookup("Quux").len(), 1);
+        assert_eq!(again.lookup("Foo").len(), 0);
+
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

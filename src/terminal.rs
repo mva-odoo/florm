@@ -11,7 +11,8 @@ use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-const SCROLLBACK: usize = 10_000;
+/// Lines of history kept by a terminal: each line is a row of cells, so this is most of its memory.
+const SCROLLBACK: usize = 3_000;
 /// Most bytes of output kept as text by a session that keeps it.
 const CAPTURE: usize = 1 << 20;
 

@@ -29,8 +29,62 @@ impl App {
         self.set_status(t!("Préférences rechargées", "Preferences reloaded"));
     }
 
+    /// Synchronizes, publishes or creates the shared configuration in the background.
+    pub(super) fn shared_job(&mut self, op: crate::shared::Op) {
+        use crate::shared::Op;
+        let spec = self.settings.shared_config.trim().to_string();
+        if spec.is_empty() && op != Op::Create {
+            self.set_error(t!("Aucune configuration partagée : indiquez un dépôt GitHub dans Préférences → Avancé", "No shared configuration: give a GitHub repository in Preferences → Advanced"));
+            return;
+        }
+        if self.shared_busy {
+            return;
+        }
+        self.shared_busy = true;
+        self.set_status(match op {
+            Op::Sync => t!("Configuration partagée : synchronisation…", "Shared configuration: synchronizing…"),
+            Op::Publish => t!("Configuration partagée : publication…", "Shared configuration: publishing…"),
+            Op::Create => t!("Configuration partagée : création du dépôt…", "Shared configuration: creating the repository…"),
+        });
+        self.jobs.spawn(move || JobResult::Shared(op, crate::shared::run(op, &spec)));
+    }
+
+    pub(super) fn shared_done(&mut self, op: crate::shared::Op, result: Result<(String, String), String>) {
+        self.shared_busy = false;
+        match result {
+            Ok((spec, msg)) => {
+                if spec != self.settings.shared_config {
+                    self.persist("shared_config", config::toml_str(&spec));
+                    self.prefs.shared = spec;
+                }
+                if op != crate::shared::Op::Publish {
+                    self.reload_shared();
+                }
+                self.log(msg.clone());
+                self.set_status(msg);
+            }
+            Err(e) => {
+                self.log(tf!("Configuration partagée : {e}", "Shared configuration: {e}"));
+                self.set_error(t!("Configuration partagée : échec (voir Sortie)", "Shared configuration: failed (see Output)"));
+            }
+        }
+    }
+
+    /// Preferences, templates, themes and plugins read again (the shared ones changed).
+    pub(super) fn reload_shared(&mut self) {
+        // read first: the shared folder depends on `shared_config`
+        let _ = config::load();
+        if let Some(d) = crate::shared::sub("themes") {
+            self.hl.add_folder(&d);
+        }
+        self.reload_settings();
+        self.templates = crate::templates::load_all();
+        self.reload_plugins();
+    }
+
     pub(super) fn reload_plugins(&mut self) {
         let mut dirs = vec![config::plugins_dir()];
+        dirs.extend(crate::shared::sub("plugins"));
         if let Some(r) = &self.root {
             dirs.push(r.join(".florm").join("plugins"));
         }

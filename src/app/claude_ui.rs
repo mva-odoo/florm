@@ -51,6 +51,9 @@ impl Attach {
     }
 }
 
+/// Most characters of a diff given to Claude as context (the rest: Claude reads it with git itself).
+const MAX_DIFF_CHARS: usize = 20_000;
+
 /// What can be added to the context from the chat (« + Contexte »).
 #[derive(Clone)]
 enum CtxAdd {
@@ -84,6 +87,9 @@ pub(super) struct ClaudeUi {
     /// uid; None: the bottom panel).
     id: u64,
     tab: Option<u64>,
+    /// List items of the answers ticked (or unticked) by a click: (answer, item's text). Not kept
+    /// with the conversation.
+    checks: HashSet<(usize, String)>,
     /// It finished answering while it was not shown: its tab is colored until seen.
     unseen: bool,
     /// Key of the conversation in the saved ones (0: not saved yet).
@@ -428,19 +434,22 @@ impl App {
         }
         let mut message = text.clone();
         let attach = std::mem::take(&mut self.claude.attach);
-        let given: Vec<String> = attach.iter().map(|a| a.label(Some(&dir))).collect();
+        let mut given: Vec<String> = attach.iter().map(|a| a.label(Some(&dir))).collect();
         if !attach.is_empty() {
             let parts: Vec<String> = attach.iter().map(|a| a.prompt(Some(&dir))).collect();
             message = format!("{}\n\n{message}", parts.join("\n\n"));
         }
         if self.claude.with_context {
-            if let Some(ctx) = self.editor_context(&dir) {
+            if let Some((ctx, rel)) = self.editor_context(&dir) {
                 message = format!("{ctx}\n\n{message}");
+                // the file is given too: « reprendre la conversation de ce fichier » finds it
+                if !given.contains(&rel) {
+                    given.insert(0, rel);
+                }
             }
         }
         // the classes and functions named in the message, found in the index: Claude does not
         // have to search for them
-        let mut given = given;
         if !self.claude.no_defs {
             if let Some((defs, names)) = self.cited_definitions(&text, &dir) {
                 message = format!("{message}\n\n{defs}");
@@ -662,8 +671,8 @@ impl App {
         match git::run(repo, &["show", "--stat", "--patch", "--format=commit %H%nAuteur : %an, %ad%n%n%B", "--date=short", hash]) {
             Ok(text) => {
                 let subject = git::stdout(repo, &["log", "-1", "--format=%s", hash]).unwrap_or_default();
-                let mut text: String = text.chars().take(60_000).collect();
-                if text.len() >= 60_000 {
+                let mut text: String = text.chars().take(MAX_DIFF_CHARS).collect();
+                if text.chars().count() >= MAX_DIFF_CHARS {
                     text.push_str(t!("\n[… diff coupé, trop long]", "\n[… diff cut, too long]"));
                 }
                 self.claude.dir.get_or_insert_with(|| repo.to_path_buf());
@@ -706,7 +715,7 @@ impl App {
                 let Some(dir) = self.claude.dir.clone() else { return };
                 match super::git_view::worktree_diff(&dir, &["diff", "HEAD"]) {
                     Ok(d) if !d.trim().is_empty() => {
-                        let d: String = d.chars().take(60_000).collect();
+                        let d: String = d.chars().take(MAX_DIFF_CHARS).collect();
                         self.claude_attach_note(t!("Changements non commités", "Uncommitted changes").into(), d);
                     }
                     Ok(_) => self.set_status(t!("Aucun changement non commité", "No uncommitted change")),
@@ -804,7 +813,8 @@ impl App {
         (!parts.is_empty()).then(|| (tf!("(Définitions trouvées dans le projet pour les noms cités :\n{})", "(Definitions found in the project for the names mentioned:\n{})", parts.join("\n")), names))
     }
 
-    fn editor_context(&self, dir: &Path) -> Option<String> {
+    /// The file open in the editor, said to Claude: the text, and the path of the file.
+    fn editor_context(&self, dir: &Path) -> Option<(String, String)> {
         let d = self.docs.iter().rev().find(|d| d.view == document::View::Text && d.path.is_some())?;
         let path = d.path.as_ref()?;
         let rel = path.strip_prefix(dir).unwrap_or(path).display().to_string();
@@ -816,7 +826,7 @@ impl App {
             s.push_str(&tf!(" Texte sélectionné :\n```\n{text}\n```", " Selected text:\n```\n{text}\n```"));
         }
         s.push(')');
-        Some(s)
+        Some((s, rel))
     }
 
     /// The review starts from the files as they are now.
@@ -977,6 +987,7 @@ impl App {
         ClaudeUi {
             id: N.fetch_add(1, Ordering::Relaxed),
             tab,
+            checks: HashSet::new(),
             dir: c.dir.clone(),
             model: c.model,
             mode: c.mode,
@@ -1131,6 +1142,25 @@ impl App {
         let conv = self.claude_from_saved(&s, Some(uid));
         let old = std::mem::replace(&mut self.claude, conv);
         self.claude_others.push(old);
+    }
+
+    /// « Reprendre la conversation de ce fichier » : the most recent conversation that gave this
+    /// file to Claude (attached, or open in the editor when a message was sent).
+    pub(super) fn claude_resume_file(&mut self) {
+        let Some(path) = self.claude_editor_doc().and_then(|i| self.docs[i].path.clone()) else {
+            self.set_status(t!("Aucun fichier ouvert", "No file open"));
+            return;
+        };
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        if rel_path(self.claude.dir.as_deref(), &path).is_some_and(|rel| gives_file(&self.claude.items, &rel)) {
+            self.open_claude();
+            return;
+        }
+        let found = self.claude_saved.iter().find(|s| rel_path(s.dir.as_deref(), &path).is_some_and(|rel| gives_file(&s.items, &rel))).map(|s| s.key);
+        match found {
+            Some(key) => self.claude_open_saved(key),
+            None => self.set_status(tf!("Aucune conversation Claude ne concerne {name}", "No Claude conversation is about {name}")),
+        }
     }
 
     /// A conversation taken out of the history (not the open ones).
@@ -1579,10 +1609,10 @@ impl App {
                                 }
                                 let (rest, questions) = claude_ask::parse(t);
                                 if questions.is_empty() {
-                                    super::md::markdown(ui, cache, t);
+                                    super::md::markdown_checks(ui, cache, t, &mut c.checks, k);
                                     return;
                                 }
-                                super::md::markdown(ui, cache, &rest);
+                                super::md::markdown_checks(ui, cache, &rest, &mut c.checks, k);
                                 let open = matches!(it, Item::Text(_)) && !c.busy && last_user.is_none_or(|u| k > u);
                                 let answers = if open {
                                     if c.answers.as_ref().map(|a| a.item) != Some(k) {
@@ -1796,6 +1826,17 @@ impl App {
 
 /// The names of a message that look like code: in backquotes, followed by "(", CamelCase, or
 /// with an underscore — not the words of the sentence.
+/// The path of `path` relative to the folder `dir` of a conversation (None outside it).
+fn rel_path(dir: Option<&Path>, path: &Path) -> Option<String> {
+    dir.and_then(|d| path.strip_prefix(d).ok()).map(|r| r.display().to_string())
+}
+
+/// Whether a message of a conversation gave the file `rel`, or a part of it (`rel:line`).
+fn gives_file(items: &[Item], rel: &str) -> bool {
+    let prefix = format!("{rel}:");
+    items.iter().any(|i| matches!(i, Item::User(_, given) if given.iter().any(|g| g == rel || g.starts_with(&prefix))))
+}
+
 fn cited_names(text: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     let mut push = |w: &str| {

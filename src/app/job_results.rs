@@ -74,7 +74,13 @@ impl App {
                         let send = self.jobs.sender();
                         self.jobs.spawn(move || {
                             let r2 = r.clone();
-                            let idx = crate::index::Index::build_in_steps(&r, &first, &ex, max, move |part| send(JobResult::SymbolIndex(r2, part, true)));
+                            // the index of the last run: the files that did not change are not read again
+                            let cache_file = crate::index::cache_path(&r);
+                            let old = crate::index::Index::load(&cache_file);
+                            let idx = crate::index::Index::build_in_steps(&r, &first, &ex, max, old.as_ref(), move |part| send(JobResult::SymbolIndex(r2, part, true)));
+                            drop(old);
+                            // a cache that cannot be written only makes the next start slower
+                            let _ = idx.save(&cache_file);
                             JobResult::SymbolIndex(r, idx, false)
                         });
                     }
@@ -182,6 +188,7 @@ impl App {
                 JobResult::GhBranchPrs(repo, branch, r) => self.gh_branch_prs_loaded(repo, branch, r),
                 JobResult::GhCommitPrs(sha, r) => self.gh_commit_prs_loaded(sha, r),
                 JobResult::PrCreated(repo, r) => self.pr_created(repo, r),
+                JobResult::PrBody(r) => self.pr_body_ready(r),
                 JobResult::PrDetail(repo, n, r) => self.pr_detail_loaded(repo, n, r),
                 JobResult::PrCommitDiff(sha, r) => self.pr_commit_diff_loaded(sha, r),
                 JobResult::PrOp { label, result, reload, draft } => self.pr_op_done(label, result, reload, draft),
@@ -442,6 +449,7 @@ impl App {
                         self.log(e);
                     }
                 },
+                JobResult::Shared(op, result) => self.shared_done(op, result),
                 JobResult::DockerList(list, composes) => self.docker_listed(list, composes),
                 JobResult::DockerFollow { name, result } => self.docker_followed(name, result),
                 JobResult::DockerDone { label, result } => self.docker_done(label, result),

@@ -96,6 +96,9 @@ fn text_on(fill: Color32) -> Color32 {
 }
 
 const MIN_FRAME: Duration = Duration::from_millis(8);
+/// Between two images while the window is not in front (behind another window, in the background):
+/// nothing moves on screen that anyone looks at, and the processor rests.
+const BACKGROUND_FRAME: Duration = Duration::from_millis(250);
 
 /// Loading spinner like egui's, which repaints the whole window at every frame (hundreds per
 /// second without vsync): this one asks for the next frame at ~30 per second.
@@ -765,6 +768,10 @@ pub struct App {
     update: Option<crate::update::Update>,
     /// The update is being downloaded and installed.
     update_installing: bool,
+    /// The shared configuration is being synchronized / published.
+    shared_busy: bool,
+    /// Asked from the preferences, done once the setting is saved.
+    shared_op: Option<crate::shared::Op>,
     /// Installed update: the program to start for the restart.
     update_ready: Option<PathBuf>,
     /// Program started when Florm quits ("Redémarrer" after an update).
@@ -912,6 +919,8 @@ struct PrefsUi {
     shell: String,
     /// `exclude` setting being edited (comma separated).
     exclude: String,
+    /// `shared_config` setting being edited.
+    shared: String,
     /// `rulers` setting being edited (comma separated columns).
     rulers: String,
     /// Fonts of the system, for the preferences (None until listed).
@@ -921,7 +930,7 @@ struct PrefsUi {
 
 impl Default for PrefsUi {
     fn default() -> Self {
-        PrefsUi { capture: None, proposed: None, key_action: None, open: false, section: PrefSection::Appearance, filter: String::new(), lint_args: String::new(), lint_ignore: Default::default(), theme_draft: None, template: None, shell: String::new(), exclude: String::new(), rulers: String::new(), font_list: None, font_list_loading: false }
+        PrefsUi { capture: None, proposed: None, key_action: None, open: false, section: PrefSection::Appearance, filter: String::new(), lint_args: String::new(), lint_ignore: Default::default(), theme_draft: None, template: None, shell: String::new(), exclude: String::new(), shared: String::new(), rulers: String::new(), font_list: None, font_list_loading: false }
     }
 }
 
@@ -946,7 +955,11 @@ impl App {
             s.text_styles.insert(TextStyle::Monospace, FontId::monospace(13.5));
         });
         plugins::install_examples(&config::plugins_dir());
-        let mut hl = Highlighting::new(&settings.theme, &config::themes_dir());
+        let mut hl = Highlighting::new(&settings.theme, &config::config_dir().join("themes"));
+        if let Some(d) = crate::shared::sub("themes") {
+            hl.add_folder(&d);
+            hl.set_theme(&settings.theme);
+        }
         hl.set_overrides(highlight::parse_hex(&settings.accent_color), settings.text_softness);
         apply_visuals(&cc.egui_ctx, hl.visuals());
         cc.egui_ctx.set_fonts(crate::fonts::definitions(&settings.editor_font, &settings.ui_font));
@@ -988,6 +1001,8 @@ impl App {
             status_log: Default::default(),
             update: None,
             update_installing: false,
+            shared_busy: false,
+            shared_op: None,
             update_ready: None,
             restart: None,
             paced_frame: std::env::var_os("WAYLAND_DISPLAY").is_some().then(Instant::now),
@@ -1048,6 +1063,9 @@ impl App {
         crate::update::cleanup();
         if app.settings.check_updates {
             app.check_update(false);
+        }
+        if !app.settings.shared_config.trim().is_empty() {
+            app.shared_job(crate::shared::Op::Sync);
         }
         let cwd = std::env::current_dir().unwrap_or_default();
         let last_project = app.projects.iter().find(|p| p.path.is_dir()).map(|p| p.path.clone());
@@ -1261,8 +1279,9 @@ impl eframe::App for App {
         // allows: at most ~120 frames per second, and never later than an input (key, mouse).
         if let Some(last) = self.paced_frame {
             let el = last.elapsed();
-            if el < MIN_FRAME && ctx.input(|i| i.raw.events.is_empty()) {
-                std::thread::sleep(MIN_FRAME - el);
+            let gap = if ctx.input(|i| i.focused) { MIN_FRAME } else { BACKGROUND_FRAME };
+            if el < gap && ctx.input(|i| i.raw.events.is_empty()) {
+                std::thread::sleep(gap - el);
             }
             self.paced_frame = Some(Instant::now());
         }

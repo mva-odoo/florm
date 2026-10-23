@@ -497,7 +497,7 @@ impl App {
     /// Suggestions for the templates whose trigger starts with `prefix`, in the current file.
     fn template_completions(&self, prefix: &str) -> Vec<lsp::CompletionItem> {
         let ext = self.active_ext();
-        let all = crate::templates::load(&crate::templates::dir());
+        let all = crate::templates::load_all();
         crate::templates::with_trigger(&all, &ext, prefix)
             .map(|t| lsp::CompletionItem {
                 label: t.trigger.clone(),
@@ -546,7 +546,7 @@ impl App {
         if word.is_empty() {
             return;
         }
-        let all = crate::templates::load(&crate::templates::dir());
+        let all = crate::templates::load_all();
         let Some(t) = crate::templates::with_trigger(&all, &self.active_ext(), &word).find(|t| t.trigger == word) else { return };
         let body = t.body.clone();
         ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Tab));

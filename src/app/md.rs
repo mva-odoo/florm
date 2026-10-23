@@ -88,6 +88,88 @@ pub(super) fn markdown(ui: &mut egui::Ui, cache: &mut egui_commonmark::CommonMar
     }
 }
 
+/// Markdown whose list items (`- `, `1. `, `- [ ]`) have a checkbox to tick them off. `checks`
+/// keeps the boxes changed by a click, by message (`msg`) and item text: a box starts as its
+/// marker says (`[x]`: ticked).
+pub(super) fn markdown_checks(ui: &mut egui::Ui, cache: &mut egui_commonmark::CommonMarkCache, text: &str, checks: &mut HashSet<(usize, String)>, msg: usize) {
+    for part in parts(text) {
+        let t = match part {
+            MdPart::Text(t) => t,
+            MdPart::Code { lang, code } => {
+                code_block(ui, &lang, &code);
+                continue;
+            }
+        };
+        let lines: Vec<&str> = t.lines().collect();
+        let mut prose = String::new();
+        let mut i = 0;
+        while i < lines.len() {
+            let Some(item) = list_item(lines[i]) else {
+                prose.push_str(lines[i]);
+                prose.push('\n');
+                i += 1;
+                continue;
+            };
+            if !prose.trim().is_empty() {
+                egui_commonmark::CommonMarkViewer::new().show(ui, cache, &prose);
+            }
+            prose.clear();
+            // the indented lines after the item are part of it (its sub-items and text)
+            let mut body = item.text.to_string();
+            i += 1;
+            while i < lines.len() && lines[i].starts_with("  ") && !lines[i].trim().is_empty() {
+                body.push('\n');
+                body.push_str(lines[i].trim_start());
+                i += 1;
+            }
+            let key = (msg, item.text.to_string());
+            let mut now = item.checked ^ checks.contains(&key);
+            ui.horizontal_top(|ui| {
+                if ui.checkbox(&mut now, "").changed() {
+                    if now != item.checked {
+                        checks.insert(key.clone());
+                    } else {
+                        checks.remove(&key);
+                    }
+                }
+                ui.vertical(|ui| {
+                    egui_commonmark::CommonMarkViewer::new().show(ui, cache, &body);
+                });
+            });
+        }
+        if !prose.trim().is_empty() {
+            egui_commonmark::CommonMarkViewer::new().show(ui, cache, &prose);
+        }
+    }
+}
+
+/// A list item of the top level: its marker's box (`[x]` ticked) and its text.
+struct ListItem<'a> {
+    checked: bool,
+    text: &'a str,
+}
+
+fn list_item(line: &str) -> Option<ListItem<'_>> {
+    // indented lines belong to the item above
+    if line.starts_with(' ') || line.starts_with('\t') {
+        return None;
+    }
+    let rest = line
+        .strip_prefix("- ")
+        .or_else(|| line.strip_prefix("* "))
+        .or_else(|| line.strip_prefix("+ "))
+        .or_else(|| {
+            let d = line.find(". ")?;
+            (d > 0 && line[..d].bytes().all(|b| b.is_ascii_digit())).then(|| &line[d + 2..])
+        })?;
+    let (checked, text) = match rest.get(..3) {
+        Some("[ ]") => (false, &rest[3..]),
+        Some("[x]") | Some("[X]") => (true, &rest[3..]),
+        _ => (false, rest),
+    };
+    Some(ListItem { checked, text: text.trim() })
+}
+
 /// A block of code: its language and the copy button on top, the code below (scrolls sideways).
 pub(super) fn code_block(ui: &mut egui::Ui, lang: &str, code: &str) {
     let v = ui.visuals().clone();
@@ -132,6 +214,22 @@ pub(super) fn copy_button(ui: &mut egui::Ui, text: &str, label: &str) {
     }
     if recent {
         ui.ctx().request_repaint_after(Duration::from_millis(300));
+    }
+}
+
+#[cfg(test)]
+mod list_tests {
+    use super::*;
+
+    #[test]
+    fn list_items_and_their_boxes() {
+        assert!(list_item("- faire ceci").is_some_and(|i| !i.checked && i.text == "faire ceci"));
+        assert!(list_item("2. Deux").is_some_and(|i| i.text == "Deux"));
+        assert!(list_item("- [x] fait").is_some_and(|i| i.checked && i.text == "fait"));
+        assert!(list_item("- [ ] à faire").is_some_and(|i| !i.checked && i.text == "à faire"));
+        // indented lines and prose are not top-level items
+        assert!(list_item("  - sous-point").is_none());
+        assert!(list_item("Une phrase.").is_none());
     }
 }
 

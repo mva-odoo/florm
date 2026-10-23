@@ -30,6 +30,8 @@ pub enum JobResult {
     GhCommitPrs(String, Result<Vec<crate::github::LinkedPr>, String>),
     /// Branch pushed and pull request created: its address.
     PrCreated(PathBuf, Result<String, String>),
+    /// The description of the pull request being created, written by Claude.
+    PrBody(Result<String, String>),
     /// Pull requests of a repository (`gh pr list`).
     PrList(PathBuf, Result<Vec<crate::github::PrSummary>, String>),
     PrDetail(PathBuf, u64, Result<crate::github::PrDetail, String>),
@@ -99,6 +101,8 @@ pub enum JobResult {
     Update { manual: bool, result: Result<Option<crate::update::Update>, String> },
     /// Update downloaded and installed: the program to start for the restart.
     UpdateInstalled { version: String, result: Result<std::path::PathBuf, String> },
+    /// Shared configuration synchronized, published or created: its `shared_config` and the message.
+    Shared(crate::shared::Op, Result<(String, String), String>),
     Plugin { uid: u64, version: u64, title: String, output: Output, result: Result<Vec<String>, String> },
 }
 

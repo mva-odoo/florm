@@ -369,8 +369,27 @@ pub fn commit_message(dir: &Path, diff: &str, recent: &str, wish: &str) -> Resul
         prompt.push_str(wish.trim());
     }
     // a very large diff is cut: the beginning says enough
-    let diff: String = diff.chars().take(120_000).collect();
+    let diff: String = diff.chars().take(30_000).collect();
     run_once(dir, &["-p", &prompt, "--output-format", "text", "--model", "haiku", "--tools", "", "--no-session-persistence"], diff).map(|t| clean_message(&t))
+}
+
+/// The description of a pull request (Markdown), from the commits of its branch (`log`) and its
+/// diff: what changes and why, and what the reviewer should check.
+pub fn pr_description(dir: &Path, log: &str, diff: &str) -> Result<String, String> {
+    let prompt = String::from(t!(
+        "Écris la description de cette pull request. L'entrée standard donne ses commits, puis son diff. Format Markdown : \
+         une section « ## Résumé » avec quelques puces sur ce qui change et pourquoi, puis, si c'est utile au relecteur, \
+         une section « ## À vérifier » avec les points à regarder de près. Pas de compliments, pas de bloc de code autour de \
+         la réponse. Réponds uniquement par la description.",
+        "Write the description of this pull request. The standard input gives its commits, then its diff. Markdown format: \
+         a section « ## Summary » with a few bullet points on what changes and why, then, if it helps the reviewer, \
+         a section « ## To check » with the points to look at closely. No compliments, no code block around \
+         the answer. Answer only with the description."
+    ));
+    let log: String = log.chars().take(10_000).collect();
+    let diff: String = diff.chars().take(30_000).collect();
+    let input = format!("Commits :\n{log}\n\nDiff :\n{diff}");
+    run_once(dir, &["-p", &prompt, "--output-format", "text", "--model", "haiku", "--tools", "", "--no-session-persistence"], input).map(|t| clean_message(&t))
 }
 
 /// Runs `claude` once with `args`, `input` on its standard input; returns its answer (its
