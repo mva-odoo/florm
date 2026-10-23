@@ -31,6 +31,11 @@ impl App {
             let in_chord = std::mem::take(&mut self.chord);
             match self.keymap.lookup(combo, in_chord) {
                 Some(cmd) => {
+                    // a confirmation dialog holds the keyboard: Échap cancels it, Entrée and Tab
+                    // go to its buttons
+                    if self.confirm.is_some() && cmd != Cmd::Escape {
+                        continue;
+                    }
                     if cmd.is_editor() && (!editor_focused || self.overlay.is_some()) {
                         continue;
                     }
@@ -106,7 +111,7 @@ impl App {
     }
 
     pub(super) fn editor_input(&mut self, ctx: &egui::Context) {
-        if self.overlay.is_some() || self.history.open || self.prefs.open || !ctx.memory(|m| m.has_focus(editor_id())) {
+        if self.overlay.is_some() || self.confirm.is_some() || self.history.open || self.prefs.open || !ctx.memory(|m| m.has_focus(editor_id())) {
             return;
         }
         let events = ctx.input(|i| i.events.clone());

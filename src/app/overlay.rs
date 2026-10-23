@@ -480,6 +480,10 @@ impl App {
             if self.overlay.is_none() {
                 self.focus_editor(ctx);
             }
+        } else if submit && matches!(ov.mode, Mode::Prompt(_)) && ov.query.trim().is_empty() {
+            // nothing typed: the prompt stays, instead of closing as if it had been done
+            self.set_status(t!("Le champ est vide : tape un nom, ou Échap pour annuler", "The field is empty: type a name, or Esc to cancel"));
+            self.overlay = Some(ov);
         } else if submit {
             match ov.mode {
                 Mode::GotoLine if self.goto_select => {
@@ -736,9 +740,21 @@ impl App {
             }
         };
         let mut choice = None;
+        // the rest of the window darkened and out of reach while the question is open
+        let screen = ctx.screen_rect();
+        egui::Area::new(egui::Id::new("confirm_backdrop"))
+            .order(egui::Order::Middle)
+            .fixed_pos(screen.min)
+            .show(ctx, |ui| {
+                ui.allocate_rect(screen, Sense::click());
+                ui.painter().rect_filled(screen, 0.0, Color32::from_black_alpha(90));
+            });
+        // what loses something (or cannot be undone) is not chosen by Entrée alone
+        let careful = matches!(c, Confirm::Delete(_) | Confirm::DropStash(..) | Confirm::DiffOp { .. } | Confirm::ReplaceInFiles | Confirm::Overwrite(_));
         egui::Window::new(title)
             .collapsible(false)
             .resizable(false)
+            .order(egui::Order::Foreground)
             // egui starts windows at 320 px: the message, often with a path, wrapped on many lines
             .default_width(460.0)
             .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
@@ -746,6 +762,7 @@ impl App {
                 ui.label(msg);
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
+                    let mut buttons = Vec::new();
                     let (yes, no) = match c {
                         Confirm::CloseTab(_) => (t!("Enregistrer", "Save"), Some(t!("Ne pas enregistrer", "Don't save"))),
                         Confirm::Quit => (t!("Tout enregistrer et quitter", "Save all and quit"), Some(t!("Quitter sans enregistrer", "Quit without saving"))),
@@ -756,18 +773,35 @@ impl App {
                         Confirm::DropStash(..) => (t!("Supprimer", "Delete"), None),
                         Confirm::Overwrite(_) => (t!("Écraser avec ma version", "Overwrite with mine"), Some(t!("Recharger la version du disque", "Reload the version on disk"))),
                     };
-                    if ui.button(yes).clicked() {
+                    let r = ui.button(yes);
+                    if r.clicked() {
                         choice = Some(1);
                     }
+                    buttons.push(r);
                     if let Some(no) = no {
-                        if ui.button(no).clicked() {
+                        let r = ui.button(no);
+                        if r.clicked() {
                             choice = Some(2);
                         }
+                        buttons.push(r);
                     }
-                    if ui.button(t!("Annuler", "Cancel")).clicked() {
+                    let r = ui.button(t!("Annuler", "Cancel"));
+                    if r.clicked() {
                         choice = Some(0);
                     }
+                    buttons.push(r);
+                    // a button always has the focus (Entrée presses it, Tab goes to the next one):
+                    // the main action, or Cancel when it would lose something
+                    let focused = ui.ctx().memory(|m| m.focused());
+                    if !buttons.iter().any(|b| Some(b.id) == focused) {
+                        let default = if careful { buttons.last() } else { buttons.first() };
+                        if let Some(b) = default {
+                            b.request_focus();
+                            ui.ctx().request_repaint();
+                        }
+                    }
                 });
+                ui.label(RichText::new(t!("Entrée : le bouton en surbrillance · Tab : le suivant · Échap : annuler", "Enter: the highlighted button · Tab: the next one · Esc: cancel")).small().weak());
             });
         let Some(choice) = choice else { return };
         let c = self.confirm.take().unwrap();
