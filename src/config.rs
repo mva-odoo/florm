@@ -30,8 +30,8 @@ pub struct Settings {
     pub breadcrumbs: bool,
     /// Menu bar (Fichier, Édition…) at the top; hidden, the menus are under ☰ in the status bar.
     pub show_menu_bar: bool,
-    /// Florm's own title bar (menus, title, ─ □ ✕ in the window) instead of the system's
-    /// (Windows and Linux desktops; macOS and tiling window managers keep theirs).
+    /// Florm's own title bar (menus, title, ─ □ ✕ in the window, as VS Code) instead of the
+    /// system's, on every system.
     pub custom_title_bar: bool,
     /// "Find in files" in an editor tab instead of the bottom panel.
     pub search_in_tab: bool,

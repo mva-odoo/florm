@@ -15,9 +15,9 @@ const EDGE: f32 = 5.0;
 const CORNER: f32 = 12.0;
 
 impl App {
-    /// Florm draws the title bar (setting on, and the system lets it).
+    /// Florm draws the title bar (setting on).
     pub(super) fn own_title_bar(&self) -> bool {
-        self.settings.custom_title_bar && crate::os::own_title_bar_possible()
+        self.settings.custom_title_bar
     }
 
     /// The window loses (or gets back) the system's title bar when the setting changes.

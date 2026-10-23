@@ -1019,7 +1019,7 @@ impl App {
             claude_loaded: false,
             claude_limits: claude_ui::load_limits(),
             egui_ctx: cc.egui_ctx.clone(),
-            title_bar_on: settings.custom_title_bar && crate::os::own_title_bar_possible(),
+            title_bar_on: settings.custom_title_bar,
             tree_scroll: None,
             tree_nav: sidebar::Nav::default(),
             repo_info: HashMap::new(),
