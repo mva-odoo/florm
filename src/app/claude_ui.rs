@@ -74,6 +74,8 @@ enum Item {
     Tool { id: String, name: String, summary: String, result: Option<(String, bool)> },
     Info(String),
     Error(String),
+    /// What the last answer cost: tokens in (`cached` of them read from the cache), out, dollars.
+    Usage { input: u64, cached: u64, output: u64, cost: f64 },
 }
 
 #[derive(Default)]
@@ -139,6 +141,7 @@ fn item_key(it: &Item, claude_said: bool, busy: bool, last_turn: bool, width: f3
         Item::User(t, given) => (t, given).hash(&mut h),
         Item::Text(t) | Item::Streaming(t) | Item::Info(t) | Item::Error(t) => t.hash(&mut h),
         Item::Tool { name, summary, result, .. } => (name, summary, result).hash(&mut h),
+        Item::Usage { input, cached, output, cost } => (input, cached, output, cost.to_bits()).hash(&mut h),
     }
     (claude_said, busy, last_turn, width.to_bits(), ppp.to_bits()).hash(&mut h);
     h.finish()
@@ -344,7 +347,7 @@ impl App {
                         self.claude_limits = l;
                     }
                 }
-                Event::Done { error, text, cost, window } => {
+                Event::Done { error, text, cost, window, tokens } => {
                     self.claude.busy = false;
                     self.claude.unseen = true;
                     self.claude.cost += cost;
@@ -354,6 +357,9 @@ impl App {
                     if let Some(Item::Streaming(s)) = items.last() {
                         let s = s.clone();
                         *items.last_mut().unwrap() = Item::Text(s);
+                    }
+                    if tokens.input + tokens.output > 0 {
+                        items.push(Item::Usage { input: tokens.input, cached: tokens.cached, output: tokens.output, cost });
                     }
                     if error && !text.is_empty() {
                         items.push(Item::Error(text.clone()));
@@ -1648,6 +1654,22 @@ impl App {
                             }
                             Item::Error(t) => {
                                 ui.label(RichText::new(format!("⚠ {t}")).color(err()));
+                            }
+                            Item::Usage { input, cached, output, cost } => {
+                                let mut line = tf!(
+                                    "{} tokens en entrée ({} lus du cache), {} en sortie",
+                                    "{} input tokens ({} read from the cache), {} output",
+                                    thousands(*input),
+                                    thousands(*cached),
+                                    thousands(*output)
+                                );
+                                if *cost > 0.0 {
+                                    line += &format!(" · {cost:.3} $");
+                                }
+                                ui.label(RichText::new(line).weak().small()).on_hover_text(t!(
+                                    "Ce que cette réponse a coûté : les tokens lus et écrits pour elle, et son coût estimé.",
+                                    "What this answer cost: the tokens read and written for it, and its estimated cost."
+                                ));
                             }
                         });
                         // allocate_space adds the spacing after it again

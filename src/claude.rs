@@ -137,8 +137,8 @@ pub enum Event {
     /// The result of a tool.
     ToolResult { id: String, text: String, error: bool },
     /// End of the answer: error or not, its cost in dollars, the size of the model's context
-    /// window (tokens, 0: unknown).
-    Done { error: bool, text: String, cost: f64, window: u64 },
+    /// window (tokens, 0: unknown), and the tokens it used.
+    Done { error: bool, text: String, cost: f64, window: u64, tokens: Tokens },
     /// Tokens of the conversation the model read for its last message (its context).
     Context(u64),
     /// Use of the plan's quotas: (window "five_hour" / "seven_day", fraction used, reset time in
@@ -146,6 +146,15 @@ pub enum Event {
     Limits(Vec<(String, f32, i64)>),
     /// The process ended (its error output, if any).
     Exited(String),
+}
+
+/// The tokens a turn used: `input` all the input (`cached` of it read from the cache), `output`
+/// what the model wrote.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Tokens {
+    pub input: u64,
+    pub cached: u64,
+    pub output: u64,
 }
 
 /// One line of `--output-format stream-json`.
@@ -217,12 +226,19 @@ pub fn parse_line(line: &str) -> Vec<Event> {
                     .collect()
             })
             .unwrap_or_default(),
-        Some("result") => vec![Event::Done {
-            error: v["is_error"].as_bool().unwrap_or(false),
-            text: s(&v["result"]),
-            cost: v["total_cost_usd"].as_f64().unwrap_or(0.0),
-            window: v["modelUsage"].as_object().map_or(0, |m| m.values().filter_map(|u| u["contextWindow"].as_u64()).max().unwrap_or(0)),
-        }],
+        Some("result") => {
+            let u = &v["usage"];
+            let n = |k: &str| u[k].as_u64().unwrap_or(0);
+            let cached = n("cache_read_input_tokens");
+            let tokens = Tokens { input: n("input_tokens") + n("cache_creation_input_tokens") + cached, cached, output: n("output_tokens") };
+            vec![Event::Done {
+                error: v["is_error"].as_bool().unwrap_or(false),
+                text: s(&v["result"]),
+                cost: v["total_cost_usd"].as_f64().unwrap_or(0.0),
+                window: v["modelUsage"].as_object().map_or(0, |m| m.values().filter_map(|u| u["contextWindow"].as_u64()).max().unwrap_or(0)),
+                tokens,
+            }]
+        }
         _ => Vec::new(),
     }
 }
@@ -560,14 +576,17 @@ mod tests {
         assert_eq!(parse_line(u), vec![Event::ToolResult { id: "t1".into(), text: "ok".into(), error: true }]);
         assert_eq!(
             parse_line(r#"{"type":"result","subtype":"success","is_error":false,"result":"fini","total_cost_usd":0.012}"#),
-            vec![Event::Done { error: false, text: "fini".into(), cost: 0.012, window: 0 }]
+            vec![Event::Done { error: false, text: "fini".into(), cost: 0.012, window: 0, tokens: Tokens::default() }]
         );
+        // the tokens of the turn: the whole input (cache included) and what was written
+        let r = r#"{"type":"result","is_error":false,"result":"ok","total_cost_usd":0.002,"usage":{"input_tokens":5,"cache_creation_input_tokens":100,"cache_read_input_tokens":900,"output_tokens":40}}"#;
+        assert_eq!(parse_line(r), vec![Event::Done { error: false, text: "ok".into(), cost: 0.002, window: 0, tokens: Tokens { input: 1005, cached: 900, output: 40 } }]);
         assert!(parse_line("pas du json").is_empty());
         // usage: the context of the last message, the window of the model, the plan's quotas
         let a = r#"{"type":"assistant","parent_tool_use_id":null,"message":{"content":[],"usage":{"input_tokens":2,"cache_creation_input_tokens":4005,"cache_read_input_tokens":3262,"output_tokens":4}}}"#;
         assert_eq!(parse_line(a), vec![Event::Context(7273)]);
         let r = r#"{"type":"result","is_error":false,"result":"ok","total_cost_usd":0.001,"modelUsage":{"claude-haiku":{"contextWindow":1000000}}}"#;
-        assert_eq!(parse_line(r), vec![Event::Done { error: false, text: "ok".into(), cost: 0.001, window: 1_000_000 }]);
+        assert_eq!(parse_line(r), vec![Event::Done { error: false, text: "ok".into(), cost: 0.001, window: 1_000_000, tokens: Tokens::default() }]);
         let l = r#"{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","unifiedWindows":{"five_hour":{"utilization":0.8,"resetsAt":1792619400},"seven_day":{"utilization":0.5,"resetsAt":1792688400}}}}"#;
         assert_eq!(parse_line(l), vec![Event::Limits(vec![("five_hour".into(), 0.8, 1792619400), ("seven_day".into(), 0.5, 1792688400)])]);
     }
