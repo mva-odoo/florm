@@ -35,6 +35,13 @@ pub fn list(ui: &mut egui::Ui, id: Id, items: &[String], current: Option<usize>)
     if opening {
         filter.clear();
     }
+    // as wide as the longest item (of all of them: the width stays while filtering), within
+    // bounds; egui would otherwise keep the width of the button, long branch names on two lines
+    let font = egui::TextStyle::Button.resolve(ui.style());
+    let longest = items.iter().take(500).map(|s| ui.fonts(|f| f.layout_no_wrap(s.clone(), font.clone(), egui::Color32::PLACEHOLDER).size().x)).fold(0.0, f32::max);
+    let width = (longest + 40.0).min(560.0);
+    ui.set_min_width(width);
+    ui.set_max_width(ui.min_rect().width().max(width));
     let edit = ui.add(egui::TextEdit::singleline(&mut filter).hint_text(t!("🔍 taper pour chercher…", "🔍 type to search…")).desired_width(f32::INFINITY));
     if opening {
         edit.request_focus();
@@ -57,7 +64,8 @@ pub fn list(ui: &mut egui::Ui, id: Id, items: &[String], current: Option<usize>)
     if shown.is_empty() {
         ui.label(RichText::new(t!("Aucun résultat", "No result")).weak());
     }
-    egui::ScrollArea::vertical().id_salt(state.with("scroll")).max_height(340.0).auto_shrink([false, true]).show(ui, |ui| {
+    egui::ScrollArea::vertical().id_salt(state.with("scroll")).max_height(400.0).auto_shrink([false, true]).show(ui, |ui| {
+        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
         for (k, &i) in shown.iter().enumerate().take(500) {
             let text = if Some(i) == current { RichText::new(format!("● {}", items[i])).strong() } else { RichText::new(&items[i]) };
             let r = ui.selectable_label(k == hi, text);

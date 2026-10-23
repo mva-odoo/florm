@@ -683,6 +683,8 @@ impl App {
         egui::Window::new(title)
             .collapsible(false)
             .resizable(false)
+            // egui starts windows at 320 px: the message, often with a path, wrapped on many lines
+            .default_width(460.0)
             .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
                 ui.label(msg);
