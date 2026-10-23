@@ -1516,10 +1516,7 @@ impl App {
                 // "⬇ Dernier message" asked at the previous frame
                 let to_end_id = egui::Id::new(("claude_to_end", chat_id));
                 let to_end = ui.data_mut(|d| d.remove_temp::<bool>(to_end_id)).unwrap_or(false);
-                let mut chat = egui::ScrollArea::vertical().id_salt(chat_id).stick_to_bottom(true).auto_shrink([false, false]);
-                if to_end {
-                    chat = chat.vertical_scroll_offset(f32::MAX);
-                }
+                let chat = egui::ScrollArea::vertical().id_salt(chat_id).stick_to_bottom(true).auto_shrink([false, false]);
                 let out = chat.show(ui, |ui| {
                     ui.set_max_width(ui.available_width().min(900.0));
                     if c.items.is_empty() {
@@ -1676,6 +1673,12 @@ impl App {
                         c.heights[k] = (key, ui.cursor().top() - top - ui.spacing().item_spacing.y);
                     }
                     ui.add_space(10.0);
+                    // the end of the conversation: scrolled to here, not to an offset past the end
+                    // (the messages out of sight are not laid out, so that offset broke the view)
+                    let end = ui.allocate_exact_size(egui::vec2(1.0, 1.0), Sense::hover()).0;
+                    if to_end {
+                        ui.scroll_to_rect(end, Some(egui::Align::BOTTOM));
+                    }
                 });
                 // scrolled up: a button to go back down to the last message
                 let below = out.content_size.y - out.state.offset.y - out.inner_rect.height();
