@@ -61,7 +61,7 @@ impl App {
                                 ui.add(egui::Label::new(RichText::new(&cmd).monospace()).selectable(true));
                             });
                             if ui
-                                .button(t!("▶ Dans le terminal", "▶ In the terminal"))
+                                .button(t!("Dans le terminal", "In the terminal"))
                                 .on_hover_text(t!("Tape la commande dans un terminal ; appuie sur Entrée pour la lancer", "Types the command in a terminal; press Enter to run it"))
                                 .clicked()
                             {
@@ -76,13 +76,13 @@ impl App {
                 }
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
-                    if ui.add(filled_button(t!("⟳ Vérifier à nouveau", "⟳ Check again"), accent)).clicked() {
+                    if ui.add(filled_button(t!("Vérifier à nouveau", "Check again"), accent)).clicked() {
                         act = Some(GuideAct::Check);
                     }
                     ui.label(RichText::new(t!("(vérifié aussi tout seul toutes les 2 secondes)", "(also checked by itself every 2 seconds)")).weak());
                 });
                 ui.add_space(6.0);
-                ui.hyperlink_to(t!("Documentation officielle ↗", "Official documentation ↗"), tool.docs_url());
+                ui.hyperlink_to(t!("Documentation officielle", "Official documentation"), tool.docs_url());
             });
         });
         match act {
