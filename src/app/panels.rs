@@ -700,6 +700,16 @@ impl App {
             egui::TopBottomPanel::bottom("sidebar_tools").frame(egui::Frame::none().inner_margin(egui::Margin { left: 0.0, right: 0.0, top: 6.0, bottom: 0.0 })).show_inside(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
+                    // preferences, left of the search (the first view)
+                    let (rect, r) = ui.allocate_exact_size(egui::vec2(26.0, 24.0), Sense::click());
+                    if r.hovered() {
+                        ui.painter().rect_filled(rect, 4.0, ui.visuals().widgets.hovered.weak_bg_fill);
+                    }
+                    let c = if r.hovered() { ui.visuals().strong_text_color() } else { ui.visuals().weak_text_color() };
+                    icons::paint_view(ui.painter(), rect.center(), icons::ViewIcon::Settings, c);
+                    if r.on_hover_text(t!("Préférences", "Preferences")).clicked() {
+                        self.pending.push(Cmd::OpenSettings);
+                    }
                     for (tab, icon, label) in BottomTab::shown() {
                         let (rect, r) = ui.allocate_exact_size(egui::vec2(26.0, 24.0), Sense::click());
                         let on = self.bottom == Some(tab);
