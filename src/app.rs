@@ -1973,6 +1973,53 @@ mod font_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Too many tabs: the arrows appear, the wheel moves the strip. `FLORM_TEST_APP=1`.
+    #[test]
+    fn many_tabs_scroll() {
+        if std::env::var_os("FLORM_TEST_APP").is_none() {
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("florm_tabs_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (conf, proj) = (dir.join("conf"), dir.join("proj"));
+        std::fs::create_dir_all(&conf).unwrap();
+        std::fs::create_dir_all(&proj).unwrap();
+        std::fs::write(conf.join("settings.toml"), "check_updates = false\nlsp = false\n").unwrap();
+        let _lock = config::TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("FLORM_CONFIG", &conf);
+        let ctx = egui::Context::default();
+        let mut app = App::with_ctx(&ctx, Some(proj.clone()));
+        for k in 0..40 {
+            let p = proj.join(format!("fichier_numero_{k}.py"));
+            std::fs::write(&p, "").unwrap();
+            app.open_path(p);
+        }
+        app.activate_tab(0);
+        let screen = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 600.0)));
+        let id = egui::Id::new("tabs").with(None::<u8>);
+        let frame = |app: &mut App, events: Vec<egui::Event>| {
+            let _ = ctx.run(egui::RawInput { screen_rect: screen, events, ..Default::default() }, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| app.tabs_strip(ui, None));
+            });
+        };
+        for _ in 0..3 {
+            frame(&mut app, Vec::new());
+        }
+        assert_eq!(ctx.data(|d| d.get_temp::<bool>(id.with("over"))), Some(true));
+        let offset = || ctx.data(|d| d.get_temp::<(f32, f32)>(id.with("offset"))).unwrap().0;
+        assert_eq!(offset(), 0.0);
+        let at = egui::pos2(300.0, 15.0);
+        frame(&mut app, vec![egui::Event::PointerMoved(at)]);
+        for _ in 0..30 {
+            frame(&mut app, vec![egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: egui::vec2(0.0, -60.0), modifiers: Default::default() }]);
+        }
+        for _ in 0..10 {
+            frame(&mut app, Vec::new());
+        }
+        assert!(offset() > 300.0, "{}", offset());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn readable_text_on_filled_buttons() {
         // white on dark fills (Light+ accent), dark on light ones (yellow)

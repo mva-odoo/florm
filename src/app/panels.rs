@@ -205,11 +205,67 @@ impl App {
                     _ => scroll.min.x += crate::app::title_bar::MAC_BUTTONS_W,
                 }
             }
+            // too many tabs for the strip: ‹ › and the list of all of them on its right
+            let (over_id, offset_id) = (panel_id.with("over"), panel_id.with("offset"));
+            let over = ui.ctx().data(|d| d.get_temp::<bool>(over_id)).unwrap_or(false);
+            let (offset, width) = ui.ctx().data(|d| d.get_temp::<(f32, f32)>(offset_id)).unwrap_or((0.0, 0.0));
+            const ARROWS_W: f32 = 76.0;
+            let arrows = over.then(|| {
+                let r = egui::Rect::from_min_max(egui::pos2(scroll.max.x - ARROWS_W, bar.min.y), egui::pos2(scroll.max.x, bar.max.y));
+                scroll.max.x -= ARROWS_W;
+                r
+            });
+            let mut goto: Option<f32> = None;
+            // the wheel moves the strip sideways
+            if over && ui.rect_contains_pointer(scroll) {
+                let d = ui.input(|i| i.smooth_scroll_delta);
+                if d.y != 0.0 && d.x == 0.0 {
+                    goto = Some(offset - d.y);
+                }
+            }
+            if let Some(r) = arrows {
+                ui.allocate_ui_at_rect(r, |ui| {
+                    ui.horizontal_centered(|ui| {
+                        ui.spacing_mut().item_spacing.x = 2.0;
+                        let page = (width * 0.75).max(120.0);
+                        if ui.small_button("‹").on_hover_text(t!("Onglets à gauche", "Tabs on the left")).clicked() {
+                            goto = Some(offset - page);
+                        }
+                        if ui.small_button("›").on_hover_text(t!("Onglets à droite", "Tabs on the right")).clicked() {
+                            goto = Some(offset + page);
+                        }
+                        ui.menu_button("▾", |ui| {
+                            ui.set_min_width(240.0);
+                            egui::ScrollArea::vertical().max_height(500.0).show(ui, |ui| {
+                                for (i, d) in self.docs.iter().enumerate().filter(|(_, d)| pane.is_none_or(|p| p == d.pane)) {
+                                    let (_, title) = doc_tab(d);
+                                    let label = if d.is_dirty() { format!("● {title}") } else { title };
+                                    let r = ui.selectable_label(i == self.active, label);
+                                    let r = match &d.path {
+                                        Some(p) => r.on_hover_text(p.display().to_string()),
+                                        None => r,
+                                    };
+                                    if r.clicked() {
+                                        activate = Some(i);
+                                        ui.close_menu();
+                                    }
+                                }
+                            });
+                        })
+                        .response
+                        .on_hover_text(t!("Tous les onglets", "All the tabs"));
+                    });
+                });
+            }
             ui.allocate_ui_at_rect(scroll, |ui| {
-            egui::ScrollArea::horizontal()
+            let mut area = egui::ScrollArea::horizontal()
                 .id_salt(panel_id.with("scroll"))
                 .drag_to_scroll(false)
-                .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+                .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden);
+            if let Some(x) = goto {
+                area = area.horizontal_scroll_offset(x.max(0.0));
+            }
+            let out = area
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 2.0;
@@ -278,6 +334,16 @@ impl App {
                         }
                     });
                 });
+            let width = out.inner_rect.width();
+            // with the arrows shown, the strip is narrower: they stay until the tabs fit without them
+            let needs = out.content_size.x > width + if over { ARROWS_W } else { 1.0 };
+            ui.ctx().data_mut(|d| {
+                d.insert_temp(over_id, needs);
+                d.insert_temp(offset_id, (out.state.offset.x, width));
+            });
+            if needs != over {
+                ui.ctx().request_repaint();
+            }
             });
             if let Some(c) = controls {
                 crate::app::title_bar::strip_buttons(ui, bar, c, maximized);
