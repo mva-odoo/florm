@@ -84,6 +84,8 @@ pub(super) struct PrUi {
 /// What the pull request view asked for during the frame.
 enum PrAct {
     Reload,
+    /// `gh auth login` typed in a terminal.
+    Login,
     Repo(PathBuf),
     Select(u64),
     Checkout(u64),
@@ -239,6 +241,15 @@ impl App {
     }
 
     pub(super) fn pulls_ui(&mut self, ui: &mut egui::Ui) {
+        let in_tab = self.docs.iter().any(|d| d.view == document::View::PullRequests);
+        if self.install_guide(ui, crate::tools::Tool::Gh, in_tab) {
+            return;
+        }
+        // gh just installed: the list again
+        if matches!(&self.pr.list, Some(Err(e)) if *e == github::not_installed()) {
+            self.pr.list = None;
+            self.pulls_load();
+        }
         let mut act: Option<PrAct> = None;
         let accent = self.hl.colors.accent;
         let checked_out = self.pr_checked_out();
@@ -318,6 +329,9 @@ impl App {
                 Some(Err(e)) => {
                     ui.add_space(8.0);
                     ui.label(RichText::new(e).color(err()));
+                    if e == github::not_logged() && ui.button(t!("▶ gh auth login dans un terminal", "▶ gh auth login in a terminal")).clicked() {
+                        act = Some(PrAct::Login);
+                    }
                     return;
                 }
                 Some(Ok(l)) => l,
@@ -645,6 +659,7 @@ impl App {
         }
         match act {
             Some(PrAct::Reload) => self.load_prs(Some(repo)),
+            Some(PrAct::Login) => self.install_type("gh auth login", big),
             Some(PrAct::Repo(r)) => self.load_prs(Some(r)),
             Some(PrAct::Select(n)) => self.load_pr(n),
             Some(PrAct::Checkout(n)) => {

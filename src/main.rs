@@ -38,6 +38,7 @@ mod update;
 mod symbols;
 mod templates;
 mod terminal;
+mod tools;
 mod walk;
 mod wrap;
 

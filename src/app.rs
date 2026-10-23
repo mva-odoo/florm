@@ -33,6 +33,7 @@ mod md;
 mod quick_fix;
 mod pulls;
 mod docker_view;
+mod install_guide;
 mod odoo_tests;
 mod pr_links;
 mod claude_ui;
@@ -746,6 +747,8 @@ pub struct App {
     jobs: Jobs,
     git: GitUi,
     term: Terminal,
+    /// Terminal the installation guides type their commands in (`install_guide`).
+    install_term: Option<u64>,
     plugins: Vec<Plugin>,
     plugin_cmds: Vec<(usize, usize)>,
     keymap: Keymap,
@@ -972,6 +975,7 @@ impl App {
             jobs: Jobs::new(cc.egui_ctx.clone()),
             git: GitUi::default(),
             term: Terminal::new(),
+            install_term: None,
             plugins: Vec::new(),
             plugin_cmds: Vec::new(),
             keymap,

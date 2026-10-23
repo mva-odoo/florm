@@ -73,6 +73,10 @@ fn replies(out: &[u8], cursor: impl Fn() -> (u16, u16)) -> Vec<u8> {
 
 type SharedWriter = Arc<Mutex<Box<dyn Write + Send>>>;
 
+/// Text to type in a shell once it started (`None`: it printed something, type at once): typed
+/// earlier, fish would take it for the answer it waits from the terminal.
+type Typeahead = Arc<Mutex<Option<Vec<u8>>>>;
+
 struct Session {
     /// Stable id (editor tabs refer to it).
     id: u64,
@@ -93,6 +97,7 @@ struct Session {
     master: Box<dyn MasterPty + Send>,
     child: Box<dyn Child + Send + Sync>,
     exited: Arc<AtomicBool>,
+    typeahead: Typeahead,
     cwd: PathBuf,
     size: (u16, u16),
     /// Selection in visible cells: (row, col) anchor and end.
@@ -126,8 +131,9 @@ impl Session {
         let parser = Arc::new(Mutex::new(vt100::Parser::new(size.0, size.1, SCROLLBACK)));
         parser.lock().unwrap().process(prefill);
         let exited = Arc::new(AtomicBool::new(false));
+        let typeahead: Typeahead = Arc::new(Mutex::new(Some(Vec::new())));
         let capture = capture.then(|| Arc::new(Mutex::new(Vec::new())));
-        let (p, ex, ctx, w, cap) = (parser.clone(), exited.clone(), ctx.clone(), writer.clone(), capture.clone());
+        let (p, ex, ctx, w, cap, ta) = (parser.clone(), exited.clone(), ctx.clone(), writer.clone(), capture.clone(), typeahead.clone());
         std::thread::spawn(move || {
             let mut buf = [0u8; 16384];
             loop {
@@ -149,6 +155,11 @@ impl Session {
                             let _ = w.write_all(&answer);
                             let _ = w.flush();
                         }
+                        if let Some(text) = ta.lock().unwrap().take().filter(|t| !t.is_empty()) {
+                            let mut w = w.lock().unwrap();
+                            let _ = w.write_all(&text);
+                            let _ = w.flush();
+                        }
                         ctx.request_repaint();
                     }
                 }
@@ -160,7 +171,7 @@ impl Session {
             .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| shell.to_string());
-        Ok(Session { id: 0, docked: false, embedded: false, cmd: None, capture, mounts: Vec::new(), name, parser, writer, master: pair.master, child, exited, cwd, size, sel: None })
+        Ok(Session { id: 0, docked: false, embedded: false, cmd: None, capture, mounts: Vec::new(), name, parser, writer, master: pair.master, child, exited, typeahead, cwd, size, sel: None })
     }
 
     fn write(&mut self, bytes: &[u8]) {
@@ -265,14 +276,8 @@ impl Terminal {
 
     /// Opens a new terminal in the bottom panel, in `cwd` (or the current folder).
     pub fn open(&mut self, ctx: &egui::Context, shell: Option<&str>, cwd: Option<PathBuf>) {
-        match self.spawn(ctx, shell, cwd) {
-            Ok(s) => {
-                self.sessions.push(s);
-                self.active = self.sessions.len() - 1;
-                self.error = None;
-                self.want_focus = true;
-            }
-            Err(e) => self.error = Some(e),
+        if let Err(e) = self.open_panel(ctx, shell, cwd) {
+            self.error = Some(e);
         }
     }
 
@@ -509,6 +514,47 @@ impl Terminal {
     pub fn set_mounts(&mut self, id: u64, mounts: Vec<(String, PathBuf)>) {
         if let Some(s) = self.sessions.iter_mut().find(|s| s.id == id) {
             s.mounts = mounts;
+        }
+    }
+
+    /// Types `text` at the prompt of session `id`, without Enter: the user reads it and runs it.
+    /// False if the session is gone or its shell ended.
+    pub fn type_text(&mut self, id: u64, text: &str) -> bool {
+        let Some(s) = self.sessions.iter_mut().find(|s| s.id == id) else { return false };
+        if s.exited.load(Ordering::Relaxed) {
+            return false;
+        }
+        let mut ta = s.typeahead.lock().unwrap();
+        match ta.as_mut() {
+            Some(waiting) => waiting.extend_from_slice(text.as_bytes()),
+            None => {
+                drop(ta);
+                s.write(text.as_bytes());
+            }
+        }
+        true
+    }
+
+    /// Opens a terminal in the bottom panel; returns its id.
+    pub fn open_panel(&mut self, ctx: &egui::Context, shell: Option<&str>, cwd: Option<PathBuf>) -> Result<u64, String> {
+        let s = self.spawn(ctx, shell, cwd)?;
+        let id = s.id;
+        self.sessions.push(s);
+        self.active = self.sessions.len() - 1;
+        self.error = None;
+        self.want_focus = true;
+        Ok(id)
+    }
+
+    /// Shows session `id` in the bottom panel (when it is one of its) and gives it the keyboard.
+    pub fn show(&mut self, id: u64) {
+        if let Some(i) = self.sessions.iter().position(|s| s.id == id) {
+            if self.sessions[i].in_panel() {
+                self.active = i;
+                self.want_focus = true;
+            } else {
+                self.focus_tab = Some(id);
+            }
         }
     }
 
@@ -1014,6 +1060,35 @@ mod tests {
         t.close(id);
         assert!(t.docked_ids().is_empty());
         assert!(t.title_of(id).is_none() && t.title_of(panel).is_some());
+    }
+
+    /// The install guides type a command at the prompt (no Enter): once the shell started, even
+    /// when asked at once; the text typed before and not run is cleared by Ctrl+U.
+    #[cfg(unix)]
+    #[test]
+    fn types_at_the_prompt() {
+        let ctx = egui::Context::default();
+        let mut t = Terminal::new();
+        t.cwd = Some(std::env::temp_dir());
+        let id = t.open_panel(&ctx, Some("bash --norc --noprofile"), None).unwrap();
+        assert!(t.type_text(id, "echo un"));
+        assert!(t.type_text(id, "\x15echo $((6*7))"));
+        let screen = |t: &Terminal| t.sessions[0].parser.lock().unwrap().screen().contents();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !screen(&t).contains("echo $((6*7))") {
+            assert!(std::time::Instant::now() < deadline, "{}", screen(&t));
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        // not run: no Enter
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        assert!(!screen(&t).contains("42") && !screen(&t).contains("echo un"), "{}", screen(&t));
+        t.sessions[0].write(b"\r");
+        while !screen(&t).lines().any(|l| l.trim() == "42") {
+            assert!(std::time::Instant::now() < deadline, "{}", screen(&t));
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        t.close(id);
+        assert!(!t.type_text(id, "x"));
     }
 
     #[cfg(unix)]

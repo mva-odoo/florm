@@ -1148,6 +1148,9 @@ impl App {
     }
 
     pub(super) fn claude_ui(&mut self, ui: &mut egui::Ui, in_tab: bool) {
+        if self.install_guide(ui, crate::tools::Tool::Claude, in_tab) {
+            return;
+        }
         let accent = self.hl.colors.accent;
         let fill = ui.visuals().panel_fill;
         let dir_name = self.claude.dir.as_deref().map(|d| self.repo_label(d)).unwrap_or_default();

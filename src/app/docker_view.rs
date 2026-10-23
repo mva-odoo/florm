@@ -183,6 +183,10 @@ impl App {
     }
 
     pub(super) fn docker_ui(&mut self, ui: &mut egui::Ui) {
+        let in_tab = self.docs.iter().any(|d| d.view == document::View::Docker);
+        if self.install_guide(ui, crate::tools::Tool::Docker, in_tab) {
+            return;
+        }
         let mut act: Option<DockAct> = None;
         if self.docker.loaded_at.is_none_or(|t| t.elapsed() >= REFRESH) {
             act = Some(DockAct::Reload);

@@ -141,9 +141,8 @@ impl App {
                 ui.separator();
             }
             item(ui, "✳ Claude", Cmd::Claude);
-            if crate::docker::available() {
-                item(ui, t!("Docker (conteneurs et logs)", "Docker (containers and logs)"), Cmd::Docker);
-            }
+            // also when docker is missing: the view then tells how to install it
+            item(ui, t!("Docker (conteneurs et logs)", "Docker (containers and logs)"), Cmd::Docker);
             ui.separator();
             item(ui, t!("Insérer un modèle…", "Insert a template…"), Cmd::InsertTemplate);
             item(ui, t!("Nouveau modèle…", "New template…"), Cmd::NewTemplate);

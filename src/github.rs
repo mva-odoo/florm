@@ -45,7 +45,7 @@ pub fn not_installed() -> String {
     )
     .to_string()
 }
-fn not_logged() -> &'static str {
+pub fn not_logged() -> &'static str {
     t!("gh n'est pas connecté à GitHub. Lance une fois dans un terminal : gh auth login (connexion par le navigateur, sans token à créer)", "gh is not logged in to GitHub. Run once in a terminal: gh auth login (login through the browser, no token to create)")
 }
 

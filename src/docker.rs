@@ -6,7 +6,6 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::OnceLock;
 
 /// Lines of logs shown when a container is chosen.
 const TAIL: &str = "500";
@@ -61,11 +60,7 @@ struct PsLine {
 
 /// Whether `docker` is installed (the Docker view is offered only then).
 pub fn available() -> bool {
-    static FOUND: OnceLock<bool> = OnceLock::new();
-    *FOUND.get_or_init(|| {
-        let names: &[&str] = if cfg!(windows) { &["docker.exe"] } else { &["docker"] };
-        std::env::var_os("PATH").is_some_and(|p| std::env::split_paths(&p).any(|d| names.iter().any(|n| d.join(n).is_file())))
-    })
+    crate::tools::Tool::Docker.installed()
 }
 
 /// Fields read by `docker ps` (`{{json .}}` would also compute the size of every container:
