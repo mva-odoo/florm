@@ -138,7 +138,7 @@ impl App {
                 } else {
                     ("guide", include_str!("../../assets/guide.md"))
                 };
-                self.render_markdown(ui, key, text, "file://".into());
+                self.guide_view(ui, key, text);
                 None
             }
             document::View::Search => {
@@ -299,6 +299,45 @@ impl App {
                         .default_implicit_uri_scheme(base)
                         .max_image_width(Some(w as usize))
                         .show(ui, cache, text);
+                });
+            });
+        });
+    }
+
+    /// The guide: its intro, then a row of buttons to each `##` section (they scroll to it), then
+    /// the sections, each under a rule.
+    fn guide_view(&mut self, ui: &mut egui::Ui, key: &str, text: &str) {
+        let bg = self.hl.colors.bg;
+        let accent = self.hl.colors.accent;
+        let (intro, sections) = md::sections(text);
+        let mut go_to = None;
+        let cache = &mut self.md_cache;
+        egui::CentralPanel::default().frame(egui::Frame::none().fill(bg)).show_inside(ui, |ui| {
+            egui::ScrollArea::vertical().id_salt(key).auto_shrink([false, false]).show(ui, |ui| {
+                let w = ui.available_width().min(880.0);
+                let pad = ((ui.available_width() - w) / 2.0).max(16.0);
+                egui::Frame::none().inner_margin(egui::Margin { left: pad, right: pad, top: 16.0, bottom: 40.0 }).show(ui, |ui| {
+                    ui.set_max_width(w);
+                    egui_commonmark::CommonMarkViewer::new().show(ui, cache, &intro);
+                    ui.horizontal_wrapped(|ui| {
+                        ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
+                        for (i, (title, _)) in sections.iter().enumerate() {
+                            let chip = egui::Button::new(RichText::new(title).small().color(accent)).rounding(12.0);
+                            if ui.add(chip).clicked() {
+                                go_to = Some(i);
+                            }
+                        }
+                    });
+                    ui.add_space(12.0);
+                    for (i, (_, body)) in sections.iter().enumerate() {
+                        let r = ui.scope(|ui| {
+                            ui.separator();
+                            egui_commonmark::CommonMarkViewer::new().show(ui, cache, body);
+                        });
+                        if go_to == Some(i) {
+                            r.response.scroll_to_me(Some(egui::Align::TOP));
+                        }
+                    }
                 });
             });
         });

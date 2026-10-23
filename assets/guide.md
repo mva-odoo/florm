@@ -124,6 +124,31 @@ interactif** (clic droit → « Rebase interactif à partir d'ici… »), l'acti
 - **⇱ Onglet** dans le panneau du bas y envoie le terminal courant, **⇲ Panneau du bas** le
   ramène.
 
+## Docker
+
+**Docker** dans la palette (« docker ») ou **Outils → Docker (conteneurs et logs)** : la liste des conteneurs à
+gauche, leurs logs à droite. **⇱** la met en grand dans l'éditeur, **⇲** la ramène en bas. La liste
+est relue toutes les quelques secondes.
+
+- **Liste** : les conteneurs sont groupés par projet `docker compose`. Le rond à côté du nom est
+  vert quand il tourne, jaune s'il redémarre, est en pause ou n'est pas *healthy*, rouge s'il
+  est mort, gris s'il est arrêté.
+- **■ / ▶** à côté d'un conteneur : l'arrêter ou le démarrer. Pour un projet, **■ tout** arrête
+  tous ses conteneurs, du bas de la liste vers le haut ; **▶ tout** démarre les arrêtés dans
+  l'ordre de la liste, chacun une fois le précédent prêt (*healthy*). La poignée à points à gauche
+  se glisse pour changer cet ordre.
+- **⬆ compose up** (ou **⬆** sur un projet) : `docker compose up -d` dans un onglet. Crée et démarre
+  aussi les services qui n'ont pas encore de conteneur, et recrée ceux dont la configuration a changé.
+- **Logs** : clique sur un conteneur, ses logs s'affichent à droite. S'il redémarre, les logs
+  repartent tout seuls. Le bouton en haut à droite des logs les agrandit (la liste reprend sa place
+  en cliquant à nouveau).
+  - Dans sa barre : **⟳ Redémarrer**, **■ Arrêter** (ou **▶ Démarrer**), **>_ Terminal** (un shell
+    dans le conteneur, `docker exec`, dans un onglet).
+  - **Attaché** : un conteneur qui attend une saisie (ipdb…) reçoit ce que tu tapes, et
+    **Ctrl+C** l'interrompt. Sinon les logs sont en lecture seule.
+- **🧪 Tests** : lance des tests Odoo dans le conteneur. Les tags se tapent dans le champ
+  (`:MaClasse`, `/mon_module`, `:MaClasse.test_x`) ; **▾** reprend ceux déjà lancés.
+
 ## Modèles
 
 **Ctrl+Alt+N** (ou Outils → Insérer un modèle) : les modèles du type du fichier courant sont
@@ -150,11 +175,15 @@ texte. **+ Nouveau modèle** en crée un ; un intégré modifié devient le tien
 `log.py` (extension du fichier courant ; `log.xml` pour un autre type) dans le dossier des
 modèles et l'ouvre. S'il y avait une sélection, elle devient le texte du modèle.
 
-## Pull requests GitHub
+## GitHub
 
-**Ctrl+Alt+R** (ou Git → Pull requests GitHub, le bouton **⇄ PR** de la vue Git, la palette). Florm passe par
-la commande `gh` : pas de token à créer, il suffit de s'être connecté une fois avec
-`gh auth login` (connexion par le navigateur).
+Florm passe par la commande `gh` : pas de token à créer, il suffit de s'être connecté une fois
+avec `gh auth login` (connexion par le navigateur). Sans `gh`, la vue explique comment l'installer
+(le système est détecté) et reprend tout seul dès qu'elle est trouvée.
+
+### Pull requests
+
+**Ctrl+Alt+R** (ou Git → Pull requests GitHub, le bouton **⇄ PR** de la vue Git, la palette).
 
 - À gauche, les PR du dépôt (ouvertes, fusionnées, fermées, les tiennes), filtrables.
 - **Conversation** : la description, les **commentaires sur le code** (fichier:ligne

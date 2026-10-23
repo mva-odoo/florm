@@ -54,6 +54,28 @@ pub(super) fn parts(text: &str) -> Vec<MdPart> {
     out
 }
 
+/// Markdown cut at its `## ` headings: the text before the first one, then each section as
+/// (its title, its text with the heading). A `## ` inside a code block is not a heading.
+pub(super) fn sections(text: &str) -> (String, Vec<(String, String)>) {
+    let mut intro = String::new();
+    let mut out: Vec<(String, String)> = Vec::new();
+    let mut in_code = false;
+    for line in text.split_inclusive('\n') {
+        let t = line.trim_start();
+        if line.len() - t.len() <= 3 && (t.starts_with("```") || t.starts_with("~~~")) {
+            in_code = !in_code;
+        }
+        if !in_code && line.starts_with("## ") {
+            out.push((line[3..].trim().to_string(), String::new()));
+        }
+        match out.last_mut() {
+            Some((_, body)) => body.push_str(line),
+            None => intro.push_str(line),
+        }
+    }
+    (intro, out)
+}
+
 /// Markdown, its code blocks with a « Copier » button.
 pub(super) fn markdown(ui: &mut egui::Ui, cache: &mut egui_commonmark::CommonMarkCache, text: &str) {
     for part in parts(text) {
@@ -135,5 +157,20 @@ mod tests {
         // a fence of 4 backticks holds a line of 3
         assert_eq!(parts("````md\n```\n````"), vec![MdPart::Code { lang: "md".into(), code: "```".into() }]);
         assert_eq!(parts("pas de code"), vec![MdPart::Text("pas de code\n".into())]);
+    }
+
+    #[test]
+    fn sections_at_headings() {
+        let t = "# Titre\n\nAccueil\n\n## Un\na\n```\n## pas un titre\n```\n## Deux\nb";
+        let (intro, secs) = sections(t);
+        assert_eq!(intro, "# Titre\n\nAccueil\n\n");
+        assert_eq!(
+            secs,
+            vec![
+                ("Un".to_string(), "## Un\na\n```\n## pas un titre\n```\n".to_string()),
+                ("Deux".to_string(), "## Deux\nb".to_string()),
+            ]
+        );
+        assert_eq!(sections("sans titre"), ("sans titre".to_string(), vec![]));
     }
 }

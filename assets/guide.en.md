@@ -123,6 +123,31 @@ one of the commits.
 - **⇱ Tab** in the bottom panel sends the current terminal there, **⇲ Bottom panel** brings it
   back.
 
+## Docker
+
+**Docker** in the palette (“docker”) or **Tools → Docker (containers and logs)**: the list of
+containers on the left, their logs on the right. **⇱** shows it large in the editor, **⇲** brings
+it back to the bottom. The list is read again every few seconds.
+
+- **List**: the containers are grouped by `docker compose` project. The dot next to the name is
+  green when it runs, yellow when it restarts, is paused or is not *healthy*, red when it is
+  dead, grey when it is stopped.
+- **■ / ▶** next to a container: stop or start it. For a project, **■ all** stops all its
+  containers, from the bottom of the list up; **▶ all** starts the stopped ones in the order of
+  the list, each once the previous one is ready (*healthy*). The dotted handle on the left can be
+  dragged to change that order.
+- **⬆ compose up** (or **⬆** on a project): `docker compose up -d` in a tab. Also creates and
+  starts the services that have no container yet, and recreates those whose configuration changed.
+- **Logs**: click a container, its logs show on the right. If it restarts, the logs start again by
+  themselves. The button at the top right of the logs makes them larger (click it again to give the
+  list its room back).
+  - In its bar: **⟳ Restart**, **■ Stop** (or **▶ Start**), **>_ Terminal** (a shell in the
+    container, `docker exec`, in a tab).
+  - **Attached**: a container waiting for input (ipdb…) receives what you type, and **Ctrl+C**
+    interrupts it. Otherwise the logs are read-only.
+- **🧪 Tests**: runs Odoo tests in the container. The tags are typed in the field
+  (`:MyClass`, `/my_module`, `:MyClass.test_x`); **▾** brings back those already run.
+
 ## Templates
 
 **Ctrl+Alt+N** (or Tools → Insert a template): the templates of the type of the current file
@@ -148,11 +173,16 @@ change its name (one word = its trigger), the files it is offered for and its te
 (extension of the current file; `log.xml` for another type) in the templates folder and opens
 it. If there was a selection, it becomes the text of the template.
 
-## GitHub pull requests
+## GitHub
+
+Florm goes through the `gh` command: no token to create, you only need to have logged in once
+with `gh auth login` (login through the browser). Without `gh`, the view explains how to install
+it (your system is detected) and comes back by itself as soon as it is found.
+
+### Pull requests
 
 **Ctrl+Alt+R** (or Git → GitHub pull requests, the **⇄ PR** button of the Git view, the
-palette). Florm goes through the `gh` command: no token to create, you only need to have
-logged in once with `gh auth login` (login through the browser).
+palette).
 
 - On the left, the PRs of the repository (open, merged, closed, yours), with a filter.
 - **Conversation**: the description, the **comments on the code** (clickable file:line, the
