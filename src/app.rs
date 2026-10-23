@@ -329,6 +329,16 @@ fn complete_path(input: &str, base: &Path, dirs_only: bool) -> (String, Vec<(Str
     (completed, found)
 }
 
+fn recent_cmds_path() -> PathBuf {
+    config::config_dir().join("recent_commands")
+}
+
+/// Ids of the commands run from the palette lately (one per line), the unknown ones left out.
+fn load_recent_cmds() -> Vec<&'static str> {
+    let text = std::fs::read_to_string(recent_cmds_path()).unwrap_or_default();
+    text.lines().filter_map(|l| commands::ALL.iter().find(|(id, ..)| *id == l.trim()).map(|(id, ..)| *id)).take(20).collect()
+}
+
 /// Message of the status bar.
 #[derive(Clone)]
 struct StatusMsg {
@@ -738,6 +748,8 @@ pub struct App {
     keymap: Keymap,
     chord: bool,
     confirm: Option<Confirm>,
+    /// Commands run from the palette lately, most recent first (shown first there).
+    recent_cmds: Vec<&'static str>,
     output: Vec<String>,
     status: Option<StatusMsg>,
     /// The last messages of the status bar, newest last: a message gone too fast can be read again.
@@ -960,6 +972,7 @@ impl App {
             keymap,
             chord: false,
             confirm: None,
+            recent_cmds: load_recent_cmds(),
             output: Vec::new(),
             status: None,
             status_log: Default::default(),

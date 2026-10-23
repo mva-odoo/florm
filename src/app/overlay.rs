@@ -86,13 +86,15 @@ impl App {
                 .collect(),
             _ => Vec::new().into(),
         };
-        let files = matches!(mode, Mode::Files);
+        // the recent files first in go to file, the recent commands first in the palette
+        let boost = match mode {
+            Mode::Files => Some(self.recent_boost()),
+            Mode::Commands => Some(self.recent_cmd_boost(&items)),
+            _ => None,
+        };
         self.open_overlay_with(mode, items, String::new());
-        if files {
-            let boost = self.recent_boost();
-            if let Some(o) = self.overlay.as_mut() {
-                o.boost = boost;
-            }
+        if let (Some(boost), Some(o)) = (boost, self.overlay.as_mut()) {
+            o.boost = boost;
         }
     }
 
@@ -122,6 +124,30 @@ impl App {
             .enumerate()
             .filter_map(|(k, p)| self.index.files.binary_search_by(|f| f.as_path().cmp(p)).ok().map(|i| (i, 60 - k as i32)))
             .collect()
+    }
+
+    /// Command palette: bonus of the commands run from it lately (the more recent, the higher).
+    fn recent_cmd_boost(&self, items: &[Item]) -> HashMap<usize, i32> {
+        items
+            .iter()
+            .enumerate()
+            .filter_map(|(i, it)| {
+                let Action::Cmd(c) = it.action else { return None };
+                let id = commands::ALL.iter().find(|(_, _, x)| *x == c)?.0;
+                let k = self.recent_cmds.iter().position(|r| *r == id)?;
+                Some((i, 40 - k as i32))
+            })
+            .collect()
+    }
+
+    /// Remembers that `c` was run from the palette (kept between sessions).
+    fn note_recent_cmd(&mut self, c: Cmd) {
+        let Some(&(id, ..)) = commands::ALL.iter().find(|(_, _, x)| *x == c) else { return };
+        self.recent_cmds.retain(|r| *r != id);
+        self.recent_cmds.insert(0, id);
+        self.recent_cmds.truncate(20);
+        let _ = std::fs::create_dir_all(config::config_dir());
+        let _ = std::fs::write(super::recent_cmds_path(), self.recent_cmds.join("\n"));
     }
 
     pub(super) fn open_overlay_with(&mut self, mode: Mode, items: impl Into<Arc<[Item]>>, query: String) {
@@ -444,6 +470,9 @@ impl App {
                 Mode::Files => ov.query.split_once(':').map(|(_, l)| l.to_string()),
                 _ => None,
             };
+            if let (Mode::Commands, Action::Cmd(c)) = (&ov.mode, &action) {
+                self.note_recent_cmd(*c);
+            }
             self.choose(ctx, action);
             if let Some(spec) = line_spec {
                 self.goto_spec(&spec);
