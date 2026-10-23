@@ -503,7 +503,7 @@ impl App {
         let has_detail = selected_commit.is_some() || h.wip_sel.is_some() || h.compare.is_some() || h.rebase.is_some();
 
         // ------------------------------------------------ commit list, with the working tree on top
-        let list = |ui: &mut egui::Ui| {
+        let mut list = |ui: &mut egui::Ui| {
             if n_staged + n_changed > 0 || !commit_msg.is_empty() || focus_commit {
                 (do_commit, suggest_msg) = commit_box(ui, commit_msg, focus_commit, n_staged, n_changed, suggesting, accent);
             }
@@ -618,26 +618,44 @@ impl App {
                 }
             });
         };
-        if !has_detail {
-            egui::CentralPanel::default().show_inside(ui, list);
+        // one of the two can take all the room
+        let view = egui::Id::new("git_view");
+        let maxed = maximize::maxed(ui.ctx(), view);
+        if maxed == Some("detail") && !has_detail {
+            maximize::restore(ui.ctx(), view);
+        }
+        if !has_detail || maxed == Some("list") {
+            egui::CentralPanel::default().show_inside(ui, |ui| {
+                list(ui);
+                if has_detail {
+                    maximize::corner(ui, view, "list");
+                }
+            });
         } else {
-            let avail = ui.available_height();
-            egui::TopBottomPanel::top("history_list_panel")
-                .resizable(true)
-                .default_height((avail * 0.36).max(140.0))
-                .height_range(100.0..=(avail - 160.0).max(120.0))
-                .show_inside(ui, list);
+            if maxed != Some("detail") {
+                let avail = ui.available_height();
+                egui::TopBottomPanel::top("history_list_panel")
+                    .resizable(true)
+                    .default_height((avail * 0.36).max(140.0))
+                    .height_range(100.0..=(avail - 160.0).max(120.0))
+                    .show_inside(ui, |ui| {
+                        list(ui);
+                        maximize::corner(ui, view, "list");
+                    });
+            }
 
             // ------------------------------------------------ below: what is selected, then its changes (like a pull request)
             egui::CentralPanel::default().show_inside(ui, |ui| {
                 ui.add_space(4.0);
+                let r = ui.max_rect();
                 if h.rebase.is_none() {
-                    let r = ui.max_rect();
                     let at = egui::Rect::from_min_size(egui::pos2(r.right() - 26.0, r.top() + 2.0), egui::vec2(24.0, 24.0));
                     if ui.put(at, egui::Button::new(RichText::new("×").size(16.0)).frame(false)).on_hover_text("Fermer le détail (Échap)").clicked() {
                         close_detail = true;
                     }
                 }
+                let at = egui::Rect::from_min_size(egui::pos2(r.right() - if h.rebase.is_none() { 50.0 } else { 24.0 }, r.top() + 4.0), egui::vec2(20.0, 20.0));
+                maximize::button_at(ui, at, view, "detail");
                 if let Some(rb) = h.rebase.as_mut() {
                     ui.label(RichText::new("Rebase interactif").size(16.0).strong());
                     ui.label(
@@ -786,7 +804,7 @@ impl App {
                             ui.horizontal(|ui| {
                                 ui.add(egui::Label::new(RichText::new(subject).size(16.0).strong()).truncate());
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                    ui.add_space(28.0); // the × closing the detail
+                                    ui.add_space(52.0); // the × closing the detail, the button taking all the room
                                     ui.menu_button("Actions ▾", |ui| {
                                         commit_menu(ui, c, h.graph.as_ref().map_or(&[][..], |g| &g.local[..]), None, &mut menu_act);
                                     });

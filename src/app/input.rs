@@ -176,6 +176,7 @@ impl App {
             Escape => {
                 let peek_open = self.docs.get(self.active).is_some_and(|d| d.peek.is_some());
                 if self.overlay.take().is_some() || self.confirm.take().is_some() || self.line_history.take().is_some() {
+                } else if maximize::restore_shown(ctx) {
                 } else if let Some(sp) = self.split.as_mut().filter(|sp| sp.shown && !self.prefs.open) {
                     sp.shown = false;
                 } else if self.history.open && self.history_detail_open() {

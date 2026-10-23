@@ -299,8 +299,17 @@ impl App {
                 });
             });
 
+        // one of the two can take all the room (the pull request only when one is shown)
+        let view = egui::Id::new("pr_view");
+        let mut maxed = maximize::maxed(ui.ctx(), view);
+        let shown = matches!(p.detail, Some(Ok(_)));
+        if maxed == Some("detail") && !shown && !p.detail_loading {
+            maximize::restore(ui.ctx(), view);
+            maxed = None;
+        }
+
         // ------------------------------------------------ list
-        egui::SidePanel::left("pr_list").resizable(true).default_width(380.0).width_range(240.0..=700.0).show_inside(ui, |ui| {
+        let mut list_ui = |ui: &mut egui::Ui| {
             let list = match &p.list {
                 None => {
                     ui.spinner();
@@ -337,275 +346,295 @@ impl App {
                     }
                 }
             });
-        });
-
-        // ------------------------------------------------ the selected pull request
-        egui::CentralPanel::default().show_inside(ui, |ui| {
-            let d = match &p.detail {
-                None if p.detail_loading => {
-                    ui.spinner();
-                    return;
-                }
-                None => {
-                    ui.add_space(20.0);
-                    ui.vertical_centered(|ui| ui.label(RichText::new("Choisis une pull request à gauche").weak()));
-                    return;
-                }
-                Some(Err(e)) => {
-                    ui.label(RichText::new(e).color(err()));
-                    return;
-                }
-                Some(Ok(d)) => d,
-            };
-            // header
-            ui.horizontal(|ui| {
-                ui.add(egui::Label::new(RichText::new(&d.title).size(17.0).strong()).truncate());
-                ui.label(RichText::new(format!("#{}", d.number)).size(17.0).weak());
-                if p.detail_loading {
-                    ui.spinner();
-                }
-            });
-            ui.horizontal(|ui| {
-                let (label, color) = state_badge(&d.state, d.is_draft);
-                badge(ui, label, color);
-                ui.label(RichText::new(&d.author).strong());
-                ui.label(RichText::new("veut fusionner").weak());
-                ui.label(RichText::new(&d.head).monospace().color(accent));
-                ui.label(RichText::new("dans").weak());
-                ui.label(RichText::new(&d.base).monospace().color(accent));
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("⟳").on_hover_text("Recharger la pull request").clicked() {
-                        act = Some(PrAct::Select(d.number));
-                    }
-                    if ui.button("Ouvrir sur GitHub").clicked() {
-                        act = Some(PrAct::Web(d.number));
-                    }
-                    if ui
-                        .add_enabled(!p.ai.loading, egui::Button::new("✳ Revue IA"))
-                        .on_hover_text("Claude relit la PR et propose des remarques sous les lignes : tu gardes, modifies ou écartes chacune, rien n'est publié sans toi")
-                        .clicked()
-                    {
-                        act = Some(PrAct::AiReview);
-                        p.section = PrSection::Files;
-                    }
-                    if checked_out {
-                        ui.label(RichText::new("✔ branche active").color(ok())).on_hover_text("Les commentaires sur les lignes sont aussi dans l'éditeur");
-                    } else if ui
-                        .add_enabled(!p.busy, filled_button("⤵ Checkout", accent))
-                        .on_hover_text("gh pr checkout : prendre la branche de la PR pour la modifier, appliquer les suggestions et voir les commentaires dans l'éditeur")
-                        .clicked()
-                    {
-                        act = Some(PrAct::Checkout(d.number));
+        };
+        match maxed {
+            Some("list") => {
+                egui::CentralPanel::default().show_inside(ui, |ui| {
+                    list_ui(ui);
+                    maximize::corner(ui, view, "list");
+                });
+            }
+            Some("detail") => {}
+            _ => {
+                egui::SidePanel::left("pr_list").resizable(true).default_width(380.0).width_range(240.0..=700.0).show_inside(ui, |ui| {
+                    list_ui(ui);
+                    if shown {
+                        maximize::corner(ui, view, "list");
                     }
                 });
-            });
-            ui.add_space(4.0);
-            let open_threads = d.threads.iter().filter(|t| !t.resolved).count();
-            ui.horizontal(|ui| {
-                let conv = if open_threads > 0 { format!("Conversation · {open_threads} à traiter") } else { "Conversation".into() };
-                ui.selectable_value(&mut p.section, PrSection::Conversation, conv);
-                ui.selectable_value(&mut p.section, PrSection::Commits, format!("Commits · {}", d.commits.len()));
-                let n = p.files.diff.as_ref().map_or(0, |x| x.files.len());
-                ui.selectable_value(&mut p.section, PrSection::Files, format!("Fichiers · {n}"));
-            });
-            ui.separator();
-            match p.section {
-                PrSection::Conversation => {
-                    // like the chatter of Odoo: write on top, then everything that happened, newest first
-                    egui::ScrollArea::vertical().id_salt("pr_conv").auto_shrink([false, false]).show(ui, |ui| {
-                        ui.set_max_width(ui.available_width().min(1000.0));
-                        ui.add_space(4.0);
-                        let draft = p.drafts.entry(DRAFT_PR.into()).or_default();
-                        if composer(ui, draft, "Envoyer un message sur la pull request…", "Envoyer", p.busy, accent) {
-                            act = Some(PrAct::Send(DRAFT_PR.into()));
-                        }
-                        let resolved = d.threads.len() - open_threads;
-                        if resolved > 0 {
-                            ui.checkbox(&mut p.show_resolved, RichText::new(format!("afficher les {resolved} conversation(s) résolue(s)")).small());
-                        }
-                        let mut day_shown = String::new();
-                        for (date, ev) in timeline(d, p.show_resolved) {
-                            if day(&date) != day_shown {
-                                day_shown = day(&date).to_string();
-                                day_separator(ui, &date);
-                            }
-                            match ev {
-                                Event::Opened => {
-                                    comment_block(ui, &d.author, &date, Some(("a ouvert la pull request", accent)), |ui| {
-                                        if d.body.trim().is_empty() {
-                                            ui.label(RichText::new("Pas de description.").weak().italics());
-                                        } else {
-                                            egui_commonmark::CommonMarkViewer::new().show(ui, cache, &d.body);
-                                        }
-                                    });
-                                }
-                                Event::Comment(k) => {
-                                    let c = &d.comments[k];
-                                    let review = match c.state.as_str() {
-                                        "APPROVED" => Some(("✔ a approuvé", ok())),
-                                        "CHANGES_REQUESTED" => Some(("✖ demande des changements", err())),
-                                        _ => None,
-                                    };
-                                    if c.body.trim().is_empty() {
-                                        let (t, color) = review.unwrap_or(("a fait une revue", accent));
-                                        tracking(ui, &c.author.login, &date, t, color);
-                                    } else {
-                                        comment_block(ui, &c.author.login, &date, review, |ui| {
-                                            egui_commonmark::CommonMarkViewer::new().show(ui, cache, &c.body);
-                                        });
-                                    }
-                                }
-                                Event::Thread(k) => {
-                                    let t = &d.threads[k];
-                                    let who = t.comments.first().map_or("", |c| c.author.as_str());
-                                    tracking(ui, who, &date, &format!("a commenté {}", t.path.rsplit('/').next().unwrap_or(&t.path)), accent);
-                                    ui.horizontal_top(|ui| {
-                                        ui.add_space(34.0);
-                                        ui.vertical(|ui| {
-                                            let draft = p.drafts.entry(t.id.clone()).or_default();
-                                            thread_ui(ui, t, cache, &p.applied, &p.shifts, checked_out, p.busy, draft, accent, false, &mut act);
-                                        });
-                                    });
-                                }
-                                Event::Push { author, commits } => {
-                                    let what = if commits.len() == 1 { "a poussé un commit".to_string() } else { format!("a poussé {} commits", commits.len()) };
-                                    tracking(ui, &author, &date, &what, accent);
-                                    for &k in &commits {
-                                        let c = &d.commits[k];
-                                        ui.horizontal(|ui| {
-                                            ui.add_space(34.0);
-                                            if ui.link(RichText::new(&c.oid[..c.oid.len().min(8)]).monospace().small().color(accent)).on_hover_text("Voir ce commit").clicked() {
-                                                act = Some(PrAct::Commit(c.oid.clone()));
-                                                p.section = PrSection::Commits;
-                                            }
-                                            ui.label(RichText::new(&c.message_headline).small());
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                        ui.add_space(20.0);
-                    });
-                }
-                PrSection::Commits => {
-                    // the commits on top, the changes of the one chosen below
-                    let avail = ui.available_height();
-                    egui::TopBottomPanel::top("pr_commit_list")
-                        .resizable(true)
-                        .default_height((avail * 0.3).max(90.0))
-                        .height_range(60.0..=(avail - 120.0).max(80.0))
-                        .show_inside(ui, |ui| {
-                            egui::ScrollArea::vertical().id_salt("pr_commits").auto_shrink([false, false]).show(ui, |ui| {
-                                ui.spacing_mut().item_spacing.y = 0.0;
-                                for c in d.commits.iter().rev() {
-                                    if commit_row(ui, c, p.commit.as_deref() == Some(c.oid.as_str()), accent).clicked() {
-                                        act = Some(PrAct::Commit(c.oid.clone()));
-                                    }
-                                }
-                            });
-                        });
-                    egui::CentralPanel::default().frame(egui::Frame::none().inner_margin(egui::Margin { top: 6.0, ..Default::default() })).show_inside(ui, |ui| {
-                        let Some(sha) = &p.commit else {
-                            ui.add_space(20.0);
-                            ui.vertical_centered(|ui| ui.label(RichText::new("Choisis un commit : ses changements à lui seul s'affichent ici").weak()));
-                            return;
-                        };
-                        let headline = d.commits.iter().find(|c| &c.oid == sha).map_or("", |c| c.message_headline.as_str());
-                        ui.horizontal(|ui| {
-                            ui.label(RichText::new(&sha[..sha.len().min(8)]).monospace().color(accent));
-                            ui.label(RichText::new(headline).strong());
-                        });
-                        if let Some(DiffClick::File(i, _) | DiffClick::Line(i) | DiffClick::Hunk(i, _)) = diff_area(ui, "pr_commit", &mut p.commit_diff, &d.threads, None) {
-                            if let Some(diff) = &p.commit_diff.diff {
-                                if let Some(path) = history::file_at(&diff.text, i) {
-                                    act = Some(PrAct::Open(path, history::target_line(&diff.lines, i)));
-                                }
-                            }
-                        }
-                    });
-                }
-                PrSection::Files => {
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new("Double-clic sur une ligne pour la commenter").small().weak());
-                        let resolved = d.threads.iter().filter(|t| t.resolved).count();
-                        if resolved > 0 {
-                            ui.checkbox(&mut p.show_resolved, RichText::new(format!("afficher les {resolved} conversation(s) résolue(s)")).small());
-                        }
-                    });
-                    // the AI review: its state and buttons, the remarks off the diff
-                    let ai_rows = p.ai.rows(p.files.diff.as_ref());
-                    let mut ai_act = None;
-                    let (busy, mut publish) = (p.busy, false);
-                    ai_review::review_bar(ui, cache, &mut p.ai, &ai_rows, accent, &mut ai_act, |ui, kept| {
-                        let label = format!("Publier les {kept} gardée(s) sur GitHub");
-                        let tip = "Une seule revue GitHub (commentaire, sans approuver ni demander de changements) ; les remarques hors du diff vont dans son message";
-                        publish = ui.add_enabled(kept > 0 && !busy, filled_button(label, accent)).on_hover_text(tip).clicked();
-                    });
-                    // the conversations under the lines they are about, like on GitHub
-                    let mut at: HashMap<usize, Vec<usize>> = HashMap::new();
-                    if let Some(diff) = &p.files.diff {
-                        for (k, t) in d.threads.iter().enumerate().filter(|(_, t)| p.show_resolved || !t.resolved) {
-                            if let Some(i) = thread_row(diff, t) {
-                                at.entry(i).or_default().push(k);
-                            }
-                        }
-                    }
-                    let mut ai_at: HashMap<usize, Vec<usize>> = HashMap::new();
-                    for (k, row) in ai_rows.iter().enumerate() {
-                        if let Some(i) = row {
-                            ai_at.entry(*i).or_default().push(k);
-                        }
-                    }
-                    let new_at = p.new_line.as_ref().map(|n| n.3);
-                    let lines: HashSet<usize> = at.keys().chain(ai_at.keys()).copied().chain(new_at).collect();
-                    let (drafts, applied, shifts, new_line, ai_notes) = (&mut p.drafts, &p.applied, &p.shifts, &mut p.new_line, &mut p.ai.notes);
-                    let mut show = |ui: &mut egui::Ui, i: usize| {
-                        for &k in at.get(&i).map_or(&[][..], |v| &v[..]) {
-                            let t = &d.threads[k];
-                            let draft = drafts.entry(t.id.clone()).or_default();
-                            thread_ui(ui, t, cache, applied, shifts, checked_out, busy, draft, accent, true, &mut act);
-                        }
-                        for &k in ai_at.get(&i).map_or(&[][..], |v| &v[..]) {
-                            ai_review::note_card(ui, cache, k, &mut ai_notes[k], true, accent, &mut ai_act);
-                        }
-                        if new_at == Some(i) {
-                            line_composer(ui, drafts.entry(DRAFT_LINE.into()).or_default(), new_line, busy, accent, &mut act);
-                        }
-                    };
-                    let notes = history::Notes { at: &lines, show: &mut show };
-                    match diff_area(ui, "pr_files", &mut p.files, &d.threads, Some(notes)) {
-                        Some(DiffClick::Line(i)) => {
-                            if let Some(diff) = &p.files.diff {
-                                if let (Some(path), Some(l)) = (history::file_at(&diff.text, i), diff.lines.get(i)) {
-                                    let at = match l.kind {
-                                        DiffKind::Removed => l.old.map(|n| (n, "LEFT")),
-                                        DiffKind::Hunk => None,
-                                        _ => l.new.map(|n| (n, "RIGHT")),
-                                    };
-                                    if let Some((n, side)) = at {
-                                        p.new_line = Some((path, n, side, i));
-                                    }
-                                }
-                            }
-                        }
-                        Some(DiffClick::File(i, _) | DiffClick::Hunk(i, _)) => {
-                            if let Some(diff) = &p.files.diff {
-                                if let Some(path) = history::file_at(&diff.text, i) {
-                                    act = Some(PrAct::Open(path, history::target_line(&diff.lines, i)));
-                                }
-                            }
-                        }
-                        None => {}
-                    }
-                    if publish {
-                        act = Some(PrAct::AiPublish);
-                    }
-                    if let Some(a) = ai_act {
-                        act = Some(PrAct::Ai(a));
-                    }
-                }
             }
-        });
+        }
+
+        // ------------------------------------------------ the selected pull request
+        if maxed != Some("list") {
+            egui::CentralPanel::default().show_inside(ui, |ui| {
+                let d = match &p.detail {
+                    None if p.detail_loading => {
+                        ui.spinner();
+                        return;
+                    }
+                    None => {
+                        ui.add_space(20.0);
+                        ui.vertical_centered(|ui| ui.label(RichText::new("Choisis une pull request à gauche").weak()));
+                        return;
+                    }
+                    Some(Err(e)) => {
+                        ui.label(RichText::new(e).color(err()));
+                        return;
+                    }
+                    Some(Ok(d)) => d,
+                };
+                // header
+                ui.horizontal(|ui| {
+                    ui.add(egui::Label::new(RichText::new(&d.title).size(17.0).strong()).truncate());
+                    ui.label(RichText::new(format!("#{}", d.number)).size(17.0).weak());
+                    if p.detail_loading {
+                        ui.spinner();
+                    }
+                });
+                ui.horizontal(|ui| {
+                    let (label, color) = state_badge(&d.state, d.is_draft);
+                    badge(ui, label, color);
+                    ui.label(RichText::new(&d.author).strong());
+                    ui.label(RichText::new("veut fusionner").weak());
+                    ui.label(RichText::new(&d.head).monospace().color(accent));
+                    ui.label(RichText::new("dans").weak());
+                    ui.label(RichText::new(&d.base).monospace().color(accent));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        maximize::button(ui, view, "detail");
+                        if ui.button("⟳").on_hover_text("Recharger la pull request").clicked() {
+                            act = Some(PrAct::Select(d.number));
+                        }
+                        if ui.button("Ouvrir sur GitHub").clicked() {
+                            act = Some(PrAct::Web(d.number));
+                        }
+                        if ui
+                            .add_enabled(!p.ai.loading, egui::Button::new("✳ Revue IA"))
+                            .on_hover_text("Claude relit la PR et propose des remarques sous les lignes : tu gardes, modifies ou écartes chacune, rien n'est publié sans toi")
+                            .clicked()
+                        {
+                            act = Some(PrAct::AiReview);
+                            p.section = PrSection::Files;
+                        }
+                        if checked_out {
+                            ui.label(RichText::new("✔ branche active").color(ok())).on_hover_text("Les commentaires sur les lignes sont aussi dans l'éditeur");
+                        } else if ui
+                            .add_enabled(!p.busy, filled_button("⤵ Checkout", accent))
+                            .on_hover_text("gh pr checkout : prendre la branche de la PR pour la modifier, appliquer les suggestions et voir les commentaires dans l'éditeur")
+                            .clicked()
+                        {
+                            act = Some(PrAct::Checkout(d.number));
+                        }
+                    });
+                });
+                ui.add_space(4.0);
+                let open_threads = d.threads.iter().filter(|t| !t.resolved).count();
+                ui.horizontal(|ui| {
+                    let conv = if open_threads > 0 { format!("Conversation · {open_threads} à traiter") } else { "Conversation".into() };
+                    ui.selectable_value(&mut p.section, PrSection::Conversation, conv);
+                    ui.selectable_value(&mut p.section, PrSection::Commits, format!("Commits · {}", d.commits.len()));
+                    let n = p.files.diff.as_ref().map_or(0, |x| x.files.len());
+                    ui.selectable_value(&mut p.section, PrSection::Files, format!("Fichiers · {n}"));
+                });
+                ui.separator();
+                match p.section {
+                    PrSection::Conversation => {
+                        // like the chatter of Odoo: write on top, then everything that happened, newest first
+                        egui::ScrollArea::vertical().id_salt("pr_conv").auto_shrink([false, false]).show(ui, |ui| {
+                            ui.set_max_width(ui.available_width().min(1000.0));
+                            ui.add_space(4.0);
+                            let draft = p.drafts.entry(DRAFT_PR.into()).or_default();
+                            if composer(ui, draft, "Envoyer un message sur la pull request…", "Envoyer", p.busy, accent) {
+                                act = Some(PrAct::Send(DRAFT_PR.into()));
+                            }
+                            let resolved = d.threads.len() - open_threads;
+                            if resolved > 0 {
+                                ui.checkbox(&mut p.show_resolved, RichText::new(format!("afficher les {resolved} conversation(s) résolue(s)")).small());
+                            }
+                            let mut day_shown = String::new();
+                            for (date, ev) in timeline(d, p.show_resolved) {
+                                if day(&date) != day_shown {
+                                    day_shown = day(&date).to_string();
+                                    day_separator(ui, &date);
+                                }
+                                match ev {
+                                    Event::Opened => {
+                                        comment_block(ui, &d.author, &date, Some(("a ouvert la pull request", accent)), |ui| {
+                                            if d.body.trim().is_empty() {
+                                                ui.label(RichText::new("Pas de description.").weak().italics());
+                                            } else {
+                                                egui_commonmark::CommonMarkViewer::new().show(ui, cache, &d.body);
+                                            }
+                                        });
+                                    }
+                                    Event::Comment(k) => {
+                                        let c = &d.comments[k];
+                                        let review = match c.state.as_str() {
+                                            "APPROVED" => Some(("✔ a approuvé", ok())),
+                                            "CHANGES_REQUESTED" => Some(("✖ demande des changements", err())),
+                                            _ => None,
+                                        };
+                                        if c.body.trim().is_empty() {
+                                            let (t, color) = review.unwrap_or(("a fait une revue", accent));
+                                            tracking(ui, &c.author.login, &date, t, color);
+                                        } else {
+                                            comment_block(ui, &c.author.login, &date, review, |ui| {
+                                                egui_commonmark::CommonMarkViewer::new().show(ui, cache, &c.body);
+                                            });
+                                        }
+                                    }
+                                    Event::Thread(k) => {
+                                        let t = &d.threads[k];
+                                        let who = t.comments.first().map_or("", |c| c.author.as_str());
+                                        tracking(ui, who, &date, &format!("a commenté {}", t.path.rsplit('/').next().unwrap_or(&t.path)), accent);
+                                        ui.horizontal_top(|ui| {
+                                            ui.add_space(34.0);
+                                            ui.vertical(|ui| {
+                                                let draft = p.drafts.entry(t.id.clone()).or_default();
+                                                thread_ui(ui, t, cache, &p.applied, &p.shifts, checked_out, p.busy, draft, accent, false, &mut act);
+                                            });
+                                        });
+                                    }
+                                    Event::Push { author, commits } => {
+                                        let what = if commits.len() == 1 { "a poussé un commit".to_string() } else { format!("a poussé {} commits", commits.len()) };
+                                        tracking(ui, &author, &date, &what, accent);
+                                        for &k in &commits {
+                                            let c = &d.commits[k];
+                                            ui.horizontal(|ui| {
+                                                ui.add_space(34.0);
+                                                if ui.link(RichText::new(&c.oid[..c.oid.len().min(8)]).monospace().small().color(accent)).on_hover_text("Voir ce commit").clicked() {
+                                                    act = Some(PrAct::Commit(c.oid.clone()));
+                                                    p.section = PrSection::Commits;
+                                                }
+                                                ui.label(RichText::new(&c.message_headline).small());
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                            ui.add_space(20.0);
+                        });
+                    }
+                    PrSection::Commits => {
+                        // the commits on top, the changes of the one chosen below
+                        let avail = ui.available_height();
+                        egui::TopBottomPanel::top("pr_commit_list")
+                            .resizable(true)
+                            .default_height((avail * 0.3).max(90.0))
+                            .height_range(60.0..=(avail - 120.0).max(80.0))
+                            .show_inside(ui, |ui| {
+                                egui::ScrollArea::vertical().id_salt("pr_commits").auto_shrink([false, false]).show(ui, |ui| {
+                                    ui.spacing_mut().item_spacing.y = 0.0;
+                                    for c in d.commits.iter().rev() {
+                                        if commit_row(ui, c, p.commit.as_deref() == Some(c.oid.as_str()), accent).clicked() {
+                                            act = Some(PrAct::Commit(c.oid.clone()));
+                                        }
+                                    }
+                                });
+                            });
+                        egui::CentralPanel::default().frame(egui::Frame::none().inner_margin(egui::Margin { top: 6.0, ..Default::default() })).show_inside(ui, |ui| {
+                            let Some(sha) = &p.commit else {
+                                ui.add_space(20.0);
+                                ui.vertical_centered(|ui| ui.label(RichText::new("Choisis un commit : ses changements à lui seul s'affichent ici").weak()));
+                                return;
+                            };
+                            let headline = d.commits.iter().find(|c| &c.oid == sha).map_or("", |c| c.message_headline.as_str());
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new(&sha[..sha.len().min(8)]).monospace().color(accent));
+                                ui.label(RichText::new(headline).strong());
+                            });
+                            if let Some(DiffClick::File(i, _) | DiffClick::Line(i) | DiffClick::Hunk(i, _)) = diff_area(ui, "pr_commit", &mut p.commit_diff, &d.threads, None) {
+                                if let Some(diff) = &p.commit_diff.diff {
+                                    if let Some(path) = history::file_at(&diff.text, i) {
+                                        act = Some(PrAct::Open(path, history::target_line(&diff.lines, i)));
+                                    }
+                                }
+                            }
+                        });
+                    }
+                    PrSection::Files => {
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new("Double-clic sur une ligne pour la commenter").small().weak());
+                            let resolved = d.threads.iter().filter(|t| t.resolved).count();
+                            if resolved > 0 {
+                                ui.checkbox(&mut p.show_resolved, RichText::new(format!("afficher les {resolved} conversation(s) résolue(s)")).small());
+                            }
+                        });
+                        // the AI review: its state and buttons, the remarks off the diff
+                        let ai_rows = p.ai.rows(p.files.diff.as_ref());
+                        let mut ai_act = None;
+                        let (busy, mut publish) = (p.busy, false);
+                        ai_review::review_bar(ui, cache, &mut p.ai, &ai_rows, accent, &mut ai_act, |ui, kept| {
+                            let label = format!("Publier les {kept} gardée(s) sur GitHub");
+                            let tip = "Une seule revue GitHub (commentaire, sans approuver ni demander de changements) ; les remarques hors du diff vont dans son message";
+                            publish = ui.add_enabled(kept > 0 && !busy, filled_button(label, accent)).on_hover_text(tip).clicked();
+                        });
+                        // the conversations under the lines they are about, like on GitHub
+                        let mut at: HashMap<usize, Vec<usize>> = HashMap::new();
+                        if let Some(diff) = &p.files.diff {
+                            for (k, t) in d.threads.iter().enumerate().filter(|(_, t)| p.show_resolved || !t.resolved) {
+                                if let Some(i) = thread_row(diff, t) {
+                                    at.entry(i).or_default().push(k);
+                                }
+                            }
+                        }
+                        let mut ai_at: HashMap<usize, Vec<usize>> = HashMap::new();
+                        for (k, row) in ai_rows.iter().enumerate() {
+                            if let Some(i) = row {
+                                ai_at.entry(*i).or_default().push(k);
+                            }
+                        }
+                        let new_at = p.new_line.as_ref().map(|n| n.3);
+                        let lines: HashSet<usize> = at.keys().chain(ai_at.keys()).copied().chain(new_at).collect();
+                        let (drafts, applied, shifts, new_line, ai_notes) = (&mut p.drafts, &p.applied, &p.shifts, &mut p.new_line, &mut p.ai.notes);
+                        let mut show = |ui: &mut egui::Ui, i: usize| {
+                            for &k in at.get(&i).map_or(&[][..], |v| &v[..]) {
+                                let t = &d.threads[k];
+                                let draft = drafts.entry(t.id.clone()).or_default();
+                                thread_ui(ui, t, cache, applied, shifts, checked_out, busy, draft, accent, true, &mut act);
+                            }
+                            for &k in ai_at.get(&i).map_or(&[][..], |v| &v[..]) {
+                                ai_review::note_card(ui, cache, k, &mut ai_notes[k], true, accent, &mut ai_act);
+                            }
+                            if new_at == Some(i) {
+                                line_composer(ui, drafts.entry(DRAFT_LINE.into()).or_default(), new_line, busy, accent, &mut act);
+                            }
+                        };
+                        let notes = history::Notes { at: &lines, show: &mut show };
+                        match diff_area(ui, "pr_files", &mut p.files, &d.threads, Some(notes)) {
+                            Some(DiffClick::Line(i)) => {
+                                if let Some(diff) = &p.files.diff {
+                                    if let (Some(path), Some(l)) = (history::file_at(&diff.text, i), diff.lines.get(i)) {
+                                        let at = match l.kind {
+                                            DiffKind::Removed => l.old.map(|n| (n, "LEFT")),
+                                            DiffKind::Hunk => None,
+                                            _ => l.new.map(|n| (n, "RIGHT")),
+                                        };
+                                        if let Some((n, side)) = at {
+                                            p.new_line = Some((path, n, side, i));
+                                        }
+                                    }
+                                }
+                            }
+                            Some(DiffClick::File(i, _) | DiffClick::Hunk(i, _)) => {
+                                if let Some(diff) = &p.files.diff {
+                                    if let Some(path) = history::file_at(&diff.text, i) {
+                                        act = Some(PrAct::Open(path, history::target_line(&diff.lines, i)));
+                                    }
+                                }
+                            }
+                            None => {}
+                        }
+                        if publish {
+                            act = Some(PrAct::AiPublish);
+                        }
+                        if let Some(a) = ai_act {
+                            act = Some(PrAct::Ai(a));
+                        }
+                    }
+                }
+            });
+        }
 
         let Some(repo) = self.pr.repo.clone() else { return };
         let n = self.pr.selected.unwrap_or(0);

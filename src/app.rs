@@ -43,6 +43,7 @@ mod template_edit;
 mod split_commit;
 mod panes;
 mod lsp_client;
+mod maximize;
 mod navigation;
 mod projects;
 mod search_panel;

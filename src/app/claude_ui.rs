@@ -1281,298 +1281,306 @@ impl App {
                 });
             });
 
-        // ------------------------------------------------ the review, on the right
-        if show_review {
-            egui::SidePanel::right(review_id).resizable(true).default_width(ui.available_width() * 0.5).width_range(320.0..=1400.0).show_inside(ui, |ui| {
-                ui.add_space(4.0);
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("CE QUE CLAUDE A CHANGÉ").small().strong().color(accent));
-                    let n = c.review.as_ref().map_or(0, |d| d.files.len());
+        // ------------------------------------------------ the review, on the right (or taking all the room)
+        let view = cid("claude_view");
+        let review_max = maximize::maxed(ui.ctx(), view) == Some("review");
+        let review_ui = |ui: &mut egui::Ui| {
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("CE QUE CLAUDE A CHANGÉ").small().strong().color(accent));
+                let n = c.review.as_ref().map_or(0, |d| d.files.len());
+                if n > 0 {
+                    ui.label(RichText::new(format!("{n} fichier(s)")).small().weak());
+                }
+                if c.review_loading {
+                    ui.spinner();
+                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    maximize::button(ui, view, "review");
                     if n > 0 {
-                        ui.label(RichText::new(format!("{n} fichier(s)")).small().weak());
-                    }
-                    if c.review_loading {
-                        ui.spinner();
-                    }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if n > 0 {
-                            let label = if c.confirm_reject { "Confirmer : tout rejeter" } else { "↺ Tout rejeter" };
-                            if ui.add(egui::Button::new(RichText::new(label).color(err())).small()).on_hover_text("Remettre les fichiers comme au début de la revue (les nouveaux fichiers sont supprimés)").clicked() {
-                                if c.confirm_reject {
-                                    all = Some(false);
-                                } else {
-                                    c.confirm_reject = true;
-                                }
-                            }
-                            if ui.small_button("✔ Tout garder").on_hover_text("Tout accepter : la revue repart de là").clicked() {
-                                all = Some(true);
+                        let label = if c.confirm_reject { "Confirmer : tout rejeter" } else { "↺ Tout rejeter" };
+                        if ui.add(egui::Button::new(RichText::new(label).color(err())).small()).on_hover_text("Remettre les fichiers comme au début de la revue (les nouveaux fichiers sont supprimés)").clicked() {
+                            if c.confirm_reject {
+                                all = Some(false);
+                            } else {
+                                c.confirm_reject = true;
                             }
                         }
-                    });
+                        if ui.small_button("✔ Tout garder").on_hover_text("Tout accepter : la revue repart de là").clicked() {
+                            all = Some(true);
+                        }
+                    }
                 });
-                ui.separator();
-                match &c.review {
-                    _ if c.review_index.is_none() => {
-                        ui.label(RichText::new("Les fichiers modifiés par Claude apparaîtront ici, bloc par bloc : tu gardes ou tu rejettes chaque partie.").weak());
+            });
+            ui.separator();
+            match &c.review {
+                _ if c.review_index.is_none() => {
+                    ui.label(RichText::new("Les fichiers modifiés par Claude apparaîtront ici, bloc par bloc : tu gardes ou tu rejettes chaque partie.").weak());
+                }
+                Some(d) if d.files.is_empty() => {
+                    ui.label(RichText::new("Aucun changement à revoir.").weak());
+                }
+                Some(d) => {
+                    let hunk_buttons: &[history::DiffButton] = &[
+                        ("✔ Garder", "Accepter ce bloc (il quitte la revue, il reste dans le fichier)", DiffAct::Stage),
+                        ("↺ Rejeter", "Retirer ce bloc du fichier", DiffAct::Discard),
+                    ];
+                    let file_buttons: &[history::DiffButton] = &[
+                        ("Ouvrir", "Ouvrir le fichier", DiffAct::Open),
+                        ("✔ Garder", "Accepter tout le fichier", DiffAct::Stage),
+                        ("↺ Rejeter", "Remettre le fichier comme avant (supprimé s'il est nouveau)", DiffAct::Discard),
+                    ];
+                    let jump = c.jump.take();
+                    review_click = history::stacked_diff_view(ui, &d.lines, &d.files, &mut c.collapsed, "claude_review", hunk_buttons, file_buttons, jump, None);
+                }
+                None => {
+                    ui.spinner();
+                }
+            }
+        };
+        if review_max {
+            egui::CentralPanel::default().show_inside(ui, review_ui);
+        } else if show_review {
+            egui::SidePanel::right(review_id).resizable(true).default_width(ui.available_width() * 0.5).width_range(320.0..=1400.0).show_inside(ui, review_ui);
+        }
+
+        // ------------------------------------------------ the conversation
+        if !review_max {
+            egui::CentralPanel::default().show_inside(ui, |ui| {
+                egui::TopBottomPanel::bottom(input_id).show_inside(ui, |ui| {
+                    ui.add_space(6.0);
+                    if !c.queue.tasks.is_empty() {
+                        queue_act = claude_queue::queue_ui(ui, &mut c.queue, c.busy, accent, queue_id);
                     }
-                    Some(d) if d.files.is_empty() => {
-                        ui.label(RichText::new("Aucun changement à revoir.").weak());
+                    if !c.attach.is_empty() {
+                        let mut remove = None;
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(RichText::new("Contexte :").small().weak());
+                            for (k, a) in c.attach.iter().enumerate() {
+                                let chip = egui::Button::new(RichText::new(format!("✳ {}  ×", a.label(c.dir.as_deref()))).small().color(accent))
+                                    .fill(icons::mix(fill, accent, 0.12))
+                                    .rounding(10.0);
+                                let tip = match (&a.note, &a.lines) {
+                                    (Some((_, t)), _) | (None, Some((_, _, t))) => t.lines().take(20).collect::<Vec<_>>().join("\n"),
+                                    (None, None) => a.path.display().to_string(),
+                                };
+                                if ui.add(chip).on_hover_text(format!("{tip}\n\nClic : retirer")).clicked() {
+                                    remove = Some(k);
+                                }
+                            }
+                        });
+                        if let Some(k) = remove {
+                            c.attach.remove(k);
+                        }
                     }
-                    Some(d) => {
-                        let hunk_buttons: &[history::DiffButton] = &[
-                            ("✔ Garder", "Accepter ce bloc (il quitte la revue, il reste dans le fichier)", DiffAct::Stage),
-                            ("↺ Rejeter", "Retirer ce bloc du fichier", DiffAct::Discard),
-                        ];
-                        let file_buttons: &[history::DiffButton] = &[
-                            ("Ouvrir", "Ouvrir le fichier", DiffAct::Open),
-                            ("✔ Garder", "Accepter tout le fichier", DiffAct::Stage),
-                            ("↺ Rejeter", "Remettre le fichier comme avant (supprimé s'il est nouveau)", DiffAct::Discard),
-                        ];
-                        let jump = c.jump.take();
-                        review_click = history::stacked_diff_view(ui, &d.lines, &d.files, &mut c.collapsed, "claude_review", hunk_buttons, file_buttons, jump, None);
+                    let rows = match (c.input.lines().count() > 2, in_tab) {
+                        (true, true) => 6,
+                        (true, false) => 4,
+                        (false, true) => 3,
+                        (false, false) => 2,
+                    };
+                    let resp = ui.add(
+                        egui::TextEdit::multiline(&mut c.input)
+                            .hint_text("Demande à Claude… (Ctrl+Entrée pour envoyer)")
+                            .desired_rows(rows)
+                            .desired_width(f32::INFINITY)
+                            .layouter(&mut layout_cutting),
+                    );
+                    if std::mem::take(&mut c.focus) {
+                        resp.request_focus();
                     }
-                    None => {
-                        ui.spinner();
+                    if resp.has_focus() && ui.input(|i| i.modifiers.command && i.key_pressed(Key::Enter)) {
+                        send = true;
+                    }
+                    ui.horizontal(|ui| {
+                        if c.busy {
+                            if ui.button("■ Arrêter").on_hover_text("Arrêter la réponse en cours (la conversation continue)").clicked() {
+                                stop = true;
+                            }
+                            ui.spinner();
+                            ui.label(RichText::new("Claude travaille…").weak());
+                        } else if ui.add_enabled(!c.input.trim().is_empty(), filled_button("Envoyer", accent)).clicked() {
+                            send = true;
+                        }
+                        let tip = "Ajoute la demande à la file de tâches au lieu de l'envoyer.\nUne liste (- …, * …, 1. …) donne une tâche par élément ; la phrase avant la liste va avec chacune.\n« Lancer » les envoie une à une, chacune quand Claude a fini la précédente.";
+                        if ui.add_enabled(!c.input.trim().is_empty(), egui::Button::new("+ File")).on_hover_text(tip).clicked() {
+                            let n = c.queue.add(&c.input);
+                            c.input.clear();
+                            queued = Some(n);
+                        }
+                        let ctx_menu = ui.menu_button("+ Contexte", |ui| {
+                            ui.set_min_width(260.0);
+                            for (label, tip, what) in [
+                                ("Fichier ouvert", "Le fichier en entier (Claude le lit)", CtxAdd::File),
+                                ("Sélection (ou ligne du curseur)", "Les lignes sélectionnées dans l'éditeur, avec leur texte", CtxAdd::Selection),
+                                ("Tous les onglets ouverts", "Chaque fichier ouvert dans l'éditeur", CtxAdd::Tabs),
+                                ("Changements non commités", "Le diff de ce qui n'est pas commité (git diff HEAD, nouveaux fichiers compris)", CtxAdd::Diff),
+                                ("Problèmes du fichier", "Les erreurs et avertissements du linter dans le fichier ouvert", CtxAdd::Problems),
+                            ] {
+                                if ui.button(label).on_hover_text(tip).clicked() {
+                                    ctx_add = Some(what);
+                                    ui.close_menu();
+                                }
+                            }
+                            // the last commits of the folder of the conversation, read when the menu opens
+                            ui.menu_button("Un commit", |ui| {
+                                ui.set_min_width(420.0);
+                                if c.recent_commits.is_empty() {
+                                    ui.label(RichText::new("Aucun commit").weak());
+                                }
+                                egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
+                                    for (hash, short, subject, ago) in &c.recent_commits {
+                                        let text = format!("{short}  {subject}");
+                                        if ui.button(text).on_hover_text(format!("{ago} — son message et son diff partent avec le prochain message\n(aussi : clic droit sur un commit dans la vue Git)")).clicked() {
+                                            ctx_add = Some(CtxAdd::Commit(hash.clone()));
+                                            ui.close_menu();
+                                        }
+                                    }
+                                });
+                            });
+                            ui.separator();
+                            ui.label(RichText::new("Aussi : clic droit dans l'éditeur, ou ✳ dans la marge pour des lignes").small().weak());
+                        });
+                        if ctx_menu.response.clicked() {
+                            read_commits = true;
+                        }
+                        ctx_menu.response.on_hover_text("Donner à Claude un fichier, la sélection, le diff, un commit, les problèmes…");
+                        ui.checkbox(&mut c.with_context, "Fichier ouvert et sélection").on_hover_text("Dit à Claude quel fichier tu édites, la ligne du curseur et le texte sélectionné");
+                        ui.checkbox(&mut c.ask_first, "Questions d'abord").on_hover_text("Si la demande laisse des choix ouverts, Claude pose d'abord 1 à 3 questions avec des options à cocher, au lieu de partir dans une direction à refaire (moins de tokens)");
+                        let mut defs = !c.no_defs;
+                        if ui.checkbox(&mut defs, "Définitions citées").on_hover_text("Les classes et fonctions du projet nommées dans le message (SaleOrder, _compute_total, `foo`…) partent avec lui, leurs premières lignes comprises : Claude n'a pas à les chercher (moins de tokens)").changed() {
+                            c.no_defs = !defs;
+                        }
+                    });
+                    ui.add_space(4.0);
+                });
+                // "⬇ Dernier message" asked at the previous frame
+                let to_end_id = egui::Id::new(("claude_to_end", chat_id));
+                let to_end = ui.data_mut(|d| d.remove_temp::<bool>(to_end_id)).unwrap_or(false);
+                let mut chat = egui::ScrollArea::vertical().id_salt(chat_id).stick_to_bottom(true).auto_shrink([false, false]);
+                if to_end {
+                    chat = chat.vertical_scroll_offset(f32::MAX);
+                }
+                let out = chat.show(ui, |ui| {
+                    ui.set_max_width(ui.available_width().min(900.0));
+                    if c.items.is_empty() {
+                        ui.add_space(20.0);
+                        ui.label(RichText::new("Demande quelque chose à Claude : il lit le projet et modifie les fichiers. Tu revois ses changements à droite, bloc par bloc.").weak());
+                        ui.add_space(6.0);
+                        ui.label(RichText::new("Florm utilise la commande claude (Claude Code) et ta connexion : pas de clé à configurer.").weak().small());
+                    }
+                    // who speaks is said once, at the start of their turn
+                    let mut claude_said = true;
+                    // the questions of the last answer can be answered (not those of before)
+                    let last_user = c.items.iter().rposition(|i| matches!(i, Item::User(..)));
+                    for (k, it) in c.items.iter().enumerate() {
+                        ui.add_space(6.0);
+                        match it {
+                            Item::User(t, given) => {
+                                claude_said = false;
+                                ui.add_space(6.0);
+                                // on the left like the answers, set apart by its color and its edge
+                                egui::Frame::none()
+                                    .fill(icons::mix(fill, accent, 0.10))
+                                    .stroke(egui::Stroke::new(1.0_f32, icons::mix(fill, accent, 0.35)))
+                                    .rounding(8.0)
+                                    .inner_margin(egui::Margin::symmetric(12.0, 8.0))
+                                    .show(ui, |ui| {
+                                        ui.set_width(ui.available_width());
+                                        ui.horizontal(|ui| {
+                                            ui.label(RichText::new("Toi").small().strong().color(accent));
+                                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                super::md::copy_button(ui, t, "Copier");
+                                            });
+                                        });
+                                        ui.add(egui::Label::new(t.as_str()).wrap());
+                                        if !given.is_empty() {
+                                            ui.label(RichText::new(format!("✳ {}", given.join(", "))).small().weak());
+                                        }
+                                    });
+                            }
+                            Item::Text(t) | Item::Streaming(t) => {
+                                if !claude_said {
+                                    claude_said = true;
+                                    ui.label(RichText::new("✳ Claude").small().strong().color(accent));
+                                }
+                                let (rest, questions) = claude_ask::parse(t);
+                                if questions.is_empty() {
+                                    super::md::markdown(ui, cache, t);
+                                    continue;
+                                }
+                                super::md::markdown(ui, cache, &rest);
+                                let open = matches!(it, Item::Text(_)) && !c.busy && last_user.is_none_or(|u| k > u);
+                                let answers = if open {
+                                    if c.answers.as_ref().map(|a| a.item) != Some(k) {
+                                        c.answers = Some(claude_ask::Answers::for_item(k, questions.len()));
+                                    }
+                                    c.answers.as_mut()
+                                } else {
+                                    None
+                                };
+                                if claude_ask::questions_ui(ui, &questions, answers, accent) {
+                                    answer = c.answers.as_ref().map(|a| a.message(&questions));
+                                }
+                            }
+                            Item::Tool { name, summary, result, .. } => {
+                                let (icon, color) = match name.as_str() {
+                                    "Edit" | "MultiEdit" | "Write" | "NotebookEdit" => ("✏", warn()),
+                                    "Bash" => ("$", accent),
+                                    _ => ("·", ui.visuals().weak_text_color()),
+                                };
+                                let error = result.as_ref().is_some_and(|(_, e)| *e);
+                                let head = RichText::new(format!("{icon} {name}  {summary}")).monospace().size(12.0).color(if error { err() } else { color });
+                                // a command: copied to run it again in a terminal
+                                let command = (name == "Bash" && !summary.is_empty()).then_some(summary.as_str());
+                                match result.as_ref().filter(|(t, _)| !t.trim().is_empty() && (name == "Bash" || error)) {
+                                    Some((t, _)) => {
+                                        ui.horizontal(|ui| {
+                                            egui::CollapsingHeader::new(head).id_salt(ui.next_auto_id()).show(ui, |ui| {
+                                                let t: String = t.lines().take(80).collect::<Vec<_>>().join("\n");
+                                                ui.label(RichText::new(t).monospace().size(11.5).weak());
+                                            });
+                                            if let Some(cmd) = command {
+                                                super::md::copy_button(ui, cmd, "Copier");
+                                            }
+                                        });
+                                    }
+                                    None => {
+                                        ui.horizontal(|ui| {
+                                            ui.label(head);
+                                            if result.is_none() {
+                                                ui.spinner();
+                                            }
+                                            if let Some(cmd) = command {
+                                                super::md::copy_button(ui, cmd, "Copier");
+                                            }
+                                        });
+                                    }
+                                }
+                            }
+                            Item::Info(t) => {
+                                ui.label(RichText::new(t).weak().italics());
+                            }
+                            Item::Error(t) => {
+                                ui.label(RichText::new(format!("⚠ {t}")).color(err()));
+                            }
+                        }
+                    }
+                    ui.add_space(10.0);
+                });
+                // scrolled up: a button to go back down to the last message
+                let below = out.content_size.y - out.state.offset.y - out.inner_rect.height();
+                if below > 40.0 {
+                    let r = out.inner_rect;
+                    let at = egui::Rect::from_min_size(egui::pos2(r.right() - 170.0, r.bottom() - 36.0), egui::vec2(150.0, 26.0));
+                    let b = egui::Button::new(RichText::new("⬇ Dernier message").strong()).fill(ui.visuals().widgets.inactive.weak_bg_fill).rounding(13.0);
+                    if ui.put(at, b).on_hover_text("Descendre à la fin de la conversation").clicked() {
+                        ui.data_mut(|d| d.insert_temp(to_end_id, true));
+                        ui.ctx().request_repaint();
                     }
                 }
             });
         }
-
-        // ------------------------------------------------ the conversation
-        egui::CentralPanel::default().show_inside(ui, |ui| {
-            egui::TopBottomPanel::bottom(input_id).show_inside(ui, |ui| {
-                ui.add_space(6.0);
-                if !c.queue.tasks.is_empty() {
-                    queue_act = claude_queue::queue_ui(ui, &mut c.queue, c.busy, accent, queue_id);
-                }
-                if !c.attach.is_empty() {
-                    let mut remove = None;
-                    ui.horizontal_wrapped(|ui| {
-                        ui.label(RichText::new("Contexte :").small().weak());
-                        for (k, a) in c.attach.iter().enumerate() {
-                            let chip = egui::Button::new(RichText::new(format!("✳ {}  ×", a.label(c.dir.as_deref()))).small().color(accent))
-                                .fill(icons::mix(fill, accent, 0.12))
-                                .rounding(10.0);
-                            let tip = match (&a.note, &a.lines) {
-                                (Some((_, t)), _) | (None, Some((_, _, t))) => t.lines().take(20).collect::<Vec<_>>().join("\n"),
-                                (None, None) => a.path.display().to_string(),
-                            };
-                            if ui.add(chip).on_hover_text(format!("{tip}\n\nClic : retirer")).clicked() {
-                                remove = Some(k);
-                            }
-                        }
-                    });
-                    if let Some(k) = remove {
-                        c.attach.remove(k);
-                    }
-                }
-                let rows = match (c.input.lines().count() > 2, in_tab) {
-                    (true, true) => 6,
-                    (true, false) => 4,
-                    (false, true) => 3,
-                    (false, false) => 2,
-                };
-                let resp = ui.add(
-                    egui::TextEdit::multiline(&mut c.input)
-                        .hint_text("Demande à Claude… (Ctrl+Entrée pour envoyer)")
-                        .desired_rows(rows)
-                        .desired_width(f32::INFINITY)
-                        .layouter(&mut layout_cutting),
-                );
-                if std::mem::take(&mut c.focus) {
-                    resp.request_focus();
-                }
-                if resp.has_focus() && ui.input(|i| i.modifiers.command && i.key_pressed(Key::Enter)) {
-                    send = true;
-                }
-                ui.horizontal(|ui| {
-                    if c.busy {
-                        if ui.button("■ Arrêter").on_hover_text("Arrêter la réponse en cours (la conversation continue)").clicked() {
-                            stop = true;
-                        }
-                        ui.spinner();
-                        ui.label(RichText::new("Claude travaille…").weak());
-                    } else if ui.add_enabled(!c.input.trim().is_empty(), filled_button("Envoyer", accent)).clicked() {
-                        send = true;
-                    }
-                    let tip = "Ajoute la demande à la file de tâches au lieu de l'envoyer.\nUne liste (- …, * …, 1. …) donne une tâche par élément ; la phrase avant la liste va avec chacune.\n« Lancer » les envoie une à une, chacune quand Claude a fini la précédente.";
-                    if ui.add_enabled(!c.input.trim().is_empty(), egui::Button::new("+ File")).on_hover_text(tip).clicked() {
-                        let n = c.queue.add(&c.input);
-                        c.input.clear();
-                        queued = Some(n);
-                    }
-                    let ctx_menu = ui.menu_button("+ Contexte", |ui| {
-                        ui.set_min_width(260.0);
-                        for (label, tip, what) in [
-                            ("Fichier ouvert", "Le fichier en entier (Claude le lit)", CtxAdd::File),
-                            ("Sélection (ou ligne du curseur)", "Les lignes sélectionnées dans l'éditeur, avec leur texte", CtxAdd::Selection),
-                            ("Tous les onglets ouverts", "Chaque fichier ouvert dans l'éditeur", CtxAdd::Tabs),
-                            ("Changements non commités", "Le diff de ce qui n'est pas commité (git diff HEAD, nouveaux fichiers compris)", CtxAdd::Diff),
-                            ("Problèmes du fichier", "Les erreurs et avertissements du linter dans le fichier ouvert", CtxAdd::Problems),
-                        ] {
-                            if ui.button(label).on_hover_text(tip).clicked() {
-                                ctx_add = Some(what);
-                                ui.close_menu();
-                            }
-                        }
-                        // the last commits of the folder of the conversation, read when the menu opens
-                        ui.menu_button("Un commit", |ui| {
-                            ui.set_min_width(420.0);
-                            if c.recent_commits.is_empty() {
-                                ui.label(RichText::new("Aucun commit").weak());
-                            }
-                            egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
-                                for (hash, short, subject, ago) in &c.recent_commits {
-                                    let text = format!("{short}  {subject}");
-                                    if ui.button(text).on_hover_text(format!("{ago} — son message et son diff partent avec le prochain message\n(aussi : clic droit sur un commit dans la vue Git)")).clicked() {
-                                        ctx_add = Some(CtxAdd::Commit(hash.clone()));
-                                        ui.close_menu();
-                                    }
-                                }
-                            });
-                        });
-                        ui.separator();
-                        ui.label(RichText::new("Aussi : clic droit dans l'éditeur, ou ✳ dans la marge pour des lignes").small().weak());
-                    });
-                    if ctx_menu.response.clicked() {
-                        read_commits = true;
-                    }
-                    ctx_menu.response.on_hover_text("Donner à Claude un fichier, la sélection, le diff, un commit, les problèmes…");
-                    ui.checkbox(&mut c.with_context, "Fichier ouvert et sélection").on_hover_text("Dit à Claude quel fichier tu édites, la ligne du curseur et le texte sélectionné");
-                    ui.checkbox(&mut c.ask_first, "Questions d'abord").on_hover_text("Si la demande laisse des choix ouverts, Claude pose d'abord 1 à 3 questions avec des options à cocher, au lieu de partir dans une direction à refaire (moins de tokens)");
-                    let mut defs = !c.no_defs;
-                    if ui.checkbox(&mut defs, "Définitions citées").on_hover_text("Les classes et fonctions du projet nommées dans le message (SaleOrder, _compute_total, `foo`…) partent avec lui, leurs premières lignes comprises : Claude n'a pas à les chercher (moins de tokens)").changed() {
-                        c.no_defs = !defs;
-                    }
-                });
-                ui.add_space(4.0);
-            });
-            // "⬇ Dernier message" asked at the previous frame
-            let to_end_id = egui::Id::new(("claude_to_end", chat_id));
-            let to_end = ui.data_mut(|d| d.remove_temp::<bool>(to_end_id)).unwrap_or(false);
-            let mut chat = egui::ScrollArea::vertical().id_salt(chat_id).stick_to_bottom(true).auto_shrink([false, false]);
-            if to_end {
-                chat = chat.vertical_scroll_offset(f32::MAX);
-            }
-            let out = chat.show(ui, |ui| {
-                ui.set_max_width(ui.available_width().min(900.0));
-                if c.items.is_empty() {
-                    ui.add_space(20.0);
-                    ui.label(RichText::new("Demande quelque chose à Claude : il lit le projet et modifie les fichiers. Tu revois ses changements à droite, bloc par bloc.").weak());
-                    ui.add_space(6.0);
-                    ui.label(RichText::new("Florm utilise la commande claude (Claude Code) et ta connexion : pas de clé à configurer.").weak().small());
-                }
-                // who speaks is said once, at the start of their turn
-                let mut claude_said = true;
-                // the questions of the last answer can be answered (not those of before)
-                let last_user = c.items.iter().rposition(|i| matches!(i, Item::User(..)));
-                for (k, it) in c.items.iter().enumerate() {
-                    ui.add_space(6.0);
-                    match it {
-                        Item::User(t, given) => {
-                            claude_said = false;
-                            ui.add_space(6.0);
-                            // on the left like the answers, set apart by its color and its edge
-                            egui::Frame::none()
-                                .fill(icons::mix(fill, accent, 0.10))
-                                .stroke(egui::Stroke::new(1.0_f32, icons::mix(fill, accent, 0.35)))
-                                .rounding(8.0)
-                                .inner_margin(egui::Margin::symmetric(12.0, 8.0))
-                                .show(ui, |ui| {
-                                    ui.set_width(ui.available_width());
-                                    ui.horizontal(|ui| {
-                                        ui.label(RichText::new("Toi").small().strong().color(accent));
-                                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                            super::md::copy_button(ui, t, "Copier");
-                                        });
-                                    });
-                                    ui.add(egui::Label::new(t.as_str()).wrap());
-                                    if !given.is_empty() {
-                                        ui.label(RichText::new(format!("✳ {}", given.join(", "))).small().weak());
-                                    }
-                                });
-                        }
-                        Item::Text(t) | Item::Streaming(t) => {
-                            if !claude_said {
-                                claude_said = true;
-                                ui.label(RichText::new("✳ Claude").small().strong().color(accent));
-                            }
-                            let (rest, questions) = claude_ask::parse(t);
-                            if questions.is_empty() {
-                                super::md::markdown(ui, cache, t);
-                                continue;
-                            }
-                            super::md::markdown(ui, cache, &rest);
-                            let open = matches!(it, Item::Text(_)) && !c.busy && last_user.is_none_or(|u| k > u);
-                            let answers = if open {
-                                if c.answers.as_ref().map(|a| a.item) != Some(k) {
-                                    c.answers = Some(claude_ask::Answers::for_item(k, questions.len()));
-                                }
-                                c.answers.as_mut()
-                            } else {
-                                None
-                            };
-                            if claude_ask::questions_ui(ui, &questions, answers, accent) {
-                                answer = c.answers.as_ref().map(|a| a.message(&questions));
-                            }
-                        }
-                        Item::Tool { name, summary, result, .. } => {
-                            let (icon, color) = match name.as_str() {
-                                "Edit" | "MultiEdit" | "Write" | "NotebookEdit" => ("✏", warn()),
-                                "Bash" => ("$", accent),
-                                _ => ("·", ui.visuals().weak_text_color()),
-                            };
-                            let error = result.as_ref().is_some_and(|(_, e)| *e);
-                            let head = RichText::new(format!("{icon} {name}  {summary}")).monospace().size(12.0).color(if error { err() } else { color });
-                            // a command: copied to run it again in a terminal
-                            let command = (name == "Bash" && !summary.is_empty()).then_some(summary.as_str());
-                            match result.as_ref().filter(|(t, _)| !t.trim().is_empty() && (name == "Bash" || error)) {
-                                Some((t, _)) => {
-                                    ui.horizontal(|ui| {
-                                        egui::CollapsingHeader::new(head).id_salt(ui.next_auto_id()).show(ui, |ui| {
-                                            let t: String = t.lines().take(80).collect::<Vec<_>>().join("\n");
-                                            ui.label(RichText::new(t).monospace().size(11.5).weak());
-                                        });
-                                        if let Some(cmd) = command {
-                                            super::md::copy_button(ui, cmd, "Copier");
-                                        }
-                                    });
-                                }
-                                None => {
-                                    ui.horizontal(|ui| {
-                                        ui.label(head);
-                                        if result.is_none() {
-                                            ui.spinner();
-                                        }
-                                        if let Some(cmd) = command {
-                                            super::md::copy_button(ui, cmd, "Copier");
-                                        }
-                                    });
-                                }
-                            }
-                        }
-                        Item::Info(t) => {
-                            ui.label(RichText::new(t).weak().italics());
-                        }
-                        Item::Error(t) => {
-                            ui.label(RichText::new(format!("⚠ {t}")).color(err()));
-                        }
-                    }
-                }
-                ui.add_space(10.0);
-            });
-            // scrolled up: a button to go back down to the last message
-            let below = out.content_size.y - out.state.offset.y - out.inner_rect.height();
-            if below > 40.0 {
-                let r = out.inner_rect;
-                let at = egui::Rect::from_min_size(egui::pos2(r.right() - 170.0, r.bottom() - 36.0), egui::vec2(150.0, 26.0));
-                let b = egui::Button::new(RichText::new("⬇ Dernier message").strong()).fill(ui.visuals().widgets.inactive.weak_bg_fill).rounding(13.0);
-                if ui.put(at, b).on_hover_text("Descendre à la fin de la conversation").clicked() {
-                    ui.data_mut(|d| d.insert_temp(to_end_id, true));
-                    ui.ctx().request_repaint();
-                }
-            }
-        });
 
         if let Some(t) = move_to {
             self.move_claude(t);
