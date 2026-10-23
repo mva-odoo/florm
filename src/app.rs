@@ -175,9 +175,10 @@ impl BottomTab {
         (BottomTab::Docker, icons::ViewIcon::Docker, "Docker"),
     ];
 
-    /// The views offered: Docker only when the docker command is installed.
+    /// The views offered. Docker is always there: without the docker command, its view explains
+    /// how to install it.
     fn shown() -> impl Iterator<Item = (BottomTab, icons::ViewIcon, &'static str)> {
-        Self::ALL.into_iter().filter(|(t, _, _)| *t != BottomTab::Docker || crate::docker::available()).map(|(t, i, l)| {
+        Self::ALL.into_iter().map(|(t, i, l)| {
             let l = match l {
                 "Recherche" => t!(l, "Search"),
                 "Problèmes" => t!(l, "Problems"),
