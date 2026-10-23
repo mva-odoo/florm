@@ -1533,20 +1533,35 @@ impl App {
                                 let head = RichText::new(format!("{icon} {name}  {summary}")).monospace().size(12.0).color(if error { err() } else { color });
                                 // a command: copied to run it again in a terminal
                                 let command = (name == "Bash" && !summary.is_empty()).then_some(summary.as_str());
+                                // lines that wrap: one too wide (a long command, its output) would widen the
+                                // conversation, and every answer after it would go past the right edge
                                 match result.as_ref().filter(|(t, _)| !t.trim().is_empty() && (name == "Bash" || error)) {
                                     Some((t, _)) => {
-                                        ui.horizontal(|ui| {
-                                            egui::CollapsingHeader::new(head).id_salt(ui.next_auto_id()).show(ui, |ui| {
+                                        let id = ui.next_auto_id();
+                                        let (_, header, _) = egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false)
+                                            .show_header(ui, |ui| {
+                                                ui.horizontal_wrapped(|ui| {
+                                                    let clicked = ui.add(egui::Label::new(head).sense(egui::Sense::click())).clicked();
+                                                    if let Some(cmd) = command {
+                                                        super::md::copy_button(ui, cmd, "Copier");
+                                                    }
+                                                    clicked
+                                                })
+                                                .inner
+                                            })
+                                            .body(|ui| {
                                                 let t: String = t.lines().take(80).collect::<Vec<_>>().join("\n");
-                                                ui.label(RichText::new(t).monospace().size(11.5).weak());
+                                                ui.add(egui::Label::new(RichText::new(t).monospace().size(11.5).weak()).wrap());
                                             });
-                                            if let Some(cmd) = command {
-                                                super::md::copy_button(ui, cmd, "Copier");
+                                        if header.inner {
+                                            if let Some(mut s) = egui::collapsing_header::CollapsingState::load(ui.ctx(), id) {
+                                                s.toggle(ui);
+                                                s.store(ui.ctx());
                                             }
-                                        });
+                                        }
                                     }
                                     None => {
-                                        ui.horizontal(|ui| {
+                                        ui.horizontal_wrapped(|ui| {
                                             ui.label(head);
                                             if result.is_none() {
                                                 ui.spinner();
