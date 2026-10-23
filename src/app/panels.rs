@@ -26,12 +26,13 @@ impl App {
                 logo::paint(ui.painter(), r, false);
                 ui.add_space(2.0);
                 self.menus(ui, &mut pending);
-                // project name, right-aligned, after the menus
-                if let Some(p) = &project {
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                // the update at the right end, then the project name, right-aligned, after the menus
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    self.update_symbol(ui, ctx);
+                    if let Some(p) = &project {
                         ui.label(RichText::new(p).weak());
-                    });
-                }
+                    }
+                });
             });
         });
         self.pending.extend(pending);
@@ -357,6 +358,47 @@ impl App {
         }
     }
 
+    /// The update, as a green symbol at the top right of the window (in the menu bar): its menu
+    /// installs or downloads it. Once installed, Florm restarts by itself (see `update`).
+    pub(super) fn update_symbol(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        let green = crate::highlight::green();
+        if let (Some(u), true) = (&self.update, self.update_installing) {
+            ui.label(RichText::new(tf!("Mise à jour vers Florm {}…", "Updating to Florm {}…", u.version)).weak());
+            spinner(ui);
+        } else if let (Some(u), true) = (&self.update, self.update_ready.is_some()) {
+            let text = RichText::new("⟳").strong().color(green);
+            if ui.add(egui::Button::new(text).frame(false)).on_hover_text(tf!("Florm {} est installé : « Redémarrer » (fichiers non enregistrés : la question habituelle)", "Florm {} is installed: “Restart” (unsaved files: the usual question)", u.version)).clicked() {
+                self.restart_for_update(ctx);
+            }
+        } else if let Some(u) = self.update.clone() {
+            let text = RichText::new("⬆").strong().color(green);
+            ui.menu_button(text, |ui| {
+                ui.visuals_mut().override_text_color = None;
+                ui.label(tf!("Nouvelle version (vous avez la {})", "New version (you have {})", crate::update::current()));
+                if ui.button(t!("Installer et redémarrer", "Install and restart")).on_hover_text(t!("Florm télécharge la nouvelle version, la vérifie et remplace celle-ci ; les préférences sont gardées. Sous Linux, un paquet système demande le mot de passe.", "Florm downloads the new version, checks it and replaces this one; the preferences are kept. On Linux, a system package asks for the password.")).clicked() {
+                    self.install_update();
+                    ui.close_menu();
+                }
+                if let Some((name, url)) = &u.file {
+                    if ui.button(tf!("Télécharger {name}", "Download {name}")).on_hover_text(t!("Dans le navigateur ; installez-le comme la première fois : il remplace l'ancienne version, les préférences sont gardées.", "In the browser; install it like the first time: it replaces the old version, the preferences are kept.")).clicked() {
+                        ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+                        ui.close_menu();
+                    }
+                }
+                if ui.button(t!("Notes de version et tous les fichiers", "Release notes and all the files")).clicked() {
+                    ui.ctx().open_url(egui::OpenUrl::new_tab(&u.page));
+                    ui.close_menu();
+                }
+                if ui.button(t!("Masquer", "Hide")).on_hover_text(t!("Jusqu'au prochain démarrage", "Until the next start")).clicked() {
+                    self.update = None;
+                    ui.close_menu();
+                }
+            })
+            .response
+            .on_hover_text(tf!("Florm {} est disponible", "Florm {} is available", u.version));
+        }
+    }
+
     pub(super) fn status_bar(&mut self, ctx: &egui::Context) {
         let (mut toggle_spaces, mut convert_utf8) = (false, false);
         let panel = ctx.style().visuals.panel_fill;
@@ -432,41 +474,6 @@ impl App {
                     let version = egui::Button::new(RichText::new(format!("v{}", crate::update::current())).small()).frame(false);
                     if ui.add(version).on_hover_text(t!("Version de Florm · clic : rechercher une mise à jour", "Florm version · click: check for an update")).clicked() {
                         self.pending.push(Cmd::CheckUpdate);
-                    }
-                    if let (Some(u), true) = (&self.update, self.update_ready.is_some()) {
-                        let text = RichText::new(tf!("⟳ Redémarrer (Florm {})", "⟳ Restart (Florm {})", u.version)).color(ui.visuals().hyperlink_color);
-                        if ui.add(egui::Button::new(text).frame(false)).on_hover_text(t!("La nouvelle version est installée : Florm se relance (fichiers non enregistrés : la question habituelle)", "The new version is installed: Florm restarts (unsaved files: the usual question)")).clicked() {
-                            self.restart_for_update(ctx);
-                        }
-                    } else if let (Some(u), true) = (&self.update, self.update_installing) {
-                        ui.label(RichText::new(tf!("Mise à jour vers Florm {}…", "Updating to Florm {}…", u.version)).weak());
-                        spinner(ui);
-                    } else if let Some(u) = self.update.clone() {
-                        let text = RichText::new(format!("⬆ Florm {}", u.version)).color(ui.visuals().hyperlink_color);
-                        ui.menu_button(text, |ui| {
-                            ui.visuals_mut().override_text_color = None;
-                            ui.label(tf!("Nouvelle version (vous avez la {})", "New version (you have {})", crate::update::current()));
-                            if ui.button(t!("Installer et redémarrer", "Install and restart")).on_hover_text(t!("Florm télécharge la nouvelle version, la vérifie et remplace celle-ci ; les préférences sont gardées. Sous Linux, un paquet système demande le mot de passe.", "Florm downloads the new version, checks it and replaces this one; the preferences are kept. On Linux, a system package asks for the password.")).clicked() {
-                                self.install_update();
-                                ui.close_menu();
-                            }
-                            if let Some((name, url)) = &u.file {
-                                if ui.button(tf!("Télécharger {name}", "Download {name}")).on_hover_text(t!("Dans le navigateur ; installez-le comme la première fois : il remplace l'ancienne version, les préférences sont gardées.", "In the browser; install it like the first time: it replaces the old version, the preferences are kept.")).clicked() {
-                                    ui.ctx().open_url(egui::OpenUrl::new_tab(url));
-                                    ui.close_menu();
-                                }
-                            }
-                            if ui.button(t!("Notes de version et tous les fichiers", "Release notes and all the files")).clicked() {
-                                ui.ctx().open_url(egui::OpenUrl::new_tab(&u.page));
-                                ui.close_menu();
-                            }
-                            if ui.button(t!("Masquer", "Hide")).on_hover_text(t!("Jusqu'au prochain démarrage", "Until the next start")).clicked() {
-                                self.update = None;
-                                ui.close_menu();
-                            }
-                        })
-                        .response
-                        .on_hover_text(t!("Une nouvelle version de Florm est disponible", "A new version of Florm is available"));
                     }
                     // the rest of the file's details, the terminal and the language server in a menu
                     let mut pending = Vec::new();

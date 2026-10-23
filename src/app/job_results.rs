@@ -429,7 +429,7 @@ impl App {
                     Ok(Some(u)) => {
                         self.log(tf!("Florm {} est disponible : {}", "Florm {} is available: {}", u.version, u.page));
                         if manual {
-                            self.set_status(tf!("Florm {} est disponible (en bas à droite)", "Florm {} is available (bottom right)", u.version));
+                            self.set_status(tf!("Florm {} est disponible (symbole vert en haut)", "Florm {} is available (green symbol at the top)", u.version));
                         }
                         self.update = Some(u);
                     }
@@ -451,12 +451,17 @@ impl App {
                     match result {
                         Ok(exe) => {
                             self.log(tf!("Florm {version} est installé : redémarrez pour l'utiliser", "Florm {version} is installed: restart to use it"));
-                            self.set_status(tf!("Florm {version} est installé : « Redémarrer » en bas à droite", "Florm {version} is installed: “Restart” at the bottom right"));
+                            // nothing unsaved: `update` restarts Florm right away
+                            if self.docs.iter().any(|d| d.is_dirty()) {
+                                self.set_status(tf!("Florm {version} est installé : « Redémarrer » en haut (symbole vert)", "Florm {version} is installed: “Restart” at the top (green symbol)"));
+                            } else {
+                                self.set_status(tf!("Florm {version} est installé : Florm redémarre", "Florm {version} is installed: Florm restarts"));
+                            }
                             self.update_ready = Some(exe);
                         }
                         Err(e) => {
                             self.log(tf!("Mise à jour vers Florm {version} impossible : {e}", "Cannot update to Florm {version}: {e}"));
-                            self.set_error(t!("Mise à jour impossible (voir Sortie) : le fichier reste téléchargeable en bas à droite", "Update impossible (see Output): the file can still be downloaded at the bottom right"));
+                            self.set_error(t!("Mise à jour impossible (voir Sortie) : le fichier reste téléchargeable en haut (symbole vert)", "Update impossible (see Output): the file can still be downloaded at the top (green symbol)"));
                         }
                     }
                 }

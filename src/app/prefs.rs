@@ -652,7 +652,7 @@ impl App {
                         }
                     });
                 });
-                pref_row(ui, rc, t!("Chercher les mises à jour", "Check for updates"), &tf!("Au démarrage, Florm regarde s'il existe une version plus récente que la {} sur GitHub et la propose en bas à droite.", "At startup, Florm checks GitHub for a version newer than {} and offers it at the bottom right.", crate::update::current()), |ui| {
+                pref_row(ui, rc, t!("Chercher les mises à jour", "Check for updates"), &tf!("Au démarrage, Florm regarde s'il existe une version plus récente que la {} sur GitHub et la propose avec un symbole vert en haut.", "At startup, Florm checks GitHub for a version newer than {} and offers it with a green symbol at the top.", crate::update::current()), |ui| {
                     toggle_switch(ui, &mut s.check_updates);
                 });
                 pref_row(ui, rc, t!("Fichier de préférences", "Preferences file"), &config::settings_path().display().to_string(), |ui| {

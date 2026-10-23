@@ -72,12 +72,15 @@ impl App {
                     if self.settings.show_menu_bar {
                         egui::menu::bar(ui, |ui| self.menus(ui, &mut pending));
                     }
-                    if controls == Controls::Side {
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if controls == Controls::Side {
                             ui.spacing_mut().item_spacing.x = 0.0;
                             window_buttons(ui, maximized);
-                        });
-                    }
+                            ui.add_space(8.0);
+                        }
+                        // the update, just before the window buttons
+                        self.update_symbol(ui, ctx);
+                    });
                 });
             });
         self.pending.extend(pending);

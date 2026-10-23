@@ -1270,6 +1270,10 @@ impl eframe::App for App {
             apply_visuals(ctx, self.hl.visuals());
         }
         self.process_jobs();
+        // the update is installed and nothing is unsaved: Florm restarts by itself, without asking
+        if self.update_ready.is_some() && self.restart.is_none() && !self.docs.iter().any(|d| d.is_dirty()) {
+            self.restart_for_update(ctx);
+        }
         self.sync_decorations(ctx);
         let dropped: Vec<PathBuf> = ctx.input(|i| i.raw.dropped_files.iter().filter_map(|f| f.path.clone()).collect());
         for p in dropped {
