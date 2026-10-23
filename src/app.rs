@@ -329,6 +329,21 @@ fn complete_path(input: &str, base: &Path, dirs_only: bool) -> (String, Vec<(Str
     (completed, found)
 }
 
+/// Message of the status bar.
+#[derive(Clone)]
+struct StatusMsg {
+    text: String,
+    at: Instant,
+    error: bool,
+}
+
+impl StatusMsg {
+    /// Still shown in the status bar: an error stays longer.
+    fn shown(&self) -> bool {
+        self.at.elapsed() < Duration::from_secs(if self.error { 15 } else { 6 })
+    }
+}
+
 enum Confirm {
     CloseTab(u64),
     Quit,
@@ -724,7 +739,9 @@ pub struct App {
     chord: bool,
     confirm: Option<Confirm>,
     output: Vec<String>,
-    status: Option<(String, Instant)>,
+    status: Option<StatusMsg>,
+    /// The last messages of the status bar, newest last: a message gone too fast can be read again.
+    status_log: std::collections::VecDeque<StatusMsg>,
     /// Newer release of Florm, shown in the status bar until dismissed.
     update: Option<crate::update::Update>,
     /// The update is being downloaded and installed.
@@ -945,6 +962,7 @@ impl App {
             confirm: None,
             output: Vec::new(),
             status: None,
+            status_log: Default::default(),
             update: None,
             update_installing: false,
             update_ready: None,
@@ -1047,7 +1065,21 @@ impl App {
     }
 
     fn set_status(&mut self, s: impl Into<String>) {
-        self.status = Some((s.into(), Instant::now()));
+        self.push_status(s.into(), false);
+    }
+
+    /// A failure: shown in red, and longer than the other messages.
+    fn set_error(&mut self, s: impl Into<String>) {
+        self.push_status(s.into(), true);
+    }
+
+    fn push_status(&mut self, text: String, error: bool) {
+        let m = StatusMsg { text, at: Instant::now(), error };
+        if self.status_log.len() >= 50 {
+            self.status_log.pop_front();
+        }
+        self.status_log.push_back(m.clone());
+        self.status = Some(m);
     }
 
     /// Looks for a newer release in the background; `manual` also reports "up to date" and errors.
@@ -1132,7 +1164,7 @@ impl App {
                 true
             }
             Err(e) => {
-                self.set_status(e);
+                self.set_error(tf!("Ouverture impossible : {e}", "Cannot open: {e}"));
                 false
             }
         }
@@ -1264,7 +1296,7 @@ impl eframe::App for App {
             if p.is_file() {
                 self.open_at(p, line.saturating_sub(1));
             } else {
-                self.set_status(tf!("Fichier introuvable ici : {}", "File not found here: {}", p.display()));
+                self.set_error(tf!("Fichier introuvable ici : {}", "File not found here: {}", p.display()));
             }
         }
         self.claude_poll_all();

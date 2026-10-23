@@ -44,7 +44,7 @@ impl App {
                     let Some(req) = self.lsp.requests.remove(&(ci, id)) else { continue };
                     match result {
                         Ok(v) => self.lsp_response(ci, req, v, ctx),
-                        Err(e) => self.set_status(tf!("Serveur de langage : {e}", "Language server: {e}")),
+                        Err(e) => self.set_error(tf!("Serveur de langage : {e}", "Language server: {e}")),
                     }
                 }
                 lsp::Incoming::ApplyEdit(edit) => {

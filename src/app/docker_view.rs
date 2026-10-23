@@ -162,10 +162,10 @@ impl App {
                         self.docker.session = Some(id);
                         self.docker.interactive = f.interactive;
                     }
-                    Err(e) => self.set_status(tf!("Logs de {name} : {e}", "Logs of {name}: {e}")),
+                    Err(e) => self.set_error(tf!("Logs de {name} : {e}", "Logs of {name}: {e}")),
                 }
             }
-            Err(e) => self.set_status(e),
+            Err(e) => self.set_error(tf!("Docker : {e}", "Docker: {e}")),
         }
     }
 
@@ -174,7 +174,7 @@ impl App {
         match result {
             Ok(()) => self.set_status(tf!("{label} : fait", "{label}: done")),
             Err(e) => {
-                self.set_status(tf!("{label} : échec (voir Sortie)", "{label}: failed (see Output)"));
+                self.set_error(tf!("{label} : échec (voir Sortie)", "{label}: failed (see Output)"));
                 self.log(e);
             }
         }
@@ -496,7 +496,7 @@ impl App {
                 let title = tf!("{} (conteneur)", "{} (container)", self.docker_label(&name));
                 match self.term.open_tab(&ctx, Some(&format!("docker exec -it {name} bash")), None) {
                     Ok((id, _)) => self.open_view_tab(document::View::Terminal(id), title),
-                    Err(e) => self.set_status(e),
+                    Err(e) => self.set_error(tf!("Terminal impossible à ouvrir : {e}", "Cannot open a terminal: {e}")),
                 }
             }
             Some(DockAct::Up(c)) => {
@@ -508,7 +508,7 @@ impl App {
                         self.term.set_name(id, title.clone());
                         self.open_view_tab(document::View::Terminal(id), title);
                     }
-                    Err(e) => self.set_status(e),
+                    Err(e) => self.set_error(tf!("Terminal impossible à ouvrir : {e}", "Cannot open a terminal: {e}")),
                 }
                 // its containers appear in the list as they are created
                 self.docker.loaded_at = None;

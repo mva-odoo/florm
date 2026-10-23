@@ -7,7 +7,7 @@ impl App {
         let (s, err) = config::load();
         if let Some(e) = err {
             self.log(e.clone());
-            self.set_status(e);
+            self.set_error(tf!("Préférences : {e}", "Preferences: {e}"));
             return;
         }
         if s.theme != self.hl.theme_name {

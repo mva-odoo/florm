@@ -46,7 +46,7 @@ impl App {
                         }
                         Err(e) => {
                             self.log(e);
-                            self.set_status(t!("Installation échouée (voir Sortie)", "Installation failed (see Output)"));
+                            self.set_error(t!("Installation échouée (voir Sortie)", "Installation failed (see Output)"));
                             self.bottom = Some(BottomTab::Output);
                         }
                     }
@@ -298,7 +298,7 @@ impl App {
                                 self.history.notice = Some((tf!("git {label} a échoué : {first}", "git {label} failed: {first}"), err()));
                             }
                             self.git.op_error = Some((label.clone(), e));
-                            self.set_status(tf!("git {label} : échec (détail dans le panneau Git)", "git {label}: failed (details in the Git panel)"));
+                            self.set_error(tf!("git {label} : échec (détail dans le panneau Git)", "git {label}: failed (details in the Git panel)"));
                         }
                     }
                     // the rebase stopped on the commit to split: open the assistant on it
@@ -398,7 +398,7 @@ impl App {
                 JobResult::Picked(kind, path) => {
                     self.dialog_open = false;
                     if let Err(e) = &path {
-                        self.set_status(e.clone());
+                        self.set_error(tf!("Sélecteur de fichiers : {e}", "File chooser: {e}"));
                     }
                     if let Ok(Some(p)) = path {
                         let prompt = match kind {
@@ -437,7 +437,7 @@ impl App {
                     Ok(None) => {}
                     Err(e) => {
                         if manual {
-                            self.set_status(t!("Recherche de mise à jour impossible (voir Sortie)", "Cannot check for updates (see Output)"));
+                            self.set_error(t!("Recherche de mise à jour impossible (voir Sortie)", "Cannot check for updates (see Output)"));
                         }
                         self.log(e);
                     }
@@ -456,7 +456,7 @@ impl App {
                         }
                         Err(e) => {
                             self.log(tf!("Mise à jour vers Florm {version} impossible : {e}", "Cannot update to Florm {version}: {e}"));
-                            self.set_status(t!("Mise à jour impossible (voir Sortie) : le fichier reste téléchargeable en bas à droite", "Update impossible (see Output): the file can still be downloaded at the bottom right"));
+                            self.set_error(t!("Mise à jour impossible (voir Sortie) : le fichier reste téléchargeable en bas à droite", "Update impossible (see Output): the file can still be downloaded at the bottom right"));
                         }
                     }
                 }
@@ -503,7 +503,7 @@ impl App {
             Err(e) => {
                 self.log(format!("[{title}] {e}"));
                 self.bottom = Some(BottomTab::Output);
-                self.set_status(tf!("Plugin « {title} » : erreur", "Plugin “{title}”: error"));
+                self.set_error(tf!("Plugin « {title} » : erreur", "Plugin “{title}”: error"));
                 return;
             }
         };

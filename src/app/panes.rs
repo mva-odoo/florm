@@ -191,7 +191,7 @@ impl App {
         let ctx = self.egui_ctx.clone();
         match self.term.open_tab(&ctx, shell.as_deref(), None) {
             Ok((id, title)) => self.open_view_tab(document::View::Terminal(id), title),
-            Err(e) => self.set_status(e),
+            Err(e) => self.set_error(tf!("Terminal impossible à ouvrir : {e}", "Cannot open a terminal: {e}")),
         }
     }
 

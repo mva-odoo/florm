@@ -501,7 +501,7 @@ impl App {
                 q.tasks[k].state = TaskState::Failed;
                 q.tasks[k].note = e;
                 q.running = false;
-                self.set_status(t!("File de tâches en pause : une tâche a échoué", "Task queue paused: a task failed"));
+                self.set_error(t!("File de tâches en pause : une tâche a échoué", "Task queue paused: a task failed"));
             }
             Ok(()) if asks => self.set_status(t!("Claude pose des questions : la file reprend après tes réponses", "Claude is asking questions: the queue resumes after your answers")),
             Ok(()) if q.commit_each => {
@@ -664,7 +664,7 @@ impl App {
                 let short = &hash[..hash.len().min(8)];
                 self.claude_attach_note(tf!("Commit {short} : {}", "Commit {short}: {}", subject.trim()), text);
             }
-            Err(e) => self.set_status(format!("git show : {}", e.lines().next().unwrap_or(""))),
+            Err(e) => self.set_error(format!("git show : {}", e.lines().next().unwrap_or(""))),
         }
     }
 
@@ -704,7 +704,7 @@ impl App {
                         self.claude_attach_note(t!("Changements non commités", "Uncommitted changes").into(), d);
                     }
                     Ok(_) => self.set_status(t!("Aucun changement non commité", "No uncommitted change")),
-                    Err(e) => self.set_status(format!("git diff : {}", e.lines().next().unwrap_or(""))),
+                    Err(e) => self.set_error(format!("git diff : {}", e.lines().next().unwrap_or(""))),
                 }
             }
             CtxAdd::Problems => {
@@ -1761,7 +1761,7 @@ impl App {
                 self.git.commit_msg = m;
                 self.set_status(t!("Message de commit proposé par Claude — à relire", "Commit message suggested by Claude — to read over"));
             }
-            Err(e) => self.set_status(tf!("Pas de message proposé : {}", "No message suggested: {}", e.lines().next().unwrap_or(""))),
+            Err(e) => self.set_error(tf!("Pas de message proposé : {}", "No message suggested: {}", e.lines().next().unwrap_or(""))),
         }
     }
 }

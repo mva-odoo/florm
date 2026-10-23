@@ -374,9 +374,35 @@ impl App {
                         ui.label(RichText::new(&g.message).color(col));
                     }
                 }
-                if let Some((msg, t)) = &self.status {
-                    if t.elapsed() < Duration::from_secs(6) {
-                        ui.label(RichText::new(msg).weak());
+                // the message of the moment; a click shows the last ones (one may have gone too fast)
+                if !self.status_log.is_empty() {
+                    let text = match self.status.as_ref().filter(|m| m.shown()) {
+                        Some(m) if m.error => RichText::new(format!("⚠ {}", m.text)).color(err()),
+                        Some(m) => RichText::new(&m.text).weak(),
+                        None => RichText::new("💬").weak(),
+                    };
+                    ui.menu_button(text, |ui| {
+                        ui.visuals_mut().override_text_color = None;
+                        ui.set_max_width(560.0);
+                        ui.label(RichText::new(t!("Derniers messages", "Last messages")).small().weak());
+                        egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
+                            for m in self.status_log.iter().rev() {
+                                let secs = m.at.elapsed().as_secs();
+                                let ago = if secs < 60 { tf!("{secs} s", "{secs} s") } else if secs < 3600 { tf!("{} min", "{} min", secs / 60) } else { tf!("{} h", "{} h", secs / 3600) };
+                                ui.horizontal(|ui| {
+                                    ui.label(RichText::new(ago).small().weak());
+                                    let text = if m.error { RichText::new(format!("⚠ {}", m.text)).color(err()) } else { RichText::new(&m.text) };
+                                    ui.add(egui::Label::new(text).wrap());
+                                });
+                            }
+                        });
+                    })
+                    .response
+                    .on_hover_text(t!("Derniers messages", "Last messages"));
+                    // the message disappears by itself: a repaint when its time is over
+                    if let Some(m) = self.status.as_ref().filter(|m| m.shown()) {
+                        let left = Duration::from_secs(if m.error { 15 } else { 6 }).saturating_sub(m.at.elapsed());
+                        ctx.request_repaint_after(left);
                     }
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -1546,7 +1572,7 @@ impl App {
 
     pub(super) fn reveal(&mut self, path: &Path) {
         if let Err(e) = crate::os::reveal(path) {
-            self.set_status(e);
+            self.set_error(e);
         }
     }
 }

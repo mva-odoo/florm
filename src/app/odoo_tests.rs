@@ -73,7 +73,7 @@ impl App {
         let exec = match result {
             Ok(e) => e,
             Err(e) => {
-                self.set_status(format!("Tests {tags} : {e}"));
+                self.set_error(format!("Tests {tags} : {e}"));
                 self.log(e);
                 return;
             }
@@ -94,7 +94,7 @@ impl App {
                 self.open_view_tab(document::View::Terminal(id), title);
                 self.tests.run = Some(Run { session: id, tags, summarized: false });
             }
-            Err(e) => self.set_status(e),
+            Err(e) => self.set_error(tf!("Tests impossibles à lancer : {e}", "Cannot run the tests: {e}")),
         }
     }
 

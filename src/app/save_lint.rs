@@ -22,7 +22,7 @@ impl App {
                 Ok(text) => {
                     doc.replace_all(&text);
                 }
-                Err(e) => self.set_status(tf!("Pas formaté : {e}", "Not formatted: {e}")),
+                Err(e) => self.set_error(tf!("Pas formaté : {e}", "Not formatted: {e}")),
             }
         }
         let doc = &mut self.docs[idx];
@@ -34,7 +34,7 @@ impl App {
                 true
             }
             Err(e) => {
-                self.set_status(tf!("Erreur : {e}", "Error: {e}"));
+                self.set_error(tf!("Enregistrement impossible : {e}", "Cannot save: {e}"));
                 false
             }
         }
@@ -72,7 +72,7 @@ impl App {
                     (true, _, None) => t!("Fichier formaté (ruff format)", "File formatted (ruff format)").to_string(),
                 });
             }
-            Err(e) => self.set_status(e),
+            Err(e) => self.set_error(tf!("ruff : {e}", "ruff: {e}")),
         }
     }
 

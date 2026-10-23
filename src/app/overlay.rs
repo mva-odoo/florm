@@ -560,7 +560,7 @@ impl App {
                 if path.is_dir() {
                     self.switch_project(path);
                 } else {
-                    self.set_status(tf!("Dossier introuvable : {}", "Folder not found: {}", path.display()));
+                    self.set_error(tf!("Dossier introuvable : {}", "Folder not found: {}", path.display()));
                 }
             }
             Prompt::OpenFile => {
@@ -587,7 +587,7 @@ impl App {
                         let _ = std::fs::create_dir_all(parent);
                     }
                     if let Err(e) = std::fs::write(&path, "") {
-                        self.set_status(e.to_string());
+                        self.set_error(tf!("Création de {} impossible : {e}", "Cannot create {}: {e}", path.display()));
                         return;
                     }
                 }
@@ -602,7 +602,7 @@ impl App {
                 if !path.exists() {
                     let body = if body.is_empty() { String::new() } else { format!("{body}$0") };
                     if let Err(e) = std::fs::write(&path, body) {
-                        self.set_status(e.to_string());
+                        self.set_error(tf!("Création du modèle {} impossible : {e}", "Cannot create the template {}: {e}", path.display()));
                         return;
                     }
                 }
@@ -612,7 +612,7 @@ impl App {
             }
             Prompt::NewFolder(dir) => {
                 if let Err(e) = std::fs::create_dir_all(dir.join(&text)) {
-                    self.set_status(e.to_string());
+                    self.set_error(tf!("Création du dossier {} impossible : {e}", "Cannot create the folder {}: {e}", dir.join(&text).display()));
                 }
                 self.exec_refresh_tree();
             }
@@ -623,7 +623,7 @@ impl App {
                         self.relocate_docs(&old, &new);
                         self.exec_refresh_tree();
                     }
-                    Err(e) => self.set_status(e.to_string()),
+                    Err(e) => self.set_error(tf!("Renommage de {} impossible : {e}", "Cannot rename {}: {e}", old.display())),
                 }
             }
             Prompt::NewBranch => self.git_job("checkout -b", &["checkout", "-b", &text]),

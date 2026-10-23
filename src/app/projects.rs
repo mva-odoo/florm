@@ -14,7 +14,7 @@ impl App {
             return;
         }
         if !path.is_dir() {
-            self.set_status(tf!("Dossier introuvable : {}", "Folder not found: {}", path.display()));
+            self.set_error(tf!("Dossier introuvable : {}", "Folder not found: {}", path.display()));
             return;
         }
         // with hot exit, the unsaved changes stay in the session of the project we leave
@@ -214,7 +214,7 @@ impl App {
         let Some(name) = src.file_name() else { return };
         let dest = dir.join(name);
         if dest.exists() {
-            self.set_status(tf!("{} existe déjà", "{} already exists", dest.display()));
+            self.set_error(tf!("Déplacement impossible : {} existe déjà", "Cannot move: {} already exists", dest.display()));
             return;
         }
         match std::fs::rename(&src, &dest) {
@@ -224,7 +224,7 @@ impl App {
                 self.set_status(tf!("Déplacé vers {}", "Moved to {}", dir.display()));
                 self.exec_refresh_tree();
             }
-            Err(e) => self.set_status(tf!("Déplacement impossible : {e}", "Cannot move: {e}")),
+            Err(e) => self.set_error(tf!("Déplacement impossible : {e}", "Cannot move: {e}")),
         }
     }
 

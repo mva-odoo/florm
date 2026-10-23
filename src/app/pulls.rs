@@ -208,7 +208,7 @@ impl App {
             }
             Err(e) => {
                 self.log(e.clone());
-                self.set_status(tf!("{label} : échec — {}", "{label}: failed — {}", e.lines().next().unwrap_or("")));
+                self.set_error(tf!("{label} : échec — {}", "{label}: failed — {}", e.lines().next().unwrap_or("")));
             }
         }
         self.git_refresh();
@@ -742,7 +742,7 @@ impl App {
         let path = repo.join(rel);
         let back = self.docs.get(self.active).map(|d| d.uid);
         let Some(i) = self.docs.iter().position(|d| d.path.as_ref() == Some(&path)).or_else(|| self.open_path(path.clone()).then_some(self.active)) else {
-            self.set_status(tf!("Impossible d'ouvrir {rel}", "Cannot open {rel}"));
+            self.set_error(tf!("Impossible d'ouvrir {rel}", "Cannot open {rel}"));
             return;
         };
         // the suggestions applied above in the file moved the lines

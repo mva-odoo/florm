@@ -458,7 +458,7 @@ impl App {
                         d.paste(&t, linewise);
                     }
                 }
-                Err(e) => self.set_status(tf!("Presse-papiers illisible : {e}", "Clipboard unreadable: {e}")),
+                Err(e) => self.set_error(tf!("Presse-papiers illisible : {e}", "Clipboard unreadable: {e}")),
             },
             CopyFilePath | CopyFileRef => {
                 if let Some(d) = self.docs.get(self.active) {
