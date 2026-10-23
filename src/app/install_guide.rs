@@ -27,62 +27,67 @@ impl App {
         let sys_id = egui::Id::new("install_guide_system").with(tool);
         let mut sys = ui.ctx().data(|d| d.get_temp::<usize>(sys_id)).map_or_else(crate::tools::system, |k| SYSTEMS[k]);
         let accent = self.hl.colors.accent;
+        let bg = self.hl.colors.bg;
         let code_bg = ui.visuals().extreme_bg_color;
         let mut act = None;
-        egui::ScrollArea::vertical().id_salt(sys_id.with("scroll")).auto_shrink([false, false]).show(ui, |ui| {
-            egui::Frame::none().inner_margin(egui::Margin::same(16.0)).show(ui, |ui| {
-                ui.set_max_width(760.0);
-                ui.label(RichText::new(tf!("{} n'est pas installé", "{} is not installed", tool.title())).strong().size(17.0));
-                ui.add_space(4.0);
-                ui.label(RichText::new(tool.purpose()).weak());
-                ui.add_space(10.0);
-                ui.horizontal(|ui| {
-                    ui.label(t!("Système :", "System:"));
-                    let before = sys;
-                    egui::ComboBox::from_id_salt(sys_id).selected_text(sys.name()).show_ui(ui, |ui| {
-                        for s in SYSTEMS {
-                            ui.selectable_value(&mut sys, s, s.name());
-                        }
-                    });
-                    if sys != before {
-                        let k = SYSTEMS.iter().position(|s| *s == sys).unwrap_or(0);
-                        ui.ctx().data_mut(|d| d.insert_temp(sys_id, k));
-                    }
-                    if sys == crate::tools::system() {
-                        ui.label(RichText::new(t!("(détecté)", "(detected)")).weak());
-                    }
-                });
-                ui.add_space(10.0);
-                for (n, step) in tool.steps(sys).into_iter().enumerate() {
-                    ui.label(RichText::new(format!("{}. {}", n + 1, step.label)).strong());
-                    if let Some(cmd) = step.command {
-                        ui.horizontal(|ui| {
-                            egui::Frame::none().fill(code_bg).rounding(4.0).inner_margin(egui::Margin::symmetric(8.0, 5.0)).show(ui, |ui| {
-                                ui.add(egui::Label::new(RichText::new(&cmd).monospace()).selectable(true));
-                            });
-                            if ui
-                                .button(t!("Dans le terminal", "In the terminal"))
-                                .on_hover_text(t!("Tape la commande dans un terminal ; appuie sur Entrée pour la lancer", "Types the command in a terminal; press Enter to run it"))
-                                .clicked()
-                            {
-                                act = Some(GuideAct::Type(cmd.clone()));
-                            }
-                            if ui.button(t!("Copier", "Copy")).clicked() {
-                                act = Some(GuideAct::Copy(cmd.clone()));
+        // the theme's background all over the view (not the default one of the window)
+        egui::Frame::none().fill(bg).show(ui, |ui| {
+            ui.set_min_size(ui.available_size());
+            egui::ScrollArea::vertical().id_salt(sys_id.with("scroll")).auto_shrink([false, false]).show(ui, |ui| {
+                egui::Frame::none().inner_margin(egui::Margin::same(16.0)).show(ui, |ui| {
+                    ui.set_max_width(760.0);
+                    ui.label(RichText::new(tf!("{} n'est pas installé", "{} is not installed", tool.title())).strong().size(17.0));
+                    ui.add_space(4.0);
+                    ui.label(RichText::new(tool.purpose()).weak());
+                    ui.add_space(10.0);
+                    ui.horizontal(|ui| {
+                        ui.label(t!("Système :", "System:"));
+                        let before = sys;
+                        egui::ComboBox::from_id_salt(sys_id).selected_text(sys.name()).show_ui(ui, |ui| {
+                            for s in SYSTEMS {
+                                ui.selectable_value(&mut sys, s, s.name());
                             }
                         });
+                        if sys != before {
+                            let k = SYSTEMS.iter().position(|s| *s == sys).unwrap_or(0);
+                            ui.ctx().data_mut(|d| d.insert_temp(sys_id, k));
+                        }
+                        if sys == crate::tools::system() {
+                            ui.label(RichText::new(t!("(détecté)", "(detected)")).weak());
+                        }
+                    });
+                    ui.add_space(10.0);
+                    for (n, step) in tool.steps(sys).into_iter().enumerate() {
+                        ui.label(RichText::new(format!("{}. {}", n + 1, step.label)).strong());
+                        if let Some(cmd) = step.command {
+                            ui.horizontal(|ui| {
+                                egui::Frame::none().fill(code_bg).rounding(4.0).inner_margin(egui::Margin::symmetric(8.0, 5.0)).show(ui, |ui| {
+                                    ui.add(egui::Label::new(RichText::new(&cmd).monospace()).selectable(true));
+                                });
+                                if ui
+                                    .button(t!("Dans le terminal", "In the terminal"))
+                                    .on_hover_text(t!("Tape la commande dans un terminal ; appuie sur Entrée pour la lancer", "Types the command in a terminal; press Enter to run it"))
+                                    .clicked()
+                                {
+                                    act = Some(GuideAct::Type(cmd.clone()));
+                                }
+                                if ui.button(t!("Copier", "Copy")).clicked() {
+                                    act = Some(GuideAct::Copy(cmd.clone()));
+                                }
+                            });
+                        }
+                        ui.add_space(8.0);
                     }
-                    ui.add_space(8.0);
-                }
-                ui.add_space(6.0);
-                ui.horizontal(|ui| {
-                    if ui.add(filled_button(t!("Vérifier à nouveau", "Check again"), accent)).clicked() {
-                        act = Some(GuideAct::Check);
-                    }
-                    ui.label(RichText::new(t!("(vérifié aussi tout seul toutes les 2 secondes)", "(also checked by itself every 2 seconds)")).weak());
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        if ui.add(filled_button(t!("Vérifier à nouveau", "Check again"), accent)).clicked() {
+                            act = Some(GuideAct::Check);
+                        }
+                        ui.label(RichText::new(t!("(vérifié aussi tout seul toutes les 2 secondes)", "(also checked by itself every 2 seconds)")).weak());
+                    });
+                    ui.add_space(6.0);
+                    ui.hyperlink_to(t!("Documentation officielle", "Official documentation"), tool.docs_url());
                 });
-                ui.add_space(6.0);
-                ui.hyperlink_to(t!("Documentation officielle", "Official documentation"), tool.docs_url());
             });
         });
         match act {
