@@ -104,29 +104,138 @@ fn diag_at(text: &str, byte: usize, severity: Severity, message: String, source:
     Diagnostic { line, col, severity, message, source: source.into() , code: None}
 }
 
+/// Well-formedness of an XML document. The problems are put where they are to be fixed (an
+/// unclosed tag on its opening `<`, not on the closing tag of its parent), and the check goes on
+/// after a badly nested tag to find the others; only a syntax error (a `<` or a quote that never
+/// ends) stops it.
 fn lint_xml(text: &str) -> Vec<Diagnostic> {
-    use quick_xml::events::Event;
+    use quick_xml::events::{BytesStart, Event};
     use quick_xml::reader::Reader;
     let mut r = Reader::from_str(text);
+    // the closing tags are matched here, to go on after one is missing
+    r.config_mut().check_end_names = false;
+    r.config_mut().check_comments = true;
+    let mut out = Vec::new();
+    let err = |out: &mut Vec<Diagnostic>, at: usize, msg: String| out.push(diag_at(text, at, Severity::Error, msg, "xml"));
+    let line_of = |at: usize| text[..at.min(text.len())].matches('\n').count() + 1;
+    // a DTD may declare entities: then the unknown ones are not reported
+    let mut doctype = false;
+    let mut roots = 0;
     let mut stack: Vec<(String, usize)> = Vec::new();
+    let attrs = |out: &mut Vec<Diagnostic>, e: &BytesStart, at: usize, doctype: bool| {
+        use quick_xml::events::attributes::AttrError;
+        for a in e.attributes() {
+            match a {
+                Ok(a) => {
+                    if let Err(quick_xml::Error::EscapeError(x)) = a.unescape_value() {
+                        if !(doctype && matches!(x, quick_xml::escape::EscapeError::UnrecognizedEntity(..))) {
+                            let name = String::from_utf8_lossy(a.key.as_ref()).into_owned();
+                            err(out, at, tf!("Attribut « {name} » : {}", "Attribute “{name}”: {}", escape_msg(&x)));
+                        }
+                    }
+                }
+                Err(x) => {
+                    // positions are counted from the character after `<`
+                    let (p, msg) = match x {
+                        AttrError::ExpectedEq(p) => (p, t!("« = » attendu après le nom de l'attribut", "“=” expected after the attribute name").to_string()),
+                        AttrError::ExpectedValue(p) => (p, t!("Valeur attendue après « = »", "Value expected after “=”").to_string()),
+                        AttrError::UnquotedValue(p) => (p, t!("La valeur de l'attribut doit être entre guillemets", "The attribute value must be quoted").to_string()),
+                        AttrError::ExpectedQuote(p, q) => (p, tf!("Guillemet fermant {} manquant", "Missing closing quote {}", q as char)),
+                        AttrError::Duplicated(p, _) => (p, t!("Attribut en double", "Duplicated attribute").to_string()),
+                    };
+                    let mut p = at + 1 + p;
+                    if matches!(x, AttrError::ExpectedEq(_)) {
+                        // put on the name, not after it
+                        let tag = &text.as_bytes()[at..p];
+                        p -= tag.iter().rev().take_while(|b| !b.is_ascii_whitespace()).count();
+                    }
+                    err(out, p, msg);
+                    break;
+                }
+            }
+        }
+    };
     loop {
         let before = r.buffer_position() as usize;
         match r.read_event() {
-            Ok(Event::Start(e)) => stack.push((String::from_utf8_lossy(e.name().as_ref()).into_owned(), before)),
-            Ok(Event::End(_)) => {
-                stack.pop();
+            Ok(ev @ (Event::Start(_) | Event::Empty(_))) => {
+                let (Event::Start(e) | Event::Empty(e)) = &ev else { continue };
+                if stack.is_empty() {
+                    roots += 1;
+                    if roots == 2 {
+                        err(&mut out, before, t!("Un seul élément racine est permis", "Only one root element is allowed").into());
+                    }
+                }
+                attrs(&mut out, e, before, doctype);
+                if matches!(ev, Event::Start(_)) {
+                    stack.push((String::from_utf8_lossy(e.name().as_ref()).into_owned(), before));
+                }
             }
+            Ok(Event::End(e)) => {
+                let name = String::from_utf8_lossy(e.name().as_ref()).into_owned();
+                match stack.iter().rposition(|(n, _)| *n == name) {
+                    Some(i) => {
+                        let closed_at = line_of(before);
+                        for (n, p) in stack.drain(i + 1..) {
+                            err(&mut out, p, tf!("Balise <{n}> non fermée (</{name}> ligne {closed_at} ferme d'abord <{name}>)", "Tag <{n}> not closed (</{name}> on line {closed_at} closes <{name}> first)"));
+                        }
+                        stack.pop();
+                    }
+                    None => match stack.last() {
+                        Some((open, p)) => {
+                            let l = line_of(*p);
+                            err(&mut out, before, tf!("</{name}> ne ferme aucune balise ouverte (<{open}> ligne {l} attend </{open}>)", "</{name}> closes no open tag (<{open}> on line {l} expects </{open}>)"));
+                        }
+                        None => err(&mut out, before, tf!("</{name}> ne ferme aucune balise ouverte", "</{name}> closes no open tag")),
+                    },
+                }
+            }
+            Ok(Event::Text(e)) => {
+                if stack.is_empty() && !e.iter().all(u8::is_ascii_whitespace) {
+                    let skip = e.iter().take_while(|b| b.is_ascii_whitespace()).count();
+                    err(&mut out, before + skip, t!("Texte en dehors de l'élément racine", "Text outside the root element").into());
+                } else if let Err(quick_xml::Error::EscapeError(x)) = e.unescape() {
+                    if !(doctype && matches!(x, quick_xml::escape::EscapeError::UnrecognizedEntity(..))) {
+                        let at = match &x {
+                            quick_xml::escape::EscapeError::UnrecognizedEntity(rg, _) | quick_xml::escape::EscapeError::UnterminatedEntity(rg) => before + rg.start,
+                            _ => before,
+                        };
+                        err(&mut out, at, escape_msg(&x));
+                    }
+                }
+            }
+            Ok(Event::DocType(_)) => doctype = true,
             Ok(Event::Eof) => break,
             Ok(_) => {}
             Err(e) => {
-                let p = r.buffer_position() as usize;
-                return vec![diag_at(text, p, Severity::Error, format!("XML : {e}"), "xml")];
+                use quick_xml::errors::{IllFormedError, SyntaxError};
+                let msg = match &e {
+                    quick_xml::Error::Syntax(SyntaxError::UnclosedTag) => t!("Balise non terminée : « > » introuvable (guillemet manquant ?)", "Tag not finished: no “>” found (missing quote?)").into(),
+                    quick_xml::Error::Syntax(SyntaxError::UnclosedComment) => t!("Commentaire non fermé : « --> » introuvable", "Comment not closed: no “-->” found").into(),
+                    quick_xml::Error::Syntax(SyntaxError::UnclosedCData) => t!("CDATA non fermé : « ]]> » introuvable", "CDATA not closed: no “]]>” found").into(),
+                    quick_xml::Error::IllFormed(IllFormedError::DoubleHyphenInComment) => t!("« -- » interdit dans un commentaire", "“--” is not allowed in a comment").into(),
+                    _ => format!("XML : {e}"),
+                };
+                err(&mut out, r.error_position() as usize, msg);
+                // the rest of the document cannot be read: no "not closed" for what is still open
+                stack.clear();
+                break;
             }
         }
     }
-    match stack.last() {
-        Some((name, p)) => vec![diag_at(text, *p, Severity::Error, tf!("Balise <{name}> non fermée", "Tag <{name}> not closed"), "xml")],
-        None => Vec::new(),
+    for (n, p) in stack {
+        err(&mut out, p, tf!("Balise <{n}> non fermée (</{n}> manquant)", "Tag <{n}> not closed (missing </{n}>)"));
+    }
+    out.sort_by_key(|d| (d.line, d.col));
+    out
+}
+
+fn escape_msg(e: &quick_xml::escape::EscapeError) -> String {
+    use quick_xml::escape::EscapeError::*;
+    match e {
+        UnrecognizedEntity(_, name) => tf!("Entité inconnue « &{name}; » (« & » s'écrit &amp;)", "Unknown entity “&{name};” (write “&” as &amp;)"),
+        UnterminatedEntity(_) => t!("« & » seul : à écrire &amp;", "Lone “&”: write it as &amp;").into(),
+        InvalidCharRef(x) => tf!("Référence de caractère invalide : {x}", "Invalid character reference: {x}"),
     }
 }
 
@@ -580,10 +689,24 @@ mod tests {
     fn xml_errors() {
         assert!(lint_in_process("xml", "<a><b/></a>").is_empty());
         let d = lint_in_process("xml", "<a>\n  <b></c>\n</a>");
-        assert_eq!(d.len(), 1);
-        assert_eq!(d[0].line, 1);
+        assert_eq!(d.iter().map(|d| (d.line, d.col)).collect::<Vec<_>>(), [(1, 2), (1, 5)]);
         let d = lint_in_process("xml", "<odoo>\n<record>");
-        assert_eq!(d.len(), 1);
+        assert_eq!(d.iter().map(|d| d.line).collect::<Vec<_>>(), [0, 1]);
+        let at = |s: &str| lint_in_process("xml", s).iter().map(|d| (d.line, d.col)).collect::<Vec<_>>();
+        // the unclosed tag is reported on its own line, and the check goes on after it
+        assert_eq!(at("<odoo>\n<record id=\"a\">\n  <field name=\"x\">\n</record>\n<record>\n</odoo>"), [(2, 2), (4, 0)]);
+        // a mistyped closing tag, then its tag left open
+        assert_eq!(at("<odoo>\n<record>\n</recrd>\n</odoo>"), [(1, 0), (2, 0)]);
+        assert_eq!(at("<odoo>\n<record id=a/>\n</odoo>"), [(1, 11)]);
+        assert_eq!(at("<odoo>\n<record id=\"a\" id=\"b\"/>\n</odoo>"), [(1, 15)]);
+        assert_eq!(at("<odoo>\n<a <b/>\n</odoo>"), [(1, 3)]);
+        assert_eq!(at("<odoo>\n<a>x & y</a>\n</odoo>"), [(1, 5)]);
+        assert_eq!(at("<odoo>\n<a b=\"&nbsp;\"/>\n</odoo>"), [(1, 0)]);
+        assert_eq!(at("<!DOCTYPE a [<!ENTITY e \"x\">]>\n<a>&e;</a>"), []);
+        assert_eq!(at("<odoo></odoo>\n<odoo></odoo>"), [(1, 0)]);
+        assert_eq!(at("<odoo>\n<record id=\"a>\n</record>\n</odoo>"), [(1, 0)]);
+        assert_eq!(at("<odoo>\n<!-- a -- b -->\n</odoo>"), [(1, 7)]);
+        assert_eq!(at("<?xml version=\"1.0\"?>\n<!-- c -->\n<odoo><![CDATA[a < b & c]]></odoo>\n"), []);
     }
 
     #[test]
