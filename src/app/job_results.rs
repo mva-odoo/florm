@@ -467,8 +467,13 @@ impl App {
                 JobResult::SymbolIndex(root, idx, partial) => {
                     if self.root.as_ref() == Some(&root) {
                         let what = if partial { t!("Dépôts en cours indexés", "Current repositories indexed") } else { t!("Projet indexé", "Project indexed") };
-                        self.log(tf!("{what} : {} symboles dans {} fichiers", "{what}: {} symbols in {} files", idx.len(), idx.files.len()));
-                        self.index.symbols = Some(idx);
+                        self.log(tf!("{what} : {} symboles dans {} fichiers", "{what}: {} symbols in {} files", idx.len(), idx.file_count()));
+                        let old = self.index.symbols.replace(idx);
+                        // freeing the previous index and giving the memory back take a moment: not here
+                        std::thread::spawn(move || {
+                            drop(old);
+                            crate::os::release_memory();
+                        });
                     }
                 }
                 JobResult::Search(gen, out) => {

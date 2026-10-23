@@ -17,6 +17,21 @@ pub fn command(program: impl AsRef<std::ffi::OsStr>) -> Command {
     c
 }
 
+/// Gives back to the system the memory freed after a big job (the symbol index: its threads read
+/// hundreds of thousands of files): glibc keeps it in its pools otherwise.
+pub fn release_memory() {
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    {
+        extern "C" {
+            fn malloc_trim(pad: usize) -> i32;
+        }
+        // SAFETY: only returns free pages of the allocator's pools to the system.
+        unsafe {
+            malloc_trim(0);
+        }
+    }
+}
+
 /// Absolute path with links resolved; on Windows without the `\\?\` prefix that canonicalize
 /// adds (it shows in the UI, and git refuses it as working directory, e.g. for `\\wsl.localhost\…`).
 pub fn canon(p: &Path) -> PathBuf {
