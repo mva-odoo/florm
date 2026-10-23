@@ -380,20 +380,53 @@ impl Highlighting {
     }
 }
 
-/// Incremental highlighting cache: parser state at the start of every line plus
+/// Lines between two kept parser states: a state is ~4 KB, one per line was 30 MB for a file
+/// of 7000 lines.
+const CHECKPOINT: usize = 16;
+
+/// Incremental highlighting cache: parser state at the start of every `CHECKPOINT`-th line plus
 /// colored byte spans for every line already highlighted.
 #[derive(Default)]
 pub struct HlCache {
+    /// State at the start of lines 0, CHECKPOINT, 2 × CHECKPOINT…
     states: Vec<(ParseState, HighlightState)>,
     spans: Vec<Vec<(Color32, Range<usize>)>>,
+    /// State at the start of line `spans.len()`, where highlighting goes on (None: from a checkpoint).
+    next: Option<(ParseState, HighlightState)>,
+    /// The line last changed and its state when known: typing on it again starts from there,
+    /// not from the checkpoint before it.
+    hot: Option<(usize, Option<(ParseState, HighlightState)>)>,
     syntax: String,
     generation: u64,
 }
 
 impl HlCache {
     pub fn invalidate(&mut self, line: usize) {
-        self.spans.truncate(line);
-        self.states.truncate(line + 1);
+        if line >= self.spans.len() {
+            // not highlighted yet: only the state kept for a line after it is no longer right
+            if self.hot.as_ref().is_some_and(|(l, _)| *l > line) {
+                self.hot = None;
+            }
+            return;
+        }
+        let hot = match self.hot.take() {
+            Some((l, Some(st))) if l == line => Some(st),
+            _ => None,
+        };
+        match hot {
+            Some(st) => {
+                self.spans.truncate(line);
+                self.next = Some(st.clone());
+                self.hot = Some((line, Some(st)));
+            }
+            None => {
+                let c = line / CHECKPOINT;
+                self.spans.truncate(c * CHECKPOINT);
+                self.next = None;
+                self.hot = Some((line, None));
+            }
+        }
+        self.states.truncate(line / CHECKPOINT + 1);
     }
 
     pub fn spans(&self, line: usize) -> Option<&[(Color32, Range<usize>)]> {
@@ -406,6 +439,8 @@ impl HlCache {
         if self.syntax != syntax || self.generation != hl.generation {
             self.states.clear();
             self.spans.clear();
+            self.next = None;
+            self.hot = None;
             self.syntax = syntax.to_string();
             self.generation = hl.generation;
         }
@@ -421,13 +456,24 @@ impl HlCache {
         if self.states.is_empty() {
             self.states.push((ParseState::new(syn), HighlightState::new(&highlighter, ScopeStack::new())));
         }
+        let (mut ps, mut hs) = match self.next.take() {
+            Some(st) => st,
+            None => self.states[self.spans.len() / CHECKPOINT].clone(),
+        };
         let mut done = 0;
         while self.spans.len() <= upto {
             if done >= budget {
-                return false;
+                break;
             }
             let i = self.spans.len();
-            let (mut ps, mut hs) = self.states[i].clone();
+            if i.is_multiple_of(CHECKPOINT) && self.states.len() == i / CHECKPOINT {
+                self.states.push((ps.clone(), hs.clone()));
+            }
+            if let Some((l, st @ None)) = &mut self.hot {
+                if *l == i {
+                    *st = Some((ps.clone(), hs.clone()));
+                }
+            }
             let line = rope.line(i).to_string();
             let mut spans = Vec::new();
             // Very long lines (minified files) are not worth parsing.
@@ -440,11 +486,12 @@ impl HlCache {
                     off += text.len();
                 }
             }
+            spans.shrink_to_fit();
             self.spans.push(spans);
-            self.states.push((ps, hs));
             done += 1;
         }
-        true
+        self.next = Some((ps, hs));
+        self.spans.len() > upto
     }
 }
 
@@ -499,5 +546,54 @@ mod tests {
         assert_eq!(at(0), rgb(0xaf00db));
         assert_eq!(at(8), rgb(0xa31515));
         assert_eq!(spans.last().unwrap().1.end, "return 'a'".len());
+    }
+
+    #[test]
+    fn cache_after_edits_matches_a_fresh_highlight() {
+        let hl = Highlighting::new("Florm", Path::new("/nonexistent"));
+        let text: String = (0..200).map(|i| format!("def f{i}(x):\n    '''doc {i}'''\n    return x + {i}  # c\n")).collect();
+        let mut rope = Rope::from_str(&text);
+        let mut cache = HlCache::default();
+        assert!(cache.ensure(&hl, "Python", &rope, usize::MAX, usize::MAX));
+        // (line, text inserted at its start, lines removed after it): typing on one line, a quote
+        // that changes all the lines after it, lines added and removed
+        let edits = [(100, "a", 0), (100, "b", 0), (100, "\"", 0), (100, "\"\"", 0), (37, "\n\n", 0), (38, "", 3), (5, "'''", 0), (5, "x", 0), (590, "z", 0)];
+        for (line, ins, remove) in edits {
+            let at = rope.line_to_char(line);
+            rope.insert(at, ins);
+            for _ in 0..remove {
+                let (a, b) = (rope.line_to_char(line + 1), rope.line_to_char(line + 2));
+                rope.remove(a..b);
+            }
+            cache.invalidate(line);
+            assert!(cache.ensure(&hl, "Python", &rope, usize::MAX, usize::MAX));
+            let mut fresh = HlCache::default();
+            assert!(fresh.ensure(&hl, "Python", &rope, usize::MAX, usize::MAX));
+            for l in 0..rope.len_lines() {
+                assert_eq!(cache.spans(l), fresh.spans(l), "line {l} after editing line {line}");
+            }
+        }
+    }
+
+    /// `FLORM_BENCH_HL=<fichier> cargo test --release bench_highlight -- --nocapture`
+    #[test]
+    fn bench_highlight() {
+        let Ok(file) = std::env::var("FLORM_BENCH_HL") else { return };
+        let rss = || std::fs::read_to_string("/proc/self/statm").ok().and_then(|s| s.split(' ').nth(1)?.parse::<usize>().ok()).map_or(0, |p| p * 4096 / 1_000_000);
+        let hl = Highlighting::new("Florm", Path::new("/nonexistent"));
+        let syntax = crate::symbols::syntax_for(Path::new(&file)).unwrap_or("Plain Text");
+        let rope = Rope::from_str(&std::fs::read_to_string(&file).unwrap());
+        let before = rss();
+        let mut cache = HlCache::default();
+        let t = std::time::Instant::now();
+        cache.ensure(&hl, syntax, &rope, usize::MAX, usize::MAX);
+        eprintln!("{} lignes {syntax} : {:?}, cache {} Mo", rope.len_lines(), t.elapsed(), rss() - before);
+        // typing at the end of the file, then highlighting the screen again
+        let t = std::time::Instant::now();
+        for _ in 0..100 {
+            cache.invalidate(rope.len_lines() - 50);
+            cache.ensure(&hl, syntax, &rope, usize::MAX, usize::MAX);
+        }
+        eprintln!("100 frappes en fin de fichier : {:?}", t.elapsed());
     }
 }
