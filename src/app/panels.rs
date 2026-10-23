@@ -667,8 +667,8 @@ impl App {
             .width_range(150.0..=700.0)
             .frame(egui::Frame::none().fill(panel).inner_margin(egui::Margin { left: 10.0, right: 8.0, top: 4.0, bottom: 6.0 }))
             .show(ctx, |ui| {
-            // the views of the bottom panel, icons only: left click there, right click in the
-            // editor area; projects are under the folder name (Ctrl+Alt+P)
+            // the views of the bottom panel, icons only: left click in the editor area, right click
+            // there; projects are under the folder name (Ctrl+Alt+P)
             egui::TopBottomPanel::bottom("sidebar_tools").frame(egui::Frame::none().inner_margin(egui::Margin { left: 0.0, right: 0.0, top: 6.0, bottom: 0.0 })).show_inside(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
@@ -681,10 +681,10 @@ impl App {
                         let c = if r.hovered() || on { ui.visuals().strong_text_color() } else { ui.visuals().weak_text_color() };
                         icons::paint_view(ui.painter(), rect.center(), icon, c);
                         let r = r.on_hover_text(format!("{label}\n{}", BottomTab::hint(tab)));
-                        if r.clicked() {
-                            self.show_bottom(tab, true);
-                        } else if r.secondary_clicked() {
+                        if r.clicked() && !tab.bottom_only() {
                             self.show_big(tab);
+                        } else if r.clicked() || r.secondary_clicked() {
+                            self.show_bottom(tab, true);
                         }
                     }
                 });
@@ -953,7 +953,7 @@ impl App {
         }
     }
 
-    /// Left click on a view (button of the sidebar, tab of the bottom panel): in the bottom panel,
+    /// Right click on a view (button of the sidebar, tab of the bottom panel): in the bottom panel,
     /// taken out of the editor area if it was there; `toggle`: a click on the one shown hides it.
     pub(super) fn show_bottom(&mut self, tab: BottomTab, toggle: bool) {
         if toggle && self.bottom == Some(tab) {
@@ -986,7 +986,7 @@ impl App {
         }
     }
 
-    /// Right click on a view: in the editor area, with all the room (problems and output only
+    /// Left click on a view: in the editor area, with all the room (problems and output only
     /// exist in the bottom panel).
     pub(super) fn show_big(&mut self, tab: BottomTab) {
         match tab {
@@ -1021,10 +1021,10 @@ impl App {
                     for (tab, icon, label) in BottomTab::shown() {
                         let label = if tab == BottomTab::Problems { problems.clone() } else { label.to_string() };
                         let r = nav_tab(ui, icon, &label, self.bottom == Some(tab));
-                        if r.clicked() {
-                            self.show_bottom(tab, false);
-                        } else if r.secondary_clicked() {
+                        if r.clicked() && !tab.bottom_only() {
                             self.show_big(tab);
+                        } else if r.clicked() || r.secondary_clicked() {
+                            self.show_bottom(tab, false);
                         }
                         r.on_hover_text(BottomTab::hint(tab));
                     }

@@ -115,7 +115,7 @@ interactif** (clic droit → « Rebase interactif à partir d'ici… »), l'acti
 ## Terminal
 
 - **Ctrl+`** (ou le bouton **>_ Terminal** de la barre d'état) : le terminal en bas.
-- **Ctrl+Shift+`** (ou clic droit sur **>_ Terminal**) : un terminal **dans un onglet** de
+- **Ctrl+Shift+`** (ou clic sur l'icône Terminal en bas de la barre latérale) : un terminal **dans un onglet** de
   l'éditeur. Comme tout onglet, il se glisse sur le bord droit ou bas de l'éditeur pour être à
   côté d'un fichier (ou clic droit sur l'onglet → Diviser à droite / en bas).
 - **⇱ Onglet** dans le panneau du bas y envoie le terminal courant, **⇲ Panneau du bas** le

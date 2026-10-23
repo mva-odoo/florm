@@ -149,10 +149,16 @@ impl BottomTab {
         Self::ALL.into_iter().filter(|(t, _, _)| *t != BottomTab::Docker || crate::docker::available())
     }
 
+    /// Problems and output only exist in the bottom panel.
+    fn bottom_only(self) -> bool {
+        matches!(self, BottomTab::Problems | BottomTab::Output)
+    }
+
     fn hint(tab: BottomTab) -> &'static str {
-        match tab {
-            BottomTab::Problems | BottomTab::Output => "Clic : dans le panneau du bas",
-            _ => "Clic : dans le panneau du bas · clic droit : en grand dans l'éditeur",
+        if tab.bottom_only() {
+            "Clic : dans le panneau du bas"
+        } else {
+            "Clic : en grand dans l'éditeur · clic droit : dans le panneau du bas"
         }
     }
 }
