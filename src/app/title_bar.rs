@@ -10,6 +10,10 @@ use egui::{Color32, Pos2, Rect, Stroke, ViewportCommand};
 pub(super) const TITLE_H: f32 = 32.0;
 /// Width of a window button (as Windows draws them).
 const BUTTON_W: f32 = 46.0;
+/// Room the three buttons take at the right of the tab strip (menus hidden, Windows and Linux).
+pub(super) const WINDOW_BUTTONS_W: f32 = 3.0 * BUTTON_W;
+/// Room the round buttons take at the left of the tab strip (menus hidden, macOS).
+pub(super) const MAC_BUTTONS_W: f32 = 72.0;
 /// Pointer this close to an edge of the window: resizes it.
 const EDGE: f32 = 5.0;
 /// Corners take a bit more (easier to catch).
@@ -19,6 +23,20 @@ impl App {
     /// Florm draws the title bar (see `os::draws_title_bar`).
     pub(super) fn own_title_bar(&self) -> bool {
         os::draws_title_bar(self.settings.custom_title_bar, self.settings.show_menu_bar)
+    }
+
+    /// The window buttons go in the tab strip (menus hidden, so no bar): at its right end (Windows,
+    /// Linux) or its left (macOS). `pane`: the strip of a split editor (None: the only one).
+    pub(super) fn strip_controls(&self, pane: Option<u8>) -> Option<Controls> {
+        if self.settings.show_menu_bar || !self.settings.custom_title_bar {
+            return None;
+        }
+        let c = os::window_controls();
+        let here = match (c, pane) {
+            (Controls::Side, None | Some(1)) | (Controls::Mac, None | Some(0)) => true,
+            _ => false,
+        };
+        here.then_some(c)
     }
 
     /// The window loses (or gets back) the system's title bar when the setting changes.
@@ -45,11 +63,7 @@ impl App {
                 let bar = ui.max_rect();
                 // under everything else of the bar: what is not a menu or a button moves the window
                 let drag = ui.interact(bar, egui::Id::new("title_drag"), Sense::click_and_drag());
-                if drag.double_clicked() {
-                    ctx.send_viewport_cmd(ViewportCommand::Maximized(!maximized));
-                } else if drag.drag_started_by(egui::PointerButton::Primary) {
-                    ctx.send_viewport_cmd(ViewportCommand::StartDrag);
-                }
+                drag_window(ctx, &drag, maximized);
                 ui.horizontal_centered(|ui| {
                     if controls == Controls::Mac {
                         mac_buttons(ui, ctx, maximized);
@@ -88,6 +102,38 @@ impl App {
         if ctx.input(|i| i.pointer.primary_pressed()) {
             ctx.send_viewport_cmd(ViewportCommand::BeginResize(dir));
         }
+    }
+}
+
+/// A drag on a bar moves the window; a double click maximizes it.
+pub(super) fn drag_window(ctx: &egui::Context, resp: &egui::Response, maximized: bool) {
+    if resp.double_clicked() {
+        ctx.send_viewport_cmd(ViewportCommand::Maximized(!maximized));
+    } else if resp.drag_started_by(egui::PointerButton::Primary) {
+        ctx.send_viewport_cmd(ViewportCommand::StartDrag);
+    }
+}
+
+/// The window buttons at the end of the tab strip (`bar`), when the menus are hidden.
+pub(super) fn strip_buttons(ui: &mut egui::Ui, bar: Rect, controls: Controls, maximized: bool) {
+    match controls {
+        Controls::Side => {
+            let r = Rect::from_min_max(Pos2::new(bar.right() - WINDOW_BUTTONS_W, bar.top()), bar.right_bottom());
+            ui.allocate_ui_at_rect(r, |ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.spacing_mut().item_spacing.x = 0.0;
+                    window_buttons(ui, maximized);
+                });
+            });
+        }
+        Controls::Mac => {
+            let r = Rect::from_min_max(Pos2::new(bar.left() + 10.0, bar.top()), Pos2::new(bar.left() + MAC_BUTTONS_W, bar.bottom()));
+            let ctx = ui.ctx().clone();
+            ui.allocate_ui_at_rect(r, |ui| {
+                ui.horizontal_centered(|ui| mac_buttons(ui, &ctx, maximized));
+            });
+        }
+        Controls::None => {}
     }
 }
 

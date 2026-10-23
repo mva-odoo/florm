@@ -5,7 +5,11 @@ use super::*;
 impl App {
     pub(super) fn menu_bar(&mut self, ctx: &egui::Context) {
         if self.own_title_bar() {
-            return self.title_bar(ctx);
+            // menus hidden: no bar, the window buttons are in the tab strip
+            if self.settings.show_menu_bar {
+                self.title_bar(ctx);
+            }
+            return;
         }
         if !self.settings.show_menu_bar {
             return;
@@ -183,6 +187,19 @@ impl App {
         egui::TopBottomPanel::top(panel_id).exact_height(TAB_STRIP_H).frame(egui::Frame::none().fill(tc.bar)).show_inside(ui, |ui| {
             let bar = ui.max_rect();
             strip.0 = bar;
+            let controls = self.strip_controls(pane);
+            let maximized = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
+            let mut scroll = bar;
+            if let Some(c) = controls {
+                // the empty part of the strip moves the window, as the title bar does
+                let drag = ui.interact(bar, panel_id.with("drag"), egui::Sense::click_and_drag());
+                crate::app::title_bar::drag_window(ui.ctx(), &drag, maximized);
+                match c {
+                    crate::os::Controls::Side => scroll.max.x -= crate::app::title_bar::WINDOW_BUTTONS_W,
+                    _ => scroll.min.x += crate::app::title_bar::MAC_BUTTONS_W,
+                }
+            }
+            ui.allocate_ui_at_rect(scroll, |ui| {
             egui::ScrollArea::horizontal()
                 .id_salt(panel_id.with("scroll"))
                 .drag_to_scroll(false)
@@ -255,6 +272,10 @@ impl App {
                         }
                     });
                 });
+            });
+            if let Some(c) = controls {
+                crate::app::title_bar::strip_buttons(ui, bar, c, maximized);
+            }
         });
         self.drop_zones.strips.push((pane.unwrap_or(0), strip.0, strip.1));
         if scrolled.is_some() {
@@ -1240,7 +1261,7 @@ impl App {
                 });
                 return;
             }
-            if !self.docs.is_empty() || special || self.history.tab {
+            if !self.docs.is_empty() || special || self.history.tab || self.strip_controls(None).is_some() {
                 self.tabs_strip(ui, None);
             }
             if self.prefs.open {
