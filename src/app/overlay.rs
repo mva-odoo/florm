@@ -647,6 +647,15 @@ impl App {
             }
             Prompt::Rename(old) => {
                 let new = old.with_file_name(&text);
+                if new == old {
+                    return;
+                }
+                // rename would replace the other file without a word (Linux, macOS)
+                if new.symlink_metadata().is_ok() && !crate::os::same_file(&old, &new) {
+                    self.set_error(tf!("{} existe déjà : choisis un autre nom", "{} already exists: choose another name", new.display()));
+                    self.open_overlay_with(Mode::Prompt(Prompt::Rename(old)), Vec::new(), text);
+                    return;
+                }
                 match std::fs::rename(&old, &new) {
                     Ok(()) => {
                         self.relocate_docs(&old, &new);
@@ -676,6 +685,17 @@ impl App {
         }
     }
 
+    /// Closes the tabs of the files under `path`, just deleted: Ctrl+S would bring them back.
+    /// Those with unsaved changes stay open, their text is not lost.
+    fn close_deleted_tabs(&mut self, path: &Path) {
+        for i in (0..self.docs.len()).rev() {
+            let d = &self.docs[i];
+            if !d.is_dirty() && d.path.as_deref().is_some_and(|f| f.starts_with(path)) {
+                self.close_tab(i, true);
+            }
+        }
+    }
+
     pub(super) fn exec_refresh_tree(&mut self) {
         if let Some(t) = self.tree.as_mut() {
             t.refresh();
@@ -692,7 +712,7 @@ impl App {
                 (t!("Fichier modifié", "File changed"), tf!("Enregistrer les modifications de « {name} » ?", "Save the changes of “{name}”?"))
             }
             Confirm::Quit => (t!("Quitter", "Quit"), t!("Des fichiers ne sont pas enregistrés.", "Some files are not saved.").to_string()),
-            Confirm::Delete(p) => (t!("Supprimer", "Delete"), tf!("Supprimer définitivement « {} » ?", "Delete “{}” for good?", p.display())),
+            Confirm::Delete(p) => (t!("Supprimer", "Delete"), tf!("Mettre « {} » à la corbeille ?", "Move “{}” to the trash?", p.display())),
             Confirm::SwitchProject(p) => {
                 (t!("Changer de projet", "Switch project"), tf!("Des fichiers ne sont pas enregistrés. Ouvrir « {} » ?", "Some files are not saved. Open “{}”?", p.display()))
             }
@@ -722,7 +742,7 @@ impl App {
                     let (yes, no) = match c {
                         Confirm::CloseTab(_) => (t!("Enregistrer", "Save"), Some(t!("Ne pas enregistrer", "Don't save"))),
                         Confirm::Quit => (t!("Tout enregistrer et quitter", "Save all and quit"), Some(t!("Quitter sans enregistrer", "Quit without saving"))),
-                        Confirm::Delete(_) => (t!("Supprimer", "Delete"), None),
+                        Confirm::Delete(_) => (t!("Mettre à la corbeille", "Move to the trash"), Some(t!("Supprimer définitivement", "Delete for good"))),
                         Confirm::SwitchProject(_) => (t!("Tout enregistrer et changer", "Save all and switch"), Some(t!("Changer sans enregistrer", "Switch without saving"))),
                         Confirm::ReplaceInFiles => (t!("Remplacer", "Replace"), None),
                         Confirm::DiffOp { .. } => (t!("Oui, annuler le changement", "Yes, undo the change"), None),
@@ -777,14 +797,30 @@ impl App {
             (Confirm::Quit, _) => self.restart = None,
             (Confirm::SwitchProject(p), 2) => self.do_switch(p),
             (Confirm::ReplaceInFiles, 1) => self.replace_in_files(None),
-            (Confirm::Delete(p), 1) => {
-                let r = if p.is_dir() { std::fs::remove_dir_all(&p) } else { std::fs::remove_file(&p) };
+            (Confirm::Delete(p), 1 | 2) => {
+                let r = if choice == 1 {
+                    crate::os::trash(&p)
+                } else if p.is_dir() {
+                    std::fs::remove_dir_all(&p).map_err(|e| e.to_string())
+                } else {
+                    std::fs::remove_file(&p).map_err(|e| e.to_string())
+                };
                 match r {
                     Ok(()) => {
-                        self.set_status(tf!("Supprimé : {}", "Deleted: {}", p.display()));
+                        if choice == 1 {
+                            self.set_status(tf!("Mis à la corbeille : {}", "Moved to the trash: {}", p.display()));
+                        } else {
+                            self.set_status(tf!("Supprimé : {}", "Deleted: {}", p.display()));
+                        }
+                        self.close_deleted_tabs(&p);
                         self.exec_refresh_tree();
                     }
-                    Err(e) => self.set_status(e.to_string()),
+                    Err(e) if choice == 1 => {
+                        self.set_error(tf!("Corbeille impossible pour {} : {e}", "Cannot move {} to the trash: {e}", p.display()));
+                        // the file stays: the dialog comes back, "Delete for good" is still possible
+                        self.confirm = Some(Confirm::Delete(p));
+                    }
+                    Err(e) => self.set_error(tf!("Suppression de {} impossible : {e}", "Cannot delete {}: {e}", p.display())),
                 }
             }
             _ => {}

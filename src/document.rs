@@ -527,7 +527,7 @@ impl Document {
         if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
-        std::fs::write(&path, bytes).map_err(|e| format!("{}: {e}", path.display()))?;
+        write_atomic(&path, &bytes).map_err(|e| format!("{}: {e}", path.display()))?;
         self.saved_content = self.content_id;
         self.mtime = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
         Ok(())
@@ -2194,6 +2194,50 @@ impl Document {
     }
 }
 
+/// Writes `bytes` to `path` through a temporary file renamed over it: a crash or a full disk in
+/// the middle leaves the old file whole. A symbolic link stays a link (its target is written),
+/// the permissions are kept; a file with hard links or of another owner (the rename would
+/// change it) is written in place, like when no temporary file can be made beside it.
+pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let target = if path.exists() { crate::os::canon(path) } else { path.to_path_buf() };
+    let meta = std::fs::metadata(&target).ok();
+    #[cfg(unix)]
+    if meta.as_ref().is_some_and(|m| std::os::unix::fs::MetadataExt::nlink(m) > 1) {
+        return std::fs::write(&target, bytes);
+    }
+    let (Some(dir), Some(name)) = (target.parent(), target.file_name()) else { return std::fs::write(&target, bytes) };
+    let tmp = dir.join(format!(".{}.florm-{}.tmp", name.to_string_lossy(), std::process::id()));
+    let Ok(mut f) = std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp) else { return std::fs::write(&target, bytes) };
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let mine = f.metadata().ok();
+        let other_owner = matches!((&meta, &mine), (Some(m), Some(t)) if m.uid() != t.uid() || m.gid() != t.gid());
+        if other_owner {
+            drop(f);
+            let _ = std::fs::remove_file(&tmp);
+            return std::fs::write(&target, bytes);
+        }
+    }
+    let written = f.write_all(bytes).and_then(|_| f.sync_all());
+    drop(f);
+    if let Err(e) = written {
+        // the old file is untouched
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
+    if let Some(m) = &meta {
+        let _ = std::fs::set_permissions(&tmp, m.permissions());
+    }
+    if std::fs::rename(&tmp, &target).is_err() {
+        // Windows: the file held open by another program
+        let _ = std::fs::remove_file(&tmp);
+        return std::fs::write(&target, bytes);
+    }
+    Ok(())
+}
+
 /// Encoding of a text file. Files that are not valid UTF-8 are read as Windows-1252 (latin-1
 /// and its extensions, the usual case) and written back in it, byte for byte: replacing the
 /// invalid bytes, as before, lost the accents of the whole file at the first save.
@@ -2325,6 +2369,29 @@ mod tests {
         d.save(false).unwrap();
         assert_eq!(std::fs::read(&p).unwrap(), b"Cr\xe9\xe9 le \x93test\x94\n");
         let _ = std::fs::remove_file(&p);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn atomic_save_keeps_links_and_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("florm_atomic_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (real, link) = (dir.join("run.sh"), dir.join("link.sh"));
+        std::fs::write(&real, "old").unwrap();
+        std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        write_atomic(&link, b"new").unwrap();
+        assert!(link.symlink_metadata().unwrap().file_type().is_symlink());
+        assert_eq!(std::fs::read_to_string(&real).unwrap(), "new");
+        assert_eq!(std::fs::metadata(&real).unwrap().permissions().mode() & 0o777, 0o755);
+        // no temporary file left beside it; a new file is created
+        write_atomic(&dir.join("new.txt"), b"x").unwrap();
+        let mut names: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
+        names.sort();
+        assert_eq!(names, ["link.sh", "new.txt", "run.sh"]);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     fn doc(text: &str) -> Document {

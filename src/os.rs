@@ -107,6 +107,116 @@ pub fn reveal(path: &Path) -> Result<(), String> {
     r.map_err(|e| tf!("Impossible d'ouvrir le gestionnaire de fichiers : {e}", "Cannot open the file manager: {e}"))
 }
 
+/// `a` and `b` are the same entry of the disk (`readme` and `README` on a disk that ignores case).
+pub fn same_file(a: &Path, b: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        match (a.symlink_metadata(), b.symlink_metadata()) {
+            (Ok(x), Ok(y)) => x.dev() == y.dev() && x.ino() == y.ino(),
+            _ => false,
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        a.symlink_metadata().is_ok() && a.to_string_lossy().to_lowercase() == b.to_string_lossy().to_lowercase()
+    }
+}
+
+/// Moves `path` (file or folder) to the trash of the system: it can be got back from there.
+pub fn trash(path: &Path) -> Result<(), String> {
+    let path = std::path::absolute(path).map_err(|e| e.to_string())?;
+    let r = if cfg!(target_os = "windows") {
+        // the Recycle Bin through .NET (no extra dependency); the path goes in a variable, never
+        // inside the script
+        let script = "$p = $env:FLORM_TRASH; Add-Type -AssemblyName Microsoft.VisualBasic; \
+            if (Test-Path -LiteralPath $p -PathType Container) { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($p, 'OnlyErrorDialogs', 'SendToRecycleBin') } \
+            else { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($p, 'OnlyErrorDialogs', 'SendToRecycleBin') }";
+        run_ok(command("powershell").args(["-NoProfile", "-NonInteractive", "-Command", script]).env("FLORM_TRASH", &path))
+    } else if cfg!(target_os = "macos") {
+        let script = "on run argv\ntell application \"Finder\" to delete (POSIX file (item 1 of argv) as alias)\nend run";
+        run_ok(command("osascript").args(["-e", script]).arg(&path))
+    } else {
+        // the home trash of the freedesktop specification (what the file managers show);
+        // on another disk, gio (GLib) finds the trash of that disk
+        #[cfg(unix)]
+        let r = freedesktop_trash(&path);
+        #[cfg(not(unix))]
+        let r = Err(String::new());
+        r.or_else(|_| run_ok(command("gio").arg("trash").arg(&path)))
+    };
+    r.map_err(|e| if e.is_empty() { t!("pas de corbeille disponible", "no trash available").to_string() } else { e })
+}
+
+/// Runs the command; its error output when it fails.
+fn run_ok(c: &mut Command) -> Result<(), String> {
+    let o = c.stdin(Stdio::null()).output().map_err(|e| e.to_string())?;
+    if o.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&o.stderr).trim().to_string())
+    }
+}
+
+#[cfg(unix)]
+fn freedesktop_trash(path: &Path) -> Result<(), String> {
+    use std::io::Write;
+    let base = std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).unwrap_or_else(|| crate::config::home().join(".local/share")).join("Trash");
+    let (files, info) = (base.join("files"), base.join("info"));
+    std::fs::create_dir_all(&files).and_then(|_| std::fs::create_dir_all(&info)).map_err(|e| e.to_string())?;
+    let name = path.file_name().ok_or_else(|| t!("chemin sans nom", "path without a name").to_string())?.to_string_lossy().into_owned();
+    // a free name: "a.py", "a.2.py", "a.3.py"…, reserved by creating its .trashinfo
+    let (stem, ext) = match name.rsplit_once('.') {
+        Some((s, e)) if !s.is_empty() => (s.to_string(), format!(".{e}")),
+        _ => (name.clone(), String::new()),
+    };
+    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    for k in 1..1000 {
+        let candidate = if k == 1 { name.clone() } else { format!("{stem}.{k}{ext}") };
+        let info_path = info.join(format!("{candidate}.trashinfo"));
+        let Ok(mut f) = std::fs::OpenOptions::new().write(true).create_new(true).open(&info_path) else { continue };
+        if files.join(&candidate).symlink_metadata().is_ok() {
+            let _ = std::fs::remove_file(&info_path);
+            continue;
+        }
+        let body = format!("[Trash Info]\nPath={}\nDeletionDate={}\n", percent_encode(path), utc_date(secs));
+        let moved = f.write_all(body.as_bytes()).map_err(|e| e.to_string()).and_then(|_| std::fs::rename(path, files.join(&candidate)).map_err(|e| e.to_string()));
+        if moved.is_err() {
+            let _ = std::fs::remove_file(&info_path);
+        }
+        return moved;
+    }
+    Err(t!("corbeille pleine de noms identiques", "trash full of identical names").into())
+}
+
+/// Path for a .trashinfo: every byte but the unreserved ones and '/' as %XX.
+#[cfg(unix)]
+fn percent_encode(path: &Path) -> String {
+    use std::os::unix::ffi::OsStrExt;
+    path.as_os_str()
+        .as_bytes()
+        .iter()
+        .map(|&b| if b.is_ascii_alphanumeric() || b"/-_.~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") })
+        .collect()
+}
+
+/// `2026-10-23T14:05:09` (UTC) for `secs` since 1970.
+#[cfg(unix)]
+fn utc_date(secs: u64) -> String {
+    let (days, rest) = ((secs / 86_400) as i64, secs % 86_400);
+    // civil date from the number of days (Howard Hinnant's algorithm)
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!("{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}", rest / 3600, rest / 60 % 60, rest % 60)
+}
+
 /// What a file chooser asks for.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Pick {
@@ -264,6 +374,34 @@ mod tests {
         assert!(!is_wsl_unc(Path::new("/home/odoo")));
         // no "\\?\" prefix, and a missing path is kept as is
         assert_eq!(canon(Path::new("/nonexistent/x")), PathBuf::from("/nonexistent/x"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn trash_info_fields() {
+        assert_eq!(utc_date(0), "1970-01-01T00:00:00");
+        assert_eq!(utc_date(1_792_764_309), "2026-10-23T14:05:09");
+        assert_eq!(percent_encode(Path::new("/home/a b/été.py")), "/home/a%20b/%C3%A9t%C3%A9.py");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn trash_keeps_the_file() {
+        let dir = std::env::temp_dir().join(format!("florm-trash-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::env::set_var("XDG_DATA_HOME", dir.join("data"));
+        for _ in 0..2 {
+            std::fs::write(dir.join("a.py"), "x").unwrap();
+            freedesktop_trash(&dir.join("a.py")).unwrap();
+            assert!(!dir.join("a.py").exists());
+        }
+        let trash = dir.join("data/Trash");
+        assert_eq!(std::fs::read_to_string(trash.join("files/a.py")).unwrap(), "x");
+        assert!(trash.join("files/a.2.py").exists());
+        let info = std::fs::read_to_string(trash.join("info/a.2.py.trashinfo")).unwrap();
+        assert!(info.contains(&format!("Path={}/a.py", dir.display())), "{info}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[cfg(unix)]
