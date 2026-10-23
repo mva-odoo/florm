@@ -195,12 +195,17 @@ pub(super) fn queue_ui(ui: &mut egui::Ui, q: &mut Queue, busy: bool, accent: Col
                 if editable {
                     ui.add(egui::TextEdit::multiline(&mut t.text).desired_rows(1).desired_width(w).layouter(&mut layout_cutting));
                 } else {
-                    let mut text = RichText::new(t.text.lines().next().unwrap_or(""));
+                    // the whole task, on the left like the ones waiting: its first line alone is
+                    // often only the sentence before the list ("Dans florm :")
+                    let mut text = RichText::new(t.text.trim());
                     if t.state == TaskState::Done {
                         text = text.weak();
                     }
                     let tip = if t.note.is_empty() { t.text.clone() } else { format!("{}\n\n{}", t.text, t.note) };
-                    ui.add_sized([w, 18.0], egui::Label::new(text).truncate()).on_hover_text(tip);
+                    ui.allocate_ui_with_layout(egui::vec2(w, 18.0), egui::Layout::top_down(egui::Align::Min), |ui| {
+                        ui.set_width(w);
+                        ui.add(egui::Label::new(text).wrap()).on_hover_text(tip);
+                    });
                 }
                 if t.state == TaskState::Committing {
                     ui.label(RichText::new("commit…").small().weak());
