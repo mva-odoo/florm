@@ -387,6 +387,9 @@ impl App {
     }
 
     pub(super) fn history_ui(&mut self, ui: &mut egui::Ui) {
+        if self.install_guide(ui, crate::tools::Tool::Git, false) {
+            return;
+        }
         let (mut select, mut diff_to_tab, mut close_detail) = (None, false, false);
         let mut diff_click: Option<history::DiffClick> = None;
         let source = match (self.history.wip_sel, &self.history.compare) {

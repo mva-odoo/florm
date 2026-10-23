@@ -83,6 +83,9 @@ Le `.gitignore` est respecté.
 
 ## Git
 
+Florm passe par la commande `git` (votre configuration, vos identifiants). Sans `git`, la vue
+explique comment l'installer (le système est détecté) et reprend toute seule dès qu'elle est trouvée.
+
 - **Ctrl+Shift+G** (ou clic sur la branche dans la barre d'état) : vue Git. En haut la branche,
   pull / push / fetch et le message du commit (Ctrl+Entrée) ; en dessous le graphe, dont les
   premières lignes sont les modifications à indexer / indexées.

@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Tool {
+    Git,
     Gh,
     Claude,
     Docker,
@@ -53,6 +54,7 @@ static FOUND: Mutex<Option<HashMap<Tool, (bool, Instant)>>> = Mutex::new(None);
 impl Tool {
     pub fn program(self) -> &'static str {
         match self {
+            Tool::Git => "git",
             Tool::Gh => "gh",
             Tool::Claude => "claude",
             Tool::Docker => "docker",
@@ -61,6 +63,7 @@ impl Tool {
 
     pub fn title(self) -> &'static str {
         match self {
+            Tool::Git => "Git",
             Tool::Gh => "GitHub CLI (gh)",
             Tool::Claude => "Claude Code (claude)",
             Tool::Docker => "Docker",
@@ -70,6 +73,10 @@ impl Tool {
     /// What Florm does with it.
     pub fn purpose(self) -> &'static str {
         match self {
+            Tool::Git => t!(
+                "Florm affiche l'historique, les branches, les diffs et les commits avec la commande git, et prend ta configuration (nom, email, identifiants) telle quelle.",
+                "Florm shows the history, branches, diffs and commits with the git command, and uses your own configuration (name, email, credentials) as it is."
+            ),
             Tool::Gh => t!(
                 "Florm lit et commente les pull requests avec la commande gh, connectée une fois à ton compte GitHub (pas de token à créer).",
                 "Florm reads and comments on pull requests with the gh command, logged in once to your GitHub account (no token to create)."
@@ -87,6 +94,7 @@ impl Tool {
 
     pub fn docs_url(self) -> &'static str {
         match self {
+            Tool::Git => "https://git-scm.com/downloads",
             Tool::Gh => "https://github.com/cli/cli#installation",
             Tool::Claude => "https://docs.claude.com/en/docs/claude-code/setup",
             Tool::Docker => "https://docs.docker.com/engine/install/",
@@ -121,6 +129,28 @@ impl Tool {
         let note = |label: &str| Step { label: label.to_string(), command: None };
         let mut v = Vec::new();
         match (self, sys) {
+            (Tool::Git, System::Arch) => v.push(step(t!("Installer le paquet", "Install the package"), "sudo pacman -S --needed git")),
+            (Tool::Git, System::Debian) => v.push(step(t!("Installer le paquet", "Install the package"), "sudo apt update && sudo apt install -y git")),
+            (Tool::Git, System::Fedora) => v.push(step(t!("Installer le paquet", "Install the package"), "sudo dnf install -y git")),
+            (Tool::Git, System::Suse) => v.push(step(t!("Installer le paquet", "Install the package"), "sudo zypper install -y git")),
+            (Tool::Git, System::OtherLinux) => v.push(note(t!(
+                "Installe le paquet « git » de ta distribution : voir la documentation.",
+                "Install the “git” package of your distribution: see the documentation."
+            ))),
+            (Tool::Git, System::Mac) => {
+                v.push(step(t!("Installer avec Homebrew", "Install with Homebrew"), "brew install git"));
+                v.push(note(t!(
+                    "Sans Homebrew : la commande « xcode-select --install » installe git avec les outils de ligne de commande d'Apple.",
+                    "Without Homebrew: the command “xcode-select --install” installs git with Apple's command line tools."
+                )));
+            }
+            (Tool::Git, System::Windows) => {
+                v.push(step(t!("Installer avec winget", "Install with winget"), "winget install --id Git.Git -e"));
+                v.push(note(t!(
+                    "Relance Florm après l'installation pour que git soit trouvé.",
+                    "Restart Florm after the installation so that git is found."
+                )));
+            }
             (Tool::Gh, System::Arch) => v.push(step(t!("Installer le paquet", "Install the package"), "sudo pacman -S --needed github-cli")),
             (Tool::Gh, System::Debian) => v.push(step(t!("Installer le paquet", "Install the package"), "sudo apt update && sudo apt install -y gh")),
             (Tool::Gh, System::Fedora) => v.push(step(t!("Installer le paquet", "Install the package"), "sudo dnf install -y gh")),
@@ -155,6 +185,10 @@ impl Tool {
             }
         }
         match self {
+            Tool::Git => {
+                v.push(step(t!("Dire à git ton nom (il apparaît dans les commits)", "Tell git your name (it appears in the commits)"), "git config --global user.name \"Prénom Nom\""));
+                v.push(step(t!("Dire à git ton email", "Tell git your email"), "git config --global user.email \"toi@exemple.com\""));
+            }
             Tool::Gh => v.push(step(t!("Te connecter à GitHub (par le navigateur)", "Log in to GitHub (through the browser)"), "gh auth login")),
             Tool::Claude => v.push(step(t!("Te connecter une fois, puis quitter avec /exit", "Log in once, then quit with /exit"), "claude")),
             Tool::Docker if !matches!(sys, System::Mac | System::Windows) => {
@@ -249,7 +283,7 @@ mod tests {
     #[test]
     fn every_tool_has_steps_everywhere() {
         let all = [System::Arch, System::Debian, System::Fedora, System::Suse, System::OtherLinux, System::Mac, System::Windows];
-        for tool in [Tool::Gh, Tool::Claude, Tool::Docker] {
+        for tool in [Tool::Git, Tool::Gh, Tool::Claude, Tool::Docker] {
             for sys in all {
                 assert!(!tool.steps(sys).is_empty(), "{tool:?} {sys:?}");
             }
