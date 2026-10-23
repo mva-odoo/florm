@@ -243,7 +243,7 @@ fn linux_family(os_release: &str) -> System {
 /// Whether `program` is in the PATH. Else it is looked for where the installers put it (the one
 /// of Claude Code: ~/.local/bin), which then joins the PATH: Florm started from the desktop may
 /// not have it.
-fn locate(program: &str) -> bool {
+pub fn locate(program: &str) -> bool {
     let names: Vec<String> = if cfg!(windows) { [".exe", ".cmd", ".bat"].iter().map(|e| format!("{program}{e}")).collect() } else { vec![program.to_string()] };
     let has = |d: &std::path::Path| names.iter().any(|n| d.join(n).is_file());
     let path = std::env::var_os("PATH").unwrap_or_default();

@@ -450,6 +450,8 @@ impl App {
                     }
                 },
                 JobResult::Shared(op, result) => self.shared_done(op, result),
+                JobResult::RemoteConnected(target, result) => self.remote_connected(target, result),
+                JobResult::RemoteMounted { path, switch, result } => self.remote_mounted(path, switch, result),
                 JobResult::DockerList(list, composes) => self.docker_listed(list, composes),
                 JobResult::DockerFollow { name, result } => self.docker_followed(name, result),
                 JobResult::DockerDone { label, result } => self.docker_done(label, result),

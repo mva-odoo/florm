@@ -282,6 +282,8 @@ impl App {
                 }
             }
             OpenFolderPath => self.open_prompt(Prompt::OpenFolder),
+            RemoteConnect => self.open_overlay(Mode::Remotes),
+            RemoteDisconnect => self.remote_disconnect(),
             CloseTab if self.history.open && !self.prefs.open && !self.split.as_ref().is_some_and(|s| s.shown) => {
                 self.history.open = false;
                 self.history.tab = false;

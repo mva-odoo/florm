@@ -31,6 +31,7 @@ mod pick;
 mod plugins;
 mod project;
 mod rebase;
+mod remote;
 mod search;
 mod shared;
 mod sidebar;

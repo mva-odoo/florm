@@ -53,6 +53,7 @@ impl App {
             item(ui, t!("Nouveau fichier", "New file"), Cmd::NewFile);
             item(ui, t!("Ouvrir un fichier…", "Open a file…"), Cmd::OpenFile);
             item(ui, t!("Ouvrir un dossier…", "Open a folder…"), Cmd::OpenFolder);
+            item(ui, t!("Se connecter (SSH, WSL)…", "Connect (SSH, WSL)…"), Cmd::RemoteConnect);
             item(ui, t!("Changer de projet…", "Switch project…"), Cmd::SwitchProject);
             item(ui, t!("Fermer le dossier", "Close the folder"), Cmd::CloseFolder);
             item(ui, t!("Rouvrir l'onglet fermé", "Reopen closed tab"), Cmd::ReopenClosed);

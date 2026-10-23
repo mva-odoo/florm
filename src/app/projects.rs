@@ -4,11 +4,21 @@ use super::*;
 
 impl App {
     pub(super) fn open_project(&mut self, path: PathBuf) {
+        if crate::remote::needs_mount(&path) {
+            self.remote_mount(path, false);
+            self.reload_plugins();
+            return;
+        }
         self.set_root(path);
         self.restore_session();
     }
 
     pub(super) fn switch_project(&mut self, path: PathBuf) {
+        // a project over SSH: its host is mounted first (an empty folder otherwise)
+        if crate::remote::needs_mount(&path) {
+            self.remote_mount(path, true);
+            return;
+        }
         let path = crate::os::canon(&path);
         if self.root.as_ref() == Some(&path) {
             return;

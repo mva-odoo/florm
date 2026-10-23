@@ -269,7 +269,18 @@ impl Terminal {
     fn spawn(&mut self, ctx: &egui::Context, shell: Option<&str>, cwd: Option<PathBuf>) -> Result<Session, String> {
         let shell = shell.map(str::to_string).filter(|s| !s.trim().is_empty()).unwrap_or_else(default_shell);
         let cwd = cwd.unwrap_or_else(|| self.cwd());
-        let mut s = Session::spawn(&shell, cwd, ctx).map_err(|e| tf!("Impossible de lancer le terminal : {e}", "Cannot start the terminal: {e}"))?;
+        // a folder of another machine: a shell over there (ssh, wsl.exe), in the same folder
+        let started = match crate::remote::terminal_argv(&cwd) {
+            Some(argv) => {
+                let argv: Vec<&str> = argv.iter().map(String::as_str).collect();
+                Session::spawn_argv(&argv, &[], crate::config::home(), ctx, false).map(|mut s| {
+                    s.cwd = cwd;
+                    s
+                })
+            }
+            None => Session::spawn(&shell, cwd, ctx),
+        };
+        let mut s = started.map_err(|e| tf!("Impossible de lancer le terminal : {e}", "Cannot start the terminal: {e}"))?;
         s.id = self.next_id;
         self.next_id += 1;
         Ok(s)

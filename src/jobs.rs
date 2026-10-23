@@ -103,6 +103,10 @@ pub enum JobResult {
     UpdateInstalled { version: String, result: Result<std::path::PathBuf, String> },
     /// Shared configuration synchronized, published or created: its `shared_config` and the message.
     Shared(crate::shared::Op, Result<(String, String), String>),
+    /// Connected to another machine: the folder to start from there.
+    RemoteConnected(crate::remote::Target, Result<PathBuf, String>),
+    /// Host of an SSH project mounted: the project to open (`switch`: from another project).
+    RemoteMounted { path: PathBuf, switch: bool, result: Result<(), String> },
     Plugin { uid: u64, version: u64, title: String, output: Output, result: Result<Vec<String>, String> },
 }
 

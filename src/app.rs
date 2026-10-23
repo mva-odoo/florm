@@ -33,6 +33,7 @@ mod md;
 mod quick_fix;
 mod pulls;
 mod docker_view;
+mod remote_ui;
 mod install_guide;
 mod odoo_tests;
 mod pr_links;
@@ -240,6 +241,8 @@ enum Mode {
     /// Where a symbol is used (language server).
     References(String),
     Bookmarks,
+    /// Machines to connect to (SSH hosts, WSL distributions).
+    Remotes,
     Prompt(Prompt),
 }
 
@@ -258,6 +261,8 @@ enum Action {
     Location(PathBuf, usize),
     /// Insert template n (index in `App::templates`).
     Template(usize),
+    /// Connect to another machine, then choose a folder there.
+    Remote(crate::remote::Target),
 }
 
 struct Item {
@@ -1068,7 +1073,7 @@ impl App {
             app.shared_job(crate::shared::Op::Sync);
         }
         let cwd = std::env::current_dir().unwrap_or_default();
-        let last_project = app.projects.iter().find(|p| p.path.is_dir()).map(|p| p.path.clone());
+        let last_project = app.projects.iter().find(|p| p.path.is_dir() || crate::remote::ssh_location(&p.path).is_some()).map(|p| p.path.clone());
         match arg {
             Some(p) if p.is_dir() => app.open_project(p),
             Some(p) => {

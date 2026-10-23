@@ -133,6 +133,7 @@ L'édition, la recherche, la coloration, l'index des symboles (F12, complétion)
 | Pull requests GitHub | `gh` (GitHub CLI), connecté | Onglet Pull requests, « Créer une PR » |
 | Claude dans l'éditeur | `claude` (Claude Code), connecté | Onglet Claude, ✨ message de commit |
 | Vue Docker | `docker` | Onglet Docker (absent sans docker) |
+| Dossiers distants SSH | `ssh` et `sshfs` (SSHFS-Win sous Windows) | « Se connecter à une autre machine » |
 | Lint Python | `flake8` ou `ruff` (ou `pyflakes`, `pylint`) | Soulignements dans les fichiers Python |
 | Formatage Python | `ruff` | Ctrl+Alt+F, « Corriger automatiquement » |
 | Lint JavaScript | `eslint` (sinon `node`) | Soulignements dans les fichiers JS |
@@ -263,6 +264,19 @@ python = "pyright-langserver --stdio"
 ### Terminal intégré
 
 Il lance votre shell (`$SHELL` sous Linux et macOS, `cmd.exe` ou `%COMSPEC%` sous Windows ; à changer dans Préférences → Terminal). Pour les icônes des prompts (starship, powerline), installez une [Nerd Font](https://www.nerdfonts.com) : Florm la trouve tout seul.
+
+### Se connecter en SSH ou à WSL
+
+Palette de commandes → **Se connecter à une autre machine : SSH, WSL…** La liste propose les hôtes de `~/.ssh/config` (et des fichiers qu'il inclut) et, sous Windows, les distributions WSL. Pour un hôte absent de la liste, tapez `user@hôte` ou `user@hôte:port` puis Entrée. Florm demande ensuite le dossier à ouvrir, en partant de votre dossier personnel là-bas (Tab complète le chemin).
+
+Le dossier s'ouvre comme un projet normal : fichiers, recherche, Git et linters marchent dessus, mais ils tournent sur votre PC. **Le terminal**, lui, ouvre un shell sur l'autre machine, dans le dossier du projet (`ssh -t` ou `wsl.exe --cd`). Le projet reste dans « Projet : changer… » et se reconnecte quand vous le rouvrez.
+
+- **SSH (Linux, macOS)** : Florm monte le `/` du serveur avec `sshfs` dans `~/.local/share/florm/ssh/<hôte>/`. La connexion se fait **sans mot de passe** : il faut une clé acceptée par le serveur (`ssh-copy-id hôte`) ou chargée dans `ssh-agent`. La première fois, connectez-vous à la main avec `ssh hôte` pour accepter la clé du serveur. **Se déconnecter de la machine SSH** ferme le projet et démonte le dossier.
+  Installer sshfs : `sudo pacman -S sshfs`, `sudo apt install sshfs`, `sudo dnf install fuse-sshfs` ; sur macOS `brew install --cask macfuse && brew install gromgit/fuse/sshfs-mac`.
+- **SSH (Windows)** : avec [SSHFS-Win](https://github.com/winfsp/sshfs-win) (`winget install -e --id WinFsp.WinFsp` puis `winget install -e --id SSHFS-Win.SSHFS-Win`), le dossier est `\\sshfs.kr\user@hôte\…` (authentification par la clé `%USERPROFILE%\.ssh\id_rsa`).
+- **WSL (Windows)** : Florm ouvre le dossier par `\\wsl.localhost\<distribution>\…` ; Git y est utilisé tel quel.
+
+Les fichiers passent par le réseau : sur un gros projet distant, la première indexation (Aller au fichier, F12) prend plus de temps qu'en local.
 
 ### Vérifier que tout est en place
 
