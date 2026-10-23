@@ -156,6 +156,9 @@ pub struct Document {
     /// Inline blame annotation: (line, document version, text).
     pub blame: Option<(usize, u64, String)>,
     pub mtime: Option<SystemTime>,
+    /// The file was changed or deleted by another program while this one had unsaved changes:
+    /// saving would lose the other version, the editor asks first.
+    pub disk_change: Option<DiskChange>,
     pub crlf: bool,
     /// Encoding of the file on disk: kept when saving.
     pub encoding: Encoding,
@@ -424,6 +427,7 @@ impl Document {
             quick_fix_request: false,
             blame: None,
             mtime: None,
+            disk_change: None,
             crlf: false,
             encoding: Encoding::Utf8,
             tab_size: tab_size.max(1),
@@ -530,6 +534,7 @@ impl Document {
         write_atomic(&path, &bytes).map_err(|e| format!("{}: {e}", path.display()))?;
         self.saved_content = self.content_id;
         self.mtime = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+        self.disk_change = None;
         Ok(())
     }
 
@@ -575,6 +580,7 @@ impl Document {
         }
         self.saved_content = self.content_id;
         self.mtime = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+        self.disk_change = None;
         Ok(())
     }
 
@@ -2192,6 +2198,13 @@ impl Document {
         self.primary = 0;
         self.edit(EditKind::Other, vec![Edit { start: a, end: b, text: text.to_string(), anchor: 0, head: n }]);
     }
+}
+
+/// What another program did to the file of a document with unsaved changes.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DiskChange {
+    Changed,
+    Deleted,
 }
 
 /// Writes `bytes` to `path` through a temporary file renamed over it: a crash or a full disk in

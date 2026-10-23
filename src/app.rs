@@ -364,6 +364,8 @@ enum Confirm {
     DiffOp { msg: String, label: String, op: DiffOp },
     /// Deleting a stash: (its commit, what it is).
     DropStash(String, String),
+    /// Saving a document whose file was changed by another program meanwhile.
+    Overwrite(u64),
 }
 
 /// Change to the files or the index requested from a diff.

@@ -14,6 +14,12 @@ impl App {
             self.open_prompt(Prompt::SaveAs);
             return false;
         }
+        // another program changed the file: saving would lose its version without a word
+        if doc.disk_change == Some(document::DiskChange::Changed) {
+            self.active = idx;
+            self.confirm = Some(Confirm::Overwrite(doc.uid));
+            return false;
+        }
         if self.settings.format_on_save && doc.path.as_deref().and_then(lint::lang_of) == Some("python") {
             let path = doc.path.clone().unwrap();
             let root = self.repo_for(&path).or_else(|| self.root.clone());

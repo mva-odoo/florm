@@ -717,6 +717,13 @@ impl App {
                 (t!("Changer de projet", "Switch project"), tf!("Des fichiers ne sont pas enregistrés. Ouvrir « {} » ?", "Some files are not saved. Open “{}”?", p.display()))
             }
             Confirm::DiffOp { msg, .. } => (t!("Annuler le changement", "Undo the change"), msg.clone()),
+            Confirm::Overwrite(uid) => {
+                let name = self.docs.iter().find(|d| d.uid == *uid).map(|d| d.title()).unwrap_or_default();
+                (
+                    t!("Fichier modifié ailleurs", "File changed elsewhere"),
+                    tf!("« {name} » a été modifié par un autre programme depuis son ouverture.\nEnregistrer remplace cette version par la tienne.", "“{name}” was changed by another program since it was opened.\nSaving replaces that version with yours."),
+                )
+            }
             Confirm::DropStash(_, what) => (t!("Supprimer le stash", "Delete the stash"), tf!("Supprimer définitivement « {what} » ?\nSes changements seront perdus.", "Delete “{what}” for good?\nIts changes will be lost.")),
             Confirm::ReplaceInFiles => {
                 let n = self.search.hit_count();
@@ -747,6 +754,7 @@ impl App {
                         Confirm::ReplaceInFiles => (t!("Remplacer", "Replace"), None),
                         Confirm::DiffOp { .. } => (t!("Oui, annuler le changement", "Yes, undo the change"), None),
                         Confirm::DropStash(..) => (t!("Supprimer", "Delete"), None),
+                        Confirm::Overwrite(_) => (t!("Écraser avec ma version", "Overwrite with mine"), Some(t!("Recharger la version du disque", "Reload the version on disk"))),
                     };
                     if ui.button(yes).clicked() {
                         choice = Some(1);
@@ -796,6 +804,16 @@ impl App {
             }
             (Confirm::Quit, _) => self.restart = None,
             (Confirm::SwitchProject(p), 2) => self.do_switch(p),
+            (Confirm::Overwrite(uid), 1 | 2) => {
+                if let Some(i) = self.docs.iter().position(|d| d.uid == uid) {
+                    if choice == 1 {
+                        self.docs[i].disk_change = None;
+                        self.save(i);
+                    } else if let Err(e) = self.docs[i].reload_from_disk() {
+                        self.set_error(tf!("Rechargement impossible : {e}", "Cannot reload: {e}"));
+                    }
+                }
+            }
             (Confirm::ReplaceInFiles, 1) => self.replace_in_files(None),
             (Confirm::Delete(p), 1 | 2) => {
                 let r = if choice == 1 {

@@ -1248,6 +1248,7 @@ impl App {
             if self.active < self.docs.len() {
                 self.breadcrumbs_ui(ui, self.active, 0);
                 self.conflict_bar(ui, self.active, 0);
+                self.disk_bar(ui, self.active, 0);
             }
             if self.active < self.docs.len() {
                 editor_resp = self.doc_body(ui, self.active, editor_id(), true);
@@ -1526,18 +1527,34 @@ impl App {
             let mut msgs = Vec::new();
             for d in self.docs.iter_mut() {
                 let Some(p) = d.path.clone() else { continue };
-                let Ok(m) = std::fs::metadata(&p).and_then(|m| m.modified()) else { continue };
-                if d.mtime.is_some() && d.mtime != Some(m) {
-                    if d.is_dirty() {
-                        d.mtime = Some(m);
-                        msgs.push(tf!("{} a été modifié sur le disque", "{} was changed on disk", d.title()));
-                    } else if d.reload_from_disk().is_ok() {
-                        msgs.push(tf!("{} rechargé depuis le disque", "{} reloaded from disk", d.title()));
+                if d.mtime.is_none() {
+                    continue;
+                }
+                match std::fs::metadata(&p).and_then(|m| m.modified()) {
+                    Ok(m) if d.mtime != Some(m) => {
+                        if d.is_dirty() {
+                            // a bar above the text asks what to keep; Ctrl+S asks too
+                            d.mtime = Some(m);
+                            d.disk_change = Some(document::DiskChange::Changed);
+                        } else if d.reload_from_disk().is_ok() {
+                            msgs.push(tf!("{} rechargé depuis le disque", "{} reloaded from disk", d.title()));
+                        }
                     }
+                    Ok(_) => {
+                        // back on disk (a checkout that removed then restored it)
+                        if d.disk_change == Some(document::DiskChange::Deleted) {
+                            d.disk_change = None;
+                        }
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound && d.disk_change.is_none() => {
+                        d.disk_change = Some(document::DiskChange::Deleted);
+                    }
+                    Err(_) => {}
                 }
             }
-            for m in msgs {
-                self.set_status(m);
+            // several files at once (a checkout): one message for all, none hidden by the next
+            if !msgs.is_empty() {
+                self.set_status(msgs.join(" · "));
             }
         }
         ctx.request_repaint_after(every);

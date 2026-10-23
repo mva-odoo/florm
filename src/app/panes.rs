@@ -76,6 +76,7 @@ impl App {
         let i = self.pane_doc(pane)?;
         self.breadcrumbs_ui(ui, i, pane);
         self.conflict_bar(ui, i, pane);
+        self.disk_bar(ui, i, pane);
         let focused = pane == self.focused_pane;
         let id = if focused { editor_id() } else { editor_view::other_editor_id() };
         let r = self.doc_body(ui, i, id, focused)?;
@@ -405,6 +406,43 @@ impl App {
                     }
                 }
             }
+        }
+    }
+
+    /// Bar above a file changed or deleted by another program while it had unsaved changes:
+    /// which version to keep (saving without choosing asks first).
+    pub(super) fn disk_bar(&mut self, ui: &mut egui::Ui, i: usize, pane: u8) {
+        let Some(change) = self.docs.get(i).and_then(|d| d.disk_change) else { return };
+        let (mut reload, mut keep, mut close) = (false, false, false);
+        let bg = icons::mix(ui.visuals().panel_fill, warn(), 0.15);
+        egui::TopBottomPanel::top(egui::Id::new("disk_change").with(pane))
+            .frame(egui::Frame::none().fill(bg).inner_margin(egui::Margin::symmetric(10.0, 4.0)))
+            .show_inside(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    match change {
+                        document::DiskChange::Changed => {
+                            ui.label(RichText::new(t!("⚠ Ce fichier a été modifié par un autre programme", "⚠ This file was changed by another program")).color(warn()).strong());
+                            reload = ui.button(t!("Recharger la version du disque", "Reload the version on disk")).on_hover_text(t!("Tes changements non enregistrés sont remplacés (Ctrl+Z pour les retrouver)", "Your unsaved changes are replaced (Ctrl+Z to get them back)")).clicked();
+                            keep = ui.button(t!("Garder la mienne", "Keep mine")).on_hover_text(t!("Le prochain enregistrement écrase la version du disque", "The next save overwrites the version on disk")).clicked();
+                        }
+                        document::DiskChange::Deleted => {
+                            ui.label(RichText::new(t!("⚠ Ce fichier a été supprimé du disque", "⚠ This file was deleted from the disk")).color(warn()).strong());
+                            close = ui.button(t!("Fermer l'onglet", "Close the tab")).clicked();
+                            keep = ui.button(t!("Le garder", "Keep it")).on_hover_text(t!("Ctrl+S le recrée", "Ctrl+S creates it again")).clicked();
+                        }
+                    }
+                });
+            });
+        if reload {
+            if let Err(e) = self.docs[i].reload_from_disk() {
+                self.set_error(tf!("Rechargement impossible : {e}", "Cannot reload: {e}"));
+            }
+        }
+        if keep {
+            self.docs[i].disk_change = None;
+        }
+        if close {
+            self.close_tab(i, false);
         }
     }
 
