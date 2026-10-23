@@ -116,6 +116,7 @@ impl App {
             search_include: self.search.q.include.clone(),
             search_exclude: self.search.q.exclude.clone(),
             recent: self.index.recent.clone(),
+            breakpoints: self.debug_session_breakpoints(),
         };
         (session, backups)
     }
@@ -131,8 +132,10 @@ impl App {
 
     fn restore_session(&mut self) {
         self.index.recent.clear();
+        self.debug_set_breakpoints(Vec::new());
         let Some(root) = self.root.clone() else { return };
         let Some(s) = project::load_session(&root) else { return };
+        self.debug_set_breakpoints(s.breakpoints.clone());
         self.index.recent = s.recent.iter().filter(|p| p.is_file()).cloned().collect();
         if !s.search_include.is_empty() {
             self.search.q.include = s.search_include;

@@ -87,6 +87,8 @@ struct Session {
     embedded: bool,
     /// Program run instead of a shell (started again by Enter once it ended).
     cmd: Option<Vec<String>>,
+    /// Its program cannot be started again (the program of a debugging session).
+    once: bool,
     /// Output kept as text (the end of it), for those who read it (the summary of tests).
     capture: Option<Arc<Mutex<Vec<u8>>>>,
     /// Folders of a container and where they are here: (container folder, folder here), for the
@@ -114,6 +116,11 @@ impl Session {
     /// Runs `argv` in a new pseudo-terminal; `prefill` is shown before its output, which is also
     /// kept as text when `capture`.
     fn spawn_argv(argv: &[&str], prefill: &[u8], cwd: PathBuf, ctx: &egui::Context, capture: bool) -> Result<Session, String> {
+        Self::spawn_argv_env(argv, prefill, cwd, ctx, capture, &[])
+    }
+
+    /// `spawn_argv` with these variables in the environment of the program.
+    fn spawn_argv_env(argv: &[&str], prefill: &[u8], cwd: PathBuf, ctx: &egui::Context, capture: bool, env: &[(String, String)]) -> Result<Session, String> {
         let shell = argv.join(" ");
         let size = (24, 80);
         let pair = native_pty_system()
@@ -125,6 +132,9 @@ impl Session {
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
         cmd.env("TERM_PROGRAM", "florm");
+        for (k, v) in env {
+            cmd.env(k, v);
+        }
         let child = pair.slave.spawn_command(cmd).map_err(|e| format!("{shell} : {e}"))?;
         drop(pair.slave);
         let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
@@ -172,7 +182,7 @@ impl Session {
             .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| shell.to_string());
-        Ok(Session { id: 0, docked: false, embedded: false, cmd: None, capture, mounts: Vec::new(), name, parser, writer, master: pair.master, child, exited, typeahead, cwd, size, sel: None })
+        Ok(Session { id: 0, docked: false, embedded: false, cmd: None, once: false, capture, mounts: Vec::new(), name, parser, writer, master: pair.master, child, exited, typeahead, cwd, size, sel: None })
     }
 
     fn write(&mut self, bytes: &[u8]) {
@@ -508,6 +518,21 @@ impl Terminal {
         Ok(id)
     }
 
+    /// Runs `argv` once in a terminal meant for an editor tab, with these variables (the program
+    /// of a debugging session: Enter does not start it again). Returns its id.
+    pub fn open_once_tab(&mut self, ctx: &egui::Context, argv: &[String], cwd: Option<PathBuf>, env: &[(String, String)]) -> Result<u64, String> {
+        let mut s = Session::spawn_argv_env(&argv.iter().map(String::as_str).collect::<Vec<_>>(), &[], cwd.unwrap_or_else(|| self.cwd()), ctx, true, env)
+            .map_err(|e| format!("{} : {e}", argv.first().map_or("", String::as_str)))?;
+        s.id = self.next_id;
+        s.docked = true;
+        s.once = true;
+        self.next_id += 1;
+        let id = s.id;
+        self.sessions.push(s);
+        self.fix_active();
+        Ok(id)
+    }
+
     /// The output kept by session `id` (`open_command_tab`), without its colors.
     pub fn output(&self, id: u64) -> Option<String> {
         let s = self.sessions.iter().find(|s| s.id == id)?;
@@ -708,7 +733,7 @@ impl Terminal {
                     Event::Cut if !exited => s.write(b"\x18"),
                     Event::Key { key, pressed: true, modifiers, .. } => {
                         if exited {
-                            if key == Key::Enter {
+                            if key == Key::Enter && !s.once {
                                 outcome = Some(GridAct::Restart);
                             }
                         } else if let Some(b) = key_bytes(key, modifiers, app_cursor) {
@@ -912,7 +937,7 @@ fn paint(ui: &egui::Ui, rect: Rect, pad: f32, rh: f32, cw: f32, font: &FontId, s
         painter.text(
             Pos2::new(rect.left() + pad, y),
             Align2::LEFT_TOP,
-            t!("[processus terminé — Entrée pour relancer un terminal]", "[process ended — Enter to start a terminal again]"),
+            if s.once { t!("[processus terminé]", "[process ended]") } else { t!("[processus terminé — Entrée pour relancer un terminal]", "[process ended — Enter to start a terminal again]") },
             font.clone(),
             crate::highlight::yellow(),
         );

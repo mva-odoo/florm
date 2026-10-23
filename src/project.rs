@@ -35,6 +35,18 @@ pub struct Session {
     /// Files opened lately, most recent first (go to file shows them first).
     #[serde(default)]
     pub recent: Vec<PathBuf>,
+    /// Breakpoints of the debugger.
+    #[serde(default)]
+    pub breakpoints: Vec<SessionBreakpoint>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct SessionBreakpoint {
+    pub path: PathBuf,
+    /// 0-based.
+    pub line: usize,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub condition: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -197,6 +209,7 @@ mod tests {
             search_include: "*.py".into(),
             files: vec![SessionFile { path: "/a/b.py".into(), line: 3, col: 4, backup: Some("doc0.txt".into()), bookmarks: vec![2, 7] }],
             recent: vec!["/a/b.py".into()],
+            breakpoints: vec![SessionBreakpoint { path: "/a/b.py".into(), line: 4, condition: "x > 1".into() }, SessionBreakpoint { path: "/a/b.py".into(), line: 9, condition: String::new() }],
             ..Default::default()
         };
         let back: Session = toml::from_str(&toml::to_string(&s).unwrap()).unwrap();
@@ -204,6 +217,7 @@ mod tests {
         assert_eq!(back.files[0].backup.as_deref(), Some("doc0.txt"));
         assert_eq!(back.files[0].bookmarks, [2, 7]);
         assert_eq!(back.recent.len(), 1);
+        assert_eq!(back.breakpoints, s.breakpoints);
         // sessions written before hot exit still load
         let old: Session = toml::from_str("active = 0\n[[files]]\npath = \"/x\"\nline = 1\ncol = 2\n").unwrap();
         assert!(old.files[0].backup.is_none() && old.files[0].bookmarks.is_empty() && old.recent.is_empty());

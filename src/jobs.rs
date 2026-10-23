@@ -98,6 +98,12 @@ pub enum JobResult {
     DockerDone { label: String, result: Result<(), String> },
     /// Odoo tests ready to run in a container.
     TestsReady { tags: String, result: Result<crate::docker::Exec, String> },
+    /// The debugger checked what it needs and found the program (or not).
+    DebugReady { cfg: crate::dap::Config, title: String, result: Result<crate::dap::Prepared, crate::dap::Failure> },
+    /// The running containers, for the debugger.
+    DebugContainers(Result<Vec<String>, String>),
+    /// A file of a container read for the debugger: its path there, the line to show.
+    DebugSource { remote: String, line: usize, result: Result<String, String> },
     Update { manual: bool, result: Result<Option<crate::update::Update>, String> },
     /// Update downloaded and installed: the program to start for the restart.
     UpdateInstalled { version: String, result: Result<std::path::PathBuf, String> },

@@ -133,6 +133,7 @@ L'édition, la recherche, la coloration, l'index des symboles (F12, complétion)
 | Pull requests GitHub | `gh` (GitHub CLI), connecté | Onglet Pull requests, « Créer une PR » |
 | Claude dans l'éditeur | `claude` (Claude Code), connecté | Onglet Claude, ✨ message de commit |
 | Vue Docker | `docker` | Onglet Docker (absent sans docker) |
+| Débogueur | `debugpy` (Python), là où tourne le programme | Points d'arrêt, variables, pas à pas (F5) ; Florm propose de l'installer |
 | Dossiers distants SSH | `ssh` et `sshfs` (SSHFS-Win sous Windows) | « Se connecter à une autre machine » |
 | Lint Python | `flake8` ou `ruff` (ou `pyflakes`, `pylint`) | Soulignements dans les fichiers Python |
 | Formatage Python | `ruff` | Ctrl+Alt+F, « Corriger automatiquement » |
@@ -311,6 +312,7 @@ flake8 --version || ruff --version
 | Pull requests GitHub | Ctrl+Alt+R. Par `gh` (sans token : `gh auth login` une fois) : liste des PR, description, commits, diff, commentaires sous les lignes du diff comme sur GitHub (aussi dans la marge de l'éditeur), répondre, résoudre, commenter une ligne, **suggestions appliquées** dans les fichiers en un clic, checkout |
 | Claude | Ctrl+Alt+C : conversation avec Claude Code dans le panneau du bas, ou dans un onglet avec ⇱ (commande `claude`, sans clé), et à côté **la revue de ce qu'il a changé, bloc par bloc : garder ou rejeter**. ✨ dans la vue Git : message de commit proposé d'après le diff et la demande. **File de tâches** : une liste de demandes (+ File) envoyées une à une, un commit après chacune si coché. **Moins de tokens** : questions à choix avant de coder, définitions citées jointes, un commit comme contexte, conversation neuve par tâche, modèle choisi pour la file ou par tâche |
 | Docker | Bouton Docker en bas de la barre latérale (clic : en grand, clic droit : dans le panneau du bas) : les conteneurs par projet compose avec leur état (● vert : en marche), ▶ ■ ⟳ par conteneur ou pour tout le projet. **La poignée à points** à gauche : glisser un conteneur pour changer l'ordre (gardé) ; **▶ tout** démarre dans cet ordre, chacun une fois le précédent prêt (healthy), **■ tout** arrête dans l'ordre inverse. **⬆** (en-tête du projet) lance `docker compose up -d` dans un onglet : crée et démarre tous les services, même ceux sans conteneur. Un fichier compose (`compose.yaml`, `docker-compose.yml`…) du dossier ouvert ou d'un de ses sous-dossiers dont aucun conteneur n'existe encore apparaît en haut de la liste avec **⬆ compose up**. À droite, les derniers logs puis la suite en direct. Si le service a `stdin_open: true` et `tty: true`, Florm s'y **attache** : un `ipdb` arrêté dans le conteneur se pilote là, sans `docker attach`. **>_ Terminal** : un shell dans le conteneur (`docker exec`). **🧪 Tests** : tags Odoo (`:MaClasse`, `/mon_module`…) remplis d'après le curseur, les derniers gardés, lancés par `docker compose exec <service> odoo --stop-after-init --test-enable --test-tags …` (commande modifiable) dans un onglet ; le résumé (« ✓ 12 tests ») dans la barre d'état. **Ctrl+F6** relance les derniers tests de n'importe où, **Ctrl+Maj+F6** le test sous le curseur, **▶** dans la marge des fichiers de test lance celui-là. **Ctrl+clic** sur une ligne `File "…", line N` d'un terminal ouvre le fichier |
+| Débogueur | Comme VS Code, pour Python et Odoo, **sur cet ordinateur ou dans un conteneur Docker** (vue Débogage, F5) : point d'arrêt d'un clic à gauche des numéros de ligne (ou F9), avec condition ; le programme s'arrête là, la ligne est surlignée en jaune, les **variables** (dépliables : `self`, ses champs…), l'**espion**, la **pile d'appels** (clic : ce cadre) et une **console** qui évalue du Python dans le cadre en pause (`self.env['res.partner'].search([])`). La valeur d'une variable au survol. F10 / F11 / Maj+F11 pas à pas, F5 continuer, F6 pause, Maj+F5 arrêter. **Lancer** : la commande (par défaut l'`odoo-bin` du dossier) tourne dans un onglet de terminal. **Docker** : le débogueur (debugpy) tourne dans le conteneur par `docker exec`, aucun port à publier ; les fichiers montés s'ouvrent ici, ceux de l'image en lecture seule. **S'attacher** à un Odoo lancé avec `python3 -m debugpy --listen 5678 …` (aussi dans un conteneur). **Clic droit sur le ▶ d'un test** (ou Alt+F6) : déboguer ce test Odoo. Exceptions : non interceptées, toutes, hors de mon code. Les points d'arrêt sont gardés avec le projet |
 | Aide | Aide → Guide de Florm : exemples de filtres de recherche, Git, terminal, modèles |
 | Complétion, définition, survol, usages | Comme Sublime, sans rien installer : le projet est indexé en arrière-plan (classes, fonctions, méthodes, modèles Odoo `_name`, champs, records XML) ; F12 va à la définition (plusieurs résultats : liste des fichiers ; marche aussi sur `'sale.order'` ou `'module.xml_id'`) et les suggestions proposent les mots des fichiers ouverts et les symboles du projet. Avec un serveur de langage (pyright ou pylsp — bouton « installer pylsp » dans la barre d'état —, typescript-language-server, rust-analyzer, gopls, clangd) : complétion intelligente, définition exacte, F2 renommer dans tout le projet. Commande par langage dans `[lsp_servers]`. **Survol** d'un symbole : sa documentation (serveur de langage) ou ses définitions dans le projet. **Maj+F12** : ses usages (serveur de langage, sinon le mot entier dans le dossier) |
 | Symboles et fil d'Ariane | Ctrl+R : classes, fonctions, méthodes, records / templates Odoo, titres Markdown. Au-dessus de l'éditeur : `dossier › fichier › Classe › méthode`, cliquable |
@@ -357,6 +359,10 @@ flake8 --version || ruff --version
 | Ctrl+Alt+G | Graphe des commits |
 | Ctrl+Alt+R | Pull requests GitHub |
 | Ctrl+F6 / Ctrl+Maj+F6 | Tests Odoo : relancer les derniers / lancer celui sous le curseur (conteneur Docker) |
+| F5 / Maj+F5 / Ctrl+Maj+F5 | Débogage : démarrer ou continuer / arrêter / redémarrer |
+| F9 | Point d'arrêt sur la ligne |
+| F10 / F11 / Maj+F11 / F6 | Pas à pas principal / détaillé / sortant, pause |
+| Alt+F6 | Déboguer le test Odoo sous le curseur |
 | Ctrl+Alt+C | Claude |
 | Ctrl+Alt+D | Diff git dans l'éditeur (vert / rouge) |
 | Ctrl+Alt+F | Formater le fichier Python, ou les lignes sélectionnées (ruff) |
@@ -373,7 +379,7 @@ flake8 --version || ruff --version
 | Ctrl+J | Joindre les lignes |
 | Ctrl+Entrée / Ctrl+Shift+Entrée | Insérer une ligne après / avant |
 | Ctrl+M | Aller au crochet correspondant |
-| F9 | Trier les lignes |
+| Ctrl+F9 | Trier les lignes |
 | Ctrl+K Ctrl+B | Afficher/masquer la barre latérale |
 | Ctrl+K Ctrl+U / Ctrl+K Ctrl+L | Majuscules / minuscules |
 | Ctrl+S, Ctrl+Shift+S, Ctrl+Alt+S | Enregistrer, enregistrer sous, tout enregistrer |

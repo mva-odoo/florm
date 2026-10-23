@@ -88,6 +88,8 @@ impl App {
         match self.docs.get(i)?.view {
             document::View::Text => {
                 let tests = self.test_marks(i);
+                let exec_line = self.debug_exec_line(i);
+                let breakpoints = self.docs[i].path.as_deref().is_some_and(crate::app::debugger::debuggable);
                 let matches: &[(usize, usize)] = if focused && self.find.open { &self.find.matches } else { &[] };
                 let doc = self.docs.get_mut(i)?;
                 let s = &self.settings;
@@ -100,10 +102,16 @@ impl App {
                     rulers: &s.rulers,
                     notes: doc.path.as_ref().and_then(|p| self.pr.notes.get(p)).map_or(&[], |v| &v[..]),
                     tests: &tests,
+                    breakpoints,
+                    exec_line,
                 };
                 let r = editor_view::show(ui, doc, &self.hl, &opts, matches, id);
                 if let Some(t) = doc.test_pick.take() {
-                    self.run_tests(t);
+                    if std::mem::take(&mut doc.test_debug) {
+                        self.debug_test(t);
+                    } else {
+                        self.run_tests(t);
+                    }
                 }
                 Some(r)
             }
@@ -130,6 +138,10 @@ impl App {
             }
             document::View::Docker => {
                 egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.docker_ui(ui));
+                None
+            }
+            document::View::Debug => {
+                egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.debug_ui(ui));
                 None
             }
             document::View::Help => {

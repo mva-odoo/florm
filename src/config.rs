@@ -89,6 +89,22 @@ pub struct Settings {
     /// Order of the services of each compose project in the Docker view (▶ tout starts them in
     /// it, ■ tout stops them the other way): project → services.
     pub docker_order: HashMap<String, Vec<String>>,
+    /// Debugger: the container the program runs in, empty for this computer.
+    pub debug_target: String,
+    /// "launch" (Florm starts the program) or "attach" (it listens with debugpy).
+    pub debug_mode: String,
+    /// Program launched here and its arguments; empty: the odoo-bin of the folder.
+    pub debug_command: String,
+    /// Program launched in the container; empty: `debug::DOCKER_COMMAND`.
+    pub debug_docker_command: String,
+    /// Python of this computer (with debugpy).
+    pub debug_python: String,
+    /// Attach: the port debugpy listens on (in the container, for Docker).
+    pub debug_port: u16,
+    /// Exceptions the debugger stops on: "raised", "uncaught", "userUnhandled".
+    pub debug_exceptions: Vec<String>,
+    /// Step through the code of the project only, not Odoo's nor the libraries'.
+    pub debug_just_my_code: bool,
     /// Shared configuration (settings.toml, templates/, themes/, plugins/) in a git repository:
     /// "login" (login/florm-config on GitHub), "owner/repo" or a git address; empty: none.
     pub shared_config: String,
@@ -155,6 +171,14 @@ impl Default for Settings {
             odoo_test_history: Vec::new(),
             odoo_test_container: String::new(),
             docker_order: HashMap::new(),
+            debug_target: String::new(),
+            debug_mode: "launch".into(),
+            debug_command: String::new(),
+            debug_docker_command: String::new(),
+            debug_python: if cfg!(windows) { "python".into() } else { "python3".into() },
+            debug_port: 5678,
+            debug_exceptions: vec!["uncaught".into()],
+            debug_just_my_code: false,
             shared_config: String::new(),
         }
     }
@@ -236,6 +260,10 @@ check_updates = true
 # tests Odoo dans un conteneur (vue Docker → 🧪 Tests) : commande lancée, {tags} = les tags
 # vide = "odoo --stop-after-init --test-enable --test-tags {tags}"
 odoo_test_command = ""
+# débogueur (F5, vue Débogage) : programme lancé sur cet ordinateur (vide = l'odoo-bin du dossier)
+# et dans un conteneur (vide = "odoo --workers 0 --http-port 8070")
+debug_command = ""
+debug_docker_command = ""
 # configuration partagée entre ordinateurs : un dépôt GitHub avec settings.toml, templates/,
 # themes/ et plugins/ ; "login" (= login/florm-config), "owner/repo" ou une adresse git
 shared_config = ""

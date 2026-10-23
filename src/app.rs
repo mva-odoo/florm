@@ -33,6 +33,7 @@ mod md;
 mod quick_fix;
 mod pulls;
 mod docker_view;
+mod debugger;
 mod remote_ui;
 mod install_guide;
 mod odoo_tests;
@@ -164,11 +165,12 @@ enum BottomTab {
     Git,
     Pulls,
     Docker,
+    Debug,
 }
 
 impl BottomTab {
     /// The views of the bottom panel: its tabs, and the buttons at the bottom of the sidebar.
-    const ALL: [(BottomTab, icons::ViewIcon, &'static str); 8] = [
+    const ALL: [(BottomTab, icons::ViewIcon, &'static str); 9] = [
         (BottomTab::Search, icons::ViewIcon::Search, "Recherche"),
         (BottomTab::Problems, icons::ViewIcon::Problems, "Problèmes"),
         (BottomTab::Terminal, icons::ViewIcon::Terminal, "Terminal"),
@@ -177,6 +179,7 @@ impl BottomTab {
         (BottomTab::Git, icons::ViewIcon::Git, "Git"),
         (BottomTab::Pulls, icons::ViewIcon::PullRequests, "GitHub"),
         (BottomTab::Docker, icons::ViewIcon::Docker, "Docker"),
+        (BottomTab::Debug, icons::ViewIcon::Debug, "Débogage"),
     ];
 
     /// The views offered. Docker is always there: without the docker command, its view explains
@@ -187,6 +190,7 @@ impl BottomTab {
                 "Recherche" => t!(l, "Search"),
                 "Problèmes" => t!(l, "Problems"),
                 "Sortie" => t!(l, "Output"),
+                "Débogage" => t!(l, "Debug"),
                 _ => l,
             };
             (t, i, l)
@@ -812,6 +816,8 @@ pub struct App {
     pr: pulls::PrUi,
     docker: docker_view::DockerUi,
     tests: odoo_tests::Tests,
+    /// The debugger (F5): its session, the breakpoints of the project.
+    debug: debugger::DebugUi,
     /// Pull requests of branches and commits, creation of one.
     gh: pr_links::GhUi,
     /// Conversation with Claude Code and review of its changes: the one shown last.
@@ -941,11 +947,16 @@ impl Default for PrefsUi {
 
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, arg: Option<PathBuf>) -> Self {
+        Self::with_ctx(&cc.egui_ctx, arg)
+    }
+
+    /// `new` with only the egui context (the tests make an app without a window).
+    fn with_ctx(egui_ctx: &egui::Context, arg: Option<PathBuf>) -> Self {
         let (settings, settings_err) = config::load();
         // Florm has its own palette: egui must not switch to its light / dark style with the system
         // theme (Windows), and both styles get the same settings
-        cc.egui_ctx.set_theme(egui::ThemePreference::Dark);
-        cc.egui_ctx.all_styles_mut(|s| {
+        egui_ctx.set_theme(egui::ThemePreference::Dark);
+        egui_ctx.all_styles_mut(|s| {
             use egui::{FontId, TextStyle};
             s.spacing.item_spacing = egui::vec2(8.0, 5.0);
             s.spacing.button_padding = egui::vec2(8.0, 3.0);
@@ -966,9 +977,9 @@ impl App {
             hl.set_theme(&settings.theme);
         }
         hl.set_overrides(highlight::parse_hex(&settings.accent_color), settings.text_softness);
-        apply_visuals(&cc.egui_ctx, hl.visuals());
-        cc.egui_ctx.set_fonts(crate::fonts::definitions(&settings.editor_font, &settings.ui_font));
-        egui_extras::install_image_loaders(&cc.egui_ctx);
+        apply_visuals(egui_ctx, hl.visuals());
+        egui_ctx.set_fonts(crate::fonts::definitions(&settings.editor_font, &settings.ui_font));
+        egui_extras::install_image_loaders(egui_ctx);
         let (keymap, _) = Keymap::new(&settings.keys, &[]);
         let mut app = App {
             hl,
@@ -991,7 +1002,7 @@ impl App {
             search: SearchUi::default(),
             projects: project::load_list(),
             last_session_save: Instant::now(),
-            jobs: Jobs::new(cc.egui_ctx.clone()),
+            jobs: Jobs::new(egui_ctx.clone()),
             git: GitUi::default(),
             term: Terminal::new(),
             install_term: None,
@@ -1032,13 +1043,14 @@ impl App {
             pr: Default::default(),
             docker: Default::default(),
             tests: Default::default(),
+            debug: Default::default(),
             gh: Default::default(),
             claude: Default::default(),
             claude_others: Vec::new(),
             claude_saved: claude_ui::load_saved(),
             claude_loaded: false,
             claude_limits: claude_ui::load_limits(),
-            egui_ctx: cc.egui_ctx.clone(),
+            egui_ctx: egui_ctx.clone(),
             title_bar_on: crate::os::draws_title_bar(settings.custom_title_bar, settings.show_menu_bar),
             tree_scroll: None,
             tree_nav: sidebar::Nav::default(),
@@ -1317,6 +1329,7 @@ impl eframe::App for App {
             self.last_active_path = cur;
         }
         self.lsp_frame(ctx);
+        self.debug_frame();
         self.update_hover(ctx);
         self.completion_keys(ctx);
         self.quick_fix_keys(ctx);
@@ -1409,6 +1422,7 @@ fn doc_tab(d: &Document) -> (TabIcon<'_>, String) {
         View::Welcome => Some(ViewIcon::Welcome),
         View::PullRequests => Some(ViewIcon::PullRequests),
         View::Docker => Some(ViewIcon::Docker),
+        View::Debug => Some(ViewIcon::Debug),
         View::Claude => Some(ViewIcon::Claude),
         View::Text | View::Image | View::Preview(_) => None,
     };
@@ -1841,6 +1855,7 @@ mod font_tests {
             include_str!("app/search_panel.rs"),
             include_str!("app/settings.rs"),
             include_str!("app/split_commit.rs"),
+            include_str!("app/debugger.rs"),
             include_str!("editor_view.rs"),
             include_str!("history.rs"),
             include_str!("sidebar.rs"),

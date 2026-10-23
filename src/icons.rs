@@ -178,6 +178,7 @@ pub enum ViewIcon {
     Split,
     Problems,
     Output,
+    Debug,
 }
 
 /// Claude's color (its asterisk), whatever the theme.
@@ -260,6 +261,20 @@ pub fn paint_view(painter: &Painter, center: Pos2, icon: ViewIcon, color: Color3
             for (k, w) in [7.0_f32, 5.0, 6.0].into_iter().enumerate() {
                 let y = r.top() + 3.5 + k as f32 * 3.0;
                 painter.line_segment([Pos2::new(r.left() + 2.5, y), Pos2::new(r.left() + 2.5 + w * 0.85, y)], Stroke::new(1.1_f32, color));
+            }
+        }
+        ViewIcon::Debug => {
+            // a bug: body split in two, head, three legs on each side
+            let body = Rect::from_center_size(center + Vec2::new(0.0, 1.5), Vec2::new(7.5, 10.0));
+            painter.rect_stroke(body, 3.7, st);
+            painter.line_segment([Pos2::new(center.x, body.top() + 1.0), Pos2::new(center.x, body.bottom() - 1.0)], Stroke::new(1.1_f32, color));
+            painter.circle_filled(center + Vec2::new(0.0, -5.0), 2.0, color);
+            for (k, dy) in [-1.5_f32, 1.5, 4.5].into_iter().enumerate() {
+                let tilt = [-1.5_f32, 0.0, 1.5][k];
+                for side in [-1.0_f32, 1.0] {
+                    let a = Pos2::new(center.x + side * 3.75, center.y + dy);
+                    painter.line_segment([a, a + Vec2::new(side * 2.8, tilt)], Stroke::new(1.1_f32, color));
+                }
             }
         }
         ViewIcon::Split => {

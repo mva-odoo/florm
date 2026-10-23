@@ -142,6 +142,12 @@ pub struct Document {
     pub claude_pick: Option<(usize, usize)>,
     /// Tags of the test whose ▶ was clicked in the gutter.
     pub test_pick: Option<String>,
+    /// The ▶ was right clicked: the test is to be debugged.
+    pub test_debug: bool,
+    /// Line whose breakpoint was clicked in the gutter (added or removed by the app).
+    pub bp_pick: Option<usize>,
+    /// The value of the hovered expression while the debugger is paused (its range, the text).
+    pub debug_value: Option<((usize, usize), String)>,
     /// What the app found about a hovered symbol (its range, the text of the tooltip).
     pub hover_info: Option<((usize, usize), String)>,
     /// Where the hovered symbol is defined in the project (like Sublime Text): its range, the
@@ -184,6 +190,9 @@ pub struct Document {
     pub folds: Vec<usize>,
     /// Bookmarked lines, as the char position of their start (moved by the edits, like folds).
     pub bookmarks: Vec<usize>,
+    /// Lines with a breakpoint, as the char position of their start (moved by the edits); `None`
+    /// until the app gave them (from the breakpoints of the project).
+    pub breakpoints: Option<Vec<usize>>,
     /// Range searched by Ctrl+F "dans la sélection" (tinted in the editor).
     pub find_scope: Option<(usize, usize)>,
     conflicts_cache: Option<(u64, Vec<Conflict>)>,
@@ -221,6 +230,8 @@ pub enum View {
     Claude,
     /// The Docker containers and their logs.
     Docker,
+    /// The debugger: variables, call stack, breakpoints, console.
+    Debug,
 }
 
 /// Files shown as images rather than text.
@@ -420,6 +431,9 @@ impl Document {
             hover_word: None,
             claude_pick: None,
             test_pick: None,
+            test_debug: false,
+            bp_pick: None,
+            debug_value: None,
             hover_info: None,
             hover_defs: None,
             wraps: Default::default(),
@@ -446,6 +460,7 @@ impl Document {
             symbols_cache: None,
             folds: Vec::new(),
             bookmarks: Vec::new(),
+            breakpoints: None,
             find_scope: None,
             conflicts_cache: None,
             had_conflicts: false,
@@ -908,6 +923,15 @@ impl Document {
             b.sort_unstable();
             b.dedup();
             self.bookmarks = b;
+        }
+        if let Some(bps) = self.breakpoints.as_mut().filter(|b| !b.is_empty()) {
+            let spans: Vec<(usize, usize, usize)> = edits.iter().map(|(s, e, t)| (*s, *e, t.chars().count())).collect();
+            let len = self.rope.len_chars();
+            let rope = &self.rope;
+            let mut b: Vec<usize> = bps.iter().map(|&p| rope.line_to_char(rope.char_to_line(map_pos(p, &spans).min(len)))).collect();
+            b.sort_unstable();
+            b.dedup();
+            *bps = b;
         }
         starts
     }
@@ -1897,6 +1921,22 @@ impl Document {
         v
     }
 
+    /// Lines with a breakpoint (`None` until the app gave them).
+    pub fn breakpoint_lines(&self) -> Option<Vec<usize>> {
+        let len = self.len();
+        let mut v: Vec<usize> = self.breakpoints.as_ref()?.iter().map(|&p| self.rope.char_to_line(p.min(len))).collect();
+        v.dedup();
+        Some(v)
+    }
+
+    pub fn set_breakpoint_lines(&mut self, lines: &[usize]) {
+        let n = self.rope.len_lines();
+        let mut b: Vec<usize> = lines.iter().filter(|&&l| l < n).map(|&l| self.rope.line_to_char(l)).collect();
+        b.sort_unstable();
+        b.dedup();
+        self.breakpoints = Some(b);
+    }
+
     pub fn set_bookmark_lines(&mut self, lines: &[usize]) {
         let n = self.rope.len_lines();
         self.bookmarks = lines.iter().filter(|&&l| l < n).map(|&l| self.rope.line_to_char(l)).collect();
@@ -2337,6 +2377,21 @@ mod tests {
         assert_eq!(d.rope.char_to_line(d.primary_sel().head), 3);
         assert!(!d.toggle_bookmark());
         assert_eq!(d.bookmark_lines(), [0]);
+    }
+
+    #[test]
+    fn breakpoints_follow_the_edits() {
+        let mut d = Document::from_text(1, "a\nb\nc\nd\n", 4, true);
+        assert_eq!(d.breakpoint_lines(), None);
+        d.set_breakpoint_lines(&[2, 3, 9]);
+        d.goto_line(1, 0);
+        d.insert_text("x\ny\n", false);
+        assert_eq!(d.breakpoint_lines(), Some(vec![4, 5]));
+        // the line of a breakpoint deleted: it goes to the line that takes its place
+        d.goto_line(4, 0);
+        d.sels = vec![Sel::range(d.rope.line_to_char(4), d.rope.line_to_char(5))];
+        d.insert_text("", false);
+        assert_eq!(d.breakpoint_lines(), Some(vec![4]));
     }
 
     #[test]

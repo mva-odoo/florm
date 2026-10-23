@@ -49,6 +49,8 @@ enum DockAct {
     Restart,
     /// Opens / closes the tests row.
     Tests,
+    /// The debugger, in this container.
+    Debug(String),
 }
 
 impl App {
@@ -426,6 +428,9 @@ impl App {
                                 if ui.selectable_label(self.tests.open, "🧪 Tests").on_hover_text(t!("Lancer des tests Odoo dans ce conteneur", "Run Odoo tests in this container")).clicked() {
                                     act = Some(DockAct::Tests);
                                 }
+                                if ui.button(t!("Déboguer", "Debug")).on_hover_text(t!("Le débogueur (F5) dans ce conteneur : points d'arrêt, variables, pas à pas", "The debugger (F5) in this container: breakpoints, variables, stepping")).clicked() {
+                                    act = Some(DockAct::Debug(c.name.clone()));
+                                }
                             } else if ui.add_enabled(!busy, egui::Button::new(t!("▶ Démarrer", "▶ Start"))).clicked() {
                                 act = Some(DockAct::Run("start", one()));
                             }
@@ -516,6 +521,10 @@ impl App {
                 }
                 // its containers appear in the list as they are created
                 self.docker.loaded_at = None;
+            }
+            Some(DockAct::Debug(name)) => {
+                self.debug_set_target(name);
+                self.open_debug();
             }
             Some(DockAct::Move(true)) => self.show_big(BottomTab::Docker),
             Some(DockAct::Move(false)) => self.show_bottom(BottomTab::Docker, false),

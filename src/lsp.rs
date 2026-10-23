@@ -367,7 +367,7 @@ impl Client {
     }
 }
 
-fn read_message(r: &mut impl BufRead) -> Option<String> {
+pub(crate) fn read_message(r: &mut impl BufRead) -> Option<String> {
     let mut len = None;
     loop {
         let mut line = String::new();

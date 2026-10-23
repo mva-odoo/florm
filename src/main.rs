@@ -8,6 +8,7 @@ mod app;
 mod claude;
 mod commands;
 mod config;
+mod dap;
 mod diff;
 mod docker;
 mod document;

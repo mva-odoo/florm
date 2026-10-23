@@ -151,6 +151,39 @@ it back to the bottom. The list is read again every few seconds.
 - **🧪 Tests**: runs Odoo tests in the container. The tags are typed in the field
   (`:MyClass`, `/my_module`, `:MyClass.test_x`); **▾** brings back those already run.
 
+## Debugger
+
+Like VS Code's, for Python and Odoo, on this computer or in a Docker container. **Debug** in the
+palette, or the bug icon at the bottom of the sidebar.
+
+- **Breakpoint**: click left of the line numbers of a Python file (or **F9**). A red dot. In the
+  **Breakpoints** list, a **condition** (`self.id == 7`) only stops when it is true. They follow
+  the lines when the file changes and are kept with the project.
+- **F5** starts. At the top of the view: **Where** (this computer or a container), **Launch** or
+  **Attach**, and the command.
+  - **Launch** here: the command (by default the `odoo-bin` of the folder, `--workers 0`) runs in
+    a terminal tab, with its logs. `debugpy` is needed in this Python: otherwise, **Install
+    debugpy**.
+  - **Launch** in a container: the command runs in the container, next to the Odoo running there
+    (by default `odoo --workers 0 --http-port 8070`). Florm talks to the debugger through
+    `docker exec`: **no port to publish**. The mounted files open here; those of the image (the
+    code of Odoo installed in the container) open read only.
+  - **Attach**: to an Odoo already started with `python3 -m debugpy --listen 5678 ./odoo-bin …`
+    (in a container: `--listen 0.0.0.0:5678` in the `command:` of `docker-compose.yml`).
+- **Paused**: the line is highlighted in yellow, the window comes to the front. On the left the
+  **Variables** (click to unfold `self`, a recordset…), the **Watch** (expressions evaluated again
+  at each stop), the **Call stack** (click on a call: its line and its variables, in green).
+  Hovering a name shows its value (`self.partner_id.name`).
+- **Console** (on the right): Python evaluated in the paused frame,
+  `self.env['res.partner'].search([])`, `x = 2`. ↑ ↓ bring back the previous ones.
+- **F10** next line, **F11** step into the call, **Shift+F11** finish the function, **F5**
+  continue, **F6** pause, **Shift+F5** stop, **Ctrl+Shift+F5** restart.
+- **Odoo tests**: right click on the **▶** of a test in the gutter (or **Alt+F6**) runs it under
+  the debugger, in the chosen container (else the tests' one).
+- **Exceptions**: stop on those nothing catches, on all of them (Odoo raises many), or when one
+  leaves the code of the project. **My code only** does not step into the code of Odoo nor of the
+  libraries.
+
 ## Templates
 
 **Ctrl+Alt+N** (or Tools → Insert a template): the templates of the type of the current file

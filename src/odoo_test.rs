@@ -80,7 +80,8 @@ pub fn command(template: &str, tags: &str) -> Vec<String> {
     split(&template.replace("{tags}", tags))
 }
 
-fn split(s: &str) -> Vec<String> {
+/// `s` cut into arguments like a shell (quotes kept together).
+pub fn split(s: &str) -> Vec<String> {
     let (mut out, mut cur, mut quote, mut any) = (Vec::new(), String::new(), None, false);
     for c in s.chars() {
         match (quote, c) {

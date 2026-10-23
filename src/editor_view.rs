@@ -42,8 +42,10 @@ fn removed_bg(light: bool) -> Color32 {
 
 /// Width of the ✳ of the gutter (left of the line numbers) that gives lines to Claude.
 const CLAUDE_W: f32 = 14.0;
-/// Width of the ▶ of the tests (right of the ✳), in test files only.
+/// Width of the ▶ of the tests (right of the breakpoints), in test files only.
 const TEST_W: f32 = 14.0;
+/// Width of the breakpoints (right of the ✳), in Python files.
+const BP_W: f32 = 14.0;
 
 /// How the editor shows a document (from the settings).
 pub struct ViewOpts<'a> {
@@ -61,6 +63,11 @@ pub struct ViewOpts<'a> {
     pub notes: &'a [(usize, String)],
     /// Odoo tests of the file: (line, tags), a ▶ in the gutter runs them.
     pub tests: &'a [(usize, String)],
+    /// Breakpoints can be put in the gutter (`Document::breakpoints`).
+    pub breakpoints: bool,
+    /// Where the debugger is paused in this file: the line, and whether it is the frame running
+    /// (else one of its callers, chosen in the call stack).
+    pub exec_line: Option<(usize, bool)>,
 }
 
 pub fn show(ui: &mut Ui, doc: &mut Document, hl: &Highlighting, opts: &ViewOpts, matches: &[(usize, usize)], id: Id) -> egui::Response {
@@ -208,7 +215,10 @@ fn text_area(
     let digits = nlines.to_string().len().max(3);
     // numbers, then the fold arrows, then the git marks
     let test_w = if opts.tests.is_empty() { 0.0 } else { TEST_W };
-    let gutter_w = (digits as f32 + 1.0) * cw + 30.0 + test_w;
+    let bp_w = if opts.breakpoints { BP_W } else { 0.0 };
+    let test_x = CLAUDE_W + bp_w;
+    let gutter_w = (digits as f32 + 1.0) * cw + 30.0 + bp_w + test_w;
+    let bps: HashSet<usize> = doc.breakpoint_lines().unwrap_or_default().into_iter().collect();
     let test_at = |l: usize| opts.tests.iter().find(|(t, _)| *t == l).map(|(_, tags)| tags);
     doc.update_max_cols();
     doc.reveal_cursors(); // whatever placed a cursor in a folded block, open it
@@ -320,9 +330,12 @@ fn text_area(
                 let on_pill = !in_gutter && folded.contains(&line) && p.x >= end.x + cw && p.y >= end.y;
                 // ✳ on the left of the numbers: the line, or the lines selected around it, for Claude
                 let on_claude = in_gutter && pressed && p.x < gx + CLAUDE_W;
-                let on_test = in_gutter && pressed && p.x >= gx + CLAUDE_W && p.x < gx + CLAUDE_W + test_w && test_at(line).is_some();
+                let on_test = in_gutter && pressed && p.x >= gx + test_x && p.x < gx + test_x + test_w && test_at(line).is_some();
+                let on_bp = in_gutter && pressed && p.x >= gx + CLAUDE_W && p.x < gx + CLAUDE_W + bp_w;
                 if on_test {
                     doc.test_pick = test_at(line).cloned();
+                } else if on_bp {
+                    doc.bp_pick = Some(line);
                 } else if on_claude {
                     let s = doc.primary_sel();
                     let (a, b) = (doc.rope.char_to_line(s.start()), doc.rope.char_to_line(s.end().saturating_sub(usize::from(s.end() > s.start()))));
@@ -372,6 +385,14 @@ fn text_area(
                 doc.sels[i] = Sel::range(a, b);
                 doc.normalize();
                 doc.drag = None;
+            }
+            // right click on the ▶ of a test: debug it
+            if resp.secondary_clicked() && in_gutter && p.x >= gx + test_x && p.x < gx + test_x + test_w {
+                let line = doc.rope.char_to_line(hit(doc, p));
+                if let Some(t) = test_at(line) {
+                    doc.test_pick = Some(t.clone());
+                    doc.test_debug = true;
+                }
             }
             if resp.secondary_clicked() && !in_gutter {
                 // like VS Code: right click moves the cursor unless it lands in a selection
@@ -439,6 +460,10 @@ fn text_area(
                         .map(|d| format!("{} : {}", d.source, d.message))
                         .collect();
                     let mut tip = msgs.join("\n");
+                    // paused in the debugger: the value of what is under the pointer, first
+                    if let Some((_, v)) = doc.debug_value.as_ref().filter(|(r, _)| Some(*r) == doc.hover_word) {
+                        tip = if tip.is_empty() { v.clone() } else { format!("{v}\n\n{tip}") };
+                    }
                     if let Some((_, info)) = doc.hover_info.as_ref().filter(|(r, t)| Some(*r) == doc.hover_word && !t.is_empty()) {
                         if !tip.is_empty() {
                             tip.push_str("\n\n");
@@ -469,9 +494,12 @@ fn text_area(
                     msgs.extend(opts.notes.iter().filter(|(n, _)| *n == l).map(|(_, t)| t.clone()));
                     if p.x < gx + CLAUDE_W {
                         msgs.push(t!("✳ Clic : ajouter cette ligne (ou les lignes sélectionnées) au contexte de Claude", "✳ Click: add this line (or the selected lines) to Claude's context").into());
-                    } else if let Some(tags) = test_at(l).filter(|_| p.x < gx + CLAUDE_W + test_w) {
+                    } else if p.x < gx + CLAUDE_W + bp_w {
                         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
-                        msgs.push(tf!("▶ Clic : lancer {tags} dans le conteneur des tests (Ctrl+F6 : relancer)", "▶ Click: run {tags} in the tests container (Ctrl+F6: run again)"));
+                        msgs.push(if bps.contains(&l) { t!("● Clic : retirer le point d'arrêt (F9)", "● Click: remove the breakpoint (F9)") } else { t!("● Clic : point d'arrêt du débogueur (F9)", "● Click: debugger breakpoint (F9)") }.into());
+                    } else if let Some(tags) = test_at(l).filter(|_| p.x >= gx + test_x && p.x < gx + test_x + test_w) {
+                        ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+                        msgs.push(tf!("▶ Clic : lancer {tags} dans le conteneur des tests (Ctrl+F6 : relancer) · clic droit : le déboguer", "▶ Click: run {tags} in the tests container (Ctrl+F6: run again) · right click: debug it"));
                     }
                     if p.x >= gx + gutter_w - 8.0 && doc.hunks.iter().any(|h| h.contains(l)) {
                         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
@@ -507,6 +535,12 @@ fn text_area(
                     painter.rect_filled(r, 0.0, c.line_hl);
                 }
             }
+        }
+
+        // where the debugger is paused: the line tinted (yellow, green for a caller)
+        if let Some((l, top)) = opts.exec_line.filter(|(l, _)| (first..=last).contains(l) && !rm.is_hidden(*l)) {
+            let col = if top { highlight::yellow() } else { highlight::green() };
+            painter.rect_filled(Rect::from_min_size(Pos2::new(gx, line_y(l)), egui::vec2(vp.width(), line_h(l))), 0.0, mix(c.bg, col, 0.2));
         }
 
         // Merge conflicts: our side in green, theirs in blue, markers stronger
@@ -838,9 +872,28 @@ fn text_area(
             if hover_line == Some(l) {
                 painter.text(Pos2::new(gx + 2.0, line_y(l) + rh * 0.5), Align2::LEFT_CENTER, "✳", FontId::proportional(opts.font_size * 0.85), c.accent);
             }
+            if bp_w > 0.0 {
+                let m = Pos2::new(gx + CLAUDE_W + BP_W / 2.0, line_y(l) + rh * 0.5);
+                let r = (rh * 0.24).min(5.0);
+                if bps.contains(&l) {
+                    painter.circle_filled(m, r, highlight::red());
+                } else if hover_line == Some(l) && ui.ctx().pointer_hover_pos().is_some_and(|p| p.x >= gx + CLAUDE_W && p.x < gx + CLAUDE_W + bp_w) {
+                    painter.circle_filled(m, r, highlight::red().gamma_multiply(0.45));
+                }
+                if let Some((_, top)) = opts.exec_line.filter(|(e, _)| *e == l) {
+                    // the paused line: an arrow over the breakpoint
+                    let col = if top { highlight::yellow() } else { highlight::green() };
+                    let s = (rh * 0.28).min(6.0);
+                    painter.add(egui::Shape::convex_polygon(
+                        vec![m + egui::vec2(-s, -s * 0.55), m + egui::vec2(s * 0.1, -s * 0.55), m + egui::vec2(s, 0.0), m + egui::vec2(s * 0.1, s * 0.55), m + egui::vec2(-s, s * 0.55)],
+                        col,
+                        egui::Stroke::new(1.0_f32, c.bg),
+                    ));
+                }
+            }
             if test_at(l).is_some() {
                 // ▶ of a test: a small green triangle
-                let m = Pos2::new(gx + CLAUDE_W + TEST_W / 2.0, line_y(l) + rh * 0.5);
+                let m = Pos2::new(gx + test_x + TEST_W / 2.0, line_y(l) + rh * 0.5);
                 let s = (rh * 0.26).min(5.0);
                 painter.add(egui::Shape::convex_polygon(
                     vec![m + egui::vec2(-s * 0.8, -s), m + egui::vec2(s, 0.0), m + egui::vec2(-s * 0.8, s)],

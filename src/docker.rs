@@ -239,6 +239,25 @@ pub fn exec_in(name: &str, cmd: &[String]) -> Result<Exec, String> {
     Ok(Exec { argv, cwd, mounts })
 }
 
+/// The folders of the container `name` (container folder, folder here), once it is checked to
+/// be running.
+pub fn running_mounts(name: &str) -> Result<Vec<(String, PathBuf)>, String> {
+    let out = run(&["inspect", name])?;
+    let mut info: Vec<Inspect> = serde_json::from_str(&out).map_err(|e| format!("docker inspect : {e}"))?;
+    let info = info.pop().ok_or_else(|| tf!("Conteneur introuvable : {name}", "Container not found: {name}"))?;
+    if !info.state.running {
+        return Err(tf!("{name} est arrêté : démarrez-le d'abord", "{name} is stopped: start it first"));
+    }
+    Ok(info.mounts.into_iter().filter(|m| !m.source.is_empty() && !m.destination.is_empty()).map(|m| (m.destination, PathBuf::from(m.source))).collect())
+}
+
+/// What `cmd` writes when run in the container `name` (`docker exec`, no terminal).
+pub fn exec_output(name: &str, cmd: &[&str]) -> Result<String, String> {
+    let mut args = vec!["exec", name];
+    args.extend_from_slice(cmd);
+    run(&args)
+}
+
 fn mounts(name: &str) -> Vec<(String, PathBuf)> {
     let out = run(&["inspect", "-f", "{{json .Mounts}}", name]).unwrap_or_default();
     let m: Vec<Mount> = serde_json::from_str(out.trim()).unwrap_or_default();

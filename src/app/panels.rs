@@ -149,6 +149,7 @@ impl App {
             item(ui, "✳ Claude", Cmd::Claude);
             // also when docker is missing: the view then tells how to install it
             item(ui, t!("Docker (conteneurs et logs)", "Docker (containers and logs)"), Cmd::Docker);
+            item(ui, t!("Débogage (F5)", "Debug (F5)"), Cmd::Debug);
             ui.separator();
             item(ui, t!("Insérer un modèle…", "Insert a template…"), Cmd::InsertTemplate);
             item(ui, t!("Nouveau modèle…", "New template…"), Cmd::NewTemplate);
@@ -1039,6 +1040,7 @@ impl App {
             // each Claude tab is a conversation of its own: it stays
             BottomTab::Pulls => self.docs.iter().position(in_editor(document::View::PullRequests)),
             BottomTab::Docker => self.docs.iter().position(in_editor(document::View::Docker)),
+            BottomTab::Debug => self.docs.iter().position(in_editor(document::View::Debug)),
             _ => None,
         };
         if let Some(i) = tab_of {
@@ -1055,6 +1057,7 @@ impl App {
             }
             BottomTab::Pulls => self.pulls_load(),
             BottomTab::Docker => self.docker_load(),
+            BottomTab::Debug => self.debug.focus_console = true,
             BottomTab::Problems | BottomTab::Output => {}
         }
     }
@@ -1074,6 +1077,7 @@ impl App {
             BottomTab::Git => self.open_git_view(),
             BottomTab::Pulls => self.open_pulls(),
             BottomTab::Docker => self.open_docker(),
+            BottomTab::Debug => self.open_debug(),
             BottomTab::Problems | BottomTab::Output => self.show_bottom(tab, false),
         }
     }
@@ -1083,7 +1087,7 @@ impl App {
             self.last_bottom = t;
         }
         // Claude, git and the pull requests need room for their bars and content
-        let min_h = if matches!(self.bottom, Some(BottomTab::Claude | BottomTab::Git | BottomTab::Pulls | BottomTab::Docker)) { 360.0 } else { 80.0 };
+        let min_h = if matches!(self.bottom, Some(BottomTab::Claude | BottomTab::Git | BottomTab::Pulls | BottomTab::Docker | BottomTab::Debug)) { 360.0 } else { 80.0 };
         egui::TopBottomPanel::bottom("bottom").resizable(true).default_height(230.0).height_range(min_h..=900.0).show(
             ctx,
             |ui| {
@@ -1167,6 +1171,17 @@ impl App {
                     }
                     Some(BottomTab::Docker) => {
                         egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.docker_ui(ui));
+                    }
+                    Some(BottomTab::Debug) if self.docs.iter().any(|d| d.view == document::View::Debug) => {
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(t!("Le débogueur est dans un onglet de l'éditeur.", "The debugger is in an editor tab.")).weak());
+                            if ui.button(t!("Le mettre ici", "Put it here")).clicked() {
+                                self.show_bottom(BottomTab::Debug, false);
+                            }
+                        });
+                    }
+                    Some(BottomTab::Debug) => {
+                        egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.debug_ui(ui));
                     }
                     Some(BottomTab::Search) => self.search_ui(ui, false),
                     Some(BottomTab::Problems) => self.problems_ui(ui),

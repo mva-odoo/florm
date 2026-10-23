@@ -152,6 +152,39 @@ est relue toutes les quelques secondes.
 - **🧪 Tests** : lance des tests Odoo dans le conteneur. Les tags se tapent dans le champ
   (`:MaClasse`, `/mon_module`, `:MaClasse.test_x`) ; **▾** reprend ceux déjà lancés.
 
+## Débogueur
+
+Comme celui de VS Code, pour Python et Odoo, sur cet ordinateur ou dans un conteneur Docker.
+**Débogage** dans la palette, ou l'icône de l'insecte en bas de la barre latérale.
+
+- **Point d'arrêt** : clic à gauche des numéros de ligne d'un fichier Python (ou **F9**). Un rond
+  rouge. Dans la liste **Points d'arrêt**, une **condition** (`self.id == 7`) ne s'arrête que
+  quand elle est vraie. Ils suivent les lignes quand le fichier change et sont gardés avec le projet.
+- **F5** démarre. En haut de la vue : **Où** (cet ordinateur ou un conteneur), **Lancer** ou
+  **S'attacher**, et la commande.
+  - **Lancer** ici : la commande (par défaut l'`odoo-bin` du dossier, `--workers 0`) tourne dans
+    un onglet de terminal, avec ses logs. Il faut `debugpy` dans ce Python : sinon, **Installer
+    debugpy**.
+  - **Lancer** dans un conteneur : la commande tourne dans le conteneur, à côté de l'Odoo qui y
+    tourne (par défaut `odoo --workers 0 --http-port 8070`). Florm parle au débogueur par
+    `docker exec` : **aucun port à publier**. Les fichiers montés s'ouvrent ici ; ceux de l'image
+    (le code d'Odoo installé dans le conteneur) s'ouvrent en lecture seule.
+  - **S'attacher** : à un Odoo déjà lancé avec `python3 -m debugpy --listen 5678 ./odoo-bin …`
+    (dans un conteneur : `--listen 0.0.0.0:5678` dans la `command:` du `docker-compose.yml`).
+- **En pause** : la ligne est surlignée en jaune, la fenêtre passe devant. À gauche les
+  **Variables** (clic pour déplier `self`, un recordset…), l'**Espion** (des expressions
+  réévaluées à chaque arrêt), la **Pile d'appels** (clic sur un appel : sa ligne et ses
+  variables, en vert). Le survol d'un nom montre sa valeur (`self.partner_id.name`).
+- **Console** (à droite) : du Python évalué dans le cadre en pause,
+  `self.env['res.partner'].search([])`, `x = 2`. ↑ ↓ reprennent les précédents.
+- **F10** ligne suivante, **F11** entrer dans l'appel, **Maj+F11** finir la fonction, **F5**
+  continuer, **F6** pause, **Maj+F5** arrêter, **Ctrl+Maj+F5** redémarrer.
+- **Tests Odoo** : clic droit sur le **▶** d'un test dans la marge (ou **Alt+F6**) le lance sous le
+  débogueur, dans le conteneur choisi (sinon celui des tests).
+- **Exceptions** : s'arrêter sur celles que rien n'intercepte, sur toutes (Odoo en lève beaucoup),
+  ou quand une sort du code du projet. **Mon code seulement** n'entre pas dans le code d'Odoo ni
+  des bibliothèques.
+
 ## Modèles
 
 **Ctrl+Alt+N** (ou Outils → Insérer un modèle) : les modèles du type du fichier courant sont
