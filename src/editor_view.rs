@@ -12,6 +12,8 @@ use eframe::egui::{
     Stroke, TextFormat, Ui,
 };
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
+use std::sync::Arc;
 
 /// Real advance of one monospace character, as laid out by egui. `glyph_width` returns the
 /// unrounded advance (e.g. 8.275 px) while laid out text uses pixel-rounded advances
@@ -1147,6 +1149,42 @@ mod tests {
         assert_eq!(sticky_lines(&mut d, 11), [10]);
     }
 
+    /// The mouse going to the popup passes over another word (looked up in turn) and cuts a
+    /// corner out of it: the popup keeps the definitions of its word, and goes away after a while.
+    #[test]
+    fn definitions_popup_keeps_its_word() {
+        let ctx = egui::Context::default();
+        let mut doc = Document::new(1, 4, true);
+        let def = |name: &str| (PathBuf::from(format!("/p/{name}.py")), 3, format!("def {name}"), format!("{name}.py:4"));
+        doc.hover_defs = Some(((0, 3), vec![def("a1"), def("a2")], 0));
+        let id = Id::new("editor");
+        let frame = |doc: &mut Document, time: f64, pointer: Pos2, new: Option<(TipAt, String)>| {
+            let input = egui::RawInput { time: Some(time), events: vec![egui::Event::PointerMoved(pointer)], ..Default::default() };
+            let _ = ctx.run(input, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| definitions_popup(ui, doc, id, new.clone()));
+            });
+        };
+        let shown = |ctx: &egui::Context| ctx.data(|d| d.get_temp::<DefsPopup>(id.with("defs_popup")));
+        let at = (egui::pos2(100.0, 100.0), Align2::LEFT_TOP);
+        frame(&mut doc, 0.0, egui::pos2(100.0, 90.0), Some((at, String::new())));
+        frame(&mut doc, 0.1, egui::pos2(100.0, 90.0), Some((at, String::new())));
+        let rect = shown(&ctx).expect("popup shown").rect;
+        // on the way: another word with its own definitions, the pointer out of the popup a moment
+        doc.hover_defs = Some(((10, 13), vec![def("b1")], 0));
+        frame(&mut doc, 0.2, egui::pos2(rect.right() + 40.0, rect.top()), None);
+        let p = shown(&ctx).expect("still shown on the way");
+        assert_eq!(p.defs.iter().map(|d| d.2.as_str()).collect::<Vec<_>>(), ["def a1", "def a2"]);
+        // in it: it stays
+        frame(&mut doc, 0.5, rect.center(), None);
+        frame(&mut doc, 2.0, rect.center(), None);
+        assert!(shown(&ctx).is_some());
+        // out of it for longer than the grace time: gone
+        frame(&mut doc, 2.1, egui::pos2(600.0, 600.0), None);
+        assert!(shown(&ctx).is_some());
+        frame(&mut doc, 2.1 + DEFS_GRACE + 0.05, egui::pos2(600.0, 600.0), None);
+        assert!(shown(&ctx).is_none());
+    }
+
     #[test]
     fn cursor_matches_drawn_text() {
         let ctx = egui::Context::default();
@@ -1169,25 +1207,62 @@ mod tests {
 
 /// Where the hovered symbol is defined (like Sublime Text), each place a link to open it. Opened
 /// by `new` (where, text above the list); it stays while the mouse is over it.
+/// The definitions popup shown: where, its text, its rect at the last frame, the definitions of the
+/// word it was opened on (the mouse going to it passes over other words, which are looked up
+/// in turn) and since when the mouse is out of it.
+#[derive(Clone)]
+struct DefsPopup {
+    at: TipAt,
+    tip: String,
+    rect: Rect,
+    defs: Arc<Vec<(PathBuf, usize, String, String)>>,
+    more: usize,
+    left: Option<f64>,
+}
+
+/// Time the popup stays once the mouse is out of it: the way to it may cut a corner.
+const DEFS_GRACE: f64 = 0.6;
+
 fn definitions_popup(ui: &Ui, doc: &mut Document, id: Id, new: Option<(TipAt, String)>) {
     let pid = id.with("defs_popup");
     let ctx = ui.ctx().clone();
-    // (where, text) and the rect of the popup shown at the last frame
-    let last: Option<(TipAt, String, Rect)> = ctx.data(|d| d.get_temp(pid));
-    let over = last.as_ref().zip(ctx.pointer_hover_pos()).is_some_and(|((_, _, r), p)| r.expand(10.0).contains(p));
-    let shown = new.or_else(|| last.filter(|_| over).map(|(at, tip, _)| (at, tip)));
-    let (Some((at, tip)), Some((_, defs, more))) = (shown, doc.hover_defs.as_ref()) else {
-        ctx.data_mut(|d| d.remove::<(TipAt, String, Rect)>(pid));
+    let now = ctx.input(|i| i.time);
+    let last: Option<DefsPopup> = ctx.data(|d| d.get_temp(pid));
+    let opened = new.and_then(|(at, tip)| {
+        let (_, defs, more) = doc.hover_defs.as_ref()?;
+        // the same word hovered again: the same list (and its filter)
+        let defs = match &last {
+            Some(l) if *l.defs == *defs => l.defs.clone(),
+            _ => Arc::new(defs.clone()),
+        };
+        Some(DefsPopup { at, tip, rect: last.as_ref().map_or(Rect::NOTHING, |l| l.rect), defs, more: *more, left: None })
+    });
+    let kept = last.and_then(|mut l| {
+        let over = ctx.pointer_hover_pos().is_some_and(|p| l.rect.expand(10.0).contains(p));
+        if over {
+            l.left = None;
+        } else {
+            let left = *l.left.get_or_insert(now);
+            if now - left >= DEFS_GRACE {
+                return None;
+            }
+            ctx.request_repaint_after(std::time::Duration::from_secs_f64(DEFS_GRACE - (now - left) + 0.01));
+        }
+        Some(l)
+    });
+    let Some(mut shown) = opened.or(kept) else {
+        ctx.data_mut(|d| d.remove::<DefsPopup>(pid));
         // the filter starts empty at the next popup
         ctx.data_mut(|d| d.remove::<String>(pid.with("filter")));
         return;
     };
+    let (at, tip, defs, more) = (shown.at, shown.tip.as_str(), shown.defs.clone(), shown.more);
     let mut clicked = None;
     let area = egui::Area::new(pid.with("area")).order(egui::Order::Foreground).fixed_pos(at.0).pivot(at.1).show(&ctx, |ui| {
         egui::Frame::popup(ui.style()).show(ui, |ui| {
             ui.set_max_width(640.0);
             if !tip.is_empty() {
-                ui.label(tip.as_str());
+                ui.label(tip);
                 ui.separator();
             }
             let total = defs.len() + more;
@@ -1214,16 +1289,17 @@ fn definitions_popup(ui: &Ui, doc: &mut Document, id: Id, new: Option<(TipAt, St
                     });
                 }
             });
-            if *more > 0 {
+            if more > 0 {
                 ui.label(RichText::new(tf!("… et {more} autre(s) — F12 pour la liste complète", "… and {more} other(s) — F12 for the full list")).small().weak());
             }
         });
     });
     if let Some(k) = clicked {
-        doc.goto_request = doc.hover_defs.as_ref().and_then(|(_, d, _)| d.get(k)).map(|(p, l, _, _)| (p.clone(), *l));
-        ctx.data_mut(|d| d.remove::<(TipAt, String, Rect)>(pid));
+        doc.goto_request = defs.get(k).map(|(p, l, _, _)| (p.clone(), *l));
+        ctx.data_mut(|d| d.remove::<DefsPopup>(pid));
     } else {
-        ctx.data_mut(|d| d.insert_temp(pid, (at, tip, area.response.rect)));
+        shown.rect = area.response.rect;
+        ctx.data_mut(|d| d.insert_temp(pid, shown));
     }
 }
 
