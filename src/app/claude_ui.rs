@@ -101,8 +101,6 @@ pub(super) struct ClaudeUi {
     cost: f64,
     /// Tokens of the conversation read by the model for its last message, and its window.
     context: (u64, u64),
-    /// Use of the plan's quotas (5 hours, 7 days): kept between conversations.
-    limits: Vec<(String, f32, i64)>,
     /// The file being edited and its selection are given with the message.
     with_context: bool,
     /// Lines and files given with the next message.
@@ -170,6 +168,25 @@ fn write_saved(list: &[SavedConv]) -> Result<(), String> {
     // written aside then renamed: a crash never leaves half a file
     let tmp = p.with_extension("json.tmp");
     std::fs::write(&tmp, text).and_then(|_| std::fs::rename(&tmp, &p)).map_err(|e| e.to_string())
+}
+
+fn limits_path() -> PathBuf {
+    config::data_dir().join("claude_limits.json")
+}
+
+/// Use of the plan's quotas last known, kept between sessions: shown before the first message.
+pub(super) fn load_limits() -> Vec<(String, f32, i64)> {
+    std::fs::read_to_string(limits_path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+}
+
+fn write_limits(limits: &[(String, f32, i64)]) {
+    let p = limits_path();
+    if let Some(d) = p.parent() {
+        let _ = std::fs::create_dir_all(d);
+    }
+    if let Ok(text) = serde_json::to_string(limits) {
+        let _ = std::fs::write(p, text);
+    }
 }
 
 fn now_secs() -> i64 {
@@ -305,7 +322,12 @@ impl App {
                     }
                 }
                 Event::Context(tokens) => self.claude.context.0 = tokens,
-                Event::Limits(l) => self.claude.limits = l,
+                Event::Limits(l) => {
+                    if l != self.claude_limits {
+                        write_limits(&l);
+                        self.claude_limits = l;
+                    }
+                }
                 Event::Done { error, text, cost, window } => {
                     self.claude.busy = false;
                     self.claude.unseen = true;
@@ -936,7 +958,6 @@ impl App {
             dir: c.dir.clone(),
             model: c.model,
             mode: c.mode,
-            limits: c.limits.clone(),
             with_context: c.with_context,
             focus: true,
             ..Default::default()
@@ -1131,6 +1152,7 @@ impl App {
         let (mut open_saved, mut forget_saved) = (None, None);
         let (perms, budget, mut perms_changed) = (&mut self.settings.claude_perms, &mut self.settings.claude_budget, false);
         let (mut show_review, was_shown) = (self.settings.claude_review, self.settings.claude_review);
+        let limits = &self.claude_limits;
         let c = &mut self.claude;
         let cache = &mut self.md_cache;
         // ids of their own: two conversations can be shown at once (bottom panel and a tab)
@@ -1258,14 +1280,27 @@ impl App {
                             move_to = Some(true);
                         }
                         ui.add_space(8.0);
-                        // right to left: the plan's quotas, then the context
-                        for (window, used, reset) in c.limits.iter().rev() {
-                            let (label, what) = match window.as_str() {
+                        // right to left: the plan's quotas (always shown, the last known ones), then the context
+                        for window in ["seven_day", "five_hour"] {
+                            let (label, what) = match window {
                                 "five_hour" => ("5 h", "sur 5 heures"),
                                 _ => ("7 j", "sur 7 jours"),
                             };
-                            let tip = format!("Quota de ton abonnement {what} : {:.0} % utilisé, remis à zéro {}", used * 100.0, until(*reset));
-                            gauge(ui, label, *used, accent, tip);
+                            match limits.iter().find(|l| l.0 == window) {
+                                // its window is over since: back to zero
+                                Some((_, _, reset)) if *reset > 0 && *reset <= now_secs() => {
+                                    gauge(ui, label, 0.0, accent, format!("Quota de ton abonnement {what} : remis à zéro depuis la dernière réponse de Claude"));
+                                }
+                                Some((_, used, reset)) => {
+                                    let tip = format!("Quota de ton abonnement {what} : {:.0} % utilisé, remis à zéro {}", used * 100.0, until(*reset));
+                                    gauge(ui, label, *used, accent, tip);
+                                }
+                                None => {
+                                    ui.label(RichText::new(format!("{label} – %")).small().weak())
+                                        .on_hover_text(format!("Quota de ton abonnement {what} : connu à la première réponse de Claude"));
+                                    ui.add_space(6.0);
+                                }
+                            }
                         }
                         let (tokens, window) = c.context;
                         if tokens > 0 && window > 0 {

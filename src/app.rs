@@ -735,6 +735,9 @@ pub struct App {
     /// brought back at the first showing of Claude.
     claude_saved: Vec<claude_ui::SavedConv>,
     claude_loaded: bool,
+    /// Use of the plan's quotas (5 hours, 7 days), shared by the conversations and kept between
+    /// sessions.
+    claude_limits: Vec<(String, f32, i64)>,
     /// For the places without a context at hand (prompt submission).
     egui_ctx: egui::Context,
     /// File to bring into view in the tree ("afficher dans l'arborescence").
@@ -932,6 +935,7 @@ impl App {
             claude_others: Vec::new(),
             claude_saved: claude_ui::load_saved(),
             claude_loaded: false,
+            claude_limits: claude_ui::load_limits(),
             egui_ctx: cc.egui_ctx.clone(),
             tree_scroll: None,
             tree_nav: sidebar::Nav::default(),
