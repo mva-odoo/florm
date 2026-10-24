@@ -761,15 +761,21 @@ impl App {
                 }
             }
         });
-        // double click on the border between the sidebar and the editor: hide the sidebar
+        // double click on the border between the sidebar and the editor: the width fits the longest name
         let edge = shown.response.rect.right();
-        let hide = ctx.input(|i| {
+        let fit = ctx.input(|i| {
             i.pointer.button_double_clicked(egui::PointerButton::Primary)
                 && i.pointer.interact_pos().is_some_and(|p| (p.x - edge).abs() <= 5.0 && shown.response.rect.y_range().contains(p.y))
         });
-        if hide {
-            self.show_sidebar = false;
-            self.set_status(t!("Barre latérale masquée : clic sur le bord gauche ou Ctrl+K Ctrl+B pour la réafficher", "Sidebar hidden: click the left edge or Ctrl+K Ctrl+B to show it again"));
+        if fit {
+            if let Some(tree) = self.tree.as_ref() {
+                let width = sidebar::fit_width(ctx, tree).clamp(150.0, 700.0);
+                let r = shown.response.rect;
+                // the panel's width is kept by egui between frames: this one is the next frame's
+                let rect = egui::Rect::from_min_max(r.min, egui::pos2(r.min.x + width, r.max.y));
+                ctx.data_mut(|d| d.insert_persisted(egui::Id::new("sidebar"), egui::containers::panel::PanelState { rect }));
+                ctx.request_repaint();
+            }
         }
         if let Some(a) = tree_action {
             self.tree_action(ctx, a);

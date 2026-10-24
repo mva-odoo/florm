@@ -201,6 +201,25 @@ fn git_color(c: char) -> Option<Color32> {
     }
 }
 
+/// The width of the panel that shows the longest name of the tree in full (a double click on its
+/// border): indentation, icon, name, the eye of an excluded folder, the panel's margins.
+pub fn fit_width(ctx: &egui::Context, root: &Node) -> f32 {
+    let mut rows = Vec::new();
+    root.visible(&mut rows);
+    let font = FontId::proportional(13.5);
+    let longest = ctx.fonts(|f| {
+        rows.iter()
+            .map(|(path, _, _)| {
+                let depth = path.strip_prefix(&root.path).map_or(0, |r| r.components().count().saturating_sub(1));
+                let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                let text = f.layout_no_wrap(name, font.clone(), Color32::WHITE).size().x;
+                depth as f32 * 14.0 + 4.0 + 14.0 + 23.0 + text + 20.0
+            })
+            .fold(0.0, f32::max)
+    });
+    longest + 10.0 + 8.0 + 12.0
+}
+
 /// `scroll_to`: entry to bring into view (cleared once shown); `projects`: (name, folder) offered
 /// by a click on the folder name.
 #[allow(clippy::too_many_arguments)]

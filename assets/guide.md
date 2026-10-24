@@ -28,8 +28,9 @@ liste ses symboles, une classe ou une fonction y emmène.
   l'éditeur, **F2** renomme, **Suppr** supprime, **Échap** revient à l'éditeur.
 - En défilant, les dossiers qui contiennent le haut de la liste restent figés en haut ; un clic
   remonte au dossier.
-- **Double-clic sur le bord** entre la barre et l'éditeur : la barre se masque. Un clic sur la fine
-  bande à gauche (ou **Ctrl+K Ctrl+B**) la réaffiche. Le bord se glisse pour changer la largeur.
+- **Double-clic sur le bord** entre la barre et l'éditeur : la largeur s'ajuste au nom le plus long
+  de l'arborescence. Le bord se glisse pour changer la largeur ; **Ctrl+K Ctrl+B** masque la barre,
+  et un clic sur la fine bande à gauche la réaffiche.
 - Sur le dossier d'un dépôt git : sa branche, la branche distante suivie (↑ à pousser, ↓ à
   récupérer) et le nombre de fichiers modifiés ; le survol montre les remotes
   (désactivable dans Préférences → Git).
