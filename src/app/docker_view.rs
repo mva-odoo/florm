@@ -393,10 +393,22 @@ impl App {
         // ------------------------------------------------ logs of the chosen one
         let (current, empty) = (current.cloned(), list.is_empty());
         if maxed != Some("list") {
-            egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| {
+            // same background as the list, also when nothing is chosen (no see-through area)
+            egui::CentralPanel::default().frame(egui::Frame::none().fill(fill)).show_inside(ui, |ui| {
                 let Some(c) = current else {
-                    ui.add_space(20.0);
-                    ui.vertical_centered(|ui| ui.label(RichText::new(if empty { "" } else { t!("Choisissez un conteneur à gauche.", "Choose a container on the left.") }).weak()));
+                    // nothing chosen yet: say what to do, rather than an empty area
+                    ui.add_space(ui.available_height() * 0.3);
+                    ui.vertical_centered(|ui| {
+                        ui.label(RichText::new("🐳").size(28.0).color(weak));
+                        ui.add_space(6.0);
+                        if empty {
+                            ui.label(RichText::new(t!("Aucun conteneur pour le moment", "No container for now")).size(15.0).strong());
+                            ui.label(RichText::new(t!("Un projet compose ou un conteneur lancé apparaît ici. ⬆ compose up crée les services du projet.", "A compose project or a running container shows up here. ⬆ compose up creates the services of the project.")).small().color(weak));
+                        } else {
+                            ui.label(RichText::new(t!("Choisissez un conteneur à gauche", "Choose a container on the left")).size(15.0).strong());
+                            ui.label(RichText::new(t!("Ses logs s'affichent ici, avec ▶ ■ ⟳ et les tests Odoo.", "Its logs show here, with ▶ ■ ⟳ and the Odoo tests.")).small().color(weak));
+                        }
+                    });
                     return;
                 };
                 egui::TopBottomPanel::top("docker_bar")
