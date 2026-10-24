@@ -59,12 +59,11 @@ impl App {
     }
 
     pub(super) fn activate_tab(&mut self, i: usize) {
-        self.active = i;
-        self.history.open = false;
-        self.prefs.open = false;
-        if let Some(sp) = self.split.as_mut() {
-            sp.shown = false;
+        let (old, new) = (self.docs.get(self.active).map(|d| d.uid), self.docs.get(i).map(|d| d.uid));
+        if old != new && old.is_some() {
+            self.prev_tab = old;
         }
+        self.active = i;
         self.pending_focus = true;
     }
 
@@ -142,6 +141,26 @@ impl App {
             }
             document::View::Debug => {
                 egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.debug_ui(ui));
+                None
+            }
+            document::View::Git => {
+                let fill = ui.visuals().panel_fill;
+                egui::TopBottomPanel::top(egui::Id::new("git_bar").with(self.docs[i].uid))
+                    .frame(egui::Frame::none().fill(fill).inner_margin(egui::Margin { left: 10.0, right: 10.0, top: 8.0, bottom: 4.0 }))
+                    .show_inside(ui, |ui| self.git_bar(ui));
+                egui::CentralPanel::default().show_inside(ui, |ui| self.history_ui(ui));
+                None
+            }
+            document::View::Settings => {
+                egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.prefs_ui(ui));
+                None
+            }
+            document::View::Split => {
+                egui::CentralPanel::default().show_inside(ui, |ui| {
+                    if self.split.is_some() {
+                        self.split_ui(ui);
+                    }
+                });
                 None
             }
             document::View::Help => {
@@ -707,15 +726,18 @@ impl App {
         self.docs.insert(to, d);
         self.active = to;
         self.tab_scrolled = None;
-        self.history.open = false;
-        self.prefs.open = false;
-        if let Some(sp) = self.split.as_mut() {
-            sp.shown = false;
-        }
     }
 
     pub(super) fn close_tab(&mut self, idx: usize, force: bool) {
         let Some(doc) = self.docs.get(idx) else { return };
+        // the split in progress: its tab goes when it ends (finished or cancelled), here it asks
+        if doc.view == document::View::Split && self.split.is_some() {
+            self.activate_tab(idx);
+            if let Some(sp) = self.split.as_mut() {
+                sp.confirm_abort = true;
+            }
+            return;
+        }
         if doc.is_dirty() && !force {
             self.confirm = Some(Confirm::CloseTab(doc.uid));
             return;

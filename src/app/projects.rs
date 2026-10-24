@@ -212,6 +212,10 @@ impl App {
             View::Search => "search".into(),
             View::Help => "help".into(),
             View::Welcome => "welcome".into(),
+            View::Git => "git".into(),
+            View::Settings => "settings".into(),
+            // a split is not kept between sessions
+            View::Split => return None,
             View::Text | View::Image | View::Preview(_) | View::Terminal(_) => return None,
         })
     }
@@ -223,6 +227,8 @@ impl App {
             ("docker", _) => self.open_docker(),
             ("pulls", _) => self.open_pulls(),
             ("debug", _) => self.open_debug(),
+            ("git", _) => self.open_git_view(),
+            ("settings", _) => self.open_settings(),
             ("search", _) => self.open_search_tab(),
             ("help", _) => self.open_view_tab(document::View::Help, t!("Guide de Florm", "Florm guide").into()),
             ("welcome", _) => self.open_view_tab(document::View::Welcome, t!("Accueil", "Welcome").into()),

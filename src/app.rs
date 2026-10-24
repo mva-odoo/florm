@@ -34,6 +34,7 @@ mod quick_fix;
 mod pulls;
 mod docker_view;
 mod debugger;
+mod view_tabs;
 mod remote_ui;
 mod install_guide;
 mod odoo_tests;
@@ -542,10 +543,6 @@ const HISTORY_MAX: usize = 100_000;
 
 #[derive(Default)]
 struct HistoryUi {
-    /// The Git view is shown.
-    open: bool,
-    /// Its tab is in the tab strip (it stays when another tab is shown, until closed).
-    tab: bool,
     /// Number of the last load: results of older ones are dropped.
     gen: u64,
     /// Commits loaded (0: the default); raised to find a commit asked for that is older.
@@ -642,8 +639,6 @@ struct SplitUi {
     busy: bool,
     error: Option<String>,
     confirm_abort: bool,
-    /// Shown in the central area (it stays in progress while the user looks at other tabs).
-    shown: bool,
 }
 
 impl SplitUi {
@@ -805,6 +800,8 @@ pub struct App {
     tab_scrolled: Option<usize>,
     /// Tab being dragged to another position.
     tab_drag: Option<usize>,
+    /// The tab shown before the current one (Échap on Git or the preferences goes back to it).
+    prev_tab: Option<u64>,
     /// Split editor: orientation, panel with the keyboard focus, document shown by each panel.
     split_dir: SplitDir,
     focused_pane: u8,
@@ -921,7 +918,6 @@ struct PrefsUi {
     /// shortcut waiting for confirmation because it is already used
     proposed: Option<(Cmd, Seq)>,
     key_action: Option<KeyAction>,
-    open: bool,
     section: PrefSection,
     filter: String,
     /// text buffers edited before being saved
@@ -946,7 +942,7 @@ struct PrefsUi {
 
 impl Default for PrefsUi {
     fn default() -> Self {
-        PrefsUi { capture: None, proposed: None, key_action: None, open: false, section: PrefSection::Appearance, filter: String::new(), lint_args: String::new(), lint_ignore: Default::default(), theme_draft: None, template: None, shell: String::new(), exclude: String::new(), shared: String::new(), rulers: String::new(), font_list: None, font_list_loading: false }
+        PrefsUi { capture: None, proposed: None, key_action: None, section: PrefSection::Appearance, filter: String::new(), lint_args: String::new(), lint_ignore: Default::default(), theme_draft: None, template: None, shell: String::new(), exclude: String::new(), shared: String::new(), rulers: String::new(), font_list: None, font_list_loading: false }
     }
 }
 
@@ -1037,6 +1033,7 @@ impl App {
             visuals_dirty: false,
             tab_scrolled: None,
             tab_drag: None,
+            prev_tab: None,
             split_dir: SplitDir::Right,
             focused_pane: 0,
             pane_active: [None; 2],
@@ -1282,7 +1279,7 @@ impl App {
         self.git = GitUi { map, ..Default::default() };
         self.repo = Some(repo);
         self.git_refresh();
-        if self.history.open {
+        if self.git_shown() {
             self.load_history();
         }
     }
@@ -1396,8 +1393,8 @@ impl eframe::App for App {
         }
         if self.overlay.is_none()
             && self.confirm.is_none()
-            && !self.history.open
-            && !self.prefs.open
+            && !self.showing(document::View::Git)
+            && !self.showing(document::View::Settings)
             && ctx.memory(|m| m.focused().is_none())
         {
             self.focus_editor(ctx);
@@ -1429,6 +1426,9 @@ fn doc_tab(d: &Document) -> (TabIcon<'_>, String) {
         View::PullRequests => Some(ViewIcon::PullRequests),
         View::Docker => Some(ViewIcon::Docker),
         View::Debug => Some(ViewIcon::Debug),
+        View::Git => Some(ViewIcon::Git),
+        View::Settings => Some(ViewIcon::Settings),
+        View::Split => Some(ViewIcon::Split),
         View::Claude => Some(ViewIcon::Claude),
         View::Text | View::Image | View::Preview(_) => None,
     };
@@ -2061,11 +2061,27 @@ mod font_tests {
         app.open_path(proj.join("a.py"));
         assert_eq!(app.docs.len(), 1);
         assert_eq!(app.docs[0].view, document::View::Text);
-        app.prefs.open = true;
         app.prefs.section = PrefSection::Advanced;
+        app.open_settings();
         for _ in 0..2 {
             frame(&mut app);
         }
+        // the preferences and Git are tabs: Échap goes back to the file, they stay open
+        let views = |app: &App| app.docs.iter().map(|d| d.view).collect::<Vec<_>>();
+        assert_eq!(views(&app), [document::View::Text, document::View::Settings]);
+        app.exec(&ctx, Cmd::Escape);
+        assert_eq!(app.docs[app.active].view, document::View::Text);
+        app.open_git_view();
+        frame(&mut app);
+        assert_eq!(views(&app), [document::View::Text, document::View::Settings, document::View::Git]);
+        assert!(app.showing(document::View::Git));
+        // Ctrl+W closes it like any tab
+        app.exec(&ctx, Cmd::CloseTab);
+        assert_eq!(views(&app), [document::View::Text, document::View::Settings]);
+        // kept with the session
+        app.save_session();
+        let again = App::with_ctx(&ctx, Some(proj.clone()));
+        assert_eq!(views(&again), views(&app));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

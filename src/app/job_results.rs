@@ -331,7 +331,6 @@ impl App {
                     }
                 }
                 JobResult::NewTab { title, text, syntax } => {
-                    self.history.open = false;
                     self.new_scratch(title, text, &syntax, true);
                 }
                 JobResult::SplitStarted(repo, r) => {
@@ -350,10 +349,10 @@ impl App {
                                 busy: false,
                                 error: None,
                                 confirm_abort: false,
-                                shown: true,
                             };
                             s.set_files(files);
                             self.split = Some(s);
+                            self.show_tab(document::View::Split);
                             self.history.notice = None;
                         }
                         Err(e) => {
@@ -388,8 +387,7 @@ impl App {
                             };
                             self.set_status(msg.clone());
                             self.history.notice = Some((msg, ok()));
-                            self.history.open = true;
-                            self.prefs.open = false;
+                            self.show_tab(document::View::Git);
                             self.load_history();
                         }
                         Err(e) => {

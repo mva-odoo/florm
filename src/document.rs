@@ -232,6 +232,12 @@ pub enum View {
     Docker,
     /// The debugger: variables, call stack, breakpoints, console.
     Debug,
+    /// The Git view: branch, commit, graph of the commits and their diffs.
+    Git,
+    /// The preferences.
+    Settings,
+    /// The commit being split (it stays while the split is in progress).
+    Split,
 }
 
 /// Files shown as images rather than text.

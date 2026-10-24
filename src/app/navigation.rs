@@ -78,7 +78,6 @@ impl App {
                 let ind = d.indent_len(line.min(d.rope.len_lines().saturating_sub(1)));
                 d.goto_line(line, ind);
             }
-            self.history.open = false;
             self.pending_focus = true;
         }
     }

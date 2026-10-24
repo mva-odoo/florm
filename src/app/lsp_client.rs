@@ -347,7 +347,6 @@ impl App {
                             let (l, c) = d.line_col(p);
                             d.goto_line(l, c);
                         }
-                        self.history.open = false;
                         self.pending_focus = true;
                     }
                 }

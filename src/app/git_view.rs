@@ -190,7 +190,7 @@ impl App {
             if let Some(r) = self.docs.get(self.active).and_then(|d| d.path.clone()).and_then(|p| self.repo_for(&p)) {
                 self.select_repo(r);
             }
-            self.history.open = true;
+            self.show_tab(document::View::Git);
             self.history.all = true;
             // the filter could hide it
             self.history.filter.clear();
@@ -364,7 +364,6 @@ impl App {
             if let Some(d) = self.docs.get_mut(self.active) {
                 d.goto_line(line.saturating_sub(1), 0);
             }
-            self.history.open = false;
             self.pending_focus = true;
         }
     }
@@ -986,16 +985,16 @@ impl App {
                         None => format!("diff {short}"),
                     };
                     let text = d.text.clone();
-                    self.history.open = false;
                     self.new_scratch(title, text, "Diff", true);
                 }
                 None => self.set_status(t!("Le diff est en cours de chargement", "The diff is loading")),
             }
         }
         if resume {
-            match self.split.as_mut() {
-                Some(s) => s.shown = true,
-                None => self.resume_split(),
+            if self.split.is_some() {
+                self.show_tab(document::View::Split);
+            } else {
+                self.resume_split();
             }
         }
         if abort_rebase {

@@ -8,7 +8,7 @@ impl App {
             self.capture_shortcut(ctx, cap);
             return;
         }
-        let editor_focused = !self.history.open && !self.prefs.open && ctx.memory(|m| m.has_focus(editor_id()));
+        let editor_focused = !self.special_shown() && ctx.memory(|m| m.has_focus(editor_id()));
         let term_focused = self.term.has_focus(ctx);
         if let Some(t) = self.drop_alt_text {
             if Instant::now() < t {
@@ -111,7 +111,7 @@ impl App {
     }
 
     pub(super) fn editor_input(&mut self, ctx: &egui::Context) {
-        if self.overlay.is_some() || self.confirm.is_some() || self.history.open || self.prefs.open || !ctx.memory(|m| m.has_focus(editor_id())) {
+        if self.overlay.is_some() || self.confirm.is_some() || self.special_shown() || !ctx.memory(|m| m.has_focus(editor_id())) {
             return;
         }
         let events = ctx.input(|i| i.events.clone());
@@ -182,14 +182,14 @@ impl App {
                 let peek_open = self.docs.get(self.active).is_some_and(|d| d.peek.is_some());
                 if self.overlay.take().is_some() || self.confirm.take().is_some() || self.line_history.take().is_some() {
                 } else if maximize::restore_shown(ctx) {
-                } else if let Some(sp) = self.split.as_mut().filter(|sp| sp.shown && !self.prefs.open) {
-                    sp.shown = false;
-                } else if self.history.open && self.history_detail_open() {
+                } else if self.showing(document::View::Split) {
+                    self.leave_tab(document::View::Split);
+                } else if self.showing(document::View::Git) && self.history_detail_open() {
                     self.close_history_detail();
-                } else if self.history.open {
-                    self.history.open = false;
-                } else if self.prefs.open {
-                    self.prefs.open = false;
+                } else if self.showing(document::View::Git) {
+                    self.leave_tab(document::View::Git);
+                } else if self.showing(document::View::Settings) {
+                    self.leave_tab(document::View::Settings);
                 } else if peek_open {
                     self.docs[self.active].peek = None;
                 } else if self.find.open {
@@ -284,10 +284,6 @@ impl App {
             OpenFolderPath => self.open_prompt(Prompt::OpenFolder),
             RemoteConnect => self.open_overlay(Mode::Remotes),
             RemoteDisconnect => self.remote_disconnect(),
-            CloseTab if self.history.open && !self.prefs.open && !self.split.as_ref().is_some_and(|s| s.shown) => {
-                self.history.open = false;
-                self.history.tab = false;
-            }
             CloseTab => self.close_tab(self.active, false),
             ReopenClosed => {
                 if let Some(p) = self.closed.pop() {
@@ -593,20 +589,8 @@ impl App {
                 self.analyze(self.active, false);
                 self.bottom = Some(BottomTab::Problems);
             }
-            OpenSettings => {
-                self.prefs.open = true;
-                self.history.open = false;
-                self.prefs.lint_args = self.settings.python_lint_args.join(" ");
-                for (k, (name, _)) in lint::WITH_CODES.iter().enumerate() {
-                    self.prefs.lint_ignore[k] = self.settings.lint_ignore_mut(name).join(", ");
-                }
-                self.prefs.exclude = self.settings.exclude.join(", ");
-                self.prefs.rulers = self.settings.rulers.iter().map(|c| c.to_string()).collect::<Vec<_>>().join(", ");
-                self.prefs.shell = self.settings.shell.clone().unwrap_or_default();
-                self.prefs.shared = self.settings.shared_config.clone();
-            }
+            OpenSettings => self.open_settings(),
             OpenSettingsFile => {
-                self.prefs.open = false;
                 self.open_path(config::settings_path());
             }
             ReloadPlugins => {
@@ -691,13 +675,11 @@ impl App {
                 }
             }
             GitHistory => {
-                let split_shown = self.split.as_mut().map(|sp| std::mem::replace(&mut sp.shown, false)).unwrap_or(false);
-                if self.history.open && !split_shown {
-                    self.history.open = false;
+                if self.showing(document::View::Git) {
+                    self.leave_tab(document::View::Git);
                 } else {
                     // hidden, the graph may have missed changes: read again
-                    self.history.open = true;
-                    self.prefs.open = false;
+                    self.show_tab(document::View::Git);
                     self.load_history();
                     self.git_refresh();
                 }

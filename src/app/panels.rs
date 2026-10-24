@@ -175,13 +175,8 @@ impl App {
     /// Tab strip: every tab (`pane == None`, with the history / split / settings tabs) or those of one panel.
     pub(super) fn tabs_strip(&mut self, ui: &mut egui::Ui, pane: Option<u8>) {
         let tc = self.hl.tab_colors();
-        if self.history.open {
-            self.history.tab = true;
-        }
-        let (mut activate, mut close, mut close_history, mut close_prefs) = (None, None, false, false);
-        let (mut show_history, mut show_split, mut drag_start, mut menu_act) = (false, false, None, None);
-        let split_on = self.split.as_ref().is_some_and(|s| s.shown) && !self.prefs.open;
-        let special = pane.is_none() && (self.history.open || self.prefs.open || split_on);
+        let (mut activate, mut close) = (None, None);
+        let (mut drag_start, mut menu_act) = (None, None);
         let is_split = self.is_split();
         let mut counts = [0usize; 2];
         for d in &self.docs {
@@ -278,7 +273,7 @@ impl App {
                                 Some(p) if p != self.focused_pane => self.pane_active[p as usize] == Some(d.uid),
                                 _ => i == self.active,
                             };
-                            let active = shown && !special;
+                            let active = shown;
                             let error = d.diagnostics.iter().any(|g| g.severity == Severity::Error);
                             // a Claude conversation: working, or finished and not seen yet
                             let tint = if error { Some(err()) } else { self.claude_tab_tint(d.uid) };
@@ -307,31 +302,6 @@ impl App {
                                 body.on_hover_text(p.display().to_string());
                             }
                         }
-                        // the Git tab stays like a file tab (in the first panel when split)
-                        if self.history.tab && pane.unwrap_or(0) == 0 {
-                            let on = self.history.open && !split_on && !self.prefs.open;
-                            let (body, closed) = tab_widget(ui, t!("Historique Git", "Git history"), TabIcon::View(icons::ViewIcon::Git), false, on, None, &tc);
-                            close_history = closed || body.middle_clicked();
-                            show_history = body.clicked() && !closed;
-                        }
-                        if pane.is_some() {
-                            return;
-                        }
-                        if let Some(sp) = &self.split {
-                            let title = tf!("Découpage {}", "Splitting {}", sp.info.short);
-                            let (body, closed) = tab_widget(ui, &title, TabIcon::View(icons::ViewIcon::Split), false, split_on, None, &tc);
-                            // the split stays in progress: × only switches away from it
-                            if closed {
-                                activate = activate.or(Some(self.active));
-                            } else if body.clicked() {
-                                show_split = true;
-                            }
-                            body.on_hover_text(t!("Découpage en cours — « Terminer » ou « Annuler le découpage » dans l'onglet", "Splitting in progress — “Finish” or “Cancel the splitting” in the tab"));
-                        }
-                        if self.prefs.open {
-                            let (_, closed) = tab_widget(ui, t!("Préférences", "Preferences"), TabIcon::View(icons::ViewIcon::Settings), false, true, None, &tc);
-                            close_prefs = closed;
-                        }
                     });
                 });
             let width = out.inner_rect.width();
@@ -359,33 +329,8 @@ impl App {
         if let Some(i) = activate {
             self.activate_tab(i);
         }
-        if show_history {
-            // back to the Git view: its state is read again at once
-            if !self.history.open {
-                self.git_refresh();
-                self.load_history();
-            }
-            self.history.open = true;
-            self.prefs.open = false;
-            if let Some(sp) = self.split.as_mut() {
-                sp.shown = false;
-            }
-        }
-        if show_split {
-            self.prefs.open = false;
-            if let Some(sp) = self.split.as_mut() {
-                sp.shown = true;
-            }
-        }
         if let Some(i) = close {
             self.close_tab(i, false);
-        }
-        if close_history {
-            self.history.open = false;
-            self.history.tab = false;
-        }
-        if close_prefs {
-            self.prefs.open = false;
         }
         match menu_act {
             Some(TabAct::Split(i, dir)) => self.split_tab(i, Some(dir)),
@@ -918,7 +863,7 @@ impl App {
 
     /// Top of the git view: branch and its upstream, pull / push / fetch / branches, git errors,
     /// then the commit message and button (the changes themselves are the first rows of the graph).
-    fn git_bar(&mut self, ui: &mut egui::Ui) {
+    pub(super) fn git_bar(&mut self, ui: &mut egui::Ui) {
         if self.repo.is_none() {
             ui.label(t!("Aucun dépôt git dans ce dossier.", "No git repository in this folder."));
             if let Some(root) = self.root.clone() {
@@ -952,7 +897,7 @@ impl App {
         });
 
         // ⇱ / ⇲: the view moves between the editor area and the bottom panel
-        let (big, mut move_to) = (self.history.open, None);
+        let (big, mut move_to) = (self.has_tab(document::View::Git), None);
         let (mut stash_act, mut stash_open) = (None, false);
         // --- branch, its upstream and the remote actions
         ui.horizontal(|ui| {
@@ -1127,6 +1072,7 @@ impl App {
             BottomTab::Pulls => self.docs.iter().position(in_editor(document::View::PullRequests)),
             BottomTab::Docker => self.docs.iter().position(in_editor(document::View::Docker)),
             BottomTab::Debug => self.docs.iter().position(in_editor(document::View::Debug)),
+            BottomTab::Git => self.docs.iter().position(in_editor(document::View::Git)),
             _ => None,
         };
         if let Some(i) = tab_of {
@@ -1137,10 +1083,7 @@ impl App {
             BottomTab::Search => self.search.focus = true,
             BottomTab::Terminal => self.term.want_focus = true,
             BottomTab::Claude => self.claude_prepare(),
-            BottomTab::Git => {
-                self.history.open = false;
-                self.git_view_load();
-            }
+            BottomTab::Git => self.git_view_load(),
             BottomTab::Pulls => self.pulls_load(),
             BottomTab::Docker => self.docker_load(),
             BottomTab::Debug => self.debug.focus_console = true,
@@ -1174,7 +1117,7 @@ impl App {
         match tab {
             BottomTab::Search => tab_of(document::View::Search),
             BottomTab::Claude => !self.claude_has_bottom(),
-            BottomTab::Git => self.history.open,
+            BottomTab::Git => tab_of(document::View::Git),
             BottomTab::Pulls => tab_of(document::View::PullRequests),
             BottomTab::Docker => tab_of(document::View::Docker),
             BottomTab::Debug => tab_of(document::View::Debug),
@@ -1193,7 +1136,6 @@ impl App {
                 self.persist("search_in_tab", "false".into());
             }
             BottomTab::Claude => self.move_claude(false),
-            BottomTab::Git => self.history.open = false,
             _ => self.show_bottom(tab, false),
         }
     }
@@ -1330,12 +1272,12 @@ impl App {
         }
         let mut welcome = false;
         let mut editor_resp = None;
-        let special = self.prefs.open || self.history.open || self.split.as_ref().is_some_and(|s| s.shown);
+        self.sync_split_tab();
         // nothing open: the welcome page, in a tab (the tab strip and its window buttons stay)
-        if self.docs.is_empty() && !special {
+        if self.docs.is_empty() {
             self.open_view_tab(document::View::Welcome, t!("Accueil", "Welcome").into());
         }
-        let two = !special && self.is_split();
+        let two = self.is_split();
         egui::CentralPanel::default().frame(egui::Frame::none()).show(ctx, |ui| {
             if two {
                 let frame = egui::Frame::none();
@@ -1361,25 +1303,7 @@ impl App {
                 });
                 return;
             }
-            if !self.docs.is_empty() || special || self.history.tab || self.strip_controls(None).is_some() {
-                self.tabs_strip(ui, None);
-            }
-            if self.prefs.open {
-                egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.prefs_ui(ui));
-                return;
-            }
-            if self.split.as_ref().is_some_and(|s| s.shown) {
-                egui::CentralPanel::default().show_inside(ui, |ui| self.split_ui(ui));
-                return;
-            }
-            if self.history.open {
-                let fill = ui.visuals().panel_fill;
-                egui::TopBottomPanel::top("git_bar")
-                    .frame(egui::Frame::none().fill(fill).inner_margin(egui::Margin { left: 10.0, right: 10.0, top: 8.0, bottom: 4.0 }))
-                    .show_inside(ui, |ui| self.git_bar(ui));
-                egui::CentralPanel::default().show_inside(ui, |ui| self.history_ui(ui));
-                return;
-            }
+            self.tabs_strip(ui, None);
             self.drop_zones.panes.push((0, ui.available_rect_before_wrap()));
             if self.active < self.docs.len() {
                 self.breadcrumbs_ui(ui, self.active, 0);
@@ -1646,7 +1570,7 @@ impl App {
         if focused && !self.was_focused {
             self.last_disk_check = Instant::now() - Duration::from_secs(10);
             // files may have been changed by another program: the Git view shows them at once
-            if self.history.open {
+            if self.has_tab(document::View::Git) {
                 self.git_refresh();
             }
         }
