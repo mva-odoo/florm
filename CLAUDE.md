@@ -60,3 +60,9 @@ expliquent le comportement avant / après et le pourquoi. Exemple :
 ```
 [FIX] Pull requests : choisir un dépôt marche aussi quand le dossier n'en est pas un
 ```
+
+## Réponses (affichées dans Florm)
+
+- Une liste de choses que l'utilisateur doit faire ou décider, et qu'il va cocher, s'écrit en tâches : `- [ ] …`.
+- Une liste ordinaire (points, étapes, exemples) s'écrit en puces simples `- …`, sans case.
+- Ne pas mettre de tâches `- [ ]` quand il n'y a rien à cocher.
