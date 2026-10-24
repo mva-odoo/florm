@@ -298,8 +298,22 @@ fn local_install(python: &str) -> Vec<String> {
     if cfg!(windows) {
         return [python, "-m", "pip", "install", "--user", "debugpy"].map(String::from).to_vec();
     }
-    // a system Python may refuse pip (PEP 668): then for the user only, all the same
-    let sh = format!("{python} -m pip install --user debugpy || {python} -m pip install --user --break-system-packages debugpy");
+    let py = format!("'{}'", python.replace('\'', r"'\''"));
+    // a Python of its own (virtualenv, mise, pyenv…): into it, pip set up first if missing (no
+    // --user: refused in a virtualenv). The system's: for the user with pip (which may refuse,
+    // PEP 668: for the user only, all the same); without pip (Arch…), the package of the
+    // distribution (its password asked in the terminal).
+    let sh = format!(
+        "case \"$(command -v {py})\" in \
+         /usr/*) if {py} -m pip --version >/dev/null 2>&1; then {py} -m pip install --user debugpy || {py} -m pip install --user --break-system-packages debugpy; \
+         elif command -v pacman >/dev/null; then sudo pacman -S --needed python-debugpy; \
+         elif command -v apt-get >/dev/null; then sudo apt-get install -y python3-debugpy; \
+         elif command -v dnf >/dev/null; then sudo dnf install -y python3-debugpy; \
+         elif command -v zypper >/dev/null; then sudo zypper install -y python3-debugpy; \
+         else {py} -m ensurepip --user && {py} -m pip install --user --break-system-packages debugpy; fi ;; \
+         *) {{ {py} -m pip --version >/dev/null 2>&1 || {py} -m ensurepip; }} && {py} -m pip install debugpy ;; \
+         esac"
+    );
     ["sh", "-c", &sh].map(String::from).to_vec()
 }
 
@@ -471,6 +485,17 @@ pub fn find_odoo_bin(root: &Path) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn debugpy_install_script_is_valid_shell() {
+        for python in ["python3", "/home/x/.venv/bin/python", "/opt/it's/python"] {
+            let argv = local_install(python);
+            let ok = std::process::Command::new("sh").args(["-n", "-c", &argv[2]]).status().unwrap().success();
+            assert!(ok, "{python}: {}", argv[2]);
+        }
+        assert!(local_install("python3")[2].contains("sudo pacman -S --needed python-debugpy"));
+    }
 
     #[test]
     fn programs() {
