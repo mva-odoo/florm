@@ -785,6 +785,7 @@ impl App {
             .width_range(150.0..=700.0)
             .frame(egui::Frame::none().fill(panel).inner_margin(egui::Margin { left: 10.0, right: 8.0, top: 4.0, bottom: 6.0 }))
             .show(ctx, |ui| {
+            self.sidebar_mac_buttons(ui);
             // the views of the bottom panel, icons only: left click in the editor area, right click
             // there; projects are under the folder name (Ctrl+Alt+P)
             egui::TopBottomPanel::bottom("sidebar_tools").frame(egui::Frame::none().inner_margin(egui::Margin { left: 0.0, right: 0.0, top: 6.0, bottom: 0.0 })).show_inside(ui, |ui| {
