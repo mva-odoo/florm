@@ -134,8 +134,9 @@ pub(super) struct ClaudeUi {
     answers: Option<claude_ask::Answers>,
     /// Last commits of its folder for « + Contexte → Un commit »: (hash, short hash, subject, when).
     recent_commits: Vec<(String, String, String, String)>,
-    /// Height of each item when it was last drawn, with the key of what it showed (`item_key`).
-    heights: Vec<(u64, f32)>,
+    /// Height of each item when it was last drawn, with the key of what it showed (`item_key`),
+    /// and whether it was the same the time before (only then is the item left undrawn out of sight).
+    heights: Vec<(u64, f32, bool)>,
 }
 
 /// What the height of a message depends on: its content, its place and the width.
@@ -1591,13 +1592,16 @@ impl App {
                     // at every frame): the others take the height they had when last drawn
                     let ppp = ui.ctx().pixels_per_point();
                     let sight = ui.clip_rect().expand(300.0);
-                    c.heights.resize(c.items.len(), (0, 0.0));
+                    c.heights.resize(c.items.len(), (0, 0.0, false));
                     for (k, it) in c.items.iter().enumerate() {
                         ui.add_space(6.0);
                         let key = item_key(it, claude_said, c.busy, last_user.is_none_or(|u| k > u), ui.available_width(), ppp);
                         let top = ui.cursor().top();
-                        let (known, h) = c.heights[k];
-                        if known == key && (top + h < sight.top() || top > sight.bottom()) {
+                        let (known, h, stable) = c.heights[k];
+                        // only a height measured twice the same stands for the message: one still
+                        // changing (an output unfolding, an image loading) would make the
+                        // conversation jump each time the message goes in and out of sight
+                        if known == key && stable && (top + h < sight.top() || top > sight.bottom()) {
                             ui.allocate_space(egui::vec2(ui.available_width(), h));
                             match it {
                                 Item::User(..) => claude_said = false,
@@ -1728,7 +1732,8 @@ impl App {
                             }
                         });
                         // allocate_space adds the spacing after it again
-                        c.heights[k] = (key, ui.cursor().top() - top - ui.spacing().item_spacing.y);
+                        let new_h = ui.cursor().top() - top - ui.spacing().item_spacing.y;
+                        c.heights[k] = (key, new_h, known == key && (new_h - h).abs() < 0.5);
                     }
                     ui.add_space(10.0);
                     // the end of the conversation: scrolled to here, not to an offset past the end
