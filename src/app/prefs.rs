@@ -125,6 +125,28 @@ fn pref_row(ui: &mut egui::Ui, rc: &mut RowCtx, title: &str, desc: &str, control
     );
 }
 
+/// A row whose control is too wide for the right of the text (a field and several buttons): it
+/// goes under the text.
+fn pref_row_wide(ui: &mut egui::Ui, rc: &mut RowCtx, title: &str, desc: &str, control: impl FnOnce(&mut egui::Ui)) {
+    if !rc.matches(&[title, desc]) {
+        return;
+    }
+    rc.header(ui);
+    ui.add_space(10.0);
+    ui.label(RichText::new(title).strong());
+    if !desc.is_empty() {
+        ui.add(egui::Label::new(RichText::new(desc).weak().size(12.5)).wrap());
+    }
+    ui.add_space(4.0);
+    ui.horizontal_wrapped(control);
+    ui.add_space(10.0);
+    let r = ui.available_rect_before_wrap();
+    ui.painter().line_segment(
+        [egui::pos2(r.left(), r.top()), egui::pos2(r.right(), r.top())],
+        egui::Stroke::new(1.0_f32, ui.visuals().widgets.noninteractive.bg_stroke.color),
+    );
+}
+
 impl App {
     pub(super) fn prefs_ui(&mut self, ui: &mut egui::Ui) {
         let panel = ui.visuals().panel_fill;
@@ -634,7 +656,7 @@ impl App {
             }
             PrefSection::Advanced => {
                 let exclude = &mut self.prefs.exclude;
-                pref_row(
+                pref_row_wide(
                     ui,
                     rc,
                     t!("Fichiers exclus", "Excluded files"),
@@ -667,7 +689,7 @@ impl App {
                     Some(d) => tf!("Récupérée dans {}. Publier envoie les changements (préférences, modèles, thèmes) sur GitHub.", "Fetched in {}. Publish sends the changes (preferences, templates, themes) to GitHub.", d.display()),
                     None => t!("Un dépôt GitHub avec settings.toml, templates/, themes/ et plugins/, utilisé sur chaque ordinateur : « login » (= login/florm-config), « owner/repo » ou une adresse git. « Créer » le fait sur GitHub (privé, avec gh) à partir de cet ordinateur.", "A GitHub repository with settings.toml, templates/, themes/ and plugins/, used on every computer: “login” (= login/florm-config), “owner/repo” or a git address. “Create” makes it on GitHub (private, with gh) from this computer.").to_string(),
                 };
-                pref_row(ui, rc, t!("Configuration partagée", "Shared configuration"), &help, |ui| {
+                pref_row_wide(ui, rc, t!("Configuration partagée", "Shared configuration"), &help, |ui| {
                     let r = ui.add(egui::TextEdit::singleline(shared).desired_width(220.0).font(egui::TextStyle::Monospace).hint_text("login/florm-config"));
                     if r.lost_focus() || r.changed() && ui.input(|i| i.key_pressed(Key::Enter)) {
                         s.shared_config = shared.trim().to_string();
