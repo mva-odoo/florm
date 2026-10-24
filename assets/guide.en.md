@@ -34,7 +34,7 @@ symbols, a class or a function takes you there.
   pull) and the number of changed files; hovering shows the remotes
   (can be turned off in Preferences → Git).
 - The icons at the bottom (Preferences, Search, Terminal, Claude…): **▾** at the end of the row
-  chooses those shown. A hidden view stays in the palette (Ctrl+Shift+P) and the menus.
+  chooses those shown, and can move them to the top of the sidebar. A hidden view stays in the palette (Ctrl+Shift+P) and the menus.
 
 ## Find in folder (Ctrl+Shift+F)
 

@@ -732,70 +732,14 @@ impl App {
             .show(ctx, |ui| {
             self.sidebar_mac_buttons(ui);
             // the views of the bottom panel, icons only: left click in the editor area, right click
-            // there; projects are under the folder name (Ctrl+Alt+P)
-            egui::TopBottomPanel::bottom("sidebar_tools").frame(egui::Frame::none().inner_margin(egui::Margin { left: 0.0, right: 0.0, top: 6.0, bottom: 0.0 })).show_inside(ui, |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    ui.spacing_mut().item_spacing.x = 0.0;
-                    let hidden = self.settings.sidebar_hidden.clone();
-                    let shown = |key: &str| !hidden.iter().any(|h| h == key);
-                    // preferences, left of the search (the first view)
-                    if shown("settings") {
-                        let (rect, r) = ui.allocate_exact_size(egui::vec2(26.0, 24.0), Sense::click());
-                        if r.hovered() {
-                            ui.painter().rect_filled(rect, 4.0, ui.visuals().widgets.hovered.weak_bg_fill);
-                        }
-                        let c = if r.hovered() { ui.visuals().strong_text_color() } else { ui.visuals().weak_text_color() };
-                        icons::paint_view(ui.painter(), rect.center(), icons::ViewIcon::Settings, c);
-                        if r.on_hover_text(t!("Préférences", "Preferences")).clicked() {
-                            self.pending.push(Cmd::OpenSettings);
-                        }
-                    }
-                    for (tab, icon, label) in BottomTab::shown().filter(|(t, ..)| shown(&t.key())) {
-                        let (rect, r) = ui.allocate_exact_size(egui::vec2(26.0, 24.0), Sense::click());
-                        let on = self.bottom == Some(tab);
-                        if r.hovered() || on {
-                            ui.painter().rect_filled(rect, 4.0, ui.visuals().widgets.hovered.weak_bg_fill);
-                        }
-                        let c = if r.hovered() || on { ui.visuals().strong_text_color() } else { ui.visuals().weak_text_color() };
-                        icons::paint_view(ui.painter(), rect.center(), icon, c);
-                        let r = r.on_hover_text(format!("{label}\n{}", BottomTab::hint(tab)));
-                        if r.clicked() && !tab.bottom_only() {
-                            self.show_big(tab);
-                        } else if r.clicked() || r.secondary_clicked() {
-                            self.show_bottom(tab, true);
-                        }
-                    }
-                    // which icons are shown
-                    let mut changed = None;
-                    let menu = ui.menu_button(RichText::new("▾").weak(), |ui| {
-                        ui.label(RichText::new(t!("Icônes affichées", "Icons shown")).small().weak());
-                        let mut items = vec![("settings".to_string(), t!("Préférences", "Preferences").to_string())];
-                        items.extend(BottomTab::shown().map(|(t, _, l)| (t.key(), l.to_string())));
-                        for (key, label) in items {
-                            let mut on = shown(&key);
-                            if ui.checkbox(&mut on, label).changed() {
-                                changed = Some((key, on));
-                            }
-                        }
-                        ui.separator();
-                        if ui.add_enabled(!hidden.is_empty(), egui::Button::new(t!("Tout afficher", "Show all"))).clicked() {
-                            changed = Some((String::new(), true));
-                            ui.close_menu();
-                        }
-                    });
-                    menu.response.on_hover_text(t!("Afficher ou masquer ces icônes (les vues restent dans la palette et les menus)", "Show or hide these icons (the views stay in the palette and the menus)"));
-                    if let Some((key, on)) = changed {
-                        let h = &mut self.settings.sidebar_hidden;
-                        match (key.is_empty(), on) {
-                            (true, _) => h.clear(),
-                            (false, true) => h.retain(|x| *x != key),
-                            (false, false) => h.push(key),
-                        }
-                        let v = config::toml_str_array(h);
-                        self.persist("sidebar_hidden", v);
-                    }
-                });
-            });
+            // there; projects are under the folder name (Ctrl+Alt+P). At the top or the bottom of the sidebar.
+            let top = self.settings.sidebar_tools_top;
+            let frame = egui::Frame::none().inner_margin(if top { egui::Margin { left: 0.0, right: 0.0, top: 0.0, bottom: 6.0 } } else { egui::Margin { left: 0.0, right: 0.0, top: 6.0, bottom: 0.0 } });
+            if top {
+                egui::TopBottomPanel::top("sidebar_tools").frame(frame).show_inside(ui, |ui| self.sidebar_tools(ui));
+            } else {
+                egui::TopBottomPanel::bottom("sidebar_tools").frame(frame).show_inside(ui, |ui| self.sidebar_tools(ui));
+            }
             match self.tree.as_mut() {
                 Some(tree) => {
                     let active = self.docs.get(self.active).and_then(|d| d.path.clone());
@@ -830,6 +774,81 @@ impl App {
         if let Some(a) = tree_action {
             self.tree_action(ctx, a);
         }
+    }
+
+    /// The icons of the views (`sidebar`), with the menu that chooses which are shown.
+    fn sidebar_tools(&mut self, ui: &mut egui::Ui) {
+        let top = self.settings.sidebar_tools_top;
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 0.0;
+            let hidden = self.settings.sidebar_hidden.clone();
+            let shown = |key: &str| !hidden.iter().any(|h| h == key);
+            // preferences, left of the search (the first view)
+            if shown("settings") {
+                let (rect, r) = ui.allocate_exact_size(egui::vec2(26.0, 24.0), Sense::click());
+                if r.hovered() {
+                    ui.painter().rect_filled(rect, 4.0, ui.visuals().widgets.hovered.weak_bg_fill);
+                }
+                let c = if r.hovered() { ui.visuals().strong_text_color() } else { ui.visuals().weak_text_color() };
+                icons::paint_view(ui.painter(), rect.center(), icons::ViewIcon::Settings, c);
+                if r.on_hover_text(t!("Préférences", "Preferences")).clicked() {
+                    self.pending.push(Cmd::OpenSettings);
+                }
+            }
+            for (tab, icon, label) in BottomTab::shown().filter(|(t, ..)| shown(&t.key())) {
+                let (rect, r) = ui.allocate_exact_size(egui::vec2(26.0, 24.0), Sense::click());
+                let on = self.bottom == Some(tab);
+                if r.hovered() || on {
+                    ui.painter().rect_filled(rect, 4.0, ui.visuals().widgets.hovered.weak_bg_fill);
+                }
+                let c = if r.hovered() || on { ui.visuals().strong_text_color() } else { ui.visuals().weak_text_color() };
+                icons::paint_view(ui.painter(), rect.center(), icon, c);
+                let r = r.on_hover_text(format!("{label}\n{}", BottomTab::hint(tab)));
+                if r.clicked() && !tab.bottom_only() {
+                    self.show_big(tab);
+                } else if r.clicked() || r.secondary_clicked() {
+                    self.show_bottom(tab, true);
+                }
+            }
+            // which icons are shown
+            let mut changed = None;
+            let mut placed = None;
+            let menu = ui.menu_button(RichText::new("▾").weak(), |ui| {
+                ui.label(RichText::new(t!("Icônes affichées", "Icons shown")).small().weak());
+                let mut items = vec![("settings".to_string(), t!("Préférences", "Preferences").to_string())];
+                items.extend(BottomTab::shown().map(|(t, _, l)| (t.key(), l.to_string())));
+                for (key, label) in items {
+                    let mut on = shown(&key);
+                    if ui.checkbox(&mut on, label).changed() {
+                        changed = Some((key, on));
+                    }
+                }
+                ui.separator();
+                if ui.add_enabled(!hidden.is_empty(), egui::Button::new(t!("Tout afficher", "Show all"))).clicked() {
+                    changed = Some((String::new(), true));
+                    ui.close_menu();
+                }
+                let mut at_top = top;
+                if ui.checkbox(&mut at_top, t!("En haut de la barre latérale", "At the top of the sidebar")).changed() {
+                    placed = Some(at_top);
+                }
+            });
+            if let Some(at_top) = placed {
+                self.settings.sidebar_tools_top = at_top;
+                self.persist("sidebar_tools_top", at_top.to_string());
+            }
+            menu.response.on_hover_text(t!("Afficher ou masquer ces icônes (les vues restent dans la palette et les menus)", "Show or hide these icons (the views stay in the palette and the menus)"));
+            if let Some((key, on)) = changed {
+                let h = &mut self.settings.sidebar_hidden;
+                match (key.is_empty(), on) {
+                    (true, _) => h.clear(),
+                    (false, true) => h.retain(|x| *x != key),
+                    (false, false) => h.push(key),
+                }
+                let v = config::toml_str_array(h);
+                self.persist("sidebar_hidden", v);
+            }
+        });
     }
 
     fn tree_action(&mut self, ctx: &egui::Context, a: TreeAction) {
