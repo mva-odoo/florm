@@ -171,7 +171,7 @@ impl App {
             base: String::new(),
             remotes,
             remote,
-            draft: false,
+            draft: self.settings.pr_draft,
             busy: false,
             error: None,
             base_remote: String::new(),

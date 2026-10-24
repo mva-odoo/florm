@@ -423,28 +423,6 @@ impl App {
                 pref_row(ui, rc, t!("Recherche dans le dossier en onglet", "Find in folder in a tab"), t!("Ctrl+Shift+F ouvre la recherche dans un onglet de l'éditeur plutôt que dans le panneau du bas (boutons ⇱ / ⇲ pour changer).", "Ctrl+Shift+F opens the search in an editor tab rather than in the bottom panel (⇱ / ⇲ buttons to switch)."), |ui| {
                     toggle_switch(ui, &mut s.search_in_tab);
                 });
-                pref_row(ui, rc, t!("Claude en onglet", "Claude in a tab"), t!("Ctrl+Alt+C ouvre Claude dans un onglet de l'éditeur plutôt que dans le panneau du bas (boutons ⇱ / ⇲ pour changer).", "Ctrl+Alt+C opens Claude in an editor tab rather than in the bottom panel (⇱ / ⇲ buttons to switch)."), |ui| {
-                    toggle_switch(ui, &mut s.claude_in_tab);
-                });
-                pref_row(ui, rc, t!("Claude a fini : clignoter", "Claude is done: blink"), t!("Quand Claude a fini de répondre et que sa conversation n'est pas affichée, son onglet clignote quelques secondes, puis reste vert jusqu'à ce que tu la regardes.", "When Claude is done answering and its conversation is not shown, its tab blinks a few seconds, then stays green until you look at it."), |ui| {
-                    toggle_switch(ui, &mut s.claude_done_blink);
-                });
-                pref_row(ui, rc, t!("Claude a fini : son", "Claude is done: sound"), t!("Joué à la fin de chaque réponse de Claude. ▶ pour l'écouter.", "Played at the end of each answer of Claude. ▶ to listen to it."), |ui| {
-                    let name = |k: &str| crate::sound::SOUNDS.iter().find(|x| x.0 == k).map_or(t!("Aucun", "None"), |x| t!(x.1, x.2));
-                    ui.add_enabled_ui(!s.claude_done_sound.is_empty(), |ui| {
-                        if ui.small_button("▶").on_hover_text(t!("Écouter", "Listen")).clicked() {
-                            crate::sound::play(&s.claude_done_sound);
-                        }
-                    });
-                    egui::ComboBox::from_id_salt("claude_done_sound").selected_text(name(&s.claude_done_sound)).show_ui(ui, |ui| {
-                        ui.selectable_value(&mut s.claude_done_sound, String::new(), t!("Aucun", "None"));
-                        for (key, fr, en) in crate::sound::SOUNDS {
-                            if ui.selectable_value(&mut s.claude_done_sound, key.to_string(), t!(fr, en)).clicked() {
-                                crate::sound::play(key);
-                            }
-                        }
-                    });
-                });
                 pref_row(ui, rc, t!("Garder le travail non enregistré", "Keep unsaved work"), t!("À la fermeture (ou en changeant de projet), les modifications non enregistrées sont gardées et rouvertes ensuite, sans question.", "When closing (or switching project), unsaved changes are kept and reopened later, without asking."), |ui| {
                     toggle_switch(ui, &mut s.hot_exit);
                 });
@@ -534,6 +512,88 @@ impl App {
                     if toggle_switch(ui, &mut blame).changed() {
                         actions.push(Cmd::GitBlame);
                     }
+                });
+            }
+            PrefSection::PullRequests => {
+                pref_row(ui, rc, t!("État affiché au départ", "State shown at the start"), t!("Les pull requests affichées à l'ouverture de la vue : ouvertes, fusionnées, fermées ou toutes.", "The pull requests shown when the view opens: open, merged, closed or all."), |ui| {
+                    let cur = super::pulls::STATES.iter().find(|(k, _, _)| *k == s.pr_default_state).map_or("", |(_, fr, en)| t!(*fr, *en));
+                    egui::ComboBox::from_id_salt("pref_pr_state").selected_text(cur).width(220.0).show_ui(ui, |ui| {
+                        for (key, fr, en) in super::pulls::STATES {
+                            if ui.selectable_label(s.pr_default_state == key, t!(fr, en)).clicked() {
+                                s.pr_default_state = key.to_string();
+                            }
+                        }
+                    });
+                });
+                pref_row(ui, rc, t!("Conversations résolues", "Resolved conversations"), t!("Affichées dans une pull request, sinon masquées (le bouton « afficher les conversations résolues » reste disponible).", "Shown in a pull request, otherwise hidden (the “show resolved conversations” button stays available)."), |ui| {
+                    toggle_switch(ui, &mut s.pr_show_resolved);
+                });
+                pref_row(ui, rc, t!("Nouvelle PR en brouillon", "New PR as a draft"), t!("La case « Brouillon » est cochée à la création d'une pull request.", "The “Draft” box is checked when a pull request is created."), |ui| {
+                    toggle_switch(ui, &mut s.pr_draft);
+                });
+            }
+            PrefSection::Claude => {
+                pref_row(ui, rc, t!("Claude en onglet", "Claude in a tab"), t!("Ctrl+Alt+C ouvre Claude dans un onglet de l'éditeur plutôt que dans le panneau du bas (boutons ⇱ / ⇲ pour changer).", "Ctrl+Alt+C opens Claude in an editor tab rather than in the bottom panel (⇱ / ⇲ buttons to switch)."), |ui| {
+                    toggle_switch(ui, &mut s.claude_in_tab);
+                });
+                pref_row(ui, rc, t!("Claude a fini : clignoter", "Claude is done: blink"), t!("Quand Claude a fini de répondre et que sa conversation n'est pas affichée, son onglet clignote quelques secondes, puis reste vert jusqu'à ce que tu la regardes.", "When Claude is done answering and its conversation is not shown, its tab blinks a few seconds, then stays green until you look at it."), |ui| {
+                    toggle_switch(ui, &mut s.claude_done_blink);
+                });
+                pref_row(ui, rc, t!("Claude a fini : son", "Claude is done: sound"), t!("Joué à la fin de chaque réponse de Claude. ▶ pour l'écouter.", "Played at the end of each answer of Claude. ▶ to listen to it."), |ui| {
+                    let name = |k: &str| crate::sound::SOUNDS.iter().find(|x| x.0 == k).map_or(t!("Aucun", "None"), |x| t!(x.1, x.2));
+                    ui.add_enabled_ui(!s.claude_done_sound.is_empty(), |ui| {
+                        if ui.small_button("▶").on_hover_text(t!("Écouter", "Listen")).clicked() {
+                            crate::sound::play(&s.claude_done_sound);
+                        }
+                    });
+                    egui::ComboBox::from_id_salt("claude_done_sound").selected_text(name(&s.claude_done_sound)).show_ui(ui, |ui| {
+                        ui.selectable_value(&mut s.claude_done_sound, String::new(), t!("Aucun", "None"));
+                        for (key, fr, en) in crate::sound::SOUNDS {
+                            if ui.selectable_value(&mut s.claude_done_sound, key.to_string(), t!(fr, en)).clicked() {
+                                crate::sound::play(key);
+                            }
+                        }
+                    });
+                });
+            }
+            PrefSection::Docker => {
+                pref_row(ui, rc, t!("Conteneur des tests Odoo", "Odoo tests container"), t!("Le conteneur où tournent les tests Odoo (Tests dans la vue Docker).", "The container the Odoo tests run in (Tests in the Docker view)."), |ui| {
+                    ui.add(egui::TextEdit::singleline(&mut s.odoo_test_container).desired_width(260.0).font(egui::TextStyle::Monospace));
+                });
+                pref_row_wide(ui, rc, t!("Commande des tests Odoo", "Odoo tests command"), t!("Lancée dans le conteneur, {tags} est remplacé par les tags. Vide : la commande par défaut.", "Run in the container, {tags} is replaced by the tags. Empty: the default command."), |ui| {
+                    ui.add(egui::TextEdit::singleline(&mut s.odoo_test_command).desired_width(f32::INFINITY).font(egui::TextStyle::Monospace).hint_text(crate::odoo_test::DEFAULT_COMMAND));
+                });
+            }
+            PrefSection::Debug => {
+                pref_row(ui, rc, t!("Mode", "Mode"), t!("Lancer : Florm lance le programme sous le débogueur. S'attacher : le programme tourne déjà avec debugpy --listen, Florm s'y connecte.", "Launch: Florm runs the program under the debugger. Attach: the program already runs with debugpy --listen, Florm connects to it."), |ui| {
+                    ui.selectable_value(&mut s.debug_mode, "launch".to_string(), t!("Lancer", "Launch"));
+                    ui.selectable_value(&mut s.debug_mode, "attach".to_string(), t!("S'attacher", "Attach"));
+                });
+                pref_row(ui, rc, t!("Port (s'attacher)", "Port (attach)"), t!("Le port sur lequel debugpy écoute (dans le conteneur, pour Docker).", "The port debugpy listens on (in the container, for Docker)."), |ui| {
+                    ui.add(egui::DragValue::new(&mut s.debug_port).range(1..=65535));
+                });
+                pref_row_wide(ui, rc, t!("Commande sur cet ordinateur", "Command on this computer"), t!("Lancée sous le débogueur (lancer), dans le panneau du bas. Vide : l'odoo-bin du dossier.", "Run under the debugger (launch), in the bottom panel. Empty: the odoo-bin of the folder."), |ui| {
+                    ui.add(egui::TextEdit::singleline(&mut s.debug_command).desired_width(f32::INFINITY).font(egui::TextStyle::Monospace).hint_text("./odoo-bin -c odoo.conf -d ma_base --workers 0"));
+                });
+                pref_row_wide(ui, rc, t!("Commande dans le conteneur", "Command in the container"), t!("Lancée dans le conteneur sous le débogueur. Vide : la commande par défaut.", "Run in the container under the debugger. Empty: the default command."), |ui| {
+                    ui.add(egui::TextEdit::singleline(&mut s.debug_docker_command).desired_width(f32::INFINITY).font(egui::TextStyle::Monospace).hint_text(super::debugger::DOCKER_COMMAND));
+                });
+                pref_row(ui, rc, t!("Python de cet ordinateur", "Python of this computer"), t!("Avec debugpy installé. Vide : python3 (python sous Windows).", "With debugpy installed. Empty: python3 (python on Windows)."), |ui| {
+                    ui.add(egui::TextEdit::singleline(&mut s.debug_python).desired_width(260.0).font(egui::TextStyle::Monospace).hint_text("python3"));
+                });
+                pref_row(ui, rc, t!("Exceptions", "Exceptions"), t!("Où le débogueur s'arrête sur une exception. Aussi réglable dans la vue Débogage.", "Where the debugger stops on an exception. Also set in the Debugging view."), |ui| {
+                    for (key, label) in [("uncaught", t!("non interceptées", "uncaught")), ("raised", t!("toutes", "all raised")), ("userUnhandled", t!("hors de mon code", "leaving my code"))] {
+                        let mut on = s.debug_exceptions.iter().any(|e| e == key);
+                        if ui.checkbox(&mut on, label).changed() {
+                            s.debug_exceptions.retain(|e| e != key);
+                            if on {
+                                s.debug_exceptions.push(key.to_string());
+                            }
+                        }
+                    }
+                });
+                pref_row(ui, rc, t!("Mon code seulement", "My code only"), t!("N'entre pas dans le code d'Odoo ni des bibliothèques (justMyCode).", "Does not step into the code of Odoo nor of the libraries (justMyCode)."), |ui| {
+                    toggle_switch(ui, &mut s.debug_just_my_code);
                 });
             }
             PrefSection::Terminal => {
@@ -942,6 +1002,46 @@ impl App {
         let mut lint_changed = s.python_linter != before.python_linter || s.python_lint_args != before.python_lint_args || s.lint_live != before.lint_live;
         if s.claude_done_sound != before.claude_done_sound {
             self.persist("claude_done_sound", config::toml_str(&s.claude_done_sound));
+        }
+        if s.odoo_test_container != before.odoo_test_container {
+            self.persist("odoo_test_container", config::toml_str(&s.odoo_test_container));
+        }
+        if s.odoo_test_command != before.odoo_test_command {
+            self.persist("odoo_test_command", config::toml_str(&s.odoo_test_command));
+        }
+        if s.debug_docker_command != before.debug_docker_command {
+            self.persist("debug_docker_command", config::toml_str(&s.debug_docker_command));
+        }
+        if s.debug_command != before.debug_command {
+            self.persist("debug_command", config::toml_str(&s.debug_command));
+        }
+        if s.debug_python != before.debug_python {
+            self.persist("debug_python", config::toml_str(&s.debug_python));
+        }
+        if s.debug_mode != before.debug_mode {
+            self.persist("debug_mode", config::toml_str(&s.debug_mode));
+        }
+        if s.debug_port != before.debug_port {
+            self.persist("debug_port", s.debug_port.to_string());
+        }
+        if s.debug_exceptions != before.debug_exceptions {
+            self.persist("debug_exceptions", config::toml_str_array(&s.debug_exceptions));
+        }
+        if s.debug_just_my_code != before.debug_just_my_code {
+            self.persist("debug_just_my_code", s.debug_just_my_code.to_string());
+        }
+        if s.pr_default_state != before.pr_default_state || s.pr_show_resolved != before.pr_show_resolved {
+            self.pr.apply_settings(&s.pr_default_state, s.pr_show_resolved);
+            self.reload_prs();
+        }
+        if s.pr_default_state != before.pr_default_state {
+            self.persist("pr_default_state", config::toml_str(&s.pr_default_state));
+        }
+        if s.pr_show_resolved != before.pr_show_resolved {
+            self.persist("pr_show_resolved", s.pr_show_resolved.to_string());
+        }
+        if s.pr_draft != before.pr_draft {
+            self.persist("pr_draft", s.pr_draft.to_string());
         }
         if s.python_linter != before.python_linter {
             self.persist("python_linter", config::toml_str(&s.python_linter));

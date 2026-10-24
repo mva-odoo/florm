@@ -7,7 +7,7 @@ use crate::github::{self, Part};
 use history::{DiffAct, DiffClick, DiffKind};
 
 /// `gh pr list --state` values and their labels (French, English).
-const STATES: [(&str, &str, &str); 4] = [("open", "Ouvertes", "Open"), ("merged", "Fusionnées", "Merged"), ("closed", "Fermées", "Closed"), ("all", "Toutes", "All")];
+pub(super) const STATES: [(&str, &str, &str); 4] = [("open", "Ouvertes", "Open"), ("merged", "Fusionnées", "Merged"), ("closed", "Fermées", "Closed"), ("all", "Toutes", "All")];
 
 /// Key of the draft of the comment on the whole pull request, and of the one on a line.
 const DRAFT_PR: &str = "pr";
@@ -81,6 +81,14 @@ pub(super) struct PrUi {
     pub(super) ai: ai_review::AiReview,
 }
 
+impl PrUi {
+    /// The state and the resolved conversations of the settings: at the start, and when they change.
+    pub(super) fn apply_settings(&mut self, state: &str, show_resolved: bool) {
+        self.state = STATES.iter().position(|(k, _, _)| *k == state).unwrap_or(0);
+        self.show_resolved = show_resolved;
+    }
+}
+
 /// What the pull request view asked for during the frame.
 enum PrAct {
     Reload,
@@ -119,6 +127,15 @@ impl App {
         let repo = self.pr.repo.clone().filter(|r| self.repos.contains(r)).or_else(|| self.repo.clone()).or_else(|| self.repos.first().cloned());
         if self.pr.list.is_none() || self.pr.repo != repo {
             self.load_prs(repo);
+        }
+    }
+
+    /// The list read again with the settings just changed (only if it was read before).
+    pub(super) fn reload_prs(&mut self) {
+        if self.pr.list.is_some() {
+            if let Some(repo) = self.pr.repo.clone() {
+                self.load_prs(Some(repo));
+            }
         }
     }
 

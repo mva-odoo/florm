@@ -888,6 +888,10 @@ enum PrefSection {
     Editor,
     Lint,
     Git,
+    PullRequests,
+    Claude,
+    Docker,
+    Debug,
     Terminal,
     Keys,
     Templates,
@@ -895,11 +899,15 @@ enum PrefSection {
 }
 
 /// (section, French name, English name).
-const PREF_SECTIONS: [(PrefSection, &str, &str); 8] = [
+const PREF_SECTIONS: [(PrefSection, &str, &str); 12] = [
     (PrefSection::Appearance, "Apparence", "Appearance"),
     (PrefSection::Editor, "Éditeur", "Editor"),
     (PrefSection::Lint, "Lint", "Lint"),
     (PrefSection::Git, "Git", "Git"),
+    (PrefSection::PullRequests, "Pull requests", "Pull requests"),
+    (PrefSection::Claude, "Claude", "Claude"),
+    (PrefSection::Docker, "Docker", "Docker"),
+    (PrefSection::Debug, "Débogueur", "Debugger"),
     (PrefSection::Terminal, "Terminal", "Terminal"),
     (PrefSection::Keys, "Raccourcis", "Shortcuts"),
     (PrefSection::Templates, "Modèles", "Templates"),
@@ -1052,7 +1060,11 @@ impl App {
             md_cache: egui_commonmark::CommonMarkCache::default(),
             inline: None,
             quick_fix: None,
-            pr: Default::default(),
+            pr: {
+                let mut pr = pulls::PrUi::default();
+                pr.apply_settings(&settings.pr_default_state, settings.pr_show_resolved);
+                pr
+            },
             docker: Default::default(),
             tests: Default::default(),
             debug: Default::default(),

@@ -110,6 +110,12 @@ pub struct Settings {
     pub debug_exceptions: Vec<String>,
     /// Step through the code of the project only, not Odoo's nor the libraries'.
     pub debug_just_my_code: bool,
+    /// State of the pull requests shown at the start: "open", "merged", "closed" or "all".
+    pub pr_default_state: String,
+    /// The resolved conversations of a pull request shown (otherwise hidden).
+    pub pr_show_resolved: bool,
+    /// A new pull request is created as a draft.
+    pub pr_draft: bool,
     /// Shared configuration (settings.toml, templates/, themes/, plugins/) in a git repository:
     /// "login" (login/florm-config on GitHub), "owner/repo" or a git address; empty: none.
     pub shared_config: String,
@@ -187,6 +193,9 @@ impl Default for Settings {
             debug_port: 5678,
             debug_exceptions: vec!["uncaught".into()],
             debug_just_my_code: false,
+            pr_default_state: "open".into(),
+            pr_show_resolved: false,
+            pr_draft: false,
             shared_config: String::new(),
         }
     }
@@ -270,6 +279,11 @@ odoo_test_command = ""
 # et dans un conteneur (vide = "odoo --workers 0 --http-port 8070")
 debug_command = ""
 debug_docker_command = ""
+# pull requests : état affiché au départ ("open", "merged", "closed", "all"), conversations résolues
+# affichées, nouvelle PR en brouillon
+pr_default_state = "open"
+pr_show_resolved = false
+pr_draft = false
 # configuration partagée entre ordinateurs : un dépôt GitHub avec settings.toml, templates/,
 # themes/ et plugins/ ; "login" (= login/florm-config), "owner/repo" ou une adresse git
 shared_config = ""
