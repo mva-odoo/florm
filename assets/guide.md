@@ -33,6 +33,8 @@ liste ses symboles, une classe ou une fonction y emmène.
 - Sur le dossier d'un dépôt git : sa branche, la branche distante suivie (↑ à pousser, ↓ à
   récupérer) et le nombre de fichiers modifiés ; le survol montre les remotes
   (désactivable dans Préférences → Git).
+- Les icônes en bas (Préférences, Recherche, Terminal, Claude…) : **▾** au bout de la ligne choisit
+  celles qui sont affichées. Une vue masquée reste dans la palette (Ctrl+Shift+P) et les menus.
 
 ## Rechercher dans le dossier (Ctrl+Shift+F)
 

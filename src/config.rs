@@ -89,6 +89,8 @@ pub struct Settings {
     /// Order of the services of each compose project in the Docker view (▶ tout starts them in
     /// it, ■ tout stops them the other way): project → services.
     pub docker_order: HashMap<String, Vec<String>>,
+    /// Icons hidden at the bottom of the sidebar: "settings", "search", "terminal", "claude"…
+    pub sidebar_hidden: Vec<String>,
     /// Debugger: the container the program runs in, empty for this computer.
     pub debug_target: String,
     /// "launch" (Florm starts the program) or "attach" (it listens with debugpy).
@@ -171,6 +173,7 @@ impl Default for Settings {
             odoo_test_history: Vec::new(),
             odoo_test_container: String::new(),
             docker_order: HashMap::new(),
+            sidebar_hidden: Vec::new(),
             debug_target: String::new(),
             debug_mode: "launch".into(),
             debug_command: String::new(),

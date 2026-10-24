@@ -197,6 +197,11 @@ impl BottomTab {
         })
     }
 
+    /// Its name in the settings (`sidebar_hidden`).
+    fn key(self) -> String {
+        format!("{self:?}").to_lowercase()
+    }
+
     /// Problems and output only exist in the bottom panel.
     fn bottom_only(self) -> bool {
         matches!(self, BottomTab::Problems | BottomTab::Output)

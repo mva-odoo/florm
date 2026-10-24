@@ -799,17 +799,21 @@ impl App {
             egui::TopBottomPanel::bottom("sidebar_tools").frame(egui::Frame::none().inner_margin(egui::Margin { left: 0.0, right: 0.0, top: 6.0, bottom: 0.0 })).show_inside(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
+                    let hidden = self.settings.sidebar_hidden.clone();
+                    let shown = |key: &str| !hidden.iter().any(|h| h == key);
                     // preferences, left of the search (the first view)
-                    let (rect, r) = ui.allocate_exact_size(egui::vec2(26.0, 24.0), Sense::click());
-                    if r.hovered() {
-                        ui.painter().rect_filled(rect, 4.0, ui.visuals().widgets.hovered.weak_bg_fill);
+                    if shown("settings") {
+                        let (rect, r) = ui.allocate_exact_size(egui::vec2(26.0, 24.0), Sense::click());
+                        if r.hovered() {
+                            ui.painter().rect_filled(rect, 4.0, ui.visuals().widgets.hovered.weak_bg_fill);
+                        }
+                        let c = if r.hovered() { ui.visuals().strong_text_color() } else { ui.visuals().weak_text_color() };
+                        icons::paint_view(ui.painter(), rect.center(), icons::ViewIcon::Settings, c);
+                        if r.on_hover_text(t!("Préférences", "Preferences")).clicked() {
+                            self.pending.push(Cmd::OpenSettings);
+                        }
                     }
-                    let c = if r.hovered() { ui.visuals().strong_text_color() } else { ui.visuals().weak_text_color() };
-                    icons::paint_view(ui.painter(), rect.center(), icons::ViewIcon::Settings, c);
-                    if r.on_hover_text(t!("Préférences", "Preferences")).clicked() {
-                        self.pending.push(Cmd::OpenSettings);
-                    }
-                    for (tab, icon, label) in BottomTab::shown() {
+                    for (tab, icon, label) in BottomTab::shown().filter(|(t, ..)| shown(&t.key())) {
                         let (rect, r) = ui.allocate_exact_size(egui::vec2(26.0, 24.0), Sense::click());
                         let on = self.bottom == Some(tab);
                         if r.hovered() || on {
@@ -823,6 +827,35 @@ impl App {
                         } else if r.clicked() || r.secondary_clicked() {
                             self.show_bottom(tab, true);
                         }
+                    }
+                    // which icons are shown
+                    let mut changed = None;
+                    let menu = ui.menu_button(RichText::new("▾").weak(), |ui| {
+                        ui.label(RichText::new(t!("Icônes affichées", "Icons shown")).small().weak());
+                        let mut items = vec![("settings".to_string(), t!("Préférences", "Preferences").to_string())];
+                        items.extend(BottomTab::shown().map(|(t, _, l)| (t.key(), l.to_string())));
+                        for (key, label) in items {
+                            let mut on = shown(&key);
+                            if ui.checkbox(&mut on, label).changed() {
+                                changed = Some((key, on));
+                            }
+                        }
+                        ui.separator();
+                        if ui.add_enabled(!hidden.is_empty(), egui::Button::new(t!("Tout afficher", "Show all"))).clicked() {
+                            changed = Some((String::new(), true));
+                            ui.close_menu();
+                        }
+                    });
+                    menu.response.on_hover_text(t!("Afficher ou masquer ces icônes (les vues restent dans la palette et les menus)", "Show or hide these icons (the views stay in the palette and the menus)"));
+                    if let Some((key, on)) = changed {
+                        let h = &mut self.settings.sidebar_hidden;
+                        match (key.is_empty(), on) {
+                            (true, _) => h.clear(),
+                            (false, true) => h.retain(|x| *x != key),
+                            (false, false) => h.push(key),
+                        }
+                        let v = config::toml_str_array(h);
+                        self.persist("sidebar_hidden", v);
                     }
                 });
             });
