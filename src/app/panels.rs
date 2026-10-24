@@ -546,7 +546,7 @@ impl App {
                     if ui.add(version).on_hover_text(t!("Version de Florm · clic : rechercher une mise à jour", "Florm version · click: check for an update")).clicked() {
                         self.pending.push(Cmd::CheckUpdate);
                     }
-                    // the rest of the file's details, the terminal and the language server in a menu
+                    // the rest of the file's details and the language server in a menu
                     let mut pending = Vec::new();
                     let lsp_line = self.lsp_status_line();
                     ui.menu_button("⋯", |ui| {
@@ -564,15 +564,6 @@ impl App {
                             ui.label(tf!("Fin de ligne : {}", "Line ending: {}", if d.crlf { "CRLF (Windows)" } else { "LF" }));
                             ui.label(tf!("Encodage : {}", "Encoding: {}", d.encoding.label()));
                         }
-                        ui.separator();
-                        if ui.button(tf!(">_ Terminal en bas    {}", ">_ Terminal at the bottom    {}", self.keymap.label(Cmd::ToggleTerminal))).clicked() {
-                            pending.push(Cmd::ToggleTerminal);
-                            ui.close_menu();
-                        }
-                        if ui.button(tf!("Nouveau terminal dans un onglet    {}", "New terminal in a tab    {}", self.keymap.label(Cmd::NewTerminalTab))).clicked() {
-                            pending.push(Cmd::NewTerminalTab);
-                            ui.close_menu();
-                        }
                         if let Some((text, warning, install)) = &lsp_line {
                             ui.separator();
                             let t = if *warning { RichText::new(text).color(warn()) } else { RichText::new(text) };
@@ -587,7 +578,7 @@ impl App {
                         }
                     })
                     .response
-                    .on_hover_text(t!("Syntaxe, indentation, fin de ligne, encodage, terminal", "Syntax, indentation, line ending, encoding, terminal"));
+                    .on_hover_text(t!("Syntaxe, indentation, fin de ligne, encodage, serveur de langage", "Syntax, indentation, line ending, encoding, language server"));
                     self.pending.extend(pending);
                     if let Some(d) = self.docs.get(self.active) {
                         // only shown when it is not UTF-8: the file is saved back in its encoding
