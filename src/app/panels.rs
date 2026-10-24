@@ -26,13 +26,12 @@ impl App {
                 logo::paint(ui.painter(), r, false);
                 ui.add_space(2.0);
                 self.menus(ui, &mut pending);
-                // the update at the right end, then the project name, right-aligned, after the menus
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    self.update_symbol(ui, ctx);
-                    if let Some(p) = &project {
+                // project name, right-aligned, after the menus
+                if let Some(p) = &project {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.label(RichText::new(p).weak());
-                    }
-                });
+                    });
+                }
             });
         });
         self.pending.extend(pending);
@@ -374,20 +373,20 @@ impl App {
         }
     }
 
-    /// The update, as a green symbol at the top right of the window (in the menu bar): its menu
+    /// The update, at the bottom right of the status bar (next to the version): its menu
     /// installs or downloads it. Once installed, Florm restarts by itself (see `update`).
-    pub(super) fn update_symbol(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-        let green = crate::highlight::green();
+    fn update_symbol(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        let link = ui.visuals().hyperlink_color;
         if let (Some(u), true) = (&self.update, self.update_installing) {
             ui.label(RichText::new(tf!("Mise à jour vers Florm {}…", "Updating to Florm {}…", u.version)).weak());
             spinner(ui);
         } else if let (Some(u), true) = (&self.update, self.update_ready.is_some()) {
-            let text = RichText::new("⟳").strong().color(green);
-            if ui.add(egui::Button::new(text).frame(false)).on_hover_text(tf!("Florm {} est installé : « Redémarrer » (fichiers non enregistrés : la question habituelle)", "Florm {} is installed: “Restart” (unsaved files: the usual question)", u.version)).clicked() {
+            let text = RichText::new(tf!("⟳ Redémarrer (Florm {})", "⟳ Restart (Florm {})", u.version)).color(link);
+            if ui.add(egui::Button::new(text).frame(false)).on_hover_text(t!("La nouvelle version est installée : Florm se relance (fichiers non enregistrés : la question habituelle)", "The new version is installed: Florm restarts (unsaved files: the usual question)")).clicked() {
                 self.restart_for_update(ctx);
             }
         } else if let Some(u) = self.update.clone() {
-            let text = RichText::new("⬆").strong().color(green);
+            let text = RichText::new(format!("⬆ Florm {}", u.version)).color(link);
             ui.menu_button(text, |ui| {
                 ui.visuals_mut().override_text_color = None;
                 ui.label(tf!("Nouvelle version (vous avez la {})", "New version (you have {})", crate::update::current()));
@@ -491,6 +490,7 @@ impl App {
                     if ui.add(version).on_hover_text(t!("Version de Florm · clic : rechercher une mise à jour", "Florm version · click: check for an update")).clicked() {
                         self.pending.push(Cmd::CheckUpdate);
                     }
+                    self.update_symbol(ui, ctx);
                     // the rest of the file's details and the language server in a menu
                     let mut pending = Vec::new();
                     let lsp_line = self.lsp_status_line();
