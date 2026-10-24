@@ -1219,7 +1219,8 @@ impl App {
         let uid = self.next_uid();
         match Document::open(uid, &path, self.settings.tab_size, self.settings.translate_tabs_to_spaces, &self.hl) {
             Ok(d) => {
-                if self.docs.len() == 1 && self.docs[0].is_pristine_empty() {
+                // an empty document, or the welcome page, gives its place to the file
+                if self.docs.len() == 1 && (self.docs[0].is_pristine_empty() || self.docs[0].view == document::View::Welcome) {
                     self.docs.clear();
                 }
                 self.docs.push(d);
@@ -2022,6 +2023,48 @@ mod font_tests {
             frame(&mut app, Vec::new());
         }
         assert!(offset() > 300.0, "{}", offset());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The screens drawn without a window: the welcome tab when nothing is open, the advanced
+    /// preferences, the sidebar with icons hidden. `FLORM_TEST_APP=1`.
+    #[test]
+    fn screens_draw() {
+        if std::env::var_os("FLORM_TEST_APP").is_none() {
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("florm_screens_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (conf, proj) = (dir.join("conf"), dir.join("proj"));
+        std::fs::create_dir_all(&conf).unwrap();
+        std::fs::create_dir_all(&proj).unwrap();
+        std::fs::write(conf.join("settings.toml"), "check_updates = false\nlsp = false\nsidebar_hidden = [\"settings\", \"docker\"]\nshow_menu_bar = false\n").unwrap();
+        let _lock = config::TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("FLORM_CONFIG", &conf);
+        let ctx = egui::Context::default();
+        let mut app = App::with_ctx(&ctx, Some(proj.clone()));
+        let screen = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 800.0)));
+        let mut frame = |app: &mut App| {
+            let _ = ctx.run(egui::RawInput { screen_rect: screen, ..Default::default() }, |ctx| {
+                app.sidebar(ctx);
+                app.central(ctx);
+            });
+        };
+        for _ in 0..2 {
+            frame(&mut app);
+        }
+        // nothing open: the welcome page is a tab
+        assert_eq!(app.docs.iter().map(|d| d.view.clone()).collect::<Vec<_>>(), [document::View::Welcome]);
+        // a file takes its place
+        std::fs::write(proj.join("a.py"), "").unwrap();
+        app.open_path(proj.join("a.py"));
+        assert_eq!(app.docs.len(), 1);
+        assert_eq!(app.docs[0].view, document::View::Text);
+        app.prefs.open = true;
+        app.prefs.section = PrefSection::Advanced;
+        for _ in 0..2 {
+            frame(&mut app);
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 

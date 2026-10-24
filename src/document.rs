@@ -530,7 +530,8 @@ impl Document {
     }
 
     pub fn is_pristine_empty(&self) -> bool {
-        self.path.is_none() && !self.is_dirty() && self.rope.len_chars() == 0
+        // a view tab (Claude, Docker…) is not an empty document
+        self.view == View::Text && self.path.is_none() && !self.is_dirty() && self.rope.len_chars() == 0
     }
 
     pub fn save(&mut self, trim_trailing: bool) -> Result<(), String> {

@@ -1351,6 +1351,10 @@ impl App {
         let mut welcome = false;
         let mut editor_resp = None;
         let special = self.prefs.open || self.history.open || self.split.as_ref().is_some_and(|s| s.shown);
+        // nothing open: the welcome page, in a tab (the tab strip and its window buttons stay)
+        if self.docs.is_empty() && !special {
+            self.open_view_tab(document::View::Welcome, t!("Accueil", "Welcome").into());
+        }
         let two = !special && self.is_split();
         egui::CentralPanel::default().frame(egui::Frame::none()).show(ctx, |ui| {
             if two {
