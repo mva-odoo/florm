@@ -641,6 +641,9 @@ impl App {
         match s.send(&message) {
             Ok(()) => {
                 self.claude.items.push(Item::User(text.clone(), given));
+                // the conversation goes down to the message just sent, even if it was read up before
+                let chat_id = egui::Id::new("claude_chat").with(self.claude.id);
+                self.egui_ctx.data_mut(|d| d.insert_temp(egui::Id::new(("claude_to_end", chat_id)), true));
                 let first = self.claude.wish.is_none() && !command;
                 if !command {
                     self.claude.wish.get_or_insert(text);
@@ -1728,13 +1731,26 @@ impl App {
                         let matching: Vec<&(String, String)> = first.chain(inside).take(8).collect();
                         if !matching.is_empty() && !(matching.len() == 1 && matching[0].0 == typed) {
                             let mut pick = None;
-                            if ui.memory(|m| m.has_focus(field_id)) && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Tab)) {
-                                pick = Some(matching[0].0.clone());
+                            // the choice: ↑ ↓ move it, Tab or Enter completes it (the keys are taken here,
+                            // before the field, so the cursor does not move); the choice restarts at each letter
+                            let choice_id = field_id.with(("command_choice", typed.clone()));
+                            let mut choice = ui.data(|d| d.get_temp::<usize>(choice_id)).unwrap_or(0).min(matching.len() - 1);
+                            if ui.memory(|m| m.has_focus(field_id)) {
+                                if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::ArrowDown)) {
+                                    choice = (choice + 1) % matching.len();
+                                }
+                                if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::ArrowUp)) {
+                                    choice = (choice + matching.len() - 1) % matching.len();
+                                }
+                                if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Tab)) || ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Enter)) {
+                                    pick = Some(matching[choice].0.clone());
+                                }
                             }
+                            ui.data_mut(|d| d.insert_temp(choice_id, choice));
                             egui::Frame::none().fill(icons::mix(fill, accent, 0.05)).rounding(6.0).inner_margin(4.0).show(ui, |ui| {
                                 for (k, (name, hint)) in matching.iter().enumerate() {
                                     ui.horizontal(|ui| {
-                                        if ui.selectable_label(k == 0, format!("/{name}")).on_hover_text(t!("Clic ou Tab : compléter", "Click or Tab: complete")).clicked() {
+                                        if ui.selectable_label(k == choice, format!("/{name}")).on_hover_text(t!("↑ ↓ pour choisir, Tab ou Entrée : compléter", "↑ ↓ to choose, Tab or Enter: complete")).clicked() {
                                             pick = Some(name.clone());
                                         }
                                         if !hint.is_empty() {
