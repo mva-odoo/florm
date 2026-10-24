@@ -684,6 +684,8 @@ struct GitUi {
     /// Message of the next stash, and whether the untracked files stay out of it.
     stash_msg: String,
     stash_tracked_only: bool,
+    /// The stash menu was open at the last frame (the stashes are read when it opens).
+    stash_shown: bool,
     /// absolute path -> status letter (directories inherit from their files)
     map: HashMap<PathBuf, char>,
 }
@@ -2082,6 +2084,25 @@ mod font_tests {
         app.save_session();
         let again = App::with_ctx(&ctx, Some(proj.clone()));
         assert_eq!(views(&again), views(&app));
+        // every view, large in a tab then in the bottom panel
+        let mut all = |app: &mut App| {
+            let _ = ctx.run(egui::RawInput { screen_rect: screen, ..Default::default() }, |ctx| {
+                app.sidebar(ctx);
+                if app.bottom.is_some() {
+                    app.bottom_panel(ctx);
+                }
+                app.central(ctx);
+            });
+        };
+        for (tab, ..) in BottomTab::ALL {
+            app.show_big(tab);
+            all(&mut app);
+            all(&mut app);
+            app.show_bottom(tab, false);
+            all(&mut app);
+            all(&mut app);
+            assert_eq!(app.bottom, Some(tab));
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 

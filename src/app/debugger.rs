@@ -170,6 +170,8 @@ pub(super) struct DebugUi {
     odoo_bin: Option<(PathBuf, Option<String>)>,
     /// The running containers, and when they were read.
     pub(super) containers: Option<(Instant, Vec<String>)>,
+    /// The settings of the session are unfolded (else one line sums them up).
+    editing: bool,
     containers_asked: Option<Instant>,
 }
 
@@ -1107,7 +1109,20 @@ impl App {
         }
         // what is debugged: only between two sessions
         let locked = self.debug.session.is_some() || self.debug.preparing.is_some();
-        ui.add_enabled_ui(!locked, |ui| self.debug_settings_row(ui, act));
+        // folded into one line: where, how, what (Modifier… unfolds it)
+        let summary = self.debug_summary();
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(summary).small().monospace().color(ui.visuals().weak_text_color()));
+            if !locked {
+                let label = if self.debug.editing { t!("✔ Fermer", "✔ Close") } else { t!("Modifier…", "Edit…") };
+                if ui.small_button(label).on_hover_text(t!("Où le programme tourne, lancer ou s'attacher, la commande", "Where the program runs, launch or attach, the command")).clicked() {
+                    self.debug.editing = !self.debug.editing;
+                }
+            }
+        });
+        if self.debug.editing && !locked {
+            self.debug_settings_row(ui, act);
+        }
         match &self.debug.failure {
             Some(dap::Failure::NoDebugpy { install, place }) => {
                 let (install, place) = (install.clone(), place.clone());
@@ -1481,6 +1496,21 @@ impl App {
             DebugAct::Move(true) => self.show_big(BottomTab::Debug),
             DebugAct::Move(false) => self.show_bottom(BottomTab::Debug, false),
         }
+    }
+
+    /// Where, how and what is debugged, in one line.
+    fn debug_summary(&mut self) -> String {
+        let cfg = self.debug_config();
+        let place = match &cfg.target {
+            Target::Local => t!("cet ordinateur", "this computer").to_string(),
+            Target::Docker(c) => format!("🐳 {c}"),
+        };
+        let what = match cfg.mode {
+            Mode::Attach => tf!("s'attacher au port {}", "attach to port {}", cfg.port),
+            Mode::Launch if cfg.command.trim().is_empty() => t!("lancer : commande à indiquer", "launch: command to enter").to_string(),
+            Mode::Launch => tf!("lancer {}", "launch {}", cfg.command),
+        };
+        format!("{place} · {what}")
     }
 
     /// Names of the running containers (`None` until they are read), read again every few

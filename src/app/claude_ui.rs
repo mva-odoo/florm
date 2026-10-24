@@ -1360,8 +1360,10 @@ impl App {
                             show_review = !show_review;
                         }
                         ui.add_space(8.0);
-                        // right to left: the plan's quotas (always shown, the last known ones), then the context
-                        for window in ["seven_day", "five_hour"] {
+                        // one gauge, the fullest of the plan's quotas (5 hours, 7 days) and of the
+                        // context; the three on hover
+                        let mut gauges: Vec<(String, f32, String)> = Vec::new();
+                        for window in ["five_hour", "seven_day"] {
                             let (label, what) = match window {
                                 "five_hour" => ("5 h", t!("sur 5 heures", "over 5 hours")),
                                 _ => ("7 j", t!("sur 7 jours", "over 7 days")),
@@ -1369,27 +1371,30 @@ impl App {
                             match limits.iter().find(|l| l.0 == window) {
                                 // its window is over since: back to zero
                                 Some((_, _, reset)) if *reset > 0 && *reset <= now_secs() => {
-                                    gauge(ui, label, 0.0, accent, tf!("Quota de ton abonnement {what} : remis à zéro depuis la dernière réponse de Claude", "Quota of your subscription {what}: reset since Claude's last answer"));
+                                    gauges.push((label.into(), 0.0, tf!("Quota de ton abonnement {what} : remis à zéro depuis la dernière réponse de Claude", "Quota of your subscription {what}: reset since Claude's last answer")));
                                 }
                                 Some((_, used, reset)) => {
-                                    let tip = tf!("Quota de ton abonnement {what} : {:.0} % utilisé, remis à zéro {}", "Quota of your subscription {what}: {:.0} % used, reset {}", used * 100.0, until(*reset));
-                                    gauge(ui, label, *used, accent, tip);
+                                    gauges.push((label.into(), *used, tf!("Quota de ton abonnement {what} : {:.0} % utilisé, remis à zéro {}", "Quota of your subscription {what}: {:.0} % used, reset {}", used * 100.0, until(*reset))));
                                 }
-                                None => {
-                                    ui.label(RichText::new(format!("{label} – %")).small().weak())
-                                        .on_hover_text(tf!("Quota de ton abonnement {what} : connu à la première réponse de Claude", "Quota of your subscription {what}: known at Claude's first answer"));
-                                    ui.add_space(6.0);
-                                }
+                                None => gauges.push((label.into(), -1.0, tf!("Quota de ton abonnement {what} : connu à la première réponse de Claude", "Quota of your subscription {what}: known at Claude's first answer"))),
                             }
                         }
                         let (tokens, window) = c.context;
                         if tokens > 0 && window > 0 {
                             let used = (tokens as f32 / window as f32).min(1.0);
-                            let tip = tf!("Contexte de la conversation : {} / {} tokens.\nPlein, Claude résume le début de la conversation ; « Nouvelle conversation » repart de zéro.", "Context of the conversation: {} / {} tokens.\nWhen full, Claude summarizes the start of the conversation; “New conversation” starts from scratch.",
-                                thousands(tokens),
-                                thousands(window)
-                            );
-                            gauge(ui, t!("Contexte", "Context"), used, accent, tip);
+                            gauges.push((
+                                t!("Contexte", "Context").into(),
+                                used,
+                                tf!("Contexte de la conversation : {} / {} tokens.\nPlein, Claude résume le début de la conversation ; « Nouvelle conversation » repart de zéro.", "Context of the conversation: {} / {} tokens.\nWhen full, Claude summarizes the start of the conversation; “New conversation” starts from scratch.", thousands(tokens), thousands(window)),
+                            ));
+                        }
+                        let tip = gauges.iter().map(|g| g.2.clone()).collect::<Vec<_>>().join("\n\n");
+                        match gauges.iter().filter(|g| g.1 >= 0.0).max_by(|a, b| a.1.total_cmp(&b.1)) {
+                            Some((label, used, _)) => gauge(ui, label, *used, accent, tip),
+                            None => {
+                                ui.label(RichText::new("5 h – %").small().weak()).on_hover_text(tip);
+                                ui.add_space(6.0);
+                            }
                         }
                     });
                 });
@@ -1559,12 +1564,19 @@ impl App {
                             read_commits = true;
                         }
                         ctx_menu.response.on_hover_text(t!("Donner à Claude un fichier, la sélection, le diff, un commit, les problèmes…", "Give Claude a file, the selection, the diff, a commit, the problems…"));
-                        ui.checkbox(&mut c.with_context, t!("Fichier ouvert et sélection", "Open file and selection")).on_hover_text(t!("Dit à Claude quel fichier tu édites, la ligne du curseur et le texte sélectionné", "Tells Claude which file you are editing, the cursor line and the selected text"));
-                        ui.checkbox(&mut c.ask_first, t!("Questions d'abord", "Questions first")).on_hover_text(t!("Si la demande laisse des choix ouverts, Claude pose d'abord 1 à 3 questions avec des options à cocher, au lieu de partir dans une direction à refaire (moins de tokens)", "If the request leaves choices open, Claude first asks 1 to 3 questions with options to tick, instead of going in a direction to redo (fewer tokens)"));
-                        let mut defs = !c.no_defs;
-                        if ui.checkbox(&mut defs, t!("Définitions citées", "Mentioned definitions")).on_hover_text(t!("Les classes et fonctions du projet nommées dans le message (SaleOrder, _compute_total, `foo`…) partent avec lui, leurs premières lignes comprises : Claude n'a pas à les chercher (moins de tokens)", "The classes and functions of the project named in the message (SaleOrder, _compute_total, `foo`…) go with it, their first lines included: Claude does not have to look for them (fewer tokens)")).changed() {
-                            c.no_defs = !defs;
-                        }
+                        // what goes with each message: in a menu, the options stay one click away
+                        let on = [c.with_context, c.ask_first, !c.no_defs].iter().filter(|b| **b).count();
+                        ui.menu_button(tf!("Options ({on}/3) ▾", "Options ({on}/3) ▾"), |ui| {
+                            ui.set_min_width(300.0);
+                            ui.checkbox(&mut c.with_context, t!("Fichier ouvert et sélection", "Open file and selection")).on_hover_text(t!("Dit à Claude quel fichier tu édites, la ligne du curseur et le texte sélectionné", "Tells Claude which file you are editing, the cursor line and the selected text"));
+                            ui.checkbox(&mut c.ask_first, t!("Questions d'abord", "Questions first")).on_hover_text(t!("Si la demande laisse des choix ouverts, Claude pose d'abord 1 à 3 questions avec des options à cocher, au lieu de partir dans une direction à refaire (moins de tokens)", "If the request leaves choices open, Claude first asks 1 to 3 questions with options to tick, instead of going in a direction to redo (fewer tokens)"));
+                            let mut defs = !c.no_defs;
+                            if ui.checkbox(&mut defs, t!("Définitions citées", "Mentioned definitions")).on_hover_text(t!("Les classes et fonctions du projet nommées dans le message (SaleOrder, _compute_total, `foo`…) partent avec lui, leurs premières lignes comprises : Claude n'a pas à les chercher (moins de tokens)", "The classes and functions of the project named in the message (SaleOrder, _compute_total, `foo`…) go with it, their first lines included: Claude does not have to look for them (fewer tokens)")).changed() {
+                                c.no_defs = !defs;
+                            }
+                        })
+                        .response
+                        .on_hover_text(t!("Ce qui part avec chaque message : le fichier ouvert, les questions d'abord, les définitions citées", "What goes with each message: the open file, questions first, the mentioned definitions"));
                     });
                     ui.add_space(4.0);
                 });

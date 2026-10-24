@@ -31,7 +31,7 @@ impl App {
 
     /// Shows the tab of `view` (made when it is missing).
     pub(super) fn show_tab(&mut self, view: View) {
-        let title = self.view_title(view.clone());
+        let title = self.view_title(view);
         self.open_view_tab(view, title);
     }
 

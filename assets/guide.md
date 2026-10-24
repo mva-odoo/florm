@@ -39,8 +39,8 @@ liste ses symboles, une classe ou une fonction y emmène.
 ## Rechercher dans le dossier (Ctrl+Shift+F)
 
 Entrée lance la recherche. Les résultats sont colorés comme dans l'éditeur ; **F4 / Maj+F4**
-passent au résultat suivant / précédent. **⇱ Onglet** met la recherche dans un onglet de
-l'éditeur (plus de place), **⇲ Panneau du bas** la remet en bas
+passent au résultat suivant / précédent. **⇱** met la recherche dans un onglet de
+l'éditeur (plus de place), **⇲** la remet en bas
 (Préférences → Éditeur pour choisir où elle s'ouvre).
 
 ### Filtrer les fichiers
@@ -102,7 +102,7 @@ explique comment l'installer (le système est détecté) et reprend toute seule 
     **+ Indexer**, **− Désindexer**, **↺ Annuler**
   - double-clic sur une ligne : ouvrir le fichier à cette ligne
 - Les changements faits ailleurs (commit dans un terminal…) sont repris tout seuls.
-- **Stash ▾** dans la barre : mettre les changements de côté (avec un message, nouveaux
+- **⋯ → Stash** dans la barre : mettre les changements de côté (avec un message, nouveaux
   fichiers compris ou non), puis pour chaque stash **Voir**, **Appliquer** (il reste),
   **Reprendre** (appliqué puis supprimé) ou **Supprimer**. Aussi dans la palette :
   « Git : mettre les changements de côté », « Git : reprendre le dernier stash ».
@@ -126,8 +126,11 @@ interactif** (clic droit → « Rebase interactif à partir d'ici… »), l'acti
 - **Ctrl+Shift+`** (ou clic sur l'icône Terminal en bas de la barre latérale) : un terminal **dans un onglet** de
   l'éditeur. Comme tout onglet, il se glisse sur le bord droit ou bas de l'éditeur pour être à
   côté d'un fichier (ou clic droit sur l'onglet → Diviser à droite / en bas).
-- **⇱ Onglet** dans le panneau du bas y envoie le terminal courant, **⇲ Panneau du bas** le
-  ramène.
+- **⇱** dans le panneau du bas y envoie le terminal courant, **⇲** le ramène.
+- Toutes les vues (Recherche, Git, GitHub, Docker, Claude, Débogage, Terminal) ont à droite de
+  leur en-tête les mêmes boutons, dans le même ordre : **⟳** relire, **⇱ / ⇲** onglet ou panneau
+  du bas, **⋯** les autres actions et options. Git, les Préférences et le découpage d'un commit
+  sont des onglets comme les autres : Échap revient à l'onglet d'avant, Ctrl+W les ferme.
 
 ## Docker
 
@@ -221,7 +224,7 @@ avec `gh auth login` (connexion par le navigateur). Sans `gh`, la vue explique c
 
 ### Pull requests
 
-**Ctrl+Alt+R** (ou Git → Pull requests GitHub, le bouton **⇄ PR** de la vue Git, la palette).
+**Ctrl+Alt+R** (ou Git → Pull requests GitHub, **⋯ → Pull requests GitHub** dans la vue Git, la palette).
 
 - À gauche, les PR du dépôt (ouvertes, fusionnées, fermées, les tiennes), filtrables.
 - **Conversation** : la description, les **commentaires sur le code** (fichier:ligne
@@ -238,10 +241,11 @@ avec `gh auth login` (connexion par le navigateur). Sans `gh`, la vue explique c
 ## Claude
 
 **Ctrl+Alt+C** (ou Outils → ✳ Claude, la palette) : une conversation avec Claude Code, dans le
-panneau du bas (⇱ Onglet pour lui donner tout un onglet de l'éditeur, ⇲ pour l'y remettre). Florm utilise la commande `claude` et ta connexion : pas de clé à configurer.
+panneau du bas (⇱ pour lui donner tout un onglet de l'éditeur, ⇲ pour l'y remettre). Florm utilise la commande `claude` et ta connexion : pas de clé à configurer.
 
 - En haut : le dépôt, le modèle, et ce que Claude a le droit de faire (**Modifie les fichiers**,
   **Plan seulement**, **Tout autoriser** pour qu'il lance aussi des commandes).
+- **Options ▾**, à côté de « + Contexte », regroupe ce qui part avec chaque message :
 - **Fichier ouvert et sélection** : Claude sait quel fichier tu édites et ce que tu as
   sélectionné.
 - **Questions d'abord** : si la demande laisse des choix ouverts, Claude ne code rien et pose

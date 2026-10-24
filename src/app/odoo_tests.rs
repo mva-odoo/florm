@@ -168,16 +168,18 @@ impl App {
             if ui.add_enabled(!self.tests.draft.trim().is_empty(), egui::Button::new(t!("▶ Lancer", "▶ Run"))).on_hover_text(t!("Ctrl+F6 relance ensuite le dernier, de n'importe où", "Ctrl+F6 then runs the last one again, from anywhere")).clicked() {
                 run = Some(self.tests.draft.clone());
             }
-        });
-        ui.horizontal(|ui| {
-            ui.label(RichText::new(t!("Commande", "Command")).small().weak());
-            let r = ui.add(
-                egui::TextEdit::singleline(&mut self.settings.odoo_test_command)
-                    .desired_width(f32::INFINITY)
-                    .hint_text(odoo_test::DEFAULT_COMMAND)
-                    .font(egui::TextStyle::Small),
-            );
-            if r.lost_focus() {
+            // the command run, rarely changed: under ⋯
+            let mut save = false;
+            ui.menu_button(RichText::new("⋯").strong(), |ui| {
+                ui.set_min_width(420.0);
+                ui.label(RichText::new(t!("Commande lancée dans le conteneur ({tags} : les tags)", "Command run in the container ({tags}: the tags)")).small().weak());
+                let r = ui.add(egui::TextEdit::singleline(&mut self.settings.odoo_test_command).desired_width(f32::INFINITY).hint_text(odoo_test::DEFAULT_COMMAND).font(egui::TextStyle::Monospace));
+                // saved as typed: the menu may close before the field loses the focus
+                save = r.changed();
+            })
+            .response
+            .on_hover_text(t!("La commande des tests", "The command of the tests"));
+            if save {
                 let c = config::toml_str(&self.settings.odoo_test_command);
                 self.persist("odoo_test_command", c);
             }

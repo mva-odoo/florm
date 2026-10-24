@@ -937,7 +937,7 @@ impl App {
                 spinner(ui);
             }
             ui.add_space(8.0);
-            let mut sync_cmd = None;
+            let mut cmds = Vec::new();
             ui.menu_button(t!("↕ Synchroniser ▾", "↕ Sync ▾"), |ui| {
                 for (label, cmd, tip) in [
                     ("⬇ Pull", Cmd::GitPull, t!("Récupérer et intégrer les commits distants", "Fetch and merge the remote commits")),
@@ -945,44 +945,56 @@ impl App {
                     ("Fetch", Cmd::GitFetch, t!("Récupérer sans intégrer", "Fetch without merging")),
                 ] {
                     if ui.button(label).on_hover_text(tip).clicked() {
-                        sync_cmd = Some(cmd);
+                        cmds.push(cmd);
                         ui.close_menu();
                     }
                 }
             })
             .response
             .on_hover_text(t!("Pull, Push, Fetch : récupérer et envoyer les commits", "Pull, Push, Fetch: get and send the commits"));
-            self.pending.extend(sync_cmd);
-            for (label, cmd, tip) in [
-                (t!("Branche ▾", "Branch ▾"), Cmd::GitCheckout, t!("Changer de branche", "Switch branch")),
-                (t!("+ Branche", "+ Branch"), Cmd::GitNewBranch, t!("Nouvelle branche", "New branch")),
-                ("⇄ PR", Cmd::PullRequests, t!("Pull requests GitHub : commentaires, suggestions, commits", "GitHub pull requests: comments, suggestions, commits")),
-            ] {
-                if ui.button(label).on_hover_text(tip).clicked() {
-                    self.pending.push(cmd);
-                }
+            if ui.button(t!("Branche ▾", "Branch ▾")).on_hover_text(t!("Changer de branche", "Switch branch")).clicked() {
+                cmds.push(Cmd::GitCheckout);
             }
-            let changes = self.git.status.as_ref().is_some_and(|s| !s.entries.is_empty());
-            let n = self.git.stashes.len();
-            let label = if n > 0 { format!("Stash ({n}) ▾") } else { "Stash ▾".into() };
-            let menu = ui.menu_button(label, |ui| stash_menu(ui, &mut self.git, changes, &mut stash_act));
-            if menu.response.clicked() {
-                stash_open = true;
-            }
-            menu.response.on_hover_text(t!("Mettre des changements de côté (git stash) et les reprendre plus tard", "Put changes aside (git stash) and take them back later"));
-            // the graph: repository, filter, branches shown
+            // the graph: repository, filter; the rest under ⋯
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                match crate::view_bar::controls(ui, big, Some(t!("Rafraîchir l'état et le graphe", "Refresh the status and the graph")), None) {
+                let changes = self.git.status.as_ref().is_some_and(|s| !s.entries.is_empty());
+                let (git, all) = (&mut self.git, &mut self.history.all);
+                let mut stash_shown = false;
+                let mut more = |ui: &mut egui::Ui| {
+                    if ui.button(t!("+ Nouvelle branche…", "+ New branch…")).clicked() {
+                        cmds.push(Cmd::GitNewBranch);
+                        ui.close_menu();
+                    }
+                    let n = git.stashes.len();
+                    let label = if n > 0 { format!("Stash ({n})") } else { "Stash".into() };
+                    ui.menu_button(label, |ui| {
+                        stash_shown = true;
+                        stash_menu(ui, git, changes, &mut stash_act);
+                    })
+                    .response
+                    .on_hover_text(t!("Mettre des changements de côté (git stash) et les reprendre plus tard", "Put changes aside (git stash) and take them back later"));
+                    if ui.button(t!("Pull requests GitHub", "GitHub pull requests")).on_hover_text(t!("Commentaires, suggestions, commits", "Comments, suggestions, commits")).clicked() {
+                        cmds.push(Cmd::PullRequests);
+                        ui.close_menu();
+                    }
+                    ui.separator();
+                    if ui.checkbox(all, t!("Toutes les branches dans le graphe", "All branches in the graph")).changed() {
+                        reload = true;
+                    }
+                };
+                match crate::view_bar::controls(ui, big, Some(t!("Rafraîchir l'état et le graphe", "Refresh the status and the graph")), Some(&mut more)) {
                     Some(crate::view_bar::BarAct::Move(b)) => move_to = Some(b),
                     Some(crate::view_bar::BarAct::Refresh) => reload = true,
                     None => {}
                 }
+                // the stashes read when their menu opens
+                if stash_shown && !self.git.stash_shown {
+                    stash_open = true;
+                }
+                self.git.stash_shown = stash_shown;
                 let h = &mut self.history;
                 if h.loading {
                     spinner(ui);
-                }
-                if ui.checkbox(&mut h.all, t!("Toutes les branches", "All branches")).changed() {
-                    reload = true;
                 }
                 ui.add(egui::TextEdit::singleline(&mut h.filter).hint_text(t!("🔍 Filtrer : message, auteur, hash, branche…", "🔍 Filter: message, author, hash, branch…")).desired_width(220.0))
                     .on_hover_text(t!("↑ ↓ commits · ← → fichiers du diff · Page ↑ ↓ défiler", "↑ ↓ commits · ← → files of the diff · Page ↑ ↓ scroll"));
@@ -994,6 +1006,7 @@ impl App {
                     }
                 }
             });
+            self.pending.extend(cmds);
         });
 
         if stash_open {
