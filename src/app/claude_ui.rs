@@ -1344,6 +1344,9 @@ impl App {
                         ui.label(RichText::new(format!("{:.2} $", c.cost)).weak().small()).on_hover_text(t!("Coût estimé de la conversation", "Estimated cost of the conversation"));
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if let Some(crate::view_bar::BarAct::Move(b)) = crate::view_bar::controls(ui, in_tab, None, None) {
+                            move_to = Some(b);
+                        }
                         // the review of the changes on the right, or the whole width for the conversation
                         let n = c.review.as_ref().map_or(0, |d| d.files.len());
                         let label = match (show_review, n) {
@@ -1355,13 +1358,6 @@ impl App {
                         let tip = if show_review { t!("Masquer la revue des changements : la conversation prend toute la largeur", "Hide the review of the changes: the conversation takes the whole width") } else { t!("Afficher à droite la revue de ce que Claude a changé", "Show on the right the review of what Claude changed") };
                         if ui.small_button(text).on_hover_text(tip).clicked() {
                             show_review = !show_review;
-                        }
-                        if in_tab {
-                            if ui.small_button(t!("⇲ Panneau du bas", "⇲ Bottom panel")).on_hover_text(t!("Afficher Claude dans le panneau du bas", "Show Claude in the bottom panel")).clicked() {
-                                move_to = Some(false);
-                            }
-                        } else if ui.small_button("⇱ Onglet").on_hover_text(t!("Afficher Claude dans un onglet de l'éditeur (plus de place)", "Show Claude in an editor tab (more room)")).clicked() {
-                            move_to = Some(true);
                         }
                         ui.add_space(8.0);
                         // right to left: the plan's quotas (always shown, the last known ones), then the context

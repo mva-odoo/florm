@@ -165,12 +165,8 @@ impl App {
                 spinner(ui);
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if in_tab {
-                    if ui.small_button(t!("⇲ Panneau du bas", "⇲ Bottom panel")).on_hover_text(t!("Afficher la recherche dans le panneau du bas", "Show the search in the bottom panel")).clicked() {
-                        act = Some(SearchAct::Move(false));
-                    }
-                } else if ui.small_button(t!("⇱ Onglet", "⇱ Tab")).on_hover_text(t!("Afficher la recherche dans un onglet de l'éditeur (plus de place pour les résultats)", "Show the search in an editor tab (more room for the results)")).clicked() {
-                    act = Some(SearchAct::Move(true));
+                if let Some(crate::view_bar::BarAct::Move(b)) = crate::view_bar::controls(ui, in_tab, None, None) {
+                    act = Some(SearchAct::Move(b));
                 }
             });
         });

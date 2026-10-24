@@ -1027,19 +1027,14 @@ impl App {
             menu.response.on_hover_text(t!("Mettre des changements de côté (git stash) et les reprendre plus tard", "Put changes aside (git stash) and take them back later"));
             // the graph: repository, filter, branches shown
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if big {
-                    if ui.small_button(t!("⇲ Panneau du bas", "⇲ Bottom panel")).on_hover_text(t!("Afficher Git dans le panneau du bas", "Show Git in the bottom panel")).clicked() {
-                        move_to = Some(false);
-                    }
-                } else if ui.small_button(t!("⇱ Onglet", "⇱ Tab")).on_hover_text(t!("Afficher Git en grand dans l'éditeur", "Show Git large in the editor")).clicked() {
-                    move_to = Some(true);
+                match crate::view_bar::controls(ui, big, Some(t!("Rafraîchir l'état et le graphe", "Refresh the status and the graph")), None) {
+                    Some(crate::view_bar::BarAct::Move(b)) => move_to = Some(b),
+                    Some(crate::view_bar::BarAct::Refresh) => reload = true,
+                    None => {}
                 }
                 let h = &mut self.history;
                 if h.loading {
                     spinner(ui);
-                }
-                if ui.button("⟳").on_hover_text(t!("Rafraîchir l'état et le graphe", "Refresh the status and the graph")).clicked() {
-                    reload = true;
                 }
                 if ui.checkbox(&mut h.all, t!("Toutes les branches", "All branches")).changed() {
                     reload = true;
@@ -1173,6 +1168,36 @@ impl App {
         }
     }
 
+    /// The view of `tab` is shown in an editor tab (the bottom panel then only says so).
+    fn view_in_tab(&self, tab: BottomTab) -> bool {
+        let tab_of = |v: document::View| self.docs.iter().any(|d| d.view == v);
+        match tab {
+            BottomTab::Search => tab_of(document::View::Search),
+            BottomTab::Claude => !self.claude_has_bottom(),
+            BottomTab::Git => self.history.open,
+            BottomTab::Pulls => tab_of(document::View::PullRequests),
+            BottomTab::Docker => tab_of(document::View::Docker),
+            BottomTab::Debug => tab_of(document::View::Debug),
+            BottomTab::Terminal | BottomTab::Problems | BottomTab::Output => false,
+        }
+    }
+
+    /// The view of `tab` back from its editor tab into the bottom panel.
+    fn bring_back(&mut self, tab: BottomTab) {
+        match tab {
+            BottomTab::Search => {
+                if let Some(i) = self.docs.iter().position(|d| d.view == document::View::Search) {
+                    self.close_tab(i, true);
+                }
+                self.settings.search_in_tab = false;
+                self.persist("search_in_tab", "false".into());
+            }
+            BottomTab::Claude => self.move_claude(false),
+            BottomTab::Git => self.history.open = false,
+            _ => self.show_bottom(tab, false),
+        }
+    }
+
     pub(super) fn bottom_panel(&mut self, ctx: &egui::Context) {
         if let Some(t) = self.bottom {
             self.last_bottom = t;
@@ -1205,35 +1230,13 @@ impl App {
                 ui.separator();
                 match self.bottom {
                     // already shown in a tab: not twice
-                    Some(BottomTab::Search) if self.docs.iter().any(|d| d.view == document::View::Search) => {
-                        ui.horizontal(|ui| {
-                            ui.label(RichText::new(t!("La recherche est dans un onglet de l'éditeur.", "The search is in an editor tab.")).weak());
-                            if ui.button(t!("La remettre ici", "Put it back here")).clicked() {
-                                if let Some(i) = self.docs.iter().position(|d| d.view == document::View::Search) {
-                                    self.close_tab(i, true);
-                                }
-                                self.settings.search_in_tab = false;
-                                self.persist("search_in_tab", "false".into());
-                            }
-                        });
-                    }
-                    Some(BottomTab::Claude) if !self.claude_has_bottom() => {
-                        ui.horizontal(|ui| {
-                            ui.label(RichText::new(t!("Claude est dans un onglet de l'éditeur.", "Claude is in an editor tab.")).weak());
-                            if ui.button(t!("Le remettre ici", "Put it back here")).clicked() {
-                                self.move_claude(false);
-                            }
-                        });
+                    // shown in an editor tab: not twice, the same notice for all
+                    Some(tab) if self.view_in_tab(tab) => {
+                        if crate::view_bar::in_tab_notice(ui) {
+                            self.bring_back(tab);
+                        }
                     }
                     Some(BottomTab::Claude) => self.claude_show(ui, None),
-                    Some(BottomTab::Git) if self.history.open => {
-                        ui.horizontal(|ui| {
-                            ui.label(RichText::new(t!("Git est ouvert en grand dans l'éditeur.", "Git is open large in the editor.")).weak());
-                            if ui.button(t!("Le mettre ici", "Put it here")).clicked() {
-                                self.history.open = false;
-                            }
-                        });
-                    }
                     Some(BottomTab::Git) => {
                         let fill = ui.visuals().panel_fill;
                         egui::TopBottomPanel::top("git_bar_bottom")
@@ -1241,35 +1244,11 @@ impl App {
                             .show_inside(ui, |ui| self.git_bar(ui));
                         egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.history_ui(ui));
                     }
-                    Some(BottomTab::Pulls) if self.docs.iter().any(|d| d.view == document::View::PullRequests) => {
-                        ui.horizontal(|ui| {
-                            ui.label(RichText::new(t!("Les pull requests sont dans un onglet de l'éditeur.", "The pull requests are in an editor tab.")).weak());
-                            if ui.button(t!("Les mettre ici", "Put them here")).clicked() {
-                                self.show_bottom(BottomTab::Pulls, false);
-                            }
-                        });
-                    }
                     Some(BottomTab::Pulls) => {
                         egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.pulls_ui(ui));
                     }
-                    Some(BottomTab::Docker) if self.docs.iter().any(|d| d.view == document::View::Docker) => {
-                        ui.horizontal(|ui| {
-                            ui.label(RichText::new(t!("Docker est dans un onglet de l'éditeur.", "Docker is in an editor tab.")).weak());
-                            if ui.button(t!("Le mettre ici", "Put it here")).clicked() {
-                                self.show_bottom(BottomTab::Docker, false);
-                            }
-                        });
-                    }
                     Some(BottomTab::Docker) => {
                         egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.docker_ui(ui));
-                    }
-                    Some(BottomTab::Debug) if self.docs.iter().any(|d| d.view == document::View::Debug) => {
-                        ui.horizontal(|ui| {
-                            ui.label(RichText::new(t!("Le débogueur est dans un onglet de l'éditeur.", "The debugger is in an editor tab.")).weak());
-                            if ui.button(t!("Le mettre ici", "Put it here")).clicked() {
-                                self.show_bottom(BottomTab::Debug, false);
-                            }
-                        });
                     }
                     Some(BottomTab::Debug) => {
                         egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.debug_ui(ui));

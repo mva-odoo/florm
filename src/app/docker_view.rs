@@ -223,24 +223,19 @@ impl App {
         let list_frame = egui::Frame::none().fill(fill).inner_margin(egui::Margin { left: 8.0, right: 8.0, top: 6.0, bottom: 6.0 });
         let list_ui = |ui: &mut egui::Ui| {
             ui.horizontal(|ui| {
-                ui.label(RichText::new("Docker").strong().size(15.0));
+                crate::view_bar::title(ui, "Docker");
                 // only the first reading: the list is read again every few seconds
                 if d.loading && d.list.is_none() {
                     spinner(ui);
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    match crate::view_bar::controls(ui, big, Some(t!("Relire la liste des conteneurs", "Read the list of containers again")), None) {
+                        Some(crate::view_bar::BarAct::Move(b)) => act = Some(DockAct::Move(b)),
+                        Some(crate::view_bar::BarAct::Refresh) => act = Some(DockAct::Reload),
+                        None => {}
+                    }
                     if current.is_some() {
                         maximize::button(ui, view, "list");
-                    }
-                    if big {
-                        if ui.small_button("⇲").on_hover_text(t!("Afficher Docker dans le panneau du bas", "Show Docker in the bottom panel")).clicked() {
-                            act = Some(DockAct::Move(false));
-                        }
-                    } else if ui.small_button("⇱").on_hover_text(t!("Afficher Docker en grand dans l'éditeur", "Show Docker large in the editor")).clicked() {
-                        act = Some(DockAct::Move(true));
-                    }
-                    if ui.small_button("⟳").on_hover_text(t!("Relire la liste des conteneurs", "Read the list of containers again")).clicked() {
-                        act = Some(DockAct::Reload);
                     }
                 });
             });

@@ -1862,6 +1862,7 @@ mod font_tests {
             include_str!("app/settings.rs"),
             include_str!("app/split_commit.rs"),
             include_str!("app/debugger.rs"),
+            include_str!("view_bar.rs"),
             include_str!("editor_view.rs"),
             include_str!("history.rs"),
             include_str!("sidebar.rs"),

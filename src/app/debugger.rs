@@ -1039,7 +1039,7 @@ impl App {
     fn debug_bar(&mut self, ui: &mut egui::Ui, big: bool, act: &mut Option<DebugAct>) {
         let weak = ui.visuals().weak_text_color();
         ui.horizontal(|ui| {
-            ui.label(RichText::new(t!("Débogage", "Debug")).strong().size(15.0));
+            crate::view_bar::title(ui, t!("Débogage", "Debug"));
             ui.add_space(6.0);
             let live = self.debug.session.as_ref();
             let paused = live.is_some_and(|s| s.paused.is_some());
@@ -1097,12 +1097,8 @@ impl App {
                 ui.label(RichText::new(tf!("préparation de {t}…", "preparing {t}…")).color(weak));
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if big {
-                    if ui.small_button("⇲").on_hover_text(t!("Afficher le débogueur dans le panneau du bas", "Show the debugger in the bottom panel")).clicked() {
-                        *act = Some(DebugAct::Move(false));
-                    }
-                } else if ui.small_button("⇱").on_hover_text(t!("Afficher le débogueur en grand dans l'éditeur", "Show the debugger large in the editor")).clicked() {
-                    *act = Some(DebugAct::Move(true));
+                if let Some(crate::view_bar::BarAct::Move(b)) = crate::view_bar::controls(ui, big, None, None) {
+                    *act = Some(DebugAct::Move(b));
                 }
             });
         });

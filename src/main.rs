@@ -38,6 +38,7 @@ mod shared;
 mod sidebar;
 mod split;
 mod update;
+mod view_bar;
 mod symbols;
 mod templates;
 mod terminal;

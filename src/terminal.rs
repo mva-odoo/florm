@@ -402,14 +402,11 @@ impl Terminal {
             if ui.add(plus).on_hover_text(t!("Nouveau terminal", "New terminal")).clicked() {
                 new = true;
             }
-            if ui
-                .add_enabled(self.sessions.get(self.active).is_some_and(Session::in_panel), egui::Button::new(t!("⇱ Onglet", "⇱ Tab")))
-                .on_hover_text(t!("Mettre ce terminal dans un onglet de l'éditeur (il peut alors être placé à côté d'un fichier, ou en bas)", "Put this terminal in an editor tab (it can then be placed next to a file, or at the bottom)"))
-                .clicked()
-            {
-                dock = true;
-            }
+            let in_panel = self.sessions.get(self.active).is_some_and(Session::in_panel);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if in_panel && crate::view_bar::controls(ui, false, None, None).is_some() {
+                    dock = true;
+                }
                 ui.label(
                     RichText::new(t!("Ctrl+C : interrompre (ou copier la sélection) · Ctrl+V : coller · clic droit : menu", "Ctrl+C: interrupt (or copy the selection) · Ctrl+V: paste · right click: menu"))
                         .small()
@@ -466,7 +463,7 @@ impl Terminal {
                 let s = &self.sessions[i];
                 ui.label(RichText::new(s.cwd.display().to_string()).small().weak());
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.small_button(t!("⇲ Panneau du bas", "⇲ Bottom panel")).on_hover_text(t!("Remettre ce terminal dans le panneau du bas", "Put this terminal back in the bottom panel")).clicked() {
+                    if crate::view_bar::controls(ui, true, None, None).is_some() {
                         back = true;
                     }
                 });

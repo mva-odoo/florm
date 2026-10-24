@@ -266,7 +266,7 @@ impl App {
             .frame(egui::Frame::none().fill(fill).inner_margin(egui::Margin { left: 10.0, right: 10.0, top: 8.0, bottom: 6.0 }))
             .show_inside(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("⇄ Pull requests").strong().size(15.0));
+                    crate::view_bar::title(ui, "Pull requests");
                     if repo_choices.len() > 1 {
                         let labels: Vec<String> = repo_choices.iter().map(|(_, l)| l.clone()).collect();
                         let current = repo_choices.iter().position(|(r, _)| p.repo.as_ref() == Some(r));
@@ -292,19 +292,14 @@ impl App {
                         act = Some(PrAct::Reload);
                     }
                     ui.add(egui::TextEdit::singleline(&mut p.filter).hint_text(t!("🔍 Filtrer : titre, auteur, branche, numéro…", "🔍 Filter: title, author, branch, number…")).desired_width(240.0));
-                    if ui.button("⟳").on_hover_text(t!("Recharger la liste", "Reload the list")).clicked() {
-                        act = Some(PrAct::Reload);
-                    }
                     if p.loading || p.busy {
                         spinner(ui);
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if big {
-                            if ui.small_button(t!("⇲ Panneau du bas", "⇲ Bottom panel")).on_hover_text(t!("Afficher les pull requests dans le panneau du bas", "Show the pull requests in the bottom panel")).clicked() {
-                                move_to = Some(false);
-                            }
-                        } else if ui.small_button(t!("⇱ Onglet", "⇱ Tab")).on_hover_text(t!("Afficher les pull requests en grand dans l'éditeur", "Show the pull requests large in the editor")).clicked() {
-                            move_to = Some(true);
+                        match crate::view_bar::controls(ui, big, Some(t!("Recharger la liste", "Reload the list")), None) {
+                            Some(crate::view_bar::BarAct::Move(b)) => move_to = Some(b),
+                            Some(crate::view_bar::BarAct::Refresh) => act = Some(PrAct::Reload),
+                            None => {}
                         }
                     });
                 });
