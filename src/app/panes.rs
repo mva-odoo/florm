@@ -554,22 +554,24 @@ impl App {
         let is_md = d.view == document::View::Text && d.syntax.contains("Markdown");
         let (mut goto, mut list, mut preview, mut open, mut reveal) = (None, false, false, None, None);
         let bg = self.hl.colors.bg;
+        let text = ui.visuals().text_color();
+        let pill = ui.visuals().widgets.hovered.weak_bg_fill;
         egui::TopBottomPanel::top(egui::Id::new("crumbs").with(pane))
-            .exact_height(20.0)
+            .exact_height(24.0)
             .frame(egui::Frame::none().fill(bg).inner_margin(egui::Margin::symmetric(10.0, 0.0)))
             .show_inside(ui, |ui| {
                 ui.horizontal_centered(|ui| {
-                    ui.spacing_mut().item_spacing.x = 3.0;
+                    ui.spacing_mut().item_spacing.x = 4.0;
                     // pale and small: the pinned lines of the editor already show where you are
-                    let weak = ui.visuals().weak_text_color().gamma_multiply(0.75);
+                    let weak = ui.visuals().weak_text_color();
                     let sep = |ui: &mut egui::Ui| {
-                        ui.label(RichText::new("›").size(11.5).color(weak));
+                        ui.label(RichText::new("›").size(13.0).color(weak));
                     };
                     for (dname, dir) in &dirs {
                         match dir {
                             // a folder: its files and folders in a menu
                             Some(dir) => {
-                                let r = ui.menu_button(RichText::new(dname).size(11.5).color(weak), |ui| {
+                                let r = ui.menu_button(RichText::new(dname).size(12.0).color(weak), |ui| {
                                     ui.set_max_height(420.0);
                                     if ui.button(t!("Afficher dans l'arborescence", "Show in the tree")).clicked() {
                                         reveal = Some(dir.clone());
@@ -602,18 +604,24 @@ impl App {
                                 r.response.on_hover_text(dir.display().to_string());
                             }
                             None => {
-                                ui.label(RichText::new(dname).size(11.5).color(weak));
+                                ui.label(RichText::new(dname).size(12.0).color(weak));
                             }
                         }
                         sep(ui);
                     }
-                    let r = ui.add(egui::Label::new(RichText::new(&file).size(11.5).color(weak)).sense(Sense::click()));
-                    if r.on_hover_text(t!("Symboles du fichier (Ctrl+R)", "Symbols of the file (Ctrl+R)")).clicked() {
+                    // the file name, in a pill: where you are in the path
+                    let r = egui::Frame::none()
+                        .fill(pill)
+                        .rounding(5.0)
+                        .inner_margin(egui::Margin::symmetric(6.0, 1.0))
+                        .show(ui, |ui| ui.add(egui::Label::new(RichText::new(&file).size(12.0).strong().color(text)).sense(Sense::click())).on_hover_text(t!("Symboles du fichier (Ctrl+R)", "Symbols of the file (Ctrl+R)")))
+                        .inner;
+                    if r.clicked() {
                         list = true;
                     }
                     for (name, kind, l) in &chain {
                         sep(ui);
-                        let text = RichText::new(format!("{} {name}", kind.icon())).size(11.5).color(accent.gamma_multiply(0.8));
+                        let text = RichText::new(format!("{} {name}", kind.icon())).size(12.0).color(accent);
                         if ui.add(egui::Label::new(text).sense(Sense::click())).on_hover_text(tf!("Aller à la ligne {}", "Go to line {}", l + 1)).clicked() {
                             goto = Some(*l);
                         }
