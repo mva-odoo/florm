@@ -222,6 +222,17 @@ pub fn show(
     }
     // the whole panel takes the keyboard focus (rows drawn over it get the clicks)
     let bg = ui.interact(ui.available_rect_before_wrap(), tree_id(), Sense::click());
+    // the empty part (under the rows, which take their own right clicks): new file or folder at the root
+    bg.context_menu(|ui| {
+        if ui.button(t!("Nouveau fichier…", "New file…")).clicked() {
+            act = Some(TreeAction::NewFile(root.path.clone()));
+            ui.close_menu();
+        }
+        if ui.button(t!("Nouveau dossier…", "New folder…")).clicked() {
+            act = Some(TreeAction::NewFolder(root.path.clone()));
+            ui.close_menu();
+        }
+    });
     if std::mem::take(&mut nav.focus) || bg.clicked() {
         bg.request_focus();
         if nav.cursor.is_none() {
