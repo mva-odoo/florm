@@ -1591,10 +1591,10 @@ impl App {
         let review_ui = |ui: &mut egui::Ui| {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
-                ui.label(RichText::new(t!("CE QUE CLAUDE A CHANGÉ", "WHAT CLAUDE CHANGED")).small().strong().color(accent));
+                ui.label(RichText::new(t!("Changements de Claude", "Claude's changes")).size(14.0).strong());
                 let n = c.review.as_ref().map_or(0, |d| d.files.len());
                 if n > 0 {
-                    ui.label(RichText::new(tf!("{n} fichier(s)", "{n} file(s)")).small().weak());
+                    ui.label(RichText::new(tf!("{n} fichier(s)", "{n} file(s)")).small().color(accent));
                 }
                 if c.review_loading {
                     spinner(ui);
@@ -1603,19 +1603,23 @@ impl App {
                     maximize::button(ui, view, "review");
                     if n > 0 {
                         let label = if c.confirm_reject { t!("Confirmer : tout rejeter", "Confirm: reject all") } else { t!("↺ Tout rejeter", "↺ Reject all") };
-                        if ui.add(egui::Button::new(RichText::new(label).color(err())).small()).on_hover_text(t!("Remettre les fichiers comme au début de la revue (les nouveaux fichiers sont supprimés)", "Put the files back as at the start of the review (the new files are deleted)")).clicked() {
+                        if ui.add(egui::Button::new(RichText::new(label).color(err()))).on_hover_text(t!("Remettre les fichiers comme au début de la revue (les nouveaux fichiers sont supprimés)", "Put the files back as at the start of the review (the new files are deleted)")).clicked() {
                             if c.confirm_reject {
                                 all = Some(false);
                             } else {
                                 c.confirm_reject = true;
                             }
                         }
-                        if ui.small_button(t!("✔ Tout garder", "✔ Keep all")).on_hover_text(t!("Tout accepter : la revue repart de là", "Accept all: the review starts again from there")).clicked() {
+                        if ui.add(egui::Button::new(t!("✔ Tout garder", "✔ Keep all"))).on_hover_text(t!("Tout accepter : la revue repart de là", "Accept all: the review starts again from there")).clicked() {
                             all = Some(true);
                         }
                     }
                 });
             });
+            // what the buttons of each block do, once
+            if c.review.as_ref().is_some_and(|d| !d.files.is_empty()) {
+                ui.label(RichText::new(t!("Garder : accepter le bloc, il reste dans le fichier. Rejeter : le retirer du fichier.", "Keep: accept the block, it stays in the file. Reject: remove it from the file.")).small().weak());
+            }
             ui.separator();
             match &c.review {
                 _ if c.review_index.is_none() => {
