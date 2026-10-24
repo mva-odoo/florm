@@ -1517,8 +1517,8 @@ impl App {
                             show_review = !show_review;
                         }
                         ui.add_space(8.0);
-                        // one gauge, the fullest of the plan's quotas (5 hours, 7 days) and of the
-                        // context; the three on hover
+                        // the plan's quota over 5 hours always; over 7 days and the context only
+                        // past 70 % (right to left: they come after the 5 hours)
                         let mut gauges: Vec<(String, f32, String)> = Vec::new();
                         for window in ["five_hour", "seven_day"] {
                             let (label, what) = match window {
@@ -1545,12 +1545,15 @@ impl App {
                                 tf!("Contexte de la conversation : {} / {} tokens.\nPlein, Claude résume le début de la conversation ; « Nouvelle conversation » repart de zéro.", "Context of the conversation: {} / {} tokens.\nWhen full, Claude summarizes the start of the conversation; “New conversation” starts from scratch.", thousands(tokens), thousands(window)),
                             ));
                         }
-                        let tip = gauges.iter().map(|g| g.2.clone()).collect::<Vec<_>>().join("\n\n");
-                        match gauges.iter().filter(|g| g.1 >= 0.0).max_by(|a, b| a.1.total_cmp(&b.1)) {
-                            Some((label, used, _)) => gauge(ui, label, *used, accent, tip),
-                            None => {
-                                ui.label(RichText::new("5 h – %").small().weak()).on_hover_text(tip);
-                                ui.add_space(6.0);
+                        for (k, (label, used, tip)) in gauges.into_iter().enumerate().rev() {
+                            match k {
+                                0 if used < 0.0 => {
+                                    ui.label(RichText::new("5 h – %").small().weak()).on_hover_text(tip);
+                                    ui.add_space(6.0);
+                                }
+                                0 => gauge(ui, &label, used, accent, tip),
+                                _ if used > 0.7 => gauge(ui, &label, used, accent, tip),
+                                _ => {}
                             }
                         }
                     });
