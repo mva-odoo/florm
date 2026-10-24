@@ -404,6 +404,50 @@ pub fn pr_description(dir: &Path, log: &str, diff: &str) -> Result<String, Strin
     run_once(dir, &["-p", &prompt, "--output-format", "text", "--model", "haiku", "--tools", "", "--no-session-persistence"], input).map(|t| clean_message(&t))
 }
 
+/// The changes not committed (`blocks`: numbered B1, B2…) split by theme into several commits:
+/// for each, its message and its blocks (their numbers, from 1), in the order to commit them.
+pub fn commit_plan(dir: &Path, blocks: &str, recent: &str, wish: &str) -> Result<Vec<(String, Vec<usize>)>, String> {
+    let mut prompt = String::from(t!(
+        "L'entrée standard donne les changements non commités d'un dépôt, en blocs numérotés (B1, B2…). Répartis-les en \
+         plusieurs commits, un par thème (une correction, une fonctionnalité, un renommage, de la doc…) ; un seul commit si \
+         tout va ensemble. Chaque bloc va dans exactement un commit ; les blocs d'un même fichier peuvent aller dans des \
+         commits différents. Ordonne les commits pour que chacun tienne seul (ce dont un autre dépend d'abord). Pour chaque \
+         commit, écris son message dans le style des derniers messages du dépôt (préfixes comme [FIX] / [IMP] / [ADD] \
+         module: … s'ils en ont), une première ligne courte, puis une ligne vide et le pourquoi en quelques lignes si ce \
+         n'est pas évident. Réponds uniquement par un tableau JSON : [{\"message\": \"…\", \"blocks\": [1, 4]}, …].",
+        "The standard input gives the uncommitted changes of a repository, in numbered blocks (B1, B2…). Split them into \
+         several commits, one per theme (a fix, a feature, a renaming, docs…); a single commit if everything goes \
+         together. Each block goes into exactly one commit; blocks of the same file may go into different commits. Order \
+         the commits so that each stands on its own (what another depends on first). For each commit, write its message \
+         in the style of the last messages of the repository (prefixes like [FIX] / [IMP] / [ADD] module: … if they have \
+         some), a short first line, then an empty line and the why in a few lines if it is not obvious. Answer only with \
+         a JSON array: [{\"message\": \"…\", \"blocks\": [1, 4]}, …]."
+    ));
+    if !recent.trim().is_empty() {
+        prompt.push_str(t!("\n\nDerniers messages du dépôt :\n", "\n\nLast messages of the repository:\n"));
+        prompt.push_str(recent.trim());
+    }
+    if !wish.trim().is_empty() {
+        prompt.push_str(t!("\n\nCe que le développeur avait demandé pour ces changements :\n", "\n\nWhat the developer had asked for these changes:\n"));
+        prompt.push_str(wish.trim());
+    }
+    let text = run_once(dir, &["-p", &prompt, "--output-format", "text", "--model", "sonnet", "--tools", "", "--no-session-persistence"], blocks.to_string())?;
+    parse_plan(&text)
+}
+
+fn parse_plan(text: &str) -> Result<Vec<(String, Vec<usize>)>, String> {
+    let v = json_array(text)?;
+    let number = |b: &Value| b.as_u64().map(|n| n as usize).or_else(|| b.as_str().and_then(|s| s.trim().trim_start_matches(['B', 'b']).parse().ok()));
+    Ok(v.as_array()
+        .map(|a| {
+            a.iter()
+                .map(|c| (clean_message(c["message"].as_str().unwrap_or("")), c["blocks"].as_array().map(|b| b.iter().filter_map(number).collect()).unwrap_or_default()))
+                .filter(|(m, b): &(String, Vec<usize>)| !m.is_empty() && !b.is_empty())
+                .collect()
+        })
+        .unwrap_or_default())
+}
+
 /// `/btw`: a quick question on the side, answered from the conversation of `session` (a copy of
 /// it: the conversation does not get it), without tools, even while Claude is working.
 pub fn btw(dir: &Path, session: Option<&str>, model: &str, question: &str) -> Result<String, String> {
@@ -561,15 +605,18 @@ fn number_diff(diff: &str) -> String {
     out
 }
 
-/// The JSON array of the answer (the model sometimes puts text or a code fence around it).
-fn parse_review(text: &str) -> Result<Vec<ReviewNote>, String> {
+/// The JSON array of an answer (the model sometimes puts text or a code fence around it).
+fn json_array(text: &str) -> Result<Value, String> {
     let end = text.rfind(']').unwrap_or(0);
     // the first '[' starting a valid array up to the last ']' (a "[R12]" may come before it)
-    let v = text
-        .match_indices('[')
+    text.match_indices('[')
         .filter(|(a, _)| *a < end)
         .find_map(|(a, _)| serde_json::from_str::<Value>(&text[a..=end]).ok())
-        .ok_or_else(|| tf!("Réponse inattendue de Claude : {}", "Unexpected answer from Claude: {}", text.chars().take(300).collect::<String>()))?;
+        .ok_or_else(|| tf!("Réponse inattendue de Claude : {}", "Unexpected answer from Claude: {}", text.chars().take(300).collect::<String>()))
+}
+
+fn parse_review(text: &str) -> Result<Vec<ReviewNote>, String> {
+    let v = json_array(text)?;
     let s = |x: &Value| x.as_str().unwrap_or("").trim().to_string();
     Ok(v.as_array()
         .map(|a| {
@@ -598,6 +645,12 @@ fn clean_message(t: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn plan_of_commits() {
+        let text = "Voici :\n```json\n[{\"message\": \"[FIX] a\", \"blocks\": [1, \"B3\"]}, {\"message\": \"[IMP] b\", \"blocks\": [2]}, {\"message\": \"\", \"blocks\": [4]}]\n```";
+        assert_eq!(parse_plan(text).unwrap(), vec![("[FIX] a".to_string(), vec![1, 3]), ("[IMP] b".to_string(), vec![2])]);
+    }
 
     #[test]
     fn events_of_a_conversation() {

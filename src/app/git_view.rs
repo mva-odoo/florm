@@ -389,6 +389,11 @@ impl App {
         if self.install_guide(ui, crate::tools::Tool::Git, false) {
             return;
         }
+        // commits proposed by Claude: read over before committing, in place of the list
+        if self.git.plan.is_some() {
+            self.commit_plan_ui(ui);
+            return;
+        }
         let (mut select, mut diff_to_tab, mut close_detail) = (None, false, false);
         let mut diff_click: Option<history::DiffClick> = None;
         let source = match (self.history.wip_sel, &self.history.compare) {
@@ -425,6 +430,7 @@ impl App {
         };
         let mut open_pr = None;
         let (mut do_commit, mut suggest_msg, suggesting) = (false, false, self.git.suggesting);
+        let (mut ask_plan, planning) = (false, self.git.planning);
         let commit_msg = &mut self.git.commit_msg;
         let focus_commit = std::mem::take(&mut self.git.focus_commit);
         // AI review of the changes not committed: asked, kept remarks given to Claude, a remark's action
@@ -507,7 +513,7 @@ impl App {
         // ------------------------------------------------ commit list, with the working tree on top
         let mut list = |ui: &mut egui::Ui| {
             if n_staged + n_changed > 0 || !commit_msg.is_empty() || focus_commit {
-                (do_commit, suggest_msg) = commit_box(ui, commit_msg, focus_commit, n_staged, n_changed, suggesting, accent);
+                (do_commit, suggest_msg, ask_plan) = commit_box(ui, commit_msg, focus_commit, n_staged, n_changed, suggesting, planning, accent);
             }
             if let Some(st) = &wip {
                 let staged: Vec<&git::Entry> = st.entries.iter().filter(|e| e.staged()).collect();
@@ -967,6 +973,9 @@ impl App {
         if suggest_msg {
             self.suggest_commit_message();
         }
+        if ask_plan {
+            self.start_commit_plan();
+        }
         if let (Some(n), Some(repo)) = (open_pr, self.history.repo.clone()) {
             self.open_pr(repo, n);
         }
@@ -1123,19 +1132,24 @@ pub(super) fn worktree_diff(repo: &Path, args: &[&str]) -> Result<String, String
     })
 }
 
-/// Message and button of the next commit, and ✨ to have it written by Claude; returns
-/// (commit now, ask Claude).
-fn commit_box(ui: &mut egui::Ui, msg: &mut String, focus: bool, n_staged: usize, n_changed: usize, suggesting: bool, accent: Color32) -> (bool, bool) {
+/// Message and button of the next commit, ✨ to have it written by Claude, ✂ to have Claude split
+/// the changes into several commits; returns (commit now, ask the message, ask the split).
+fn commit_box(ui: &mut egui::Ui, msg: &mut String, focus: bool, n_staged: usize, n_changed: usize, suggesting: bool, planning: bool, accent: Color32) -> (bool, bool, bool) {
     let (label, tip) = if n_staged > 0 {
         (tf!("✔ Commit ({n_staged} indexé(s))", "✔ Commit ({n_staged} staged)"), t!("Valide les fichiers indexés", "Commits the staged files"))
     } else {
         (tf!("✔ Commit tout ({n_changed})", "✔ Commit all ({n_changed})"), t!("Rien d'indexé : valide toutes les modifications des fichiers suivis", "Nothing staged: commits all the changes of the tracked files"))
     };
     let can = !msg.trim().is_empty() && (n_staged > 0 || n_changed > 0);
-    let (mut go, mut suggest) = (false, false);
+    let (mut go, mut suggest, mut plan) = (false, false, false);
     egui::Frame::none().inner_margin(egui::Margin { left: 4.0, right: 4.0, top: 4.0, bottom: 6.0 }).show(ui, |ui| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
             let clicked = ui.add_enabled(can, filled_button(label, accent)).on_hover_text(tip).clicked();
+            if planning {
+                spinner(ui);
+            } else if ui.button("✂").on_hover_text(t!("Claude découpe les changements (tous, nouveaux fichiers compris) en plusieurs commits par thème, avec leurs messages : tu relis et modifies le plan avant de commiter", "Claude splits the changes (all of them, new files included) into several commits by theme, with their messages: you read and change the plan before committing")).clicked() {
+                plan = true;
+            }
             if suggesting {
                 spinner(ui);
             } else if ui.button("✨").on_hover_text(t!("Claude propose le message d'après les changements (indexés, sinon tous) et ta demande dans l'onglet Claude", "Claude suggests the message from the changes (staged, else all) and your request in the Claude tab")).clicked() {
@@ -1149,7 +1163,7 @@ fn commit_box(ui: &mut egui::Ui, msg: &mut String, focus: bool, n_staged: usize,
             go = can && (clicked || ctrl_enter);
         });
     });
-    (go, suggest)
+    (go, suggest, plan)
 }
 
 /// A changed file in the list next to the diff: status letter, name, folder, lines added / removed.

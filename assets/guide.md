@@ -289,6 +289,12 @@ panneau du bas (⇱ pour lui donner tout un onglet de l'éditeur, ⇲ pour l'y r
 indexés (sinon tous), dans le style des derniers commits du dépôt et d'après ta première demande
 dans l'onglet Claude.
 
+**✂ à côté de ✨** : au lieu d'un seul commit, Claude découpe tous les changements (nouveaux
+fichiers compris) en plusieurs commits par thème, chacun avec son message. Le plan remplace la
+liste de la vue Git : relis et modifie les messages, déplace un bloc d'un commit à l'autre (**→**),
+laisse-le hors des commits, change l'ordre (**↑**). Rien n'est commité avant **Commiter les N
+commits** ; **Annuler** laisse tout comme avant.
+
 ## Apparence
 
 **Préférences → Apparence** : langue (Français / English), thème (aperçus cliquables), couleur d'accentuation,

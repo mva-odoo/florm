@@ -182,6 +182,8 @@ impl App {
                 JobResult::ClaudeReview(id, r) => self.claude_review_loaded(id, r),
                 JobResult::ClaudeBtw(id, r) => self.claude_btw_loaded(id, r),
                 JobResult::CommitMessage(r) => self.commit_message_ready(r),
+                JobResult::CommitPlan(repo, r) => self.commit_plan_loaded(repo, r),
+                JobResult::CommitPlanDone(repo, done, e) => self.commit_plan_done(repo, done, e),
                 JobResult::QueueCommit(id, r) => self.queue_commit_loaded(id, r),
                 JobResult::AiReview(key, r) => self.ai_review_loaded(key, r),
                 JobResult::InlineAi(n, r) => self.inline_ai_loaded(n, r),

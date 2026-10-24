@@ -45,6 +45,7 @@ mod claude_ask;
 mod theme_edit;
 mod template_edit;
 mod split_commit;
+mod commit_plan;
 mod panes;
 mod lsp_client;
 mod maximize;
@@ -671,6 +672,10 @@ struct GitUi {
     status: Option<git::Status>,
     /// Claude is writing the commit message.
     suggesting: bool,
+    /// Claude is splitting the changes into commits by theme, and the plan it made (to read
+    /// over before committing).
+    planning: bool,
+    plan: Option<commit_plan::CommitPlan>,
     error: Option<String>,
     commit_msg: String,
     busy: usize,
@@ -1867,6 +1872,7 @@ mod font_tests {
             include_str!("app/search_panel.rs"),
             include_str!("app/settings.rs"),
             include_str!("app/split_commit.rs"),
+            include_str!("app/commit_plan.rs"),
             include_str!("app/debugger.rs"),
             include_str!("view_bar.rs"),
             include_str!("editor_view.rs"),

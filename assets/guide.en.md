@@ -287,6 +287,12 @@ command and your login: no key to set up.
 changes (else all of them), in the style of the last commits of the repository and from your
 first request in the Claude tab.
 
+**✂ next to ✨**: instead of a single commit, Claude splits all the changes (new files included)
+into several commits by theme, each with its message. The plan takes the place of the Git view's
+list: read and change the messages, move a block from one commit to another (**→**), leave it out
+of the commits, change the order (**↑**). Nothing is committed before **Commit the N commits**;
+**Cancel** leaves everything as before.
+
 ## Appearance
 
 **Preferences → Appearance**: language (Français / English), theme (clickable previews),

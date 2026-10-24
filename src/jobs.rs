@@ -16,6 +16,11 @@ pub enum JobResult {
     ClaudeReview(u64, Result<String, String>),
     /// Answer of a `/btw` of conversation (id).
     ClaudeBtw(u64, Result<String, String>),
+    /// The changes not committed split by Claude into commits: the blocks, then each commit's
+    /// message and blocks.
+    CommitPlan(PathBuf, Result<(Vec<split::Block>, Vec<(String, Vec<usize>)>), String>),
+    /// The commits of the plan made (short hash, subject), and the error that stopped them.
+    CommitPlanDone(PathBuf, Vec<(String, String)>, Option<String>),
     /// Commit message written by Claude.
     CommitMessage(Result<String, String>),
     /// Commit after a task of the queue of conversation (id): the first line of its message.

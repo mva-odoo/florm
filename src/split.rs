@@ -306,12 +306,126 @@ pub fn abort(repo: &Path) -> Result<String, String> {
     git::run(repo, &["rebase", "--abort"])
 }
 
+/// The changes not committed (staged or not, new files included), for a split by theme.
+pub fn worktree_changes(repo: &Path) -> Result<Vec<FileChange>, String> {
+    let untracked: Vec<String> = git::stdout(repo, &["-c", "core.quotePath=false", "ls-files", "--others", "--exclude-standard"])?
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(String::from)
+        .collect();
+    changes(repo, &untracked)
+}
+
+/// A part of the changes that goes into one commit: a hunk, or a whole file (new, deleted,
+/// binary: not splittable).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Block {
+    pub path: String,
+    /// Its added and removed lines (the hunk, without its context); empty: the whole file.
+    pub changed: Vec<String>,
+    /// Hunk lines shown to read it ("@@" first).
+    pub lines: Vec<String>,
+    pub kind: char,
+}
+
+/// The blocks of `files`, in order.
+pub fn blocks(files: &[FileChange]) -> Vec<Block> {
+    let mut out = Vec::new();
+    for f in files {
+        if f.partial_ok() {
+            for h in &f.hunks {
+                let changed = (1..h.lines.len()).filter(|&i| h.is_change(i)).map(|i| h.lines[i].clone()).collect();
+                out.push(Block { path: f.path.clone(), changed, lines: h.lines.clone(), kind: f.kind });
+            }
+        } else {
+            let lines = f.hunks.iter().flat_map(|h| h.lines.iter().cloned()).collect();
+            out.push(Block { path: f.path.clone(), changed: Vec::new(), lines, kind: f.kind });
+        }
+    }
+    out
+}
+
+/// The blocks numbered B1, B2… for Claude; long ones are cut (their start says enough).
+pub fn blocks_text(blocks: &[Block]) -> String {
+    let mut out = String::new();
+    for (k, b) in blocks.iter().enumerate() {
+        let what = match b.kind {
+            'A' => " (nouveau fichier)",
+            'D' => " (supprimé)",
+            _ => "",
+        };
+        out.push_str(&format!("### B{} — {}{what}\n", k + 1, b.path));
+        let max = if out.len() > 120_000 { 6 } else { 80 };
+        for l in b.lines.iter().take(max) {
+            out.push_str(l);
+            out.push('\n');
+        }
+        if b.lines.len() > max {
+            out.push_str(&format!("… ({} lignes de plus)\n", b.lines.len() - max));
+        }
+        out.push('\n');
+    }
+    out
+}
+
+/// Commits `planned` (blocks of an earlier reading of the changes) with `message`. The changes
+/// are read again: each block is found by its file and its lines (the commits before it moved the
+/// line numbers). Returns (short hash, subject).
+pub fn commit_blocks(repo: &Path, planned: &[Block], message: &str) -> Result<(String, String), String> {
+    let files = worktree_changes(repo)?;
+    let mut sel: Vec<Vec<Vec<bool>>> = files.iter().map(FileChange::empty_selection).collect();
+    for b in planned {
+        let gone = || tf!("{} : ce bloc n'est plus dans les fichiers (modifiés depuis ?)", "{}: this block is no longer in the files (changed since?)", b.path);
+        let i = files.iter().position(|f| f.path == b.path).ok_or_else(gone)?;
+        let f = &files[i];
+        let hunks: Vec<usize> = if b.changed.is_empty() || !f.partial_ok() {
+            (0..f.hunks.len()).collect()
+        } else {
+            let k = f.hunks.iter().position(|h| (1..h.lines.len()).filter(|&j| h.is_change(j)).map(|j| &h.lines[j]).eq(b.changed.iter())).ok_or_else(gone)?;
+            vec![k]
+        };
+        for k in hunks {
+            sel[i][k] = vec![true; f.hunks[k].lines.len()];
+        }
+    }
+    commit_part(repo, &files, &sel, message)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn g(repo: &Path, args: &[&str]) -> String {
         git::run(repo, args).unwrap_or_else(|e| panic!("git {args:?}: {e}"))
+    }
+
+    #[test]
+    fn commits_blocks_of_one_file_apart() {
+        let repo = std::env::temp_dir().join(format!("florm_plan_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&repo);
+        std::fs::create_dir_all(&repo).unwrap();
+        g(&repo, &["init", "-q", "-b", "main"]);
+        g(&repo, &["config", "user.name", "t"]);
+        g(&repo, &["config", "user.email", "t@t"]);
+        let lines: Vec<String> = (0..40).map(|i| format!("line {i}")).collect();
+        std::fs::write(repo.join("a.txt"), lines.join("\n") + "\n").unwrap();
+        g(&repo, &["add", "."]);
+        g(&repo, &["commit", "-qm", "base"]);
+        let mut l2 = lines.clone();
+        l2[2] = "top".into();
+        l2.insert(30, "added below".into());
+        std::fs::write(repo.join("a.txt"), l2.join("\n") + "\n").unwrap();
+        std::fs::write(repo.join("new.txt"), "new\n").unwrap();
+        let b = blocks(&worktree_changes(&repo).unwrap());
+        assert_eq!(b.len(), 3);
+        assert!(blocks_text(&b).contains("### B3 — new.txt (nouveau fichier)"));
+        // the second hunk first: the first one has to be found again after it
+        commit_blocks(&repo, &[b[1].clone(), b[2].clone()], "second").unwrap();
+        commit_blocks(&repo, &[b[0].clone()], "first").unwrap();
+        assert!(g(&repo, &["status", "--porcelain"]).trim().is_empty());
+        assert_eq!(g(&repo, &["log", "--format=%s", "-2"]).trim(), "first\nsecond");
+        assert!(commit_blocks(&repo, &[b[0].clone()], "again").is_err());
+        let _ = std::fs::remove_dir_all(&repo);
     }
 
     #[test]
