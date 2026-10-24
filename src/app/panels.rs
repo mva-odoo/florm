@@ -1455,10 +1455,6 @@ impl App {
         item(ui, t!("Replier le bloc", "Fold the block"), Cmd::Fold, true);
         item(ui, t!("Tout replier", "Fold all"), Cmd::FoldAll, true);
         item(ui, t!("Tout déplier", "Unfold all"), Cmd::UnfoldAll, has_folds);
-        item(ui, t!("Dupliquer la ligne", "Duplicate line"), Cmd::DuplicateLine, !ro);
-        item(ui, t!("Supprimer la ligne", "Delete line"), Cmd::DeleteLine, !ro);
-        item(ui, t!("Monter la ligne", "Move line up"), Cmd::MoveLineUp, !ro);
-        item(ui, t!("Descendre la ligne", "Move line down"), Cmd::MoveLineDown, !ro);
         if in_repo {
             ui.separator();
             item(ui, if blame_on { t!("Masquer le blame", "Hide the blame") } else { t!("Blame de la ligne", "Line blame") }, Cmd::GitBlame, true);
@@ -1471,10 +1467,8 @@ impl App {
         }
         if has_path {
             ui.separator();
-            item(ui, t!("Copier le chemin du fichier", "Copy the file path"), Cmd::CopyFilePath, true);
             item(ui, t!("Copier la référence fichier:ligne", "Copy the file:line reference"), Cmd::CopyFileRef, true);
             item(ui, t!("Afficher dans l'arborescence", "Show in the tree"), Cmd::RevealInTree, true);
-            item(ui, t!("Afficher dans le gestionnaire de fichiers", "Show in the file manager"), Cmd::RevealInOs, true);
         }
         if let Some(c) = chosen {
             self.pending.push(c);
