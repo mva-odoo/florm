@@ -144,7 +144,7 @@ it back to the bottom. The list is read again every few seconds.
   containers, from the bottom of the list up; **▶ all** starts the stopped ones in the order of
   the list, each once the previous one is ready (*healthy*). The dotted handle on the left can be
   dragged to change that order.
-- **⬆ compose up** (or **⬆** on a project): `docker compose up -d` in a tab. Also creates and
+- **⬆ compose up** (or **⬆** on a project): `docker compose up -d` in the bottom panel. Also creates and
   starts the services that have no container yet, and recreates those whose configuration changed.
 - **Logs**: click a container, its logs show on the right. If it restarts, the logs start again by
   themselves. The button at the top right of the logs makes them larger (click it again to give the
@@ -167,7 +167,7 @@ palette, or the bug icon at the bottom of the sidebar.
 - **F5** starts. At the top of the view: **Where** (this computer or a container), **Launch** or
   **Attach**, and the command.
   - **Launch** here: the command (by default the `odoo-bin` of the folder, `--workers 0`) runs in
-    a terminal tab, with its logs. `debugpy` is needed in this Python: otherwise, **Install
+    the bottom panel, with its logs. `debugpy` is needed in this Python: otherwise, **Install
     debugpy**.
   - **Launch** in a container: the command runs in the container, next to the Odoo running there
     (by default `odoo --workers 0 --http-port 8070`). Florm talks to the debugger through

@@ -2,7 +2,7 @@
 //! The adapter runs here or in a Docker container (`docker exec -i <c> python3 -m
 //! debugpy.adapter`): a program in a container is debugged without publishing any port, its
 //! files are found here through the mounts of the container, and the program runs in a
-//! terminal tab (`runInTerminal`), so its logs and an `ipdb` in it are still there.
+//! terminal of the bottom panel (`runInTerminal`), so its logs and an `ipdb` in it are still there.
 
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Read, Write};

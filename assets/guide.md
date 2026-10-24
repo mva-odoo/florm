@@ -145,13 +145,13 @@ est relue toutes les quelques secondes.
   tous ses conteneurs, du bas de la liste vers le haut ; **▶ tout** démarre les arrêtés dans
   l'ordre de la liste, chacun une fois le précédent prêt (*healthy*). La poignée à points à gauche
   se glisse pour changer cet ordre.
-- **⬆ compose up** (ou **⬆** sur un projet) : `docker compose up -d` dans un onglet. Crée et démarre
+- **⬆ compose up** (ou **⬆** sur un projet) : `docker compose up -d` dans le panneau du bas. Crée et démarre
   aussi les services qui n'ont pas encore de conteneur, et recrée ceux dont la configuration a changé.
 - **Logs** : clique sur un conteneur, ses logs s'affichent à droite. S'il redémarre, les logs
   repartent tout seuls. Le bouton en haut à droite des logs les agrandit (la liste reprend sa place
   en cliquant à nouveau).
   - Dans sa barre : **⟳ Redémarrer**, **■ Arrêter** (ou **▶ Démarrer**), **>_ Terminal** (un shell
-    dans le conteneur, `docker exec`, dans un onglet).
+    dans le conteneur, `docker exec`, dans le panneau du bas).
   - **Attaché** : un conteneur qui attend une saisie (ipdb…) reçoit ce que tu tapes, et
     **Ctrl+C** l'interrompt. Sinon les logs sont en lecture seule.
 - **🧪 Tests** : lance des tests Odoo dans le conteneur. Les tags se tapent dans le champ
@@ -168,7 +168,7 @@ Comme celui de VS Code, pour Python et Odoo, sur cet ordinateur ou dans un conte
 - **F5** démarre. En haut de la vue : **Où** (cet ordinateur ou un conteneur), **Lancer** ou
   **S'attacher**, et la commande.
   - **Lancer** ici : la commande (par défaut l'`odoo-bin` du dossier, `--workers 0`) tourne dans
-    un onglet de terminal, avec ses logs. Il faut `debugpy` dans ce Python : sinon, **Installer
+    le panneau du bas, avec ses logs. Il faut `debugpy` dans ce Python : sinon, **Installer
     debugpy**.
   - **Lancer** dans un conteneur : la commande tourne dans le conteneur, à côté de l'Odoo qui y
     tourne (par défaut `odoo --workers 0 --http-port 8070`). Florm parle au débogueur par

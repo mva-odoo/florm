@@ -859,16 +859,12 @@ impl App {
         let (title, mounts) = (format!("Debug {}", s.title), s.mounts.clone());
         self.debug_close_term();
         let ctx = self.egui_ctx.clone();
-        let keep = self.docs.get(self.active).map(|d| d.uid);
-        match self.term.open_once_tab(&ctx, &argv, cwd, &env) {
+        match self.term.open_once_panel(&ctx, &argv, cwd, &env) {
             Ok(id) => {
-                self.term.set_name(id, title.clone());
+                self.term.set_name(id, title);
                 self.term.set_mounts(id, mounts);
-                self.open_view_tab(document::View::Terminal(id), title);
-                // its tab stays behind: the file being worked on is still the one shown
-                if let Some(i) = keep.and_then(|u| self.docs.iter().position(|d| d.uid == u)) {
-                    self.activate_tab(i);
-                }
+                // the bottom panel, the file being worked on stays shown
+                self.bottom = Some(BottomTab::Terminal);
                 self.debug.term = Some(id);
                 if let Some(s) = self.debug.session.as_mut() {
                     s.client.respond(seq, "runInTerminal", true, json!({}));
@@ -1204,7 +1200,7 @@ impl App {
             }
         });
         let help = match (target.is_empty(), mode_attach) {
-            (true, false) => t!("Lance la commande ici, dans un onglet de terminal, sous le débogueur. --workers 0 : un seul processus, chaque requête passe par les points d'arrêt.", "Runs the command here, in a terminal tab, under the debugger. --workers 0: one process, every request goes through the breakpoints.").to_string(),
+            (true, false) => t!("Lance la commande ici, dans le panneau du bas, sous le débogueur. --workers 0 : un seul processus, chaque requête passe par les points d'arrêt.", "Runs the command here, in the bottom panel, under the debugger. --workers 0: one process, every request goes through the breakpoints.").to_string(),
             (false, false) => t!("Lance la commande dans le conteneur, sous le débogueur, à côté de l'Odoo qui y tourne (un autre port). Ses fichiers montés s'ouvrent ici, les autres en lecture seule. Clic droit sur le ▶ d'un test (ou Alt+F6) : déboguer ce test.", "Runs the command in the container, under the debugger, next to the Odoo running there (another port). Its mounted files open here, the others read only. Right click on the ▶ of a test (or Alt+F6): debug this test.").to_string(),
             (true, true) => tf!("Lancez le programme avec : python3 -m debugpy --listen {} ./odoo-bin … --workers 0", "Run the program with: python3 -m debugpy --listen {} ./odoo-bin … --workers 0", self.settings.debug_port),
             (false, true) => tf!("Dans le conteneur, Odoo doit tourner avec debugpy (command: du docker-compose.yml) : python3 -m debugpy --listen 0.0.0.0:{} /usr/bin/odoo … --workers 0. Florm s'y connecte par docker exec : aucun port à publier.", "In the container, Odoo must run with debugpy (command: of docker-compose.yml): python3 -m debugpy --listen 0.0.0.0:{} /usr/bin/odoo … --workers 0. Florm connects to it through docker exec: no port to publish.", self.settings.debug_port),
@@ -1474,11 +1470,11 @@ impl App {
             DebugAct::Copy(t) => self.egui_ctx.output_mut(|o| o.copied_text = t),
             DebugAct::Install(argv) => {
                 let ctx = self.egui_ctx.clone();
-                match self.term.open_command_tab(&ctx, &argv, self.root.clone()) {
+                match self.term.open_command_panel(&ctx, &argv, self.root.clone()) {
                     Ok(id) => {
                         let title = t!("Installation de debugpy", "Installing debugpy").to_string();
-                        self.term.set_name(id, title.clone());
-                        self.open_view_tab(document::View::Terminal(id), title);
+                        self.term.set_name(id, title);
+                        self.bottom = Some(BottomTab::Terminal);
                         self.debug.failure = None;
                         self.set_status(t!("Une fois debugpy installé : F5", "Once debugpy is installed: F5"));
                     }

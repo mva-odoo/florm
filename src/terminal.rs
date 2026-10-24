@@ -499,38 +499,37 @@ impl Terminal {
         Ok(id)
     }
 
-    /// Runs `argv` (not a shell) in a terminal meant for an editor tab, its output kept as text
-    /// (`output`); Enter once it ended runs it again. Returns its id.
-    pub fn open_command_tab(&mut self, ctx: &egui::Context, argv: &[String], cwd: Option<PathBuf>) -> Result<u64, String> {
+    /// Runs `argv` (not a shell) in the bottom panel, its output kept as text (`output`); Enter
+    /// once it ended runs it again. Returns its id.
+    pub fn open_command_panel(&mut self, ctx: &egui::Context, argv: &[String], cwd: Option<PathBuf>) -> Result<u64, String> {
         let mut s = Session::spawn_argv(&argv.iter().map(String::as_str).collect::<Vec<_>>(), &[], cwd.unwrap_or_else(|| self.cwd()), ctx, true)
             .map_err(|e| format!("{} : {e}", argv.first().map_or("", String::as_str)))?;
         s.id = self.next_id;
-        s.docked = true;
         s.cmd = Some(argv.to_vec());
         self.next_id += 1;
         let id = s.id;
-        self.focus_tab = Some(id);
         self.sessions.push(s);
-        self.fix_active();
+        self.active = self.sessions.len() - 1;
+        self.want_focus = true;
         Ok(id)
     }
 
-    /// Runs `argv` once in a terminal meant for an editor tab, with these variables (the program
-    /// of a debugging session: Enter does not start it again). Returns its id.
-    pub fn open_once_tab(&mut self, ctx: &egui::Context, argv: &[String], cwd: Option<PathBuf>, env: &[(String, String)]) -> Result<u64, String> {
+    /// Runs `argv` once in the bottom panel, with these variables (the program of a debugging
+    /// session: Enter does not start it again). Returns its id.
+    pub fn open_once_panel(&mut self, ctx: &egui::Context, argv: &[String], cwd: Option<PathBuf>, env: &[(String, String)]) -> Result<u64, String> {
         let mut s = Session::spawn_argv_env(&argv.iter().map(String::as_str).collect::<Vec<_>>(), &[], cwd.unwrap_or_else(|| self.cwd()), ctx, true, env)
             .map_err(|e| format!("{} : {e}", argv.first().map_or("", String::as_str)))?;
         s.id = self.next_id;
-        s.docked = true;
         s.once = true;
         self.next_id += 1;
         let id = s.id;
         self.sessions.push(s);
-        self.fix_active();
+        self.active = self.sessions.len() - 1;
+        self.want_focus = true;
         Ok(id)
     }
 
-    /// The output kept by session `id` (`open_command_tab`), without its colors.
+    /// The output kept by session `id` (`open_command_panel`), without its colors.
     pub fn output(&self, id: u64) -> Option<String> {
         let s = self.sessions.iter().find(|s| s.id == id)?;
         let bytes = s.capture.as_ref()?.lock().unwrap().clone();

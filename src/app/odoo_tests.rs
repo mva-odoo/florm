@@ -1,6 +1,6 @@
 //! Odoo tests run in a Docker container: from the Docker view (🧪 Tests, tags filled from the
 //! code under the cursor, the last ones kept), again from anywhere (Ctrl+F6), or from the ▶ of
-//! the gutter of a test file. A run goes to its terminal tab (an `ipdb` in a test works there);
+//! the gutter of a test file. A run goes to the bottom panel's terminal (an `ipdb` in a test works there);
 //! its summary goes to the status bar, its tracebacks open their file with Ctrl+clic.
 
 use super::*;
@@ -86,12 +86,11 @@ impl App {
             }
         }
         let ctx = self.egui_ctx.clone();
-        match self.term.open_command_tab(&ctx, &exec.argv, exec.cwd) {
+        match self.term.open_command_panel(&ctx, &exec.argv, exec.cwd) {
             Ok(id) => {
-                let title = format!("Tests {tags}");
-                self.term.set_name(id, title.clone());
+                self.term.set_name(id, format!("Tests {tags}"));
                 self.term.set_mounts(id, exec.mounts);
-                self.open_view_tab(document::View::Terminal(id), title);
+                self.bottom = Some(BottomTab::Terminal);
                 self.tests.run = Some(Run { session: id, tags, summarized: false });
             }
             Err(e) => self.set_error(tf!("Tests impossibles à lancer : {e}", "Cannot run the tests: {e}")),

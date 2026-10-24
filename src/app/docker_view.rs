@@ -417,7 +417,7 @@ impl App {
                                 if ui.add_enabled(!busy, egui::Button::new(t!("■ Arrêter", "■ Stop"))).clicked() {
                                     act = Some(DockAct::Run("stop", one()));
                                 }
-                                if ui.button(">_ Terminal").on_hover_text(t!("Un shell dans le conteneur (docker exec), dans un onglet", "A shell in the container (docker exec), in a tab")).clicked() {
+                                if ui.button(">_ Terminal").on_hover_text(t!("Un shell dans le conteneur (docker exec), dans le panneau du bas", "A shell in the container (docker exec), in the bottom panel")).clicked() {
                                     act = Some(DockAct::Shell(c.name.clone()));
                                 }
                                 if ui.selectable_label(self.tests.open, "🧪 Tests").on_hover_text(t!("Lancer des tests Odoo dans ce conteneur", "Run Odoo tests in this container")).clicked() {
@@ -498,19 +498,21 @@ impl App {
             Some(DockAct::Shell(name)) => {
                 let ctx = self.egui_ctx.clone();
                 let title = tf!("{} (conteneur)", "{} (container)", self.docker_label(&name));
-                match self.term.open_tab(&ctx, Some(&format!("docker exec -it {name} bash")), None) {
-                    Ok((id, _)) => self.open_view_tab(document::View::Terminal(id), title),
+                match self.term.open_panel(&ctx, Some(&format!("docker exec -it {name} bash")), None) {
+                    Ok(id) => {
+                        self.term.set_name(id, title);
+                        self.bottom = Some(BottomTab::Terminal);
+                    }
                     Err(e) => self.set_error(tf!("Terminal impossible à ouvrir : {e}", "Cannot open a terminal: {e}")),
                 }
             }
             Some(DockAct::Up(c)) => {
                 let (argv, cwd) = docker::compose_up(&c);
                 let ctx = self.egui_ctx.clone();
-                match self.term.open_command_tab(&ctx, &argv, Some(cwd)) {
+                match self.term.open_command_panel(&ctx, &argv, Some(cwd)) {
                     Ok(id) => {
-                        let title = format!("compose up {}", c.name);
-                        self.term.set_name(id, title.clone());
-                        self.open_view_tab(document::View::Terminal(id), title);
+                        self.term.set_name(id, format!("compose up {}", c.name));
+                        self.bottom = Some(BottomTab::Terminal);
                     }
                     Err(e) => self.set_error(tf!("Terminal impossible à ouvrir : {e}", "Cannot open a terminal: {e}")),
                 }
