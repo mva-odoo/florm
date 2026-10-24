@@ -245,6 +245,11 @@ panneau du bas (⇱ pour lui donner tout un onglet de l'éditeur, ⇲ pour l'y r
 
 - En haut : le dépôt, le modèle, et ce que Claude a le droit de faire (**Modifie les fichiers**,
   **Plan seulement**, **Tout autoriser** pour qu'il lance aussi des commandes).
+- **Fin de réponse** : si la conversation n'est pas affichée, son onglet (ou, dans le panneau
+  du bas, l'onglet Claude et son icône de la barre latérale) clignote quelques secondes puis
+  reste vert jusqu'à ce que tu la regardes, et un son est joué. **Préférences → Éditeur** :
+  clignoter ou non, et le son (Carillon, Clochette, Goutte, Bip, Accord, ou aucun ; ▶ pour
+  écouter).
 - **/** au début du champ : les commandes de Claude Code (`/usage`, `/context`, `/compact`,
   `/clear`, `/model`, tes skills…), **Tab** ou un clic complète. Elles partent seules, sans le
   contexte. **/btw question** pose une question à côté, même pendant que Claude travaille : la

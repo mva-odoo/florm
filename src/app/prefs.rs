@@ -429,6 +429,25 @@ impl App {
                 pref_row(ui, rc, t!("Claude en onglet", "Claude in a tab"), t!("Ctrl+Alt+C ouvre Claude dans un onglet de l'éditeur plutôt que dans le panneau du bas (boutons ⇱ / ⇲ pour changer).", "Ctrl+Alt+C opens Claude in an editor tab rather than in the bottom panel (⇱ / ⇲ buttons to switch)."), |ui| {
                     toggle_switch(ui, &mut s.claude_in_tab);
                 });
+                pref_row(ui, rc, t!("Claude a fini : clignoter", "Claude is done: blink"), t!("Quand Claude a fini de répondre et que sa conversation n'est pas affichée, son onglet clignote quelques secondes, puis reste vert jusqu'à ce que tu la regardes.", "When Claude is done answering and its conversation is not shown, its tab blinks a few seconds, then stays green until you look at it."), |ui| {
+                    toggle_switch(ui, &mut s.claude_done_blink);
+                });
+                pref_row(ui, rc, t!("Claude a fini : son", "Claude is done: sound"), t!("Joué à la fin de chaque réponse de Claude. ▶ pour l'écouter.", "Played at the end of each answer of Claude. ▶ to listen to it."), |ui| {
+                    let name = |k: &str| crate::sound::SOUNDS.iter().find(|x| x.0 == k).map_or(t!("Aucun", "None"), |x| t!(x.1, x.2));
+                    ui.add_enabled_ui(!s.claude_done_sound.is_empty(), |ui| {
+                        if ui.small_button("▶").on_hover_text(t!("Écouter", "Listen")).clicked() {
+                            crate::sound::play(&s.claude_done_sound);
+                        }
+                    });
+                    egui::ComboBox::from_id_salt("claude_done_sound").selected_text(name(&s.claude_done_sound)).show_ui(ui, |ui| {
+                        ui.selectable_value(&mut s.claude_done_sound, String::new(), t!("Aucun", "None"));
+                        for (key, fr, en) in crate::sound::SOUNDS {
+                            if ui.selectable_value(&mut s.claude_done_sound, key.to_string(), t!(fr, en)).clicked() {
+                                crate::sound::play(key);
+                            }
+                        }
+                    });
+                });
                 pref_row(ui, rc, t!("Garder le travail non enregistré", "Keep unsaved work"), t!("À la fermeture (ou en changeant de projet), les modifications non enregistrées sont gardées et rouvertes ensuite, sans question.", "When closing (or switching project), unsaved changes are kept and reopened later, without asking."), |ui| {
                     toggle_switch(ui, &mut s.hot_exit);
                 });
@@ -908,6 +927,7 @@ impl App {
             ("custom_title_bar", s.custom_title_bar, before.custom_title_bar),
             ("search_in_tab", s.search_in_tab, before.search_in_tab),
             ("claude_in_tab", s.claude_in_tab, before.claude_in_tab),
+            ("claude_done_blink", s.claude_done_blink, before.claude_done_blink),
             ("tree_git_info", s.tree_git_info, before.tree_git_info),
             ("auto_pair", s.auto_pair, before.auto_pair),
             ("trim_trailing_whitespace_on_save", s.trim_trailing_whitespace_on_save, before.trim_trailing_whitespace_on_save),
@@ -924,6 +944,9 @@ impl App {
             }
         }
         let mut lint_changed = s.python_linter != before.python_linter || s.python_lint_args != before.python_lint_args || s.lint_live != before.lint_live;
+        if s.claude_done_sound != before.claude_done_sound {
+            self.persist("claude_done_sound", config::toml_str(&s.claude_done_sound));
+        }
         if s.python_linter != before.python_linter {
             self.persist("python_linter", config::toml_str(&s.python_linter));
         }

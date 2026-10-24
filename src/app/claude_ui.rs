@@ -90,8 +90,10 @@ pub(super) struct ClaudeUi {
     /// List items of the answers ticked (or unticked) by a click: (answer, item's text). Not kept
     /// with the conversation.
     checks: HashSet<(usize, String)>,
-    /// It finished answering while it was not shown: its tab is colored until seen.
+    /// It finished answering while it was not shown: its tab is colored until seen (and blinks
+    /// a few seconds after `done_at`).
     unseen: bool,
+    done_at: Option<Instant>,
     /// Key of the conversation in the saved ones (0: not saved yet).
     saved_key: u64,
     /// Session of Claude Code, continued (`--resume`) when the process is started again (after
@@ -439,6 +441,11 @@ impl App {
                 Event::Done { error, text, cost, window, tokens } => {
                     self.claude.busy = false;
                     self.claude.unseen = true;
+                    // a real answer (not a /usage…): its tab blinks, the sound chosen plays
+                    if error || tokens.input + tokens.output > 0 {
+                        self.claude.done_at = Some(Instant::now());
+                        crate::sound::play(&self.settings.claude_done_sound);
+                    }
                     self.claude.cost += cost;
                     if window > 0 {
                         self.claude.context.1 = window;
@@ -1356,15 +1363,33 @@ impl App {
         }
     }
 
-    /// Color of the title of a Claude tab: working (accent), finished and not seen yet (green).
+    /// Color of the title of a Claude tab: working (accent), finished and not seen yet (green,
+    /// blinking a few seconds first).
     pub(super) fn claude_tab_tint(&self, uid: u64) -> Option<Color32> {
         let c = std::iter::once(&self.claude).chain(self.claude_others.iter()).find(|c| c.tab == Some(uid))?;
         if c.busy {
             Some(self.hl.colors.accent)
         } else if c.unseen {
-            Some(ok())
+            self.claude_lit(c).then(ok)
         } else {
             None
+        }
+    }
+
+    /// The conversation of the bottom panel finished and is not seen yet: its tab and its icon
+    /// light up (blinking a few seconds first).
+    pub(super) fn claude_bottom_done(&self) -> bool {
+        std::iter::once(&self.claude).chain(self.claude_others.iter()).any(|c| c.tab.is_none() && c.unseen && !c.busy && self.claude_lit(c))
+    }
+
+    /// On or off: blinking for a few seconds after the end of the answer, then on.
+    fn claude_lit(&self, c: &ClaudeUi) -> bool {
+        match c.done_at.map(|t| t.elapsed()) {
+            Some(e) if self.settings.claude_done_blink && e < Duration::from_secs(8) => {
+                self.egui_ctx.request_repaint_after(Duration::from_millis(100));
+                e.as_millis() / 400 % 2 == 0
+            }
+            _ => true,
         }
     }
 

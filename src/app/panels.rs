@@ -798,10 +798,14 @@ impl App {
             for (tab, icon, label) in BottomTab::shown().filter(|(t, ..)| shown(&t.key())) {
                 let (rect, r) = ui.allocate_exact_size(egui::vec2(26.0, 24.0), Sense::click());
                 let on = self.bottom == Some(tab);
-                if r.hovered() || on {
+                // Claude finished in the bottom panel, not seen yet: in green
+                let done = tab == BottomTab::Claude && !on && self.claude_bottom_done();
+                if done {
+                    ui.painter().rect_filled(rect, 4.0, icons::mix(ui.visuals().panel_fill, ok(), 0.3));
+                } else if r.hovered() || on {
                     ui.painter().rect_filled(rect, 4.0, ui.visuals().widgets.hovered.weak_bg_fill);
                 }
-                let c = if r.hovered() || on { ui.visuals().strong_text_color() } else { ui.visuals().weak_text_color() };
+                let c = if done { ok() } else if r.hovered() || on { ui.visuals().strong_text_color() } else { ui.visuals().weak_text_color() };
                 icons::paint_view(ui.painter(), rect.center(), icon, c);
                 let r = r.on_hover_text(format!("{label}\n{}", BottomTab::hint(tab)));
                 if r.clicked() && !tab.bottom_only() {
@@ -1188,6 +1192,9 @@ impl App {
                     for (tab, icon, label) in BottomTab::shown() {
                         let label = if tab == BottomTab::Problems { problems.clone() } else { label.to_string() };
                         let r = nav_tab(ui, icon, &label, self.bottom == Some(tab));
+                        if tab == BottomTab::Claude && self.bottom != Some(tab) && self.claude_bottom_done() {
+                            ui.painter().rect_stroke(r.rect, 4.0, egui::Stroke::new(1.5, ok()));
+                        }
                         if r.clicked() && !tab.bottom_only() {
                             self.show_big(tab);
                         } else if r.clicked() || r.secondary_clicked() {

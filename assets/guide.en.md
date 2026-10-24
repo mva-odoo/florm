@@ -245,6 +245,10 @@ command and your login: no key to set up.
 
 - At the top: the repository, the model, and what Claude is allowed to do (**Edit files**,
   **Plan only**, **Allow everything** so that it also runs commands).
+- **End of an answer**: if the conversation is not shown, its tab (or, in the bottom panel, the
+  Claude tab and its icon in the sidebar) blinks a few seconds then stays green until you look at
+  it, and a sound plays. **Preferences → Editor**: blink or not, and the sound (Chime, Bell,
+  Drop, Beep, Chord, or none; ▶ to listen).
 - **/** at the start of the field: the commands of Claude Code (`/usage`, `/context`, `/compact`,
   `/clear`, `/model`, your skills…), **Tab** or a click completes. They go alone, without the
   context. **/btw question** asks a question on the side, even while Claude is working: the

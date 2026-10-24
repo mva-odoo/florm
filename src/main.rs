@@ -36,6 +36,7 @@ mod remote;
 mod search;
 mod shared;
 mod sidebar;
+mod sound;
 mod split;
 mod update;
 mod view_bar;

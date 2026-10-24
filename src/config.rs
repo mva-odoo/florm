@@ -39,6 +39,10 @@ pub struct Settings {
     pub claude_in_tab: bool,
     /// The review of Claude's changes on the right of the conversation.
     pub claude_review: bool,
+    /// Claude is done and its conversation is not shown: its tab blinks a few seconds.
+    pub claude_done_blink: bool,
+    /// Sound played when Claude is done (`sound::SOUNDS`); empty: none.
+    pub claude_done_sound: String,
     /// What Claude may do: "edit", "bash", "web", "agents", and "sandbox" (commands isolated),
     /// "confine" (files of the project only).
     pub claude_perms: Vec<String>,
@@ -148,6 +152,8 @@ impl Default for Settings {
             search_in_tab: false,
             claude_in_tab: false,
             claude_review: true,
+            claude_done_blink: true,
+            claude_done_sound: "chime".into(),
             claude_perms: ["edit", "agents", "sandbox"].map(String::from).to_vec(),
             claude_budget: 0.0,
             tree_git_info: true,
