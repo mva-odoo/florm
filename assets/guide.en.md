@@ -245,6 +245,11 @@ command and your login: no key to set up.
 
 - At the top: the repository, the model, and what Claude is allowed to do (**Edit files**,
   **Plan only**, **Allow everything** so that it also runs commands).
+- **/** at the start of the field: the commands of Claude Code (`/usage`, `/context`, `/compact`,
+  `/clear`, `/model`, your skills…), **Tab** or a click completes. They go alone, without the
+  context. **/btw question** asks a question on the side, even while Claude is working: the
+  answer shows above the field and does not enter the conversation. **/status**: version, model,
+  session, folder. Those of the terminal interface only (`/doctor`…) open in a terminal below.
 - **Options ▾**, next to “+ Context”, groups what goes with each message:
 - **Open file and selection**: Claude knows which file you are editing and what you selected.
 - **Questions first**: if the request leaves choices open, Claude codes nothing and asks 1 to 3

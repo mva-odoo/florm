@@ -14,6 +14,8 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 pub enum JobResult {
     /// Changes since the start of the review of Claude's work (a diff).
     ClaudeReview(u64, Result<String, String>),
+    /// Answer of a `/btw` of conversation (id).
+    ClaudeBtw(u64, Result<String, String>),
     /// Commit message written by Claude.
     CommitMessage(Result<String, String>),
     /// Commit after a task of the queue of conversation (id): the first line of its message.

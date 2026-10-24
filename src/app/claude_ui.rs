@@ -137,6 +137,9 @@ pub(super) struct ClaudeUi {
     /// Height of each item when it was last drawn, with the key of what it showed (`item_key`),
     /// and whether it was the same the time before (only then is the item left undrawn out of sight).
     heights: Vec<(u64, f32, bool)>,
+    /// `/btw` or `/status`: what was asked and the answer (None: on its way), shown above the
+    /// field until closed; not part of the conversation.
+    side: Option<(String, Option<Result<String, String>>)>,
 }
 
 /// What the height of a message depends on: its content, its place and the width.
@@ -194,6 +197,72 @@ fn write_saved(list: &[SavedConv]) -> Result<(), String> {
     // written aside then renamed: a crash never leaves half a file
     let tmp = p.with_extension("json.tmp");
     std::fs::write(&tmp, text).and_then(|_| std::fs::rename(&tmp, &p)).map_err(|e| e.to_string())
+}
+
+/// Slash commands of Claude Code, as its last session listed them.
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
+pub(super) struct Commands {
+    /// Sent as a message (`/usage`, `/compact`, the skills…).
+    message: Vec<String>,
+    /// Of its terminal interface only (`/doctor`…): run in a terminal.
+    terminal: Vec<String>,
+    /// Version of Claude Code.
+    version: String,
+}
+
+fn commands_path() -> PathBuf {
+    config::data_dir().join("claude_commands.json")
+}
+
+pub(super) fn load_commands() -> Commands {
+    std::fs::read_to_string(commands_path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+}
+
+fn write_commands(c: &Commands) {
+    let p = commands_path();
+    if let Some(d) = p.parent() {
+        let _ = std::fs::create_dir_all(d);
+    }
+    if let Ok(text) = serde_json::to_string(c) {
+        let _ = std::fs::write(p, text);
+    }
+}
+
+/// What a slash command does, for the list shown while typing it (those Florm knows).
+fn command_hint(name: &str) -> &'static str {
+    match name {
+        "btw" => t!("Question à côté, sur la conversation, même pendant que Claude travaille ; elle n'y est pas ajoutée", "A question on the side, about the conversation, even while Claude is working; not added to it"),
+        "status" => t!("Version, modèle, session, dossier, permissions", "Version, model, session, folder, permissions"),
+        "usage" => t!("Quotas du forfait (5 h, semaine) et ce qui les consomme", "The plan's quotas (5 h, week) and what uses them"),
+        "context" => t!("Ce qui remplit le contexte", "What fills the context"),
+        "compact" => t!("Résumer la conversation pour libérer du contexte", "Summarize the conversation to free context"),
+        "clear" => t!("Repartir sans la conversation", "Start again without the conversation"),
+        "model" => t!("Modèle de cette session", "Model of this session"),
+        "init" => t!("Écrire le CLAUDE.md du projet", "Write the CLAUDE.md of the project"),
+        "effort" => t!("Effort de réflexion", "Thinking effort"),
+        "review" | "code-review" => t!("Relire les changements", "Review the changes"),
+        "security-review" => t!("Relire la sécurité des changements", "Review the security of the changes"),
+        _ => "",
+    }
+}
+
+/// The slash commands for the list shown while typing one: (name, what it does). Before any
+/// session told them, the usual ones.
+fn command_list(known: &Commands) -> Vec<(String, String)> {
+    let usual = ["clear", "compact", "context", "init", "model", "usage"].map(String::from);
+    let message: &[String] = if known.message.is_empty() { &usual } else { &known.message };
+    let mut list: Vec<(String, String)> = ["btw", "status"].iter().map(|n| (n.to_string(), command_hint(n).to_string())).collect();
+    for n in message {
+        if !list.iter().any(|(m, _)| m == n) {
+            list.push((n.clone(), command_hint(n).to_string()));
+        }
+    }
+    for n in &known.terminal {
+        if !list.iter().any(|(m, _)| m == n) {
+            list.push((n.clone(), t!("dans un terminal", "in a terminal").to_string()));
+        }
+    }
+    list
 }
 
 fn limits_path() -> PathBuf {
@@ -315,11 +384,24 @@ impl App {
             let items = &mut self.claude.items;
             match e {
                 // its session: continued after a restart of Florm
-                Event::Init { session, .. } => {
+                Event::Init { session, version, commands, terminal, .. } => {
                     if !session.is_empty() {
                         self.claude.session_id = Some(session);
                     }
                     self.claude.started = true;
+                    let known = Commands { message: commands, terminal, version };
+                    if !known.message.is_empty() && known != self.claude_commands {
+                        write_commands(&known);
+                        self.claude_commands = known;
+                    }
+                }
+                Event::Session(id) => self.claude.session_id = Some(id),
+                Event::Reset => {
+                    items.clear();
+                    items.push(Item::Info(t!("— /clear : Claude repart sans la conversation —", "— /clear: Claude starts again without the conversation —").into()));
+                    self.claude.context.0 = 0;
+                    self.claude.wish = None;
+                    save = true;
                 }
                 Event::Delta(t) => match items.last_mut() {
                     Some(Item::Streaming(s)) => s.push_str(&t),
@@ -413,14 +495,84 @@ impl App {
     /// The message written in the field of the chat.
     fn claude_send(&mut self) {
         let text = self.claude.input.trim().to_string();
+        if let Some(clear) = text.starts_with('/').then(|| self.claude_command(&text)).flatten() {
+            if clear {
+                self.claude.input.clear();
+            }
+            return;
+        }
         let ask = self.claude.ask_first;
         if self.claude_send_text(text, ask) {
             self.claude.input.clear();
         }
     }
 
+    /// The slash commands Florm answers itself (`/btw`, `/status`) or runs in a terminal (those
+    /// of the terminal interface of Claude Code), and those that wait for Claude to be free.
+    /// None: to send as a message; else whether the field is emptied.
+    fn claude_command(&mut self, text: &str) -> Option<bool> {
+        let (name, rest) = text[1..].split_once(char::is_whitespace).map_or((&text[1..], ""), |(n, r)| (n, r.trim()));
+        let dir = self.claude.dir.clone()?;
+        let c = &self.claude;
+        match name {
+            "btw" if rest.is_empty() => {
+                self.set_status(t!("/btw suivi de la question", "/btw followed by the question"));
+                Some(false)
+            }
+            "btw" => {
+                let (session, model, id, question) = (c.session_id.clone(), claude::MODELS[c.model].0.to_string(), c.id, rest.to_string());
+                self.claude.side = Some((format!("/btw {rest}"), None));
+                self.jobs.spawn(move || JobResult::ClaudeBtw(id, claude::btw(&dir, session.as_deref(), &model, &question)));
+                Some(true)
+            }
+            "status" => {
+                let version = &self.claude_commands.version;
+                let line = |k: &str, v: &str| format!("- **{k}** : {v}\n");
+                let mut s = String::new();
+                s += &line("Claude Code", if version.is_empty() { "?" } else { version });
+                s += &line(t!("Modèle", "Model"), claude::MODELS[c.model].1);
+                s += &line(t!("Mode", "Mode"), claude::MODES[c.mode].1);
+                s += &line(t!("Permissions", "Permissions"), &self.settings.claude_perms.join(", "));
+                s += &line(t!("Dossier", "Folder"), &dir.display().to_string());
+                s += &line("Session", c.session_id.as_deref().unwrap_or(t!("pas encore commencée", "not started yet")));
+                s += &line(t!("Processus", "Process"), if c.session.is_some() { t!("en cours", "running") } else { t!("arrêté (le prochain message le relance)", "stopped (the next message starts it)") });
+                if c.context.1 > 0 {
+                    s += &line(t!("Contexte", "Context"), &format!("{} / {} tokens", thousands(c.context.0), thousands(c.context.1)));
+                }
+                s += &line(t!("Coût de la conversation", "Cost of the conversation"), &format!("{:.2} $", c.cost));
+                self.claude.side = Some(("/status".into(), Some(Ok(s))));
+                Some(true)
+            }
+            _ if self.claude_commands.terminal.iter().any(|t| t == name) => {
+                let ctx = self.egui_ctx.clone();
+                match self.term.open_command_panel(&ctx, &["claude".to_string(), text.to_string()], Some(dir)) {
+                    Ok(id) => {
+                        self.term.set_name(id, format!("claude /{name}"));
+                        self.bottom = Some(BottomTab::Terminal);
+                    }
+                    Err(e) => self.set_error(tf!("Terminal impossible à ouvrir : {e}", "Cannot open a terminal: {e}")),
+                }
+                Some(true)
+            }
+            _ if c.busy => {
+                self.set_status(t!("Claude travaille : la commande partira quand il aura fini (/btw répond tout de suite)", "Claude is working: send the command once it is done (/btw answers at once)"));
+                Some(false)
+            }
+            _ => None,
+        }
+    }
+
+    /// The answer of a `/btw` of conversation `id`.
+    pub(super) fn claude_btw_loaded(&mut self, id: u64, r: Result<String, String>) {
+        let Some(c) = std::iter::once(&mut self.claude).chain(self.claude_others.iter_mut()).find(|c| c.id == id) else { return };
+        if let Some((_, answer @ None)) = &mut c.side {
+            *answer = Some(r);
+        }
+    }
+
     /// Sends `text` (with the context given) to Claude, asking it for its questions first when
-    /// `ask_first`; false when it could not be sent.
+    /// `ask_first`; false when it could not be sent. A slash command (`/usage`…) goes alone: Claude
+    /// Code reads it only at the start of the message.
     fn claude_send_text(&mut self, text: String, ask_first: bool) -> bool {
         let Some(dir) = self.claude.dir.clone() else {
             self.set_status(t!("Aucun dossier ouvert", "No folder open"));
@@ -429,18 +581,20 @@ impl App {
         if text.is_empty() || self.claude.busy {
             return false;
         }
+        let command = text.starts_with('/');
         // the review starts with the first message: everything changed since is Claude's
-        if self.claude.review_index.is_none() {
+        if self.claude.review_index.is_none() && !command {
             self.claude_start_review();
         }
         let mut message = text.clone();
-        let attach = std::mem::take(&mut self.claude.attach);
+        // a command leaves the files given for the next message
+        let attach = if command { Vec::new() } else { std::mem::take(&mut self.claude.attach) };
         let mut given: Vec<String> = attach.iter().map(|a| a.label(Some(&dir))).collect();
         if !attach.is_empty() {
             let parts: Vec<String> = attach.iter().map(|a| a.prompt(Some(&dir))).collect();
             message = format!("{}\n\n{message}", parts.join("\n\n"));
         }
-        if self.claude.with_context {
+        if self.claude.with_context && !command {
             if let Some((ctx, rel)) = self.editor_context(&dir) {
                 message = format!("{ctx}\n\n{message}");
                 // the file is given too: « reprendre la conversation de ce fichier » finds it
@@ -451,13 +605,13 @@ impl App {
         }
         // the classes and functions named in the message, found in the index: Claude does not
         // have to search for them
-        if !self.claude.no_defs {
+        if !self.claude.no_defs && !command {
             if let Some((defs, names)) = self.cited_definitions(&text, &dir) {
                 message = format!("{message}\n\n{defs}");
                 given.push(tf!("définitions : {}", "definitions: {}", names.join(", ")));
             }
         }
-        if ask_first {
+        if ask_first && !command {
             message = format!("{message}\n\n{}", claude_ask::instruction());
         }
         if self.claude.session.is_none() {
@@ -480,8 +634,10 @@ impl App {
         match s.send(&message) {
             Ok(()) => {
                 self.claude.items.push(Item::User(text.clone(), given));
-                let first = self.claude.wish.is_none();
-                self.claude.wish.get_or_insert(text);
+                let first = self.claude.wish.is_none() && !command;
+                if !command {
+                    self.claude.wish.get_or_insert(text);
+                }
                 self.claude.busy = true;
                 // its tab is named after the first message
                 if let (true, Some(uid)) = (first, self.claude.tab) {
@@ -1237,6 +1393,7 @@ impl App {
         let (perms, budget, mut perms_changed) = (&mut self.settings.claude_perms, &mut self.settings.claude_budget, false);
         let (mut show_review, was_shown) = (self.settings.claude_review, self.settings.claude_review);
         let limits = &self.claude_limits;
+        let commands = command_list(&self.claude_commands);
         let c = &mut self.claude;
         let cache = &mut self.md_cache;
         // ids of their own: two conversations can be shown at once (bottom panel and a tab)
@@ -1498,13 +1655,84 @@ impl App {
                         (false, true) => 3,
                         (false, false) => 2,
                     };
+                    // /btw, /status: the answer above the field, until closed
+                    let mut close_side = false;
+                    if let Some((asked, answer)) = &c.side {
+                        egui::Frame::none().fill(icons::mix(fill, accent, 0.08)).rounding(6.0).inner_margin(8.0).show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new(asked).strong());
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    if ui.small_button("×").on_hover_text(t!("Fermer (ce n'est pas dans la conversation)", "Close (it is not in the conversation)")).clicked() {
+                                        close_side = true;
+                                    }
+                                });
+                            });
+                            match answer {
+                                None => {
+                                    ui.horizontal(|ui| {
+                                        spinner(ui);
+                                        ui.label(RichText::new(t!("Claude répond…", "Claude is answering…")).weak());
+                                    });
+                                }
+                                Some(Ok(t)) => {
+                                    egui::ScrollArea::vertical().id_salt(input_id.with("side")).max_height(260.0).show(ui, |ui| super::md::markdown(ui, cache, t));
+                                }
+                                Some(Err(e)) => {
+                                    ui.label(RichText::new(format!("⚠ {e}")).color(err()));
+                                }
+                            }
+                        });
+                    }
+                    if close_side {
+                        c.side = None;
+                    }
+                    // a slash command being typed: the matching ones; Tab or a click completes it
+                    let field_id = input_id.with("field");
+                    let mut to_end = false;
+                    if let Some(typed) = c.input.strip_prefix('/').filter(|t| !t.contains(char::is_whitespace)) {
+                        let typed = typed.to_lowercase();
+                        let first = commands.iter().filter(|(n, _)| n.starts_with(&typed));
+                        let inside = commands.iter().filter(|(n, _)| !n.starts_with(&typed) && n.contains(&typed));
+                        let matching: Vec<&(String, String)> = first.chain(inside).take(8).collect();
+                        if !matching.is_empty() && !(matching.len() == 1 && matching[0].0 == typed) {
+                            let mut pick = None;
+                            if ui.memory(|m| m.has_focus(field_id)) && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Tab)) {
+                                pick = Some(matching[0].0.clone());
+                            }
+                            egui::Frame::none().fill(icons::mix(fill, accent, 0.05)).rounding(6.0).inner_margin(4.0).show(ui, |ui| {
+                                for (k, (name, hint)) in matching.iter().enumerate() {
+                                    ui.horizontal(|ui| {
+                                        if ui.selectable_label(k == 0, format!("/{name}")).on_hover_text(t!("Clic ou Tab : compléter", "Click or Tab: complete")).clicked() {
+                                            pick = Some(name.clone());
+                                        }
+                                        if !hint.is_empty() {
+                                            ui.label(RichText::new(hint.as_str()).weak().small());
+                                        }
+                                    });
+                                }
+                            });
+                            if let Some(name) = pick {
+                                c.input = format!("/{name} ");
+                                c.focus = true;
+                                to_end = true;
+                            }
+                        }
+                    }
                     let resp = ui.add(
                         egui::TextEdit::multiline(&mut c.input)
-                            .hint_text(t!("Demande à Claude… (Ctrl+Entrée pour envoyer)", "Ask Claude… (Ctrl+Enter to send)"))
+                            .id(field_id)
+                            .hint_text(t!("Demande à Claude… (Ctrl+Entrée pour envoyer, / pour les commandes)", "Ask Claude… (Ctrl+Enter to send, / for the commands)"))
                             .desired_rows(rows)
                             .desired_width(f32::INFINITY)
                             .layouter(&mut layout_cutting),
                     );
+                    if to_end {
+                        if let Some(mut st) = egui::TextEdit::load_state(ui.ctx(), resp.id) {
+                            let end = egui::text::CCursor::new(c.input.chars().count());
+                            st.cursor.set_char_range(Some(egui::text::CCursorRange::one(end)));
+                            st.store(ui.ctx(), resp.id);
+                        }
+                    }
                     if std::mem::take(&mut c.focus) {
                         resp.request_focus();
                     }

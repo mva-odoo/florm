@@ -245,6 +245,12 @@ panneau du bas (⇱ pour lui donner tout un onglet de l'éditeur, ⇲ pour l'y r
 
 - En haut : le dépôt, le modèle, et ce que Claude a le droit de faire (**Modifie les fichiers**,
   **Plan seulement**, **Tout autoriser** pour qu'il lance aussi des commandes).
+- **/** au début du champ : les commandes de Claude Code (`/usage`, `/context`, `/compact`,
+  `/clear`, `/model`, tes skills…), **Tab** ou un clic complète. Elles partent seules, sans le
+  contexte. **/btw question** pose une question à côté, même pendant que Claude travaille : la
+  réponse s'affiche au-dessus du champ et n'entre pas dans la conversation. **/status** : version,
+  modèle, session, dossier. Celles de l'interface terminal seulement (`/doctor`…) s'ouvrent dans
+  un terminal en bas.
 - **Options ▾**, à côté de « + Contexte », regroupe ce qui part avec chaque message :
 - **Fichier ouvert et sélection** : Claude sait quel fichier tu édites et ce que tu as
   sélectionné.

@@ -126,8 +126,13 @@ pub fn permission_args(mode: usize, perms: &[String], budget: f64) -> Vec<String
 /// What Claude sends during a conversation.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event {
-    /// The session started: its id and model.
-    Init { session: String, model: String },
+    /// The session started: its id and model, the version of Claude Code, and its slash commands
+    /// (`commands`: sent as a message; `terminal`: only in its terminal interface).
+    Init { session: String, model: String, version: String, commands: Vec<String>, terminal: Vec<String> },
+    /// The session of the answer that just ended (another one after `/clear`).
+    Session(String),
+    /// `/clear`: Claude starts again without the conversation.
+    Reset,
     /// A piece of the answer being written.
     Delta(String),
     /// A whole text block of the answer (replaces the pieces).
@@ -162,7 +167,11 @@ pub fn parse_line(line: &str) -> Vec<Event> {
     let Ok(v) = serde_json::from_str::<Value>(line) else { return Vec::new() };
     let s = |x: &Value| x.as_str().unwrap_or("").to_string();
     match v["type"].as_str() {
-        Some("system") if v["subtype"] == "init" => vec![Event::Init { session: s(&v["session_id"]), model: s(&v["model"]) }],
+        Some("system") if v["subtype"] == "init" => {
+            let names = |k: &str| v[k].as_array().map(|a| a.iter().filter_map(|c| c.as_str().map(String::from)).collect()).unwrap_or_default();
+            vec![Event::Init { session: s(&v["session_id"]), model: s(&v["model"]), version: s(&v["claude_code_version"]), commands: names("slash_commands"), terminal: names("terminal_slash_commands") }]
+        }
+        Some("conversation_reset") => vec![Event::Reset],
         Some("stream_event") => {
             let e = &v["event"];
             if e["type"] == "content_block_delta" && e["delta"]["type"] == "text_delta" && v["parent_tool_use_id"].is_null() {
@@ -231,13 +240,16 @@ pub fn parse_line(line: &str) -> Vec<Event> {
             let n = |k: &str| u[k].as_u64().unwrap_or(0);
             let cached = n("cache_read_input_tokens");
             let tokens = Tokens { input: n("input_tokens") + n("cache_creation_input_tokens") + cached, cached, output: n("output_tokens") };
-            vec![Event::Done {
+            let session = s(&v["session_id"]);
+            let session = (!session.is_empty()).then_some(Event::Session(session));
+            session.into_iter().chain([Event::Done {
                 error: v["is_error"].as_bool().unwrap_or(false),
                 text: s(&v["result"]),
                 cost: v["total_cost_usd"].as_f64().unwrap_or(0.0),
                 window: v["modelUsage"].as_object().map_or(0, |m| m.values().filter_map(|u| u["contextWindow"].as_u64()).max().unwrap_or(0)),
                 tokens,
-            }]
+            }])
+            .collect()
         }
         _ => Vec::new(),
     }
@@ -390,6 +402,19 @@ pub fn pr_description(dir: &Path, log: &str, diff: &str) -> Result<String, Strin
     let diff: String = diff.chars().take(30_000).collect();
     let input = format!("Commits :\n{log}\n\nDiff :\n{diff}");
     run_once(dir, &["-p", &prompt, "--output-format", "text", "--model", "haiku", "--tools", "", "--no-session-persistence"], input).map(|t| clean_message(&t))
+}
+
+/// `/btw`: a quick question on the side, answered from the conversation of `session` (a copy of
+/// it: the conversation does not get it), without tools, even while Claude is working.
+pub fn btw(dir: &Path, session: Option<&str>, model: &str, question: &str) -> Result<String, String> {
+    let mut args = vec!["-p", question, "--output-format", "text", "--tools", "", "--no-session-persistence"];
+    if let Some(id) = session {
+        args.extend(["--resume", id, "--fork-session"]);
+    }
+    if !model.is_empty() {
+        args.extend(["--model", model]);
+    }
+    run_once(dir, &args, String::new())
 }
 
 /// Runs `claude` once with `args`, `input` on its standard input; returns its answer (its
@@ -578,8 +603,16 @@ mod tests {
     fn events_of_a_conversation() {
         assert_eq!(
             parse_line(r#"{"type":"system","subtype":"init","session_id":"s1","model":"claude-haiku-5-5"}"#),
-            vec![Event::Init { session: "s1".into(), model: "claude-haiku-5-5".into() }]
+            vec![Event::Init { session: "s1".into(), model: "claude-haiku-5-5".into(), version: String::new(), commands: Vec::new(), terminal: Vec::new() }]
         );
+        let init = r#"{"type":"system","subtype":"init","session_id":"s1","model":"m","claude_code_version":"2.1","slash_commands":["compact","usage"],"terminal_slash_commands":["doctor"]}"#;
+        assert_eq!(
+            parse_line(init),
+            vec![Event::Init { session: "s1".into(), model: "m".into(), version: "2.1".into(), commands: vec!["compact".into(), "usage".into()], terminal: vec!["doctor".into()] }]
+        );
+        assert_eq!(parse_line(r#"{"type":"conversation_reset","session_id":"s1"}"#), vec![Event::Reset]);
+        let done = parse_line(r#"{"type":"result","is_error":false,"result":"","session_id":"s2","total_cost_usd":0}"#);
+        assert_eq!(done.first(), Some(&Event::Session("s2".into())));
         assert_eq!(
             parse_line(r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Bon"}},"parent_tool_use_id":null}"#),
             vec![Event::Delta("Bon".into())]

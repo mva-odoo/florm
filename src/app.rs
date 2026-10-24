@@ -835,6 +835,9 @@ pub struct App {
     /// Use of the plan's quotas (5 hours, 7 days), shared by the conversations and kept between
     /// sessions.
     claude_limits: Vec<(String, f32, i64)>,
+    /// Slash commands of Claude Code (the last known, kept between sessions): sent as a message,
+    /// and those of its terminal interface only.
+    claude_commands: claude_ui::Commands,
     /// For the places without a context at hand (prompt submission).
     egui_ctx: egui::Context,
     /// The window has no system title bar: Florm draws its own (`title_bar`).
@@ -1054,6 +1057,7 @@ impl App {
             claude_saved: claude_ui::load_saved(),
             claude_loaded: false,
             claude_limits: claude_ui::load_limits(),
+            claude_commands: claude_ui::load_commands(),
             egui_ctx: egui_ctx.clone(),
             title_bar_on: crate::os::draws_title_bar(settings.custom_title_bar, settings.show_menu_bar),
             tree_scroll: None,
