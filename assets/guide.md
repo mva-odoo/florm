@@ -41,7 +41,7 @@ liste ses symboles, une classe ou une fonction y emmène.
 Entrée lance la recherche. Les résultats sont colorés comme dans l'éditeur ; **F4 / Maj+F4**
 passent au résultat suivant / précédent. **⇱** met la recherche dans un onglet de
 l'éditeur (plus de place), **⇲** la remet en bas
-(Préférences → Éditeur pour choisir où elle s'ouvre).
+(Préférences → Claude pour choisir où elle s'ouvre).
 
 ### Filtrer les fichiers
 
@@ -247,7 +247,7 @@ panneau du bas (⇱ pour lui donner tout un onglet de l'éditeur, ⇲ pour l'y r
   **Plan seulement**, **Tout autoriser** pour qu'il lance aussi des commandes).
 - **Fin de réponse** : si la conversation n'est pas affichée, son onglet (ou, dans le panneau
   du bas, l'onglet Claude et son icône de la barre latérale) clignote quelques secondes puis
-  reste vert jusqu'à ce que tu la regardes, et un son est joué. **Préférences → Éditeur** :
+  reste vert jusqu'à ce que tu la regardes, et un son est joué. **Préférences → Claude** :
   clignoter ou non, et le son (Carillon, Clochette, Goutte, Bip, Accord, ou aucun ; ▶ pour
   écouter).
 - **/** au début du champ : les commandes de Claude Code (`/usage`, `/context`, `/compact`,
