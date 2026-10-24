@@ -115,8 +115,8 @@ impl App {
 
     /// The pull requests read, wherever the view is shown.
     pub(super) fn pulls_load(&mut self) {
-        // the current repository at first; the one chosen in the view stays
-        let repo = self.pr.repo.clone().filter(|r| self.repos.contains(r)).or_else(|| self.repo.clone());
+        // the current repository at first (else the first one of the folder); the one chosen in the view stays
+        let repo = self.pr.repo.clone().filter(|r| self.repos.contains(r)).or_else(|| self.repo.clone()).or_else(|| self.repos.first().cloned());
         if self.pr.list.is_none() || self.pr.repo != repo {
             self.load_prs(repo);
         }
@@ -645,17 +645,28 @@ impl App {
             });
         }
 
-        let Some(repo) = self.pr.repo.clone() else { return };
-        let n = self.pr.selected.unwrap_or(0);
         match move_to {
             Some(true) => self.show_big(BottomTab::Pulls),
             Some(false) => self.show_bottom(BottomTab::Pulls, false),
             None => {}
         }
+        // a repository chosen: also when none could be read yet
+        if let Some(PrAct::Repo(r)) = act {
+            self.load_prs(Some(r));
+            return;
+        }
+        let Some(repo) = self.pr.repo.clone() else {
+            if matches!(act, Some(PrAct::Reload)) {
+                self.pulls_load();
+            }
+            return;
+        };
+        let n = self.pr.selected.unwrap_or(0);
         match act {
             Some(PrAct::Reload) => self.load_prs(Some(repo)),
             Some(PrAct::Login) => self.install_type("gh auth login", big),
-            Some(PrAct::Repo(r)) => self.load_prs(Some(r)),
+            // done above
+            Some(PrAct::Repo(_)) => {}
             Some(PrAct::Select(n)) => self.load_pr(n),
             Some(PrAct::Checkout(n)) => {
                 self.set_status(format!("gh pr checkout {n}…"));
