@@ -30,9 +30,6 @@ pub struct Settings {
     pub breadcrumbs: bool,
     /// Menu bar (Fichier, Édition…) at the top; hidden, the menus are under ☰ in the status bar.
     pub show_menu_bar: bool,
-    /// Florm's own title bar (menus, title, ─ □ ✕ in the window, as VS Code) instead of the
-    /// system's, on every system.
-    pub custom_title_bar: bool,
     /// "Find in files" in an editor tab instead of the bottom panel.
     pub search_in_tab: bool,
     /// Claude in an editor tab instead of the bottom panel.
@@ -148,7 +145,6 @@ impl Default for Settings {
             rulers: vec![80],
             breadcrumbs: true,
             show_menu_bar: true,
-            custom_title_bar: true,
             search_in_tab: false,
             claude_in_tab: false,
             claude_review: true,
@@ -224,8 +220,6 @@ rulers = [80]
 breadcrumbs = true
 # barre de menus en haut (masquée : menus sous ☰ en bas à gauche)
 show_menu_bar = true
-# barre de titre de Florm (menus et boutons ─ □ ✕ dans la fenêtre) plutôt que celle du système
-custom_title_bar = true
 # recherche dans le dossier (Ctrl+Shift+F) dans un onglet plutôt que dans le panneau du bas
 search_in_tab = false
 # Claude (Ctrl+Alt+C) dans un onglet plutôt que dans le panneau du bas

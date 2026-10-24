@@ -1064,7 +1064,7 @@ impl App {
             claude_limits: claude_ui::load_limits(),
             claude_commands: claude_ui::load_commands(),
             egui_ctx: egui_ctx.clone(),
-            title_bar_on: crate::os::draws_title_bar(settings.custom_title_bar, settings.show_menu_bar),
+            title_bar_on: crate::os::draws_title_bar(settings.show_menu_bar),
             tree_scroll: None,
             tree_nav: sidebar::Nav::default(),
             repo_info: HashMap::new(),

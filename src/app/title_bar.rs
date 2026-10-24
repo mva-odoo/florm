@@ -22,13 +22,13 @@ const CORNER: f32 = 12.0;
 impl App {
     /// Florm draws the title bar (see `os::draws_title_bar`).
     pub(super) fn own_title_bar(&self) -> bool {
-        os::draws_title_bar(self.settings.custom_title_bar, self.settings.show_menu_bar)
+        os::draws_title_bar(self.settings.show_menu_bar)
     }
 
     /// The window buttons go in the tab strip (menus hidden, so no bar): at its right end (Windows,
     /// Linux) or its left (macOS). `pane`: the strip of a split editor (None: the only one).
     pub(super) fn strip_controls(&self, pane: Option<u8>) -> Option<Controls> {
-        if self.settings.show_menu_bar || !self.settings.custom_title_bar {
+        if self.settings.show_menu_bar {
             return None;
         }
         let c = os::window_controls();
@@ -44,7 +44,7 @@ impl App {
     /// macOS, menus hidden: the round buttons at the top of the sidebar (the top left corner of
     /// the window, as macOS puts them), above the folder.
     pub(super) fn sidebar_mac_buttons(&self, ui: &mut egui::Ui) {
-        if self.settings.show_menu_bar || !self.settings.custom_title_bar || os::window_controls() != Controls::Mac {
+        if self.settings.show_menu_bar || os::window_controls() != Controls::Mac {
             return;
         }
         let maximized = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));

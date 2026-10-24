@@ -38,9 +38,9 @@ pub fn window_controls() -> Controls {
     }
 }
 
-/// Florm draws a title bar: the setting is on, and there is something in it (buttons, or menus).
-pub fn draws_title_bar(custom_title_bar: bool, show_menu_bar: bool) -> bool {
-    custom_title_bar && (window_controls() != Controls::None || show_menu_bar)
+/// Florm draws a title bar: there is something in it (buttons, or menus).
+pub fn draws_title_bar(show_menu_bar: bool) -> bool {
+    window_controls() != Controls::None || show_menu_bar
 }
 
 /// Gives back to the system the memory freed after a big job (the symbol index: its threads read
