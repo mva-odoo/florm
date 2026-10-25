@@ -160,7 +160,7 @@ it back to the bottom. The list is read again every few seconds.
 ## Debugger
 
 Like VS Code's, for Python and Odoo, on this computer or in a Docker container. **Debug** in the
-palette, or the bug icon at the bottom of the sidebar.
+palette, or the **Debug** tab of the bottom panel.
 
 - **Breakpoint**: click left of the line numbers of a Python file (or **F9**). A red dot. In the
   **Breakpoints** list, a **condition** (`self.id == 7`) only stops when it is true. They follow
@@ -174,14 +174,18 @@ palette, or the bug icon at the bottom of the sidebar.
     (by default `odoo --workers 0 --http-port 8070`). Florm talks to the debugger through
     `docker exec`: **no port to publish**. The mounted files open here; those of the image (the
     code of Odoo installed in the container) open read only.
-  - **Attach**: to an Odoo started with `python3 -m debugpy --listen 5678 ./odoo-bin …`
-    (in a container: `--listen 0.0.0.0:5678` in the `command:` of `docker-compose.yml`).
+  - **Attach**: to an Odoo started with debugpy in front of the usual command, with
+    `--workers 0` (otherwise the requests go through other processes, which the debugger does not
+    follow): `python3 -m debugpy --listen 5678 ./odoo-bin --addons-path=… -d my_db --workers 0`.
+    In a container: `python3 -m debugpy --listen 0.0.0.0:5678 /usr/bin/odoo … --workers 0` in the
+    `command:` of `docker-compose.yml`, debugpy installed in the image, and **Where** set to that
+    container.
     **It is all automatic, whatever the mode**: as soon as a breakpoint is set, Florm waits for a
     program listening with debugpy and attaches to it, without F5 nor anything to choose; when the
     program ends, it waits for the next run. Start Odoo
     as you like (Florm's terminal, yours, `docker compose up`): **Copy the command** gives the line
     to run. **■ Stop waiting** (or Shift+F5) stops waiting, F5 waits again.
-- **Paused**: the line is highlighted in yellow, the window comes to the front. On the left the
+- **Paused**: the line is highlighted in yellow, the window comes to the front and the debugger opens in the bottom panel, under the file (unless it is in the other half of a split editor). On the left the
   **Variables** (click to unfold `self`, a recordset…), the **Watch** (expressions evaluated again
   at each stop), the **Call stack** (click on a call: its line and its variables, in green).
   Hovering a name shows its value (`self.partner_id.name`).

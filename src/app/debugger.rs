@@ -271,6 +271,15 @@ impl App {
         }
     }
 
+    /// Paused: the view under the file of the breakpoint, in the bottom panel. In an editor tab,
+    /// the file would hide it (same panel), unless the tab is in the other panel of a split.
+    fn debug_show_paused(&mut self) {
+        let beside = self.is_split() && self.docs.iter().any(|d| d.view == document::View::Debug && d.pane != self.focused_pane);
+        if !beside {
+            self.show_bottom(BottomTab::Debug, false);
+        }
+    }
+
     fn debug_note(&mut self, cat: Cat, text: impl Into<String>) {
         let c = &mut self.debug.console;
         for l in text.into().lines() {
@@ -983,7 +992,7 @@ impl App {
                 }
                 let title = s.title.clone();
                 self.set_status(tf!("{title} : en pause ({})", "{title}: paused ({})", reason_label(&reason)));
-                self.debug_show();
+                self.debug_show_paused();
                 // the window comes to the front (the breakpoint was reached from the browser)
                 self.egui_ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
             }

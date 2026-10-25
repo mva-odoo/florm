@@ -161,7 +161,7 @@ est relue toutes les quelques secondes.
 ## Débogueur
 
 Comme celui de VS Code, pour Python et Odoo, sur cet ordinateur ou dans un conteneur Docker.
-**Débogage** dans la palette, ou l'icône de l'insecte en bas de la barre latérale.
+**Débogage** dans la palette, ou l'onglet **Débogage** du panneau du bas.
 
 - **Point d'arrêt** : clic à gauche des numéros de ligne d'un fichier Python (ou **F9**). Un rond
   rouge. Dans la liste **Points d'arrêt**, une **condition** (`self.id == 7`) ne s'arrête que
@@ -175,15 +175,19 @@ Comme celui de VS Code, pour Python et Odoo, sur cet ordinateur ou dans un conte
     tourne (par défaut `odoo --workers 0 --http-port 8070`). Florm parle au débogueur par
     `docker exec` : **aucun port à publier**. Les fichiers montés s'ouvrent ici ; ceux de l'image
     (le code d'Odoo installé dans le conteneur) s'ouvrent en lecture seule.
-  - **S'attacher** : à un Odoo lancé avec `python3 -m debugpy --listen 5678 ./odoo-bin …`
-    (dans un conteneur : `--listen 0.0.0.0:5678` dans la `command:` du `docker-compose.yml`).
+  - **S'attacher** : à un Odoo lancé avec debugpy devant la commande habituelle, avec
+    `--workers 0` (sinon les requêtes passent par d'autres processus, que le débogueur ne suit pas) :
+    `python3 -m debugpy --listen 5678 ./odoo-bin --addons-path=… -d ma_base --workers 0`.
+    Dans un conteneur : `python3 -m debugpy --listen 0.0.0.0:5678 /usr/bin/odoo … --workers 0`
+    dans la `command:` du `docker-compose.yml`, debugpy installé dans l'image, et **Où** sur ce
+    conteneur.
     **Tout est automatique, quel que soit le mode** : dès qu'un point d'arrêt est posé, Florm
     attend qu'un programme écoute avec debugpy et s'y attache, sans F5 ni rien à choisir ; quand le
     programme s'arrête, il attend le lancement suivant.
     Lance Odoo comme tu veux (terminal de Florm, le tien, `docker compose up`) : **Copier la
     commande** donne la ligne à lancer. **■ Arrêter l'attente** (ou Maj+F5) arrête d'attendre,
     F5 reprend.
-- **En pause** : la ligne est surlignée en jaune, la fenêtre passe devant. À gauche les
+- **En pause** : la ligne est surlignée en jaune, la fenêtre passe devant et le débogage s'ouvre dans le panneau du bas, sous le fichier (sauf s'il est dans l'autre moitié d'un éditeur divisé). À gauche les
   **Variables** (clic pour déplier `self`, un recordset…), l'**Espion** (des expressions
   réévaluées à chaque arrêt), la **Pile d'appels** (clic sur un appel : sa ligne et ses
   variables, en vert). Le survol d'un nom montre sa valeur (`self.partner_id.name`).
