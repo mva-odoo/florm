@@ -174,8 +174,13 @@ palette, or the bug icon at the bottom of the sidebar.
     (by default `odoo --workers 0 --http-port 8070`). Florm talks to the debugger through
     `docker exec`: **no port to publish**. The mounted files open here; those of the image (the
     code of Odoo installed in the container) open read only.
-  - **Attach**: to an Odoo already started with `python3 -m debugpy --listen 5678 ./odoo-bin …`
+  - **Attach**: to an Odoo started with `python3 -m debugpy --listen 5678 ./odoo-bin …`
     (in a container: `--listen 0.0.0.0:5678` in the `command:` of `docker-compose.yml`).
+    **It is all automatic, whatever the mode**: as soon as a breakpoint is set, Florm waits for a
+    program listening with debugpy and attaches to it, without F5 nor anything to choose; when the
+    program ends, it waits for the next run. Start Odoo
+    as you like (Florm's terminal, yours, `docker compose up`): **Copy the command** gives the line
+    to run. **■ Stop waiting** (or Shift+F5) stops waiting, F5 waits again.
 - **Paused**: the line is highlighted in yellow, the window comes to the front. On the left the
   **Variables** (click to unfold `self`, a recordset…), the **Watch** (expressions evaluated again
   at each stop), the **Call stack** (click on a call: its line and its variables, in green).
@@ -275,7 +280,8 @@ command and your login: no key to set up.
 - On the right, **what Claude changed** since your first message, file by file and block by
   block: **✔ Keep** (the block leaves the review and stays in the file) or **↺ Reject** (it is
   removed from the file). Your own earlier changes are not in it.
-- **■ Stop** cuts the current answer; the conversation goes on.
+- **While it answers**, Ctrl+Enter does not send: the message goes in the queue and is sent by itself
+  when Claude is done. A list stays one message (no splitting); the queue makes no commit for it.
 - **Task queue**: write several requests as a list (`- …`, `1. …`) and click **+ Queue**
   instead of Send: each item becomes a task (the sentence before the list goes with each).
   **Run** sends them one by one in the same conversation, each when Claude is done with the

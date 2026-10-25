@@ -175,8 +175,14 @@ Comme celui de VS Code, pour Python et Odoo, sur cet ordinateur ou dans un conte
     tourne (par défaut `odoo --workers 0 --http-port 8070`). Florm parle au débogueur par
     `docker exec` : **aucun port à publier**. Les fichiers montés s'ouvrent ici ; ceux de l'image
     (le code d'Odoo installé dans le conteneur) s'ouvrent en lecture seule.
-  - **S'attacher** : à un Odoo déjà lancé avec `python3 -m debugpy --listen 5678 ./odoo-bin …`
+  - **S'attacher** : à un Odoo lancé avec `python3 -m debugpy --listen 5678 ./odoo-bin …`
     (dans un conteneur : `--listen 0.0.0.0:5678` dans la `command:` du `docker-compose.yml`).
+    **Tout est automatique, quel que soit le mode** : dès qu'un point d'arrêt est posé, Florm
+    attend qu'un programme écoute avec debugpy et s'y attache, sans F5 ni rien à choisir ; quand le
+    programme s'arrête, il attend le lancement suivant.
+    Lance Odoo comme tu veux (terminal de Florm, le tien, `docker compose up`) : **Copier la
+    commande** donne la ligne à lancer. **■ Arrêter l'attente** (ou Maj+F5) arrête d'attendre,
+    F5 reprend.
 - **En pause** : la ligne est surlignée en jaune, la fenêtre passe devant. À gauche les
   **Variables** (clic pour déplier `self`, un recordset…), l'**Espion** (des expressions
   réévaluées à chaque arrêt), la **Pile d'appels** (clic sur un appel : sa ligne et ses
@@ -279,6 +285,8 @@ panneau du bas (⇱ pour lui donner tout un onglet de l'éditeur, ⇲ pour l'y r
   par bloc : **✔ Garder** (le bloc quitte la revue et reste dans le fichier) ou **↺ Rejeter**
   (il est retiré du fichier). Tes propres changements d'avant ne sont pas dedans.
 - **■ Arrêter** coupe la réponse en cours ; la conversation continue.
+- **Pendant qu'il répond**, Ctrl+Entrée n'envoie pas : le message part dans la file et s'envoie tout seul
+  quand Claude a fini. Une liste reste un seul message (pas de découpage) ; la file ne fait pas de commit.
 - **File de tâches** : écris plusieurs demandes en liste (`- …`, `1. …`) et clique **+ File**
   au lieu d'Envoyer : chaque élément devient une tâche (la phrase avant la liste va avec
   chacune). **Lancer** les envoie une à une dans la même conversation, chacune quand Claude a
