@@ -585,7 +585,17 @@ impl App {
             self.set_status(t!("Aucun dossier ouvert", "No folder open"));
             return false;
         };
-        if text.is_empty() || self.claude.busy {
+        if text.is_empty() {
+            return false;
+        }
+        // Claude is still answering: the message waits in the queue and goes on when the answer is done
+        if self.claude.busy && !text.starts_with('/') {
+            self.claude.queue.push_message(&text);
+            self.claude.queue.running = true;
+            self.set_status(t!("Message ajouté à la file : il partira quand Claude aura fini", "Message queued: it goes when Claude is done"));
+            return true;
+        }
+        if self.claude.busy {
             return false;
         }
         let command = text.starts_with('/');
@@ -671,7 +681,11 @@ impl App {
     /// The task of the queue being done is finished: committed if asked, then the next one.
     fn claude_task_finished(&mut self, r: Result<(), String>) {
         let q = &mut self.claude.queue;
-        let Some(k) = q.current().filter(|k| q.tasks[*k].state == TaskState::Running) else { return };
+        let Some(k) = q.current().filter(|k| q.tasks[*k].state == TaskState::Running) else {
+            // an answer of the chat, not of a task: the messages waiting in the queue go on
+            self.claude_queue_next();
+            return;
+        };
         // Claude asks questions: the task goes on once they are answered
         let asks = {
             let items = &self.claude.items;
@@ -686,7 +700,7 @@ impl App {
                 self.set_error(t!("File de tâches en pause : une tâche a échoué", "Task queue paused: a task failed"));
             }
             Ok(()) if asks => self.set_status(t!("Claude pose des questions : la file reprend après tes réponses", "Claude is asking questions: the queue resumes after your answers")),
-            Ok(()) if q.commit_each => {
+            Ok(()) if q.commit_each && !q.tasks[k].plain => {
                 q.tasks[k].state = TaskState::Committing;
                 let (dir, wish, id) = (self.claude.dir.clone(), q.tasks[k].text.clone(), self.claude.id);
                 let Some(dir) = dir else { return };

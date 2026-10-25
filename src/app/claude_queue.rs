@@ -35,6 +35,9 @@ pub(super) struct Task {
     /// Model for this task (index in `claude::MODELS`); None: the one of the queue.
     #[serde(default)]
     pub(super) model: Option<usize>,
+    /// A message of the chat, sent as it is (written while Claude answered): no commit after it.
+    #[serde(default)]
+    pub(super) plain: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
@@ -103,8 +106,13 @@ impl Queue {
     pub(super) fn add(&mut self, text: &str) -> usize {
         let new = split_tasks(text);
         let n = new.len();
-        self.tasks.extend(new.into_iter().map(|text| Task { text, state: TaskState::Waiting, note: String::new(), model: None }));
+        self.tasks.extend(new.into_iter().map(|text| Task { text, state: TaskState::Waiting, note: String::new(), model: None, plain: false }));
         n
+    }
+
+    /// A message written while Claude answered: one task, sent whole (its lines are not split).
+    pub(super) fn push_message(&mut self, text: &str) {
+        self.tasks.push(Task { text: text.to_string(), state: TaskState::Waiting, note: String::new(), model: None, plain: true });
     }
 
     /// The task being done or committed.
@@ -325,6 +333,17 @@ pub(super) fn commit_task(dir: &Path, wish: &str) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_message_written_during_an_answer_stays_whole() {
+        let mut q = Queue::default();
+        q.push_message("Fais ceci :\n- a\n- b");
+        assert_eq!(q.tasks.len(), 1);
+        assert!(q.tasks[0].plain && q.tasks[0].state == TaskState::Waiting);
+        // a request added with + File is cut as before, and is not a plain message
+        q.add("- x\n- y");
+        assert_eq!((q.tasks.len(), q.tasks[1].plain), (3, false));
+    }
 
     #[test]
     fn a_request_cut_into_tasks() {
