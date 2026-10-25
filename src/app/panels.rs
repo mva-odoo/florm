@@ -801,7 +801,8 @@ impl App {
                     self.pending.push(Cmd::OpenSettings);
                 }
             }
-            for (tab, icon, label) in BottomTab::shown().filter(|(t, ..)| shown(&t.key())) {
+            // problems and output are in the status bar, the debugger opens by itself: not here
+            for (tab, icon, label) in BottomTab::shown().filter(|(t, ..)| t.in_sidebar() && shown(&t.key())) {
                 let (rect, r) = ui.allocate_exact_size(egui::vec2(26.0, 24.0), Sense::click());
                 let on = self.bottom == Some(tab);
                 // Claude finished in the bottom panel, not seen yet: in green
@@ -826,7 +827,7 @@ impl App {
             let menu = ui.menu_button(RichText::new("▾").weak(), |ui| {
                 ui.label(RichText::new(t!("Icônes affichées", "Icons shown")).small().weak());
                 let mut items = vec![("settings".to_string(), t!("Préférences", "Preferences").to_string())];
-                items.extend(BottomTab::shown().map(|(t, _, l)| (t.key(), l.to_string())));
+                items.extend(BottomTab::shown().filter(|(t, ..)| t.in_sidebar()).map(|(t, _, l)| (t.key(), l.to_string())));
                 for (key, label) in items {
                     let mut on = shown(&key);
                     if ui.checkbox(&mut on, label).changed() {

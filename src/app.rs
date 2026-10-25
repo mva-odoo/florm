@@ -209,6 +209,12 @@ impl BottomTab {
         matches!(self, BottomTab::Problems | BottomTab::Output)
     }
 
+    /// Has an icon at the bottom of the sidebar. Not problems, output (in the status bar) nor the
+    /// debugger (its view opens by F5, a breakpoint's run or the palette's « Débogage »).
+    fn in_sidebar(self) -> bool {
+        !matches!(self, BottomTab::Problems | BottomTab::Output | BottomTab::Debug)
+    }
+
     fn hint(tab: BottomTab) -> &'static str {
         if tab.bottom_only() {
             t!("Clic : dans le panneau du bas", "Click: in the bottom panel")
