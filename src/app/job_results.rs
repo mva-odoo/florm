@@ -457,7 +457,7 @@ impl App {
                 JobResult::DockerFollow { name, result } => self.docker_followed(name, result),
                 JobResult::DockerDone { label, result } => self.docker_done(label, result),
                 JobResult::TestsReady { tags, result } => self.tests_ready(tags, result),
-                JobResult::DebugReady { cfg, title, result } => self.debug_ready(cfg, title, result),
+                JobResult::DebugReady { id, cfg, title, result } => self.debug_ready(id, cfg, title, result),
                 JobResult::DebugSource { remote, line, result } => self.debug_source(remote, line, result),
                 JobResult::DebugContainers(result) => self.debug.containers = Some((Instant::now(), result.unwrap_or_default())),
                 JobResult::UpdateInstalled { version, result } => {

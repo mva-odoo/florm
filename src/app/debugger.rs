@@ -138,6 +138,10 @@ struct Session {
     stopping: Option<Instant>,
     /// The exception the program is stopped on.
     exception: Option<String>,
+    /// The program answered: attached (until then, Florm waits for it to listen).
+    connected: bool,
+    /// Started by itself (attach mode with breakpoints), not by F5.
+    auto: bool,
 }
 
 #[derive(Default)]
@@ -173,7 +177,20 @@ pub(super) struct DebugUi {
     /// The settings of the session are unfolded (else one line sums them up).
     editing: bool,
     containers_asked: Option<Instant>,
+    /// Stopped by hand (Shift+F5): Florm no longer waits for the program by itself, until F5.
+    auto_off: bool,
+    /// The session being prepared was started by itself.
+    preparing_auto: bool,
+    /// Number of the session being prepared: the result of an earlier one is left aside.
+    prep_id: u64,
+    /// Not before: the waiting failed (container stopped…), it is tried again a bit later.
+    auto_retry: Option<Instant>,
+    /// The last message of the waiting, written once (not at each try).
+    auto_note: Option<String>,
 }
+
+/// Time before waiting again for the program after a failure (container not running…).
+const AUTO_RETRY: Duration = Duration::from_secs(3);
 
 /// Something clicked in the view, done once it is drawn.
 enum DebugAct {
@@ -414,6 +431,8 @@ impl App {
             host: "127.0.0.1".into(),
             port: s.debug_port,
             just_my_code: s.debug_just_my_code,
+            // attach: Florm waits for the program to listen (it may be started after)
+            wait: s.debug_mode == "attach",
         }
     }
 
@@ -436,9 +455,12 @@ impl App {
     pub(super) fn debug_start_or_continue(&mut self) {
         match &self.debug.session {
             Some(s) if s.paused.is_some() => self.debug_step("continue"),
-            Some(_) => self.set_status(t!("Le programme tourne (F6 : pause, Maj+F5 : arrêter)", "The program is running (F6: pause, Shift+F5: stop)")),
-            None if self.debug.preparing.is_some() => {}
-            None => {
+            Some(s) if s.connected => self.set_status(t!("Le programme tourne (F6 : pause, Maj+F5 : arrêter)", "The program is running (F6: pause, Shift+F5: stop)")),
+            None if self.debug.preparing.is_some() && !self.debug.preparing_auto => {}
+            // nothing yet, or only waiting for a program: F5 starts the one of the view
+            _ => {
+                self.debug.auto_off = false;
+                self.debug.auto_retry = None;
                 let cfg = self.debug_config();
                 let title = Self::debug_title(&cfg);
                 self.debug_launch(cfg, title);
@@ -473,23 +495,112 @@ impl App {
     }
 
     fn debug_launch(&mut self, cfg: dap::Config, title: String) {
+        self.debug_launch_as(cfg, title, false);
+    }
+
+    /// `auto`: Florm waits for the program by itself: the view is not opened, and a failure is
+    /// tried again later without an error each time.
+    fn debug_launch_as(&mut self, cfg: dap::Config, title: String, auto: bool) {
+        // asked by hand (F5, a test): the waiting for a program gives way
+        if !auto {
+            if self.debug.preparing_auto {
+                self.debug.preparing = None;
+                self.debug.preparing_auto = false;
+            }
+            if self.debug.session.as_ref().is_some_and(|s| s.auto && !s.connected) {
+                self.debug.session = None;
+            }
+        }
         if self.debug.session.is_some() || self.debug.preparing.is_some() {
             return;
         }
-        self.debug.failure = None;
+        self.debug.prep_id += 1;
+        let id = self.debug.prep_id;
         self.debug.preparing = Some(title.clone());
+        self.debug.preparing_auto = auto;
         self.debug.last = Some((cfg.clone(), title.clone()));
-        self.debug_note(Cat::Info, tf!("── {title} ──", "── {title} ──"));
-        self.set_status(tf!("Débogage de {title}…", "Debugging {title}…"));
-        self.debug_show();
-        self.jobs.spawn(move || JobResult::DebugReady { result: dap::prepare(&cfg), cfg, title });
+        if !auto {
+            self.debug.failure = None;
+            self.debug_note(Cat::Info, tf!("── {title} ──", "── {title} ──"));
+            self.set_status(tf!("Débogage de {title}…", "Debugging {title}…"));
+            self.debug_show();
+        }
+        self.jobs.spawn(move || JobResult::DebugReady { id, result: dap::prepare(&cfg), cfg, title });
     }
 
-    pub(super) fn debug_ready(&mut self, cfg: dap::Config, title: String, result: Result<dap::Prepared, dap::Failure>) {
-        if self.debug.preparing.take().is_none() {
-            // stopped meanwhile
+    /// A breakpoint set: Florm waits by itself (no F5, whatever the mode) for a program started
+    /// with debugpy (a terminal, a container), attaches to it, and waits again after each run of
+    /// it, until it is stopped by hand.
+    fn debug_auto(&mut self) {
+        let d = &self.debug;
+        let want = !d.auto_off && d.bps.values().any(|v| !v.is_empty());
+        if !want {
+            // nothing to wait for any more (breakpoints removed): the waiting stops
+            if d.session.as_ref().is_some_and(|s| s.auto && !s.connected) {
+                self.debug.session = None;
+            }
+            if self.debug.preparing_auto {
+                self.debug.preparing = None;
+                self.debug.preparing_auto = false;
+            }
             return;
         }
+        if d.session.is_some() || d.preparing.is_some() {
+            return;
+        }
+        if let Some(t) = d.auto_retry {
+            if t > Instant::now() {
+                self.egui_ctx.request_repaint_after(t - Instant::now());
+                return;
+            }
+        }
+        self.debug.auto_retry = None;
+        let mut cfg = self.debug_config();
+        cfg.mode = Mode::Attach;
+        cfg.wait = true;
+        let title = Self::debug_title(&cfg);
+        self.debug_launch_as(cfg, title, true);
+    }
+
+    /// A message of the waiting, written once.
+    fn debug_auto_note(&mut self, cat: Cat, text: String) {
+        if self.debug.auto_note.as_deref() != Some(text.as_str()) {
+            self.debug.auto_note = Some(text.clone());
+            self.debug_note(cat, text);
+        }
+    }
+
+    /// The program answered: the debugger is attached and stops at the breakpoints.
+    fn debug_connected(&mut self) {
+        let Some(s) = self.debug.session.as_mut() else { return };
+        s.connected = true;
+        let title = s.title.clone();
+        self.debug.failure = None;
+        self.debug.auto_note = None;
+        self.debug_note(Cat::Info, tf!("Connecté : {title}", "Connected: {title}"));
+        self.set_status(tf!("Débogueur connecté ({title}) : il s'arrête aux points d'arrêt", "Debugger connected ({title}): it stops at the breakpoints"));
+    }
+
+    /// The command that starts the program so that Florm can attach to it (to copy into a
+    /// terminal, or into the command of the container).
+    fn debug_listen_command(&mut self) -> String {
+        let port = self.settings.debug_port;
+        if self.settings.debug_target.is_empty() {
+            let cmd = self.debug_local_command();
+            let cmd = if cmd.is_empty() { "./odoo-bin --workers 0".to_string() } else { cmd };
+            let python = Some(self.settings.debug_python.trim()).filter(|p| !p.is_empty()).unwrap_or(if cfg!(windows) { "python" } else { "python3" }).to_string();
+            format!("{python} -m debugpy --listen {port} {cmd}")
+        } else {
+            format!("python3 -m debugpy --listen 0.0.0.0:{port} /usr/bin/odoo --workers 0")
+        }
+    }
+
+    pub(super) fn debug_ready(&mut self, id: u64, cfg: dap::Config, title: String, result: Result<dap::Prepared, dap::Failure>) {
+        // stopped meanwhile, or replaced by another one
+        if id != self.debug.prep_id || self.debug.preparing.take().is_none() {
+            return;
+        }
+        let auto = std::mem::take(&mut self.debug.preparing_auto);
         let p = match result {
             Ok(p) => p,
             Err(f) => {
@@ -497,6 +608,14 @@ impl App {
                     dap::Failure::NoDebugpy { place, .. } => tf!("debugpy n'est pas installé {place}", "debugpy is not installed {place}"),
                     dap::Failure::Other(e) => e.clone(),
                 };
+                if auto {
+                    // the container is maybe not started yet: tried again in a moment
+                    self.debug_auto_note(Cat::Err, msg);
+                    self.debug.failure = Some(f);
+                    self.debug.auto_retry = Some(Instant::now() + AUTO_RETRY);
+                    self.egui_ctx.request_repaint_after(AUTO_RETRY);
+                    return;
+                }
                 self.debug_note(Cat::Err, msg.clone());
                 self.set_error(tf!("Débogage impossible : {msg}", "Cannot debug: {msg}"));
                 self.debug.failure = Some(f);
@@ -514,6 +633,12 @@ impl App {
             Ok(c) => c,
             Err(e) => {
                 let e = if cfg.mode == Mode::Attach { tf!("{e} (le programme écoute-t-il avec debugpy --listen ?)", "{e} (is the program listening with debugpy --listen?)") } else { e };
+                if auto {
+                    self.debug_auto_note(Cat::Err, e);
+                    self.debug.auto_retry = Some(Instant::now() + AUTO_RETRY);
+                    self.egui_ctx.request_repaint_after(AUTO_RETRY);
+                    return;
+                }
                 self.debug_note(Cat::Err, e.clone());
                 self.set_error(tf!("Débogage impossible : {e}", "Cannot debug: {e}"));
                 return;
@@ -529,6 +654,14 @@ impl App {
         );
         let mut pending = HashMap::new();
         pending.insert(seq, Req::Initialize);
+        if cfg.wait {
+            let place = match &cfg.target {
+                Target::Local => String::new(),
+                Target::Docker(c) => tf!(" dans {c}", " in {c}"),
+            };
+            let port = cfg.port;
+            self.debug_auto_note(Cat::Info, tf!("En attente du programme sur le port {port}{place}…", "Waiting for the program on port {port}{place}…"));
+        }
         self.debug.session = Some(Session {
             client,
             title,
@@ -548,14 +681,31 @@ impl App {
             remote_docs: HashMap::new(),
             stopping: None,
             exception: None,
+            connected: false,
+            auto,
             cfg,
         });
     }
 
-    /// Shift+F5.
+    /// Shift+F5, ■: Florm no longer waits for the program by itself (F5 waits again).
+    pub(super) fn debug_stop_by_hand(&mut self) {
+        self.debug.auto_off = true;
+        self.debug_stop();
+    }
+
     pub(super) fn debug_stop(&mut self) {
         if self.debug.preparing.take().is_some() {
             self.set_status(t!("Débogage annulé", "Debugging cancelled"));
+            return;
+        }
+        // still waiting for the program: nothing to say to it
+        if self.debug.session.as_ref().is_some_and(|s| !s.connected) {
+            self.debug.session = None;
+            self.debug.auto_note = None;
+            self.set_status(t!("Attente du programme arrêtée (F5 pour attendre à nouveau)", "Waiting for the program stopped (F5 to wait again)"));
+            if let Some((cfg, title)) = self.debug.next.take() {
+                self.debug_launch(cfg, title);
+            }
             return;
         }
         let Some(s) = self.debug.session.as_mut() else { return };
@@ -573,6 +723,7 @@ impl App {
         match (&self.debug.session, self.debug.last.clone()) {
             (Some(_), last) => {
                 self.debug.next = last;
+                self.debug.auto_off = false;
                 self.debug_stop();
             }
             (None, Some((cfg, title))) => self.debug_launch(cfg, title),
@@ -583,7 +734,17 @@ impl App {
     /// The session is over (the program ended, or it was stopped).
     fn debug_end(&mut self, msg: String) {
         let Some(s) = self.debug.session.take() else { return };
+        let waiting = !s.connected && s.cfg.wait;
         drop(s);
+        if waiting {
+            // the waiting ended without the program (container stopped…): tried again in a moment
+            self.debug.auto_retry = Some(Instant::now() + AUTO_RETRY);
+            self.egui_ctx.request_repaint_after(AUTO_RETRY);
+            if let Some((cfg, title)) = self.debug.next.take() {
+                self.debug_launch(cfg, title);
+            }
+            return;
+        }
         for d in &mut self.docs {
             d.debug_value = None;
         }
@@ -645,8 +806,13 @@ impl App {
     /// Every frame: the messages of the adapter, the breakpoints changed, the hovered value.
     pub(super) fn debug_frame(&mut self) {
         self.debug_sync_bps();
+        self.debug_auto();
         let Some(s) = &self.debug.session else { return };
         for m in s.client.poll() {
+            // the first answer of the adapter: the program listens, the debugger is attached
+            if matches!(m, Incoming::Response { .. } | Incoming::Event { .. }) && self.debug.session.as_ref().is_some_and(|s| !s.connected) {
+                self.debug_connected();
+            }
             self.debug_handle(m);
         }
         if self.debug.session.as_ref().is_some_and(|s| s.configured) && !self.debug.dirty.is_empty() {
@@ -674,6 +840,8 @@ impl App {
                     s.client.respond(seq, &command, false, json!({}));
                 }
             }
+            // while waiting (container stopped…): written once, not at each try
+            Incoming::Stderr(l) if self.debug.session.as_ref().is_some_and(|s| !s.connected) => self.debug_auto_note(Cat::Err, l),
             Incoming::Stderr(l) => self.debug_note(Cat::Err, l),
             Incoming::Closed => self.debug_end(t!("Débogage terminé", "Debugging ended").into()),
         }
@@ -1039,6 +1207,8 @@ impl App {
         ui.horizontal(|ui| {
             crate::view_bar::title(ui, t!("Débogage", "Debug"));
             ui.add_space(6.0);
+            let attach = self.settings.debug_mode == "attach";
+            let listen = Some(self.debug_listen_command());
             let live = self.debug.session.as_ref();
             let paused = live.is_some_and(|s| s.paused.is_some());
             match live {
@@ -1048,8 +1218,27 @@ impl App {
                         if ui.button(t!("■ Annuler", "■ Cancel")).clicked() {
                             *act = Some(DebugAct::Stop);
                         }
+                    } else if attach {
+                        if ui.add(filled_button(t!("▶ Attendre le programme", "▶ Wait for the program"), self.hl.colors.accent)).on_hover_text(t!("Attendre que le programme écoute avec debugpy, puis s'y attacher (F5)", "Wait for the program to listen with debugpy, then attach to it (F5)")).clicked() {
+                            *act = Some(DebugAct::Start);
+                        }
                     } else if ui.add(filled_button(t!("▶ Démarrer", "▶ Start"), self.hl.colors.accent)).on_hover_text(t!("Lancer le programme sous le débogueur (F5)", "Run the program under the debugger (F5)")).clicked() {
                         *act = Some(DebugAct::Start);
+                    }
+                    if !self.debug.bps.values().any(|v| !v.is_empty()) {
+                        ui.label(RichText::new(t!("Pose un point d'arrêt (F9) : Florm attend tout seul le programme lancé avec debugpy.", "Put a breakpoint (F9): Florm waits by itself for the program started with debugpy.")).small().color(weak));
+                    } else if self.debug.auto_off {
+                        ui.label(RichText::new(t!("Attente arrêtée à la main (F5 pour reprendre)", "Waiting stopped by hand (F5 to resume)")).small().color(weak));
+                    }
+                }
+                Some(s) if !s.connected => {
+                    // waiting for a program started with debugpy; F5 can still launch the one of the view
+                    if !attach && ui.add(filled_button(t!("▶ Démarrer", "▶ Start"), self.hl.colors.accent)).on_hover_text(t!("Lancer le programme sous le débogueur (F5) au lieu d'attendre", "Run the program under the debugger (F5) instead of waiting")).clicked() {
+                        *act = Some(DebugAct::Start);
+                    }
+                    spinner(ui);
+                    if ui.button(t!("■ Arrêter l'attente", "■ Stop waiting")).on_hover_text(t!("Ne plus attendre le programme (F5 pour attendre à nouveau)", "No longer wait for the program (F5 to wait again)")).clicked() {
+                        *act = Some(DebugAct::Stop);
                     }
                 }
                 Some(_) => {
@@ -1088,6 +1277,7 @@ impl App {
                         RichText::new(t).color(highlight::yellow())
                     }
                     None if s.stopping.is_some() => RichText::new(t!("arrêt…", "stopping…")).color(weak),
+                    None if !s.connected => RichText::new(tf!("en attente du programme (port {})…", "waiting for the program (port {})…", s.cfg.port)).color(weak),
                     None => RichText::new(tf!("{} : en cours", "{}: running", s.title)).color(highlight::green()),
                 };
                 ui.label(state);
@@ -1097,6 +1287,12 @@ impl App {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if let Some(crate::view_bar::BarAct::Move(b)) = crate::view_bar::controls(ui, big, None, None) {
                     *act = Some(DebugAct::Move(b));
+                }
+                // attach: the command that starts the program under debugpy, to paste in a terminal
+                if let Some(cmd) = listen.filter(|_| !self.debug.session.as_ref().is_some_and(|s| s.connected)) {
+                    if ui.button(t!("Copier la commande", "Copy the command")).on_hover_text(tf!("{cmd}\n\nÀ lancer dans un terminal (celui de Florm ou le tien) ; dans un conteneur, comme commande d'Odoo (command: du docker-compose.yml).", "{cmd}\n\nTo run in a terminal (Florm's or yours); in a container, as the command of Odoo (command: of docker-compose.yml).")).clicked() {
+                        *act = Some(DebugAct::Copy(cmd));
+                    }
                 }
             });
         });
@@ -1202,7 +1398,7 @@ impl App {
         let help = match (target.is_empty(), mode_attach) {
             (true, false) => t!("Lance la commande ici, dans le panneau du bas, sous le débogueur. --workers 0 : un seul processus, chaque requête passe par les points d'arrêt.", "Runs the command here, in the bottom panel, under the debugger. --workers 0: one process, every request goes through the breakpoints.").to_string(),
             (false, false) => t!("Lance la commande dans le conteneur, sous le débogueur, à côté de l'Odoo qui y tourne (un autre port). Ses fichiers montés s'ouvrent ici, les autres en lecture seule. Clic droit sur le ▶ d'un test (ou Alt+F6) : déboguer ce test.", "Runs the command in the container, under the debugger, next to the Odoo running there (another port). Its mounted files open here, the others read only. Right click on the ▶ of a test (or Alt+F6): debug this test.").to_string(),
-            (true, true) => tf!("Lancez le programme avec : python3 -m debugpy --listen {} ./odoo-bin … --workers 0", "Run the program with: python3 -m debugpy --listen {} ./odoo-bin … --workers 0", self.settings.debug_port),
+            (true, true) => tf!("Avec un point d'arrêt, Florm attend tout seul que le programme écoute, puis s'y attache, à chaque lancement. Lancez-le avec « Copier la commande » (python3 -m debugpy --listen {} ./odoo-bin … --workers 0), dans le terminal de Florm ou le vôtre.", "With a breakpoint, Florm waits by itself for the program to listen, then attaches to it, at each run. Start it with “Copy the command” (python3 -m debugpy --listen {} ./odoo-bin … --workers 0), in Florm's terminal or yours.", self.settings.debug_port),
             (false, true) => tf!("Dans le conteneur, Odoo doit tourner avec debugpy (command: du docker-compose.yml) : python3 -m debugpy --listen 0.0.0.0:{} /usr/bin/odoo … --workers 0. Florm s'y connecte par docker exec : aucun port à publier.", "In the container, Odoo must run with debugpy (command: of docker-compose.yml): python3 -m debugpy --listen 0.0.0.0:{} /usr/bin/odoo … --workers 0. Florm connects to it through docker exec: no port to publish.", self.settings.debug_port),
         };
         ui.label(RichText::new(help).small().color(weak));
@@ -1425,7 +1621,7 @@ impl App {
     fn debug_act(&mut self, a: DebugAct) {
         match a {
             DebugAct::Start => self.debug_start_or_continue(),
-            DebugAct::Stop => self.debug_stop(),
+            DebugAct::Stop => self.debug_stop_by_hand(),
             DebugAct::Restart => self.debug_restart(),
             DebugAct::Step(c) => self.debug_step(c),
             DebugAct::Toggle(path, reference, open) => {
@@ -1704,6 +1900,81 @@ mod tests {
         assert!(out.contains("result 42"), "{out}");
         // the breakpoint is kept in the session of the project
         assert_eq!(app.debug_session_breakpoints().len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A breakpoint, nothing else (launch mode, no F5): Florm waits by itself, the program is started
+    /// afterwards outside of Florm with debugpy, it stops at the breakpoint, and once it ends Florm
+    /// waits again: `FLORM_TEST_DEBUGPY=<python with debugpy> cargo test debug_waits`.
+    #[test]
+    fn debug_waits_for_the_program_and_attaches_by_itself() {
+        let Ok(python) = std::env::var("FLORM_TEST_DEBUGPY") else { return };
+        let dir = std::env::temp_dir().join(format!("florm_debug_wait_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (conf, proj) = (dir.join("conf"), dir.join("proj"));
+        std::fs::create_dir_all(&conf).unwrap();
+        std::fs::create_dir_all(&proj).unwrap();
+        // a free port
+        let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+        std::fs::write(conf.join("settings.toml"), format!("check_updates = false\nlsp = false\ndebug_python = {}\ndebug_port = {port}\n", config::toml_str(&python))).unwrap();
+        let file = proj.join("t.py");
+        // a moment for Florm to attach before the code with the breakpoint runs
+        let result = proj.join("out.txt");
+        std::fs::write(&file, "import sys, time\ntime.sleep(2)\ndef f(x):\n    y = x * 2\n    return y\n\nopen(sys.argv[1], 'a').write('result %d\\n' % f(21))\n").unwrap();
+        let _lock = config::TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("FLORM_CONFIG", &conf);
+        let ctx = egui::Context::default();
+        let mut app = App::with_ctx(&ctx, Some(proj.clone()));
+        assert!(app.open_path(file.clone()));
+        let i = app.active;
+        // a click in the gutter on "return y"
+        app.docs[i].bp_pick = Some(4);
+        let wait = |app: &mut App, what: &str, done: &dyn Fn(&App) -> bool| {
+            let until = Instant::now() + Duration::from_secs(40);
+            while !done(app) {
+                assert!(Instant::now() < until, "trop long : {what}\n{:?}", app.debug.console.iter().map(|c| c.1.clone()).collect::<Vec<_>>());
+                app.process_jobs();
+                app.debug_frame();
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        };
+        // no F5: the breakpoint is enough to wait
+        wait(&mut app, "attente du programme", &|app| app.debug.session.as_ref().is_some_and(|s| s.auto && !s.connected));
+        // its output in a file: debugpy's adapter (another process) would keep a pipe open
+        let run = || std::process::Command::new(&python).args(["-m", "debugpy", "--listen", &port.to_string()]).arg(&file).arg(&result).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().unwrap();
+        let ended = |mut p: std::process::Child| {
+            let until = Instant::now() + Duration::from_secs(30);
+            while p.try_wait().unwrap().is_none() {
+                assert!(Instant::now() < until, "le programme ne s'est pas terminé");
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        };
+        let program = run();
+        let paused_on_y = |app: &App| {
+            let Some(s) = app.debug.session.as_ref() else { return false };
+            let Some(r) = s.scopes.first().map(|s| s.reference) else { return false };
+            s.vars.get(&r).is_some_and(|v| v.iter().any(|v| v.name == "y" && v.value == "42"))
+        };
+        wait(&mut app, "arrêt au point d'arrêt", &paused_on_y);
+        app.debug_step("continue");
+        ended(program);
+        assert_eq!(std::fs::read_to_string(&result).unwrap_or_default(), "result 42\n");
+        // the program ended: Florm waits again, for the next run
+        wait(&mut app, "nouvelle attente", &|app| app.debug.session.as_ref().is_some_and(|s| !s.connected));
+        let program = run();
+        wait(&mut app, "arrêt au deuxième lancement", &paused_on_y);
+        // stopped by hand: no more waiting, until F5
+        app.debug_stop_by_hand();
+        wait(&mut app, "arrêt à la main", &|app| app.debug.session.is_none());
+        for _ in 0..20 {
+            app.process_jobs();
+            app.debug_frame();
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(app.debug.session.is_none() && app.debug.preparing.is_none());
+        // detached, the program goes on to its end
+        ended(program);
+        assert_eq!(std::fs::read_to_string(&result).unwrap_or_default(), "result 42\nresult 42\n");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -106,7 +106,8 @@ pub enum JobResult {
     /// Odoo tests ready to run in a container.
     TestsReady { tags: String, result: Result<crate::docker::Exec, String> },
     /// The debugger checked what it needs and found the program (or not).
-    DebugReady { cfg: crate::dap::Config, title: String, result: Result<crate::dap::Prepared, crate::dap::Failure> },
+    /// A debugging session prepared (its number: a later one replaces it).
+    DebugReady { id: u64, cfg: crate::dap::Config, title: String, result: Result<crate::dap::Prepared, crate::dap::Failure> },
     /// The running containers, for the debugger.
     DebugContainers(Result<Vec<String>, String>),
     /// A file of a container read for the debugger: its path there, the line to show.

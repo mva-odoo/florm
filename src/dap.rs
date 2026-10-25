@@ -175,6 +175,9 @@ pub struct Config {
     pub port: u16,
     /// Only the code of the project (not Odoo's nor the libraries'), like VS Code's justMyCode.
     pub just_my_code: bool,
+    /// Attach: wait for the program to listen (the connection is tried again until it does), so
+    /// that Florm can wait before the program is started.
+    pub wait: bool,
 }
 
 pub enum Transport {
@@ -207,8 +210,13 @@ impl From<String> for Failure {
 
 /// Program run in a container that relays its input and output to debugpy listening there:
 /// attaching to a program in a container needs no published port.
-const RELAY: &str = r#"import os,socket,sys,threading
-s=socket.create_connection(('127.0.0.1',int(sys.argv[1])))
+const RELAY: &str = r#"import os,socket,sys,threading,time
+while True:
+    try:
+        s=socket.create_connection(('127.0.0.1',int(sys.argv[1])));break
+    except OSError:
+        if sys.argv[2:]!=['wait']:raise
+        time.sleep(0.5)
 def up():
     while True:
         d=os.read(0,65536)
@@ -230,6 +238,11 @@ pub fn prepare(cfg: &Config) -> Result<Prepared, Failure> {
         a
     };
     match (&cfg.target, cfg.mode) {
+        // waiting: the relay tries again until the program listens (here with the Python of this computer)
+        (Target::Local, Mode::Attach) if cfg.wait => {
+            let argv = [cfg.python.as_str(), "-c", RELAY, &cfg.port.to_string(), "wait"].map(String::from).to_vec();
+            Ok(Prepared { transport: Transport::Spawn { argv, cwd: None }, request: "attach", args: common(json!({})), mounts: Vec::new() })
+        }
         (Target::Local, Mode::Attach) => Ok(Prepared {
             transport: Transport::Tcp(if cfg.host.trim().is_empty() { "127.0.0.1".into() } else { cfg.host.trim().to_string() }, cfg.port),
             request: "attach",
@@ -238,7 +251,10 @@ pub fn prepare(cfg: &Config) -> Result<Prepared, Failure> {
         }),
         (Target::Docker(c), Mode::Attach) => {
             let mounts = crate::docker::running_mounts(c)?;
-            let argv = ["docker", "exec", "-i", c, "python3", "-c", RELAY, &cfg.port.to_string()].map(String::from).to_vec();
+            let mut argv = ["docker", "exec", "-i", c, "python3", "-c", RELAY, &cfg.port.to_string()].map(String::from).to_vec();
+            if cfg.wait {
+                argv.push("wait".into());
+            }
             Ok(Prepared { transport: Transport::Spawn { argv, cwd: None }, request: "attach", args: common(json!({})), mounts })
         }
         (Target::Local, Mode::Launch) => {
@@ -572,7 +588,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("t.py");
         std::fs::write(&file, "def f(x):\n    y = x * 2\n    return y\n\nprint(f(21))\n").unwrap();
-        let cfg = Config { target: Target::Local, mode: Mode::Launch, command: "t.py".into(), cwd: dir.clone(), python, host: String::new(), port: 5678, just_my_code: false };
+        let cfg = Config { target: Target::Local, mode: Mode::Launch, command: "t.py".into(), cwd: dir.clone(), python, host: String::new(), port: 5678, just_my_code: false, wait: false };
         let p = prepare(&cfg).unwrap_or_else(|e| panic!("{e:?}"));
         let Transport::Spawn { argv, cwd } = p.transport else { panic!() };
         let mut c = Client::spawn(&argv, cwd.as_deref(), || {}).unwrap();

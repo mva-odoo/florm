@@ -352,7 +352,7 @@ impl App {
             },
             Debug => self.open_debug(),
             DebugStart => self.debug_start_or_continue(),
-            DebugStop => self.debug_stop(),
+            DebugStop => self.debug_stop_by_hand(),
             DebugRestart => self.debug_restart(),
             DebugPause => self.debug_step("pause"),
             StepOver => self.debug_step("next"),

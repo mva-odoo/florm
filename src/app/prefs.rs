@@ -565,7 +565,7 @@ impl App {
                 });
             }
             PrefSection::Debug => {
-                pref_row(ui, rc, t!("Mode", "Mode"), t!("Lancer : Florm lance le programme sous le débogueur. S'attacher : le programme tourne déjà avec debugpy --listen, Florm s'y connecte.", "Launch: Florm runs the program under the debugger. Attach: the program already runs with debugpy --listen, Florm connects to it."), |ui| {
+                pref_row(ui, rc, t!("Mode", "Mode"), t!("Lancer : Florm lance le programme sous le débogueur. S'attacher : F5 attend le programme lancé avec debugpy --listen. Dans les deux modes, dès qu'un point d'arrêt est posé, Florm attend tout seul un programme lancé avec debugpy et s'y attache.", "Launch: Florm runs the program under the debugger. Attach: F5 waits for the program started with debugpy --listen. In both modes, as soon as a breakpoint is set, Florm waits by itself for a program started with debugpy and attaches to it."), |ui| {
                     ui.selectable_value(&mut s.debug_mode, "launch".to_string(), t!("Lancer", "Launch"));
                     ui.selectable_value(&mut s.debug_mode, "attach".to_string(), t!("S'attacher", "Attach"));
                 });
