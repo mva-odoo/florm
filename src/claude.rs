@@ -486,13 +486,30 @@ pub fn model_check(dir: &Path, message: &str, current: usize) -> Result<Option<(
          RAISON: <one short sentence, in English, why>"
     );
     let text = run_once(dir, &["-p", &prompt, "--output-format", "text", "--model", "haiku", "--tools", "", "--no-session-persistence"], message.to_string())?;
-    let line = |key: &str| text.lines().find_map(|l| l.trim().strip_prefix(key)).map(|v| v.trim().to_string());
-    let Some(name) = line("MODELE:") else { return Err(text) };
+    parse_model_answer(&text, current)
+}
+
+/// The answer of `model_check`: the model suggested (index in `MODELS`, and the reason), None when
+/// the current one suits or the answer names no model of the list.
+pub fn parse_model_answer(answer: &str, current: usize) -> Result<Option<(usize, String)>, String> {
+    let line = |key: &str| answer.lines().find_map(|l| l.trim().strip_prefix(key)).map(|v| v.trim().to_string());
+    let Some(name) = line("MODELE:") else { return Err(answer.trim().to_string()) };
     let Some(m) = MODELS.iter().position(|(v, _)| !v.is_empty() && *v == name.to_lowercase()) else { return Ok(None) };
     if m == current {
         return Ok(None);
     }
     Ok(Some((m, line("RAISON:").unwrap_or_default())))
+}
+
+/// Whether a file given to Claude is an image (it costs many tokens to read).
+pub fn is_image(file: &str) -> bool {
+    let lower = file.to_lowercase();
+    [".png", ".jpg", ".jpeg", ".gif", ".webp"].iter().any(|e| lower.ends_with(e))
+}
+
+/// Whether the tokens read by the model fill more than 60 % of the window (0: unknown).
+pub fn over_context(used: u64, window: u64) -> bool {
+    window > 0 && used * 10 >= window * 6
 }
 
 /// Runs `claude` once with `args`, `input` on its standard input; returns its answer (its
@@ -776,5 +793,25 @@ mod tests {
         assert_eq!(parse_inline("EXPLICATION: Ça trie la liste."), Inline::Explain("Ça trie la liste.".into()));
         assert_eq!(parse_review("Rien à redire (voir [R12]) : []").unwrap(), vec![]);
         assert!(parse_review("désolé").is_err());
+    }
+
+    #[test]
+    fn the_model_suggested_is_read_from_the_answer() {
+        // the current model suits, or the answer says so
+        assert_eq!(parse_model_answer("MODELE: garder", 2).unwrap(), None);
+        // another model: its index, with the reason
+        assert_eq!(parse_model_answer("MODELE: opus\nRAISON: refonte transversale", 2).unwrap(), Some((1, "refonte transversale".into())));
+        // a name that is not in the list, or the default one: no suggestion
+        assert_eq!(parse_model_answer("MODELE: gpt", 2).unwrap(), None);
+        // no MODELE line at all: an error with the answer
+        assert!(parse_model_answer("désolé", 2).is_err());
+    }
+
+    #[test]
+    fn images_and_full_context_are_recognised() {
+        assert!(is_image("assets/Logo.PNG") && is_image("a.webp"));
+        assert!(!is_image("src/main.rs"));
+        assert!(over_context(600, 1000) && !over_context(599, 1000));
+        assert!(!over_context(900, 0));
     }
 }

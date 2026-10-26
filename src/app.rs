@@ -41,6 +41,7 @@ mod odoo_tests;
 mod pr_links;
 mod claude_ui;
 mod claude_queue;
+mod claude_model;
 mod claude_ask;
 mod theme_edit;
 mod template_edit;

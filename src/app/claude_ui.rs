@@ -9,6 +9,7 @@ use crate::claude::{self, Event};
 use serde::{Deserialize, Serialize};
 use history::{DiffAct, DiffClick};
 use super::claude_queue::{self, Queue, QueueAct, TaskState};
+use super::claude_model::{HoldAct, ModelHold};
 
 /// Something given to Claude with the next message: lines of a file, a file / folder, or a text
 /// (the changes not committed, the problems of a file…).
@@ -85,7 +86,7 @@ enum Item {
 pub(super) struct ClaudeUi {
     /// Number of the conversation (0: the first one), and the editor tab showing it (document
     /// uid; None: the bottom panel).
-    id: u64,
+    pub(super) id: u64,
     tab: Option<u64>,
     /// List items of the answers ticked (or unticked) by a click: (answer, item's text). Not kept
     /// with the conversation.
@@ -102,17 +103,19 @@ pub(super) struct ClaudeUi {
     started: bool,
     /// Folder of the conversation (the selected repository, else the project).
     pub(super) dir: Option<PathBuf>,
-    session: Option<claude::Session>,
+    pub(super) session: Option<claude::Session>,
     items: Vec<Item>,
-    input: String,
-    busy: bool,
-    model: usize,
+    pub(super) input: String,
+    pub(super) busy: bool,
+    pub(super) model: usize,
     mode: usize,
     cost: f64,
     /// Tokens of the conversation read by the model for its last message, and its window.
     context: (u64, u64),
     /// The context is over 60 % of its window (the warning is given when it gets there).
     context_high: bool,
+    /// The bar of the full context was closed: shown again when it gets there once more.
+    context_hidden: bool,
     /// The file being edited and its selection are given with the message.
     with_context: bool,
     /// Lines and files given with the next message.
@@ -129,7 +132,7 @@ pub(super) struct ClaudeUi {
     confirm_reject: bool,
     pub(super) focus: bool,
     /// The to-do list: tasks sent one by one.
-    queue: Queue,
+    pub(super) queue: Queue,
     /// The definitions of the names cited are not given with the messages.
     no_defs: bool,
     /// Claude asks its questions (with options) before coding when the request leaves choices open.
@@ -137,7 +140,7 @@ pub(super) struct ClaudeUi {
     /// Before a message starts, another model may be suggested for it (checked by Haiku).
     model_first: bool,
     /// The message held while its model is checked, then the model suggested for it.
-    model_hold: Option<ModelHold>,
+    pub(super) model_hold: Option<ModelHold>,
     /// The choices made for the questions of the last answer.
     answers: Option<claude_ask::Answers>,
     /// Last commits of its folder for « + Contexte → Un commit »: (hash, short hash, subject, when).
@@ -148,23 +151,6 @@ pub(super) struct ClaudeUi {
     /// `/btw` or `/status`: what was asked and the answer (None: on its way), shown above the
     /// field until closed; not part of the conversation.
     side: Option<(String, Option<Result<String, String>>)>,
-}
-
-/// A message held before it starts, while the model suited to it is checked (`suggestion` None),
-/// or until the choice is made (`suggestion`: index in `claude::MODELS` and the reason).
-#[derive(Clone)]
-struct ModelHold {
-    text: String,
-    ask: bool,
-    suggestion: Option<(usize, String)>,
-}
-
-/// What the user chooses for a held message.
-#[derive(Clone, Copy)]
-enum HoldAct {
-    Switch(usize),
-    Keep,
-    Cancel,
 }
 
 /// What the height of a message depends on: its content, its place and the width.
@@ -199,6 +185,18 @@ pub(super) struct SavedConv {
     items: Vec<Item>,
     #[serde(default)]
     queue: Queue,
+    /// The options of the messages (the menu Options), kept with the conversation.
+    #[serde(default)]
+    options: Options,
+}
+
+/// The options of the messages: what goes with each one, and the questions and model checks.
+#[derive(Clone, Copy, Default, Serialize, Deserialize)]
+pub(super) struct Options {
+    with_context: bool,
+    ask_first: bool,
+    model_first: bool,
+    no_defs: bool,
 }
 
 /// Most conversations kept.
@@ -443,8 +441,7 @@ impl App {
                         *items.last_mut().unwrap() = Item::Text(s);
                     }
                     // an image costs many tokens, and stays in the conversation: said where it happens
-                    let lower = summary.to_lowercase();
-                    if name == "Read" && [".png", ".jpg", ".jpeg", ".gif", ".webp"].iter().any(|e| lower.ends_with(e)) {
+                    if name == "Read" && claude::is_image(&summary) {
                         items.push(Item::Info(tf!("— Claude a ouvert une image ({summary}) : elle coûte beaucoup de tokens, à chaque message suivant —", "— Claude opened an image ({summary}): it costs many tokens, with every next message —")));
                     }
                     items.push(Item::Tool { id, name, summary, result: None });
@@ -488,9 +485,12 @@ impl App {
                     }
                     // once when the context gets over 60 % of its window (again after a /compact)
                     let (used, size) = self.claude.context;
-                    let high = size > 0 && used * 10 >= size * 6;
+                    let high = claude::over_context(used, size);
                     if high && !self.claude.context_high {
                         items.push(Item::Info(t!("— la conversation remplit plus de 60 % du contexte : /compact la résume, et une nouvelle conversation repart de zéro —", "— the conversation fills over 60% of the context: /compact summarizes it, and a new conversation starts again from zero —").into()));
+                    }
+                    if !high {
+                        self.claude.context_hidden = false;
                     }
                     self.claude.context_high = high;
                     if error && !text.is_empty() {
@@ -553,77 +553,24 @@ impl App {
             self.claude_save();
             return;
         }
+        // the model of a message is being chosen: this one waits in the queue, after the answer
         if self.claude.model_hold.is_some() {
-            self.set_status(t!("Choisis d'abord le modèle proposé pour le message en attente", "Choose the suggested model for the message waiting first"));
+            self.claude.queue.push_message(&text);
+            self.claude.queue.running = true;
+            self.claude.input.clear();
+            self.set_status(t!("Message ajouté à la file : il partira après le choix du modèle et la réponse", "Message queued: it goes after the model choice and the answer"));
+            self.claude_save();
             return;
         }
         let ask = self.claude.ask_first;
         // a message starting work: the model suited to it is checked first, when the option is on
         if self.claude.model_first && !self.claude.busy && !text.is_empty() {
-            self.claude_check_model(text, ask);
+            self.claude_check_model(text, ask, false);
             self.claude.input.clear();
             return;
         }
         if self.claude_send_text(text, ask) {
             self.claude.input.clear();
-        }
-    }
-
-    /// Holds `text` and asks Haiku which model suits it (see `claude::model_check`).
-    fn claude_check_model(&mut self, text: String, ask: bool) {
-        let Some(dir) = self.claude.dir.clone() else {
-            self.set_status(t!("Aucun dossier ouvert", "No folder open"));
-            return;
-        };
-        let (id, current) = (self.claude.id, self.claude.model);
-        self.claude.model_hold = Some(ModelHold { text: text.clone(), ask, suggestion: None });
-        self.jobs.spawn(move || JobResult::ClaudeModelCheck(id, claude::model_check(&dir, &text, current)));
-    }
-
-    /// The model checked for the message held of conversation `id`.
-    pub(super) fn claude_model_checked(&mut self, id: u64, r: Result<Option<(usize, String)>, String>) {
-        let Some(k) = self.claude_others.iter().position(|c| c.id == id) else {
-            if self.claude.id == id {
-                self.claude_model_checked_done(r);
-            }
-            return;
-        };
-        // a conversation not shown: made the current one the time to send its message
-        std::mem::swap(&mut self.claude, &mut self.claude_others[k]);
-        self.claude_model_checked_done(r);
-        std::mem::swap(&mut self.claude, &mut self.claude_others[k]);
-    }
-
-    fn claude_model_checked_done(&mut self, r: Result<Option<(usize, String)>, String>) {
-        let Some(hold) = self.claude.model_hold.as_mut() else { return };
-        match r {
-            Ok(Some(suggestion)) => hold.suggestion = Some(suggestion),
-            // the current model suits, or the check failed: the message goes as it is
-            Ok(None) => self.claude_hold_act(HoldAct::Keep),
-            Err(e) => {
-                self.set_status(tf!("Modèle non vérifié ({e}) : le message part avec le modèle choisi", "Model not checked ({e}): the message goes with the model chosen"));
-                self.claude_hold_act(HoldAct::Keep);
-            }
-        }
-    }
-
-    /// What the user chose for the held message: the model changed if asked, then it is sent.
-    fn claude_hold_act(&mut self, act: HoldAct) {
-        let Some(hold) = self.claude.model_hold.take() else { return };
-        match act {
-            HoldAct::Cancel => {
-                self.claude.input = hold.text;
-                return;
-            }
-            HoldAct::Switch(m) if m != self.claude.model => {
-                // another model: the process starts again, the conversation goes on (--resume)
-                self.claude.model = m;
-                self.claude.session = None;
-            }
-            _ => {}
-        }
-        if !self.claude_send_text(hold.text.clone(), hold.ask) {
-            self.claude.input = hold.text;
         }
     }
 
@@ -694,7 +641,7 @@ impl App {
     /// `ask_first`; false when it could not be sent. A slash command (`/usage`…) goes alone: Claude
     /// Code reads it only at the start of the message. While Claude works, the message goes into
     /// the answer being written (Claude Code reads it between two steps).
-    fn claude_send_text(&mut self, text: String, ask_first: bool) -> bool {
+    pub(super) fn claude_send_text(&mut self, text: String, ask_first: bool) -> bool {
         let Some(dir) = self.claude.dir.clone() else {
             self.set_status(t!("Aucun dossier ouvert", "No folder open"));
             return false;
@@ -906,6 +853,11 @@ impl App {
         }
         self.claude.queue.tasks[k].state = TaskState::Running;
         let ask = self.claude.ask_first;
+        if self.claude.model_first && self.claude.queue.tasks[k].model.is_none() {
+            // a task with its own model keeps it: only the others are checked
+            self.claude_check_model(text, ask, true);
+            return;
+        }
         if !self.claude_send_text(text, ask) {
             let q = &mut self.claude.queue;
             q.tasks[k].state = TaskState::Failed;
@@ -1385,6 +1337,7 @@ impl App {
             updated: now_secs(),
             items,
             queue: c.queue.clone(),
+            options: Options { with_context: c.with_context, ask_first: c.ask_first, model_first: c.model_first, no_defs: c.no_defs },
         };
         self.claude.saved_key = key;
         self.claude_saved.retain(|s| s.key != key);
@@ -1408,6 +1361,7 @@ impl App {
         c.items = s.items.clone();
         c.queue = s.queue.clone();
         c.queue.settle();
+        (c.with_context, c.ask_first, c.model_first, c.no_defs) = (s.options.with_context, s.options.ask_first, s.options.model_first, s.options.no_defs);
         c.items.push(Item::Info(t!("— conversation reprise : le prochain message continue avec son contexte —", "— conversation resumed: the next message goes on with its context —").into()));
         c
     }
@@ -1539,7 +1493,7 @@ impl App {
         let dir_name = self.claude.dir.as_deref().map(|d| self.repo_label(d)).unwrap_or_default();
         let dirs: Vec<(PathBuf, String)> = self.repos.iter().map(|r| (r.clone(), self.repo_label(r))).collect();
         let (mut send, mut stop, mut new_conv, mut review_click, mut all) = (false, false, false, None, None);
-        let (mut later, mut hold_act) = (false, None);
+        let (mut later, mut hold_act, mut compact) = (false, None, false);
         let (mut chosen_dir, mut move_to, mut ctx_add) = (None, None, None);
         let (mut queue_act, mut queued, mut read_commits) = (None, None, false);
         let mut answer: Option<String> = None;
@@ -1855,6 +1809,29 @@ impl App {
                             }
                         });
                     }
+                    // the context is over 60 %: compact it, or start again, until closed
+                    let mut hide_context = false;
+                    if c.context_high && !c.context_hidden && !c.busy {
+                        egui::Frame::none().fill(icons::mix(fill, accent, 0.08)).rounding(6.0).inner_margin(8.0).show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new(t!("Contexte rempli à plus de 60 %", "Context over 60% full")).strong());
+                                if ui.button("/compact").on_hover_text(t!("Claude résume la conversation pour libérer du contexte", "Claude summarizes the conversation to free up context")).clicked() {
+                                    compact = true;
+                                }
+                                if ui.button(t!("Nouvelle conversation", "New conversation")).on_hover_text(t!("Repart de zéro ; l'ancienne reste dans l'historique", "Starts again from zero; the old one stays in the history")).clicked() {
+                                    new_conv = true;
+                                }
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    if ui.small_button("×").on_hover_text(t!("Fermer cette barre", "Close this bar")).clicked() {
+                                        hide_context = true;
+                                    }
+                                });
+                            });
+                        });
+                    }
+                    if hide_context {
+                        c.context_hidden = true;
+                    }
                     // /btw, /status: the answer above the field, until closed
                     let mut close_side = false;
                     if let Some((asked, answer)) = &c.side {
@@ -1955,6 +1932,10 @@ impl App {
                     }
                     ui.horizontal(|ui| {
                         let has_text = !c.input.trim().is_empty();
+                        if has_text {
+                            let tokens = (c.input.chars().count() / 4).max(1);
+                            ui.label(RichText::new(tf!("≈ {} tokens", "≈ {} tokens", tokens)).weak().small()).on_hover_text(t!("Estimation du texte seul ; le contexte joint (fichier, définitions…) s'y ajoute", "Estimate of the text alone; the context joined (file, definitions…) adds to it"));
+                        }
                         if c.busy {
                             if ui.button(t!("■ Arrêter", "■ Stop")).on_hover_text(t!("Arrêter la réponse en cours (la conversation continue)", "Stop the current answer (the conversation goes on)")).clicked() {
                                 stop = true;
@@ -2280,6 +2261,10 @@ impl App {
         if let Some(a) = hold_act {
             self.claude_hold_act(a);
         }
+        if compact {
+            // a command of Claude Code: it goes alone, as the other commands
+            self.claude_send_text("/compact".into(), false);
+        }
         if let Some(n) = queued {
             self.set_status(tf!("{n} tâche(s) ajoutée(s) à la file — « Lancer » pour les envoyer une à une", "{n} task(s) added to the queue — “Run” to send them one by one"));
             self.claude_save();
@@ -2422,9 +2407,11 @@ mod tests {
                 q.running = true;
                 q
             },
+            options: Options { ask_first: true, ..Options::default() },
         };
         let back: Vec<SavedConv> = serde_json::from_str(&serde_json::to_string(&vec![s]).unwrap()).unwrap();
         assert_eq!((back[0].key, back[0].session_id.as_deref(), back[0].items.len()), (7, Some("abc"), 3));
+        assert!(back[0].options.ask_first && !back[0].options.model_first);
         assert!(matches!(&back[0].items[1], Item::Tool { result: Some((r, false)), .. } if r == "ok"));
         // the tasks are kept, not the run (it is started again by hand)
         assert_eq!((back[0].queue.tasks.len(), back[0].queue.running), (2, false));

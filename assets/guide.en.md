@@ -272,11 +272,14 @@ command and your login: no key to set up.
   before the next one.
 - **Model first**: before a message goes, Haiku checks whether the request needs another model
   (Opus for a hard job, Haiku for a small task) and suggests it. You choose **Switch to…** or
-  **Keep…**; **Cancel** puts the message back in the field. It only applies to the messages you
-  send, not to the tasks of the queue.
+  **Keep…**; **Cancel** puts the message back in the field. The tasks of the queue are checked too
+  (unless they have their own model); **Cancel** there puts the task back to waiting and pauses the
+  queue. A message written during the check goes in the queue, after the answer.
 - **Warnings**: the chat says once when the conversation fills over 60% of the context (`/compact`
   summarizes it), and when Claude opens an image (it costs many tokens with every next message).
   The size of the context joined to a message shows in the status bar.
+  Over 60%, a bar offers **/compact** or **New conversation**. The options of the menu stay with the
+  conversation when you resume it.
 - **Mentioned definitions**: the classes and functions of the project named in the message
   (`SaleOrder`, `_compute_total`, `foo()`…) go with it, their first lines included, found in
   Florm's index: Claude does not have to look for them (fewer tokens). A name defined in more
