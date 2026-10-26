@@ -278,6 +278,9 @@ panneau du bas (⇱ pour lui donner tout un onglet de l'éditeur, ⇲ pour l'y r
   modèle (Opus pour un travail difficile, Haiku pour une petite tâche) et te le propose. Tu
   choisis **Passer à…** ou **Garder…** ; **Annuler** remet le message dans le champ. Ça ne vaut
   que pour les messages que tu envoies, pas pour les tâches de la file.
+- **Avertissements** : le chat signale une fois quand la conversation remplit plus de 60 % du
+  contexte (`/compact` la résume), et quand Claude ouvre une image (elle coûte beaucoup de tokens à
+  chaque message suivant). La taille du contexte joint à un message s'affiche dans la barre d'état.
 - **Définitions citées** : les classes et fonctions du projet nommées dans le message
   (`SaleOrder`, `_compute_total`, `foo()`…) partent avec lui, leurs premières lignes comprises,
   trouvées dans l'index de Florm : Claude n'a pas à les chercher (moins de tokens). Un nom

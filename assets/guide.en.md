@@ -274,6 +274,9 @@ command and your login: no key to set up.
   (Opus for a hard job, Haiku for a small task) and suggests it. You choose **Switch to…** or
   **Keep…**; **Cancel** puts the message back in the field. It only applies to the messages you
   send, not to the tasks of the queue.
+- **Warnings**: the chat says once when the conversation fills over 60% of the context (`/compact`
+  summarizes it), and when Claude opens an image (it costs many tokens with every next message).
+  The size of the context joined to a message shows in the status bar.
 - **Mentioned definitions**: the classes and functions of the project named in the message
   (`SaleOrder`, `_compute_total`, `foo()`…) go with it, their first lines included, found in
   Florm's index: Claude does not have to look for them (fewer tokens). A name defined in more

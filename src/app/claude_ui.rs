@@ -111,6 +111,8 @@ pub(super) struct ClaudeUi {
     cost: f64,
     /// Tokens of the conversation read by the model for its last message, and its window.
     context: (u64, u64),
+    /// The context is over 60 % of its window (the warning is given when it gets there).
+    context_high: bool,
     /// The file being edited and its selection are given with the message.
     with_context: bool,
     /// Lines and files given with the next message.
@@ -423,6 +425,7 @@ impl App {
                     items.clear();
                     items.push(Item::Info(t!("— /clear : Claude repart sans la conversation —", "— /clear: Claude starts again without the conversation —").into()));
                     self.claude.context.0 = 0;
+                    self.claude.context_high = false;
                     self.claude.wish = None;
                     save = true;
                 }
@@ -438,6 +441,11 @@ impl App {
                     if let Some(Item::Streaming(s)) = items.last() {
                         let s = s.clone();
                         *items.last_mut().unwrap() = Item::Text(s);
+                    }
+                    // an image costs many tokens, and stays in the conversation: said where it happens
+                    let lower = summary.to_lowercase();
+                    if name == "Read" && [".png", ".jpg", ".jpeg", ".gif", ".webp"].iter().any(|e| lower.ends_with(e)) {
+                        items.push(Item::Info(tf!("— Claude a ouvert une image ({summary}) : elle coûte beaucoup de tokens, à chaque message suivant —", "— Claude opened an image ({summary}): it costs many tokens, with every next message —")));
                     }
                     items.push(Item::Tool { id, name, summary, result: None });
                 }
@@ -478,6 +486,13 @@ impl App {
                     if tokens.input + tokens.output > 0 {
                         items.push(Item::Usage { input: tokens.input, cached: tokens.cached, output: tokens.output, cost });
                     }
+                    // once when the context gets over 60 % of its window (again after a /compact)
+                    let (used, size) = self.claude.context;
+                    let high = size > 0 && used * 10 >= size * 6;
+                    if high && !self.claude.context_high {
+                        items.push(Item::Info(t!("— la conversation remplit plus de 60 % du contexte : /compact la résume, et une nouvelle conversation repart de zéro —", "— the conversation fills over 60% of the context: /compact summarizes it, and a new conversation starts again from zero —").into()));
+                    }
+                    self.claude.context_high = high;
                     if error && !text.is_empty() {
                         items.push(Item::Error(text.clone()));
                     }
@@ -744,6 +759,11 @@ impl App {
         let Some(s) = self.claude.session.as_mut() else { return false };
         match s.send(&message) {
             Ok(()) => {
+                // what goes with the message besides the text itself: the file, the definitions…
+                let extra = message.len().saturating_sub(text.len());
+                if extra > 0 && !during {
+                    self.set_status(tf!("Contexte joint au message : environ {} Ko", "Context joined to the message: about {} KB", extra.div_ceil(1000)));
+                }
                 let items = &mut self.claude.items;
                 // the text being written stays last: what follows of it is added to it
                 let at = if matches!(items.last(), Some(Item::Streaming(_))) { items.len() - 1 } else { items.len() };
