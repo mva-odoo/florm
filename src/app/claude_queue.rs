@@ -140,6 +140,9 @@ impl Queue {
     }
 }
 
+/// Width of the column of the buttons at the end of a task's row (the same for every row).
+const ROW_BUTTONS_W: f32 = 170.0;
+
 /// The list above the field of the chat: the tasks and their state, the buttons of the queue.
 pub(super) fn queue_ui(ui: &mut egui::Ui, q: &mut Queue, busy: bool, accent: Color32, id: egui::Id) -> Option<QueueAct> {
     let mut act = None;
@@ -235,15 +238,8 @@ pub(super) fn queue_ui(ui: &mut egui::Ui, q: &mut Queue, busy: bool, accent: Col
                     }
                 });
                 let editable = t.state == TaskState::Waiting;
-                // room for the buttons of the row, on the right
-                let buttons = match t.state {
-                    TaskState::Waiting => 170.0,
-                    TaskState::Failed => 110.0,
-                    TaskState::Committing => 70.0,
-                    TaskState::Running => 10.0,
-                    TaskState::Done => 30.0,
-                };
-                let w = (ui.available_width() - buttons).max(80.0);
+                // the buttons of the row sit in a column of their own, on the right: the same place in every row
+                let w = (ui.available_width() - ROW_BUTTONS_W).max(80.0);
                 let body = &t.text[intro.len()..];
                 if editable {
                     let mut edited = body.to_string();
@@ -263,30 +259,33 @@ pub(super) fn queue_ui(ui: &mut egui::Ui, q: &mut Queue, busy: bool, accent: Col
                         }
                     });
                 }
-                if t.state == TaskState::Committing {
-                    ui.label(RichText::new("commit…").small().weak());
-                }
-                if t.state == TaskState::Failed && ui.small_button(t!("Réessayer", "Retry")).clicked() {
-                    act = Some(QueueAct::Retry(k));
-                }
-                if editable {
-                    // a model for this task only: Haiku for a small one in a list sent with Opus
-                    let shown = t.model.map_or(t!("Modèle de la file", "Queue's model"), model_label);
-                    egui::ComboBox::from_id_salt(id.with(("task_model", k))).selected_text(RichText::new(shown).small()).width(96.0).show_ui(ui, |ui| {
-                        ui.selectable_value(&mut t.model, None, t!("Modèle de la file", "Queue's model")).on_hover_text(queue_model);
-                        for (m, (_, label)) in crate::claude::MODELS.iter().enumerate().skip(1) {
-                            ui.selectable_value(&mut t.model, Some(m), crate::claude::label(label));
-                        }
-                    });
-                }
-                // above the waiting one before it (a finished one, folded, would not show it moved)
-                if editable && k > 0 && states[k - 1] == TaskState::Waiting && ui.small_button("↑").on_hover_text(t!("Plus tôt", "Earlier")).clicked() {
-                    act = Some(QueueAct::Up(k));
-                }
-                // any task can go, the one running excepted
-                if !matches!(t.state, TaskState::Running | TaskState::Committing) && ui.small_button("×").on_hover_text(t!("Retirer", "Remove")).clicked() {
-                    act = Some(QueueAct::Remove(k));
-                }
+                // right to left: the first added is the rightmost, so × stays on the edge
+                ui.allocate_ui_with_layout(egui::vec2(ROW_BUTTONS_W, 18.0), egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // any task can go, the one running excepted
+                    if !matches!(t.state, TaskState::Running | TaskState::Committing) && ui.small_button("×").on_hover_text(t!("Retirer", "Remove")).clicked() {
+                        act = Some(QueueAct::Remove(k));
+                    }
+                    // above the waiting one before it (a finished one, folded, would not show it moved)
+                    if editable && k > 0 && states[k - 1] == TaskState::Waiting && ui.small_button("↑").on_hover_text(t!("Plus tôt", "Earlier")).clicked() {
+                        act = Some(QueueAct::Up(k));
+                    }
+                    if editable {
+                        // a model for this task only: Haiku for a small one in a list sent with Opus
+                        let shown = t.model.map_or(t!("Modèle de la file", "Queue's model"), model_label);
+                        egui::ComboBox::from_id_salt(id.with(("task_model", k))).selected_text(RichText::new(shown).small()).width(96.0).show_ui(ui, |ui| {
+                            ui.selectable_value(&mut t.model, None, t!("Modèle de la file", "Queue's model")).on_hover_text(queue_model);
+                            for (m, (_, label)) in crate::claude::MODELS.iter().enumerate().skip(1) {
+                                ui.selectable_value(&mut t.model, Some(m), crate::claude::label(label));
+                            }
+                        });
+                    }
+                    if t.state == TaskState::Failed && ui.small_button(t!("Réessayer", "Retry")).clicked() {
+                        act = Some(QueueAct::Retry(k));
+                    }
+                    if t.state == TaskState::Committing {
+                        ui.label(RichText::new("commit…").small().weak());
+                    }
+                });
             }));
         }
     });
