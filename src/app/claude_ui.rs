@@ -1974,10 +1974,13 @@ impl App {
                     }
                     ui.horizontal(|ui| {
                         let has_text = !c.input.trim().is_empty();
-                        if has_text {
-                            let tokens = (c.input.chars().count() / 4).max(1);
-                            ui.label(RichText::new(tf!("≈ {} tokens", "≈ {} tokens", tokens)).weak().small()).on_hover_text(t!("Estimation du texte seul ; le contexte joint (fichier, définitions…) s'y ajoute", "Estimate of the text alone; the context joined (file, definitions…) adds to it"));
-                        }
+                        // a place of its own, always there: the buttons do not move when the estimate appears or changes
+                        ui.allocate_ui_with_layout(egui::vec2(84.0, 18.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                            if has_text {
+                                let tokens = (c.input.chars().count() / 4).max(1);
+                                ui.label(RichText::new(tf!("≈ {} tokens", "≈ {} tokens", tokens)).weak().small()).on_hover_text(t!("Estimation du texte seul (environ 4 caractères par token) ; le contexte joint (fichier, définitions…) s'y ajoute", "Estimate of the text alone (about 4 characters per token); the context joined (file, definitions…) adds to it"));
+                            }
+                        });
                         if c.busy {
                             if ui.button(t!("■ Arrêter", "■ Stop")).on_hover_text(t!("Arrêter la réponse en cours (la conversation continue)", "Stop the current answer (the conversation goes on)")).clicked() {
                                 stop = true;
