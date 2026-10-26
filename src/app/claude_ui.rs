@@ -20,10 +20,15 @@ pub(super) struct Attach {
     lines: Option<(usize, usize, String)>,
     /// A text and what it is (instead of a file).
     note: Option<(String, String)>,
+    /// An image (PNG), sent with the message: a copied image.
+    image: Option<Vec<u8>>,
 }
 
 impl Attach {
     fn label(&self, dir: Option<&Path>) -> String {
+        if self.image.is_some() {
+            return t!("Image collée", "Pasted image").into();
+        }
         if let Some((label, _)) = &self.note {
             return label.clone();
         }
@@ -38,6 +43,9 @@ impl Attach {
     /// How it is said to Claude.
     fn prompt(&self, dir: Option<&Path>) -> String {
         let label = self.label(dir);
+        if self.image.is_some() {
+            return tf!("Image jointe ({label}), envoyée avec le message", "Image attached ({label}), sent with the message");
+        }
         if let Some((_, text)) = &self.note {
             return format!("{label} :\n```\n{text}\n```");
         }
@@ -209,6 +217,12 @@ fn saved_path() -> PathBuf {
 /// The saved conversations, newest first.
 pub(super) fn load_saved() -> Vec<SavedConv> {
     std::fs::read_to_string(saved_path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+}
+
+/// The image in the clipboard as PNG, if there is one.
+fn clipboard_image() -> Option<Vec<u8>> {
+    let img = arboard::Clipboard::new().ok()?.get_image().ok()?;
+    claude::png_of(img.width, img.height, img.bytes.into_owned()).ok()
 }
 
 fn write_saved(list: &[SavedConv]) -> Result<(), String> {
@@ -704,7 +718,9 @@ impl App {
             }
         }
         let Some(s) = self.claude.session.as_mut() else { return false };
-        match s.send(&message) {
+        let images: Vec<Vec<u8>> = attach.iter().filter_map(|a| a.image.clone()).collect();
+        let sent = if images.is_empty() { s.send(&message) } else { s.send_with_images(&message, &images) };
+        match sent {
             Ok(()) => {
                 // what goes with the message besides the text itself: the file, the definitions…
                 let extra = message.len().saturating_sub(text.len());
@@ -898,17 +914,17 @@ impl App {
         };
         let b = b.min(d.rope.len_lines().saturating_sub(1));
         let text: String = (a..=b).map(|l| d.line_text(l)).collect::<Vec<_>>().join("\n");
-        self.claude_attach(Attach { path, lines: Some((a + 1, b + 1, text)), note: None });
+        self.claude_attach(Attach { path, lines: Some((a + 1, b + 1, text)), note: None, image: None });
     }
 
     pub(super) fn claude_attach_path(&mut self, path: PathBuf) {
-        self.claude_attach(Attach { path, lines: None, note: None });
+        self.claude_attach(Attach { path, lines: None, note: None, image: None });
     }
 
     /// A text given to Claude with the next message (`label`: what it is).
     fn claude_attach_note(&mut self, label: String, text: String) {
         let path = self.claude.dir.clone().unwrap_or_default();
-        self.claude_attach(Attach { path, lines: None, note: Some((label, text)) });
+        self.claude_attach(Attach { path, lines: None, note: Some((label, text)), image: None });
     }
 
     /// The text document Claude's context is about: the active one, else the last one opened.
@@ -1865,6 +1881,32 @@ impl App {
                     }
                     // a slash command being typed: the matching ones; Tab or a click completes it
                     let field_id = input_id.with("field");
+                    // a long text pasted goes in as a chip (« Texte collé »), a copied image too
+                    if ui.memory(|m| m.has_focus(field_id)) {
+                        let (mut long, mut paste_key) = (None, false);
+                        ui.input_mut(|i| {
+                            i.events.retain(|e| match e {
+                                egui::Event::Paste(t) if t.lines().count() > 6 || t.chars().count() > 500 => {
+                                    long = Some(t.clone());
+                                    false
+                                }
+                                egui::Event::Key { key: Key::V, pressed: true, modifiers, .. } if modifiers.command => {
+                                    paste_key = true;
+                                    true
+                                }
+                                _ => true,
+                            })
+                        });
+                        if let Some(t) = long {
+                            let lines = t.lines().count();
+                            c.attach.push(Attach { path: PathBuf::new(), lines: None, note: Some((tf!("Texte collé ({} lignes)", "Pasted text ({} lines)", lines), t)), image: None });
+                        }
+                        if paste_key {
+                            if let Some(png) = clipboard_image() {
+                                c.attach.push(Attach { path: PathBuf::new(), lines: None, note: None, image: Some(png) });
+                            }
+                        }
+                    }
                     let mut to_end = false;
                     if let Some(typed) = c.input.strip_prefix('/').filter(|t| !t.contains(char::is_whitespace)) {
                         let typed = typed.to_lowercase();
@@ -2434,12 +2476,12 @@ mod tests {
     #[test]
     fn what_is_given_to_claude() {
         let dir = Path::new("/p");
-        let a = Attach { path: "/p/src/m.py".into(), lines: Some((3, 4, "a\nb".into())), note: None };
+        let a = Attach { path: "/p/src/m.py".into(), lines: Some((3, 4, "a\nb".into())), note: None, image: None };
         assert_eq!(a.label(Some(dir)), "src/m.py:3-4");
         assert_eq!(a.prompt(Some(dir)), "Extrait de src/m.py:3-4 :\n```py\na\nb\n```");
-        let f = Attach { path: "/p/src/m.py".into(), lines: None, note: None };
+        let f = Attach { path: "/p/src/m.py".into(), lines: None, note: None, image: None };
         assert_eq!(f.prompt(Some(dir)), "Fichier à prendre en compte : src/m.py");
-        let n = Attach { path: "/p".into(), lines: None, note: Some(("Changements non commités".into(), "diff".into())) };
+        let n = Attach { path: "/p".into(), lines: None, note: Some(("Changements non commités".into(), "diff".into())), image: None };
         assert_eq!(n.label(Some(dir)), "Changements non commités");
         assert_eq!(n.prompt(Some(dir)), "Changements non commités :\n```\ndiff\n```");
     }

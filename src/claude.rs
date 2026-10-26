@@ -343,6 +343,13 @@ impl Session {
         self.write(json!({"type": "user", "message": {"role": "user", "content": text}}))
     }
 
+    /// Sends a message of the user with images (PNG bytes), after its text.
+    pub fn send_with_images(&mut self, text: &str, images: &[Vec<u8>]) -> Result<(), String> {
+        let mut content = vec![json!({"type": "text", "text": text})];
+        content.extend(images.iter().map(|png| json!({"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": base64_encode(png)}})));
+        self.write(json!({"type": "user", "message": {"role": "user", "content": content}}))
+    }
+
     /// Stops the answer being written (the conversation goes on).
     pub fn interrupt(&mut self) -> Result<(), String> {
         self.write(json!({"type": "control_request", "request_id": format!("stop-{}", std::process::id()), "request": {"subtype": "interrupt"}}))
@@ -510,6 +517,42 @@ pub fn is_image(file: &str) -> bool {
 /// Whether the tokens read by the model fill more than 60 % of the window (0: unknown).
 pub fn over_context(used: u64, window: u64) -> bool {
     window > 0 && used * 10 >= window * 6
+}
+
+/// The longest side of an image sent to Claude: a bigger one only costs more tokens.
+const MAX_IMAGE_SIDE: u32 = 1568;
+
+/// An image (RGBA pixels) as PNG, its longest side at most `MAX_IMAGE_SIDE`.
+pub fn png_of(width: usize, height: usize, rgba: Vec<u8>) -> Result<Vec<u8>, String> {
+    let img = image::RgbaImage::from_raw(width as u32, height as u32, rgba).ok_or("image")?;
+    let side = width.max(height) as u32;
+    let img = if side > MAX_IMAGE_SIDE {
+        let s = MAX_IMAGE_SIDE as f32 / side as f32;
+        let (w, h) = (((width as f32 * s) as u32).max(1), ((height as f32 * s) as u32).max(1));
+        image::imageops::resize(&img, w, h, image::imageops::FilterType::Triangle)
+    } else {
+        img
+    };
+    let mut out = std::io::Cursor::new(Vec::new());
+    img.write_to(&mut out, image::ImageFormat::Png).map_err(|e| e.to_string())?;
+    Ok(out.into_inner())
+}
+
+/// Standard base64 of `bytes` (with the padding).
+pub fn base64_encode(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let n = (chunk[0] as u32) << 16 | (*chunk.get(1).unwrap_or(&0) as u32) << 8 | *chunk.get(2).unwrap_or(&0) as u32;
+        for k in 0..4 {
+            if k <= chunk.len() {
+                out.push(ALPHABET[(n >> (18 - 6 * k) & 63) as usize] as char);
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
 }
 
 /// Runs `claude` once with `args`, `input` on its standard input; returns its answer (its
@@ -805,6 +848,15 @@ mod tests {
         assert_eq!(parse_model_answer("MODELE: gpt", 2).unwrap(), None);
         // no MODELE line at all: an error with the answer
         assert!(parse_model_answer("désolé", 2).is_err());
+    }
+
+    #[test]
+    fn base64_is_the_standard_one() {
+        assert_eq!(base64_encode(b""), "");
+        assert_eq!(base64_encode(b"f"), "Zg==");
+        assert_eq!(base64_encode(b"fo"), "Zm8=");
+        assert_eq!(base64_encode(b"hello"), "aGVsbG8=");
+        assert_eq!(base64_encode(b"hel"), "aGVs");
     }
 
     #[test]
