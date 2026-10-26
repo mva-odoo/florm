@@ -45,10 +45,6 @@ pub struct Settings {
     pub claude_perms: Vec<String>,
     /// Most dollars a conversation may spend (0: no limit).
     pub claude_budget: f64,
-    /// Command recording the voice (`{wav}`: the file written; it is stopped with Ctrl+C-like SIGINT).
-    pub voice_record: String,
-    /// Command turning the recording (`{wav}`) into text on its standard output (empty: no dictation).
-    pub voice_transcribe: String,
     /// Branch and upstream of git repositories on their folder in the tree.
     pub tree_git_info: bool,
     /// Show git changes inside the editor (deleted lines in red, added in green).
@@ -162,8 +158,6 @@ impl Default for Settings {
             claude_done_sound: "chime".into(),
             claude_perms: ["edit", "agents", "sandbox"].map(String::from).to_vec(),
             claude_budget: 0.0,
-            voice_record: if cfg!(target_os = "linux") { "arecord -q -f S16_LE -r 16000 -c 1 {wav}".into() } else { String::new() },
-            voice_transcribe: String::new(),
             tree_git_info: true,
             inline_diff: false,
             auto_pair: true,
@@ -246,11 +240,6 @@ claude_review = true
 claude_perms = ["edit", "agents", "sandbox"]
 # dépense maximale d'une conversation en dollars (0 = sans limite)
 claude_budget = 0.0
-# dictée du chat (bouton « Dicter ») : commande qui enregistre dans {wav} (arrêtée par SIGINT)
-voice_record = "arecord -q -f S16_LE -r 16000 -c 1 {wav}"
-# commande qui transcrit {wav} et écrit le texte sur sa sortie, en français ; vide = dictée désactivée
-# exemple avec whisper.cpp : "whisper-cli -m /chemin/ggml-base.bin -l fr -nt -np -f {wav}"
-voice_transcribe = ""
 # branche et branche distante des dépôts git sur leur dossier dans l'arborescence
 tree_git_info = true
 # diff git dans l'éditeur : lignes supprimées en rouge, ajoutées en vert (Ctrl+Alt+D)

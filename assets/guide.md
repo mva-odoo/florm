@@ -274,10 +274,6 @@ panneau du bas (⇱ pour lui donner tout un onglet de l'éditeur, ⇲ pour l'y r
   collé (N lignes) » au-dessus du champ, envoyée en entier avec le message ; le champ reste court.
   Une image copiée (capture d'écran) se colle avec Ctrl+V et part avec le message, réduite à
   1568 pixels pour coûter moins de tokens. Une puce se retire avec son ×.
-- **Dicter** (● Dicter) : enregistre ta voix ; clique **■ Fin** et le texte transcrit se met à la
-  fin du champ, à relire avant d'envoyer. Ça demande deux commandes dans `settings.toml` :
-  `voice_record` (l'enregistreur, `arecord` par défaut sous Linux) et `voice_transcribe` (le moteur
-  de reconnaissance, par exemple whisper.cpp en français). Tout reste sur ta machine.
 - **Questions d'abord** : si la demande laisse des choix ouverts, Claude ne code rien et pose
   1 à 3 questions avec des options (la conseillée cochée d'avance, **Autre** pour écrire la
   tienne) ; **Répondre** les envoie et il continue. Dans la file de tâches, la tâche attend tes
