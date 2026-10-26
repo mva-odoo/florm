@@ -9,6 +9,9 @@
                   DowngradeErrorMessage="Une version plus récente de Florm est déjà installée." />
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
 
+    <Icon Id="florm.ico" SourceFile="packaging/windows/florm.ico" />
+    <Property Id="ARPPRODUCTICON" Value="florm.ico" />
+
     <StandardDirectory Id="LocalAppDataFolder">
       <Directory Id="ProgramsDir" Name="Programs">
         <Directory Id="INSTALLFOLDER" Name="Florm" />
@@ -27,7 +30,7 @@
     </Component>
 
     <Component Id="Shortcut" Directory="ProgramMenuFolder" Guid="9F4A2C61-0B7D-4E35-A8C2-6E1B3D5F7A90">
-      <Shortcut Id="StartMenu" Name="Florm" Target="[INSTALLFOLDER]florm.exe" WorkingDirectory="INSTALLFOLDER" />
+      <Shortcut Id="StartMenu" Name="Florm" Target="[INSTALLFOLDER]florm.exe" WorkingDirectory="INSTALLFOLDER" Icon="florm.ico" />
       <RegistryValue Root="HKCU" Key="Software\Florm" Name="shortcut" Type="integer" Value="1" KeyPath="yes" />
     </Component>
   </Package>

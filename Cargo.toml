@@ -107,3 +107,7 @@ rfd = { version = "0.15", default-features = false }
 # Linux: the desktop's file chooser through the xdg portal (zbus is already used by egui's accessibility).
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus = { version = "4", default-features = false, features = ["async-io"] }
+
+# Icône de florm.exe (build.rs).
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
