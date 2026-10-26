@@ -182,6 +182,7 @@ impl App {
                 JobResult::ClaudeReview(id, r) => self.claude_review_loaded(id, r),
                 JobResult::ClaudeBtw(id, r) => self.claude_btw_loaded(id, r),
                 JobResult::ClaudeModelCheck(id, r) => self.claude_model_checked(id, r),
+                JobResult::ClaudeVoice(id, r) => self.claude_voice_loaded(id, r),
                 JobResult::CommitMessage(r) => self.commit_message_ready(r),
                 JobResult::CommitPlan(repo, r) => self.commit_plan_loaded(repo, r),
                 JobResult::CommitPlanDone(repo, done, e) => self.commit_plan_done(repo, done, e),

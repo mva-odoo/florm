@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use history::{DiffAct, DiffClick};
 use super::claude_queue::{self, Queue, QueueAct, TaskState};
 use super::claude_model::{HoldAct, ModelHold};
+use super::claude_voice::Recording;
 
 /// Something given to Claude with the next message: lines of a file, a file / folder, or a text
 /// (the changes not committed, the problems of a file…).
@@ -149,6 +150,8 @@ pub(super) struct ClaudeUi {
     model_first: bool,
     /// The message held while its model is checked, then the model suggested for it.
     pub(super) model_hold: Option<ModelHold>,
+    /// The dictation in progress (the recorder and its file).
+    pub(super) voice: Option<Recording>,
     /// The choices made for the questions of the last answer.
     answers: Option<claude_ask::Answers>,
     /// Last commits of its folder for « + Contexte → Un commit »: (hash, short hash, subject, when).
@@ -1509,7 +1512,7 @@ impl App {
         let dir_name = self.claude.dir.as_deref().map(|d| self.repo_label(d)).unwrap_or_default();
         let dirs: Vec<(PathBuf, String)> = self.repos.iter().map(|r| (r.clone(), self.repo_label(r))).collect();
         let (mut send, mut stop, mut new_conv, mut review_click, mut all) = (false, false, false, None, None);
-        let (mut later, mut hold_act, mut compact) = (false, None, false);
+        let (mut later, mut hold_act, mut compact, mut voice_click) = (false, None, false, false);
         let (mut chosen_dir, mut move_to, mut ctx_add) = (None, None, None);
         let (mut queue_act, mut queued, mut read_commits) = (None, None, false);
         let mut answer: Option<String> = None;
@@ -1978,6 +1981,16 @@ impl App {
                             let tokens = (c.input.chars().count() / 4).max(1);
                             ui.label(RichText::new(tf!("≈ {} tokens", "≈ {} tokens", tokens)).weak().small()).on_hover_text(t!("Estimation du texte seul ; le contexte joint (fichier, définitions…) s'y ajoute", "Estimate of the text alone; the context joined (file, definitions…) adds to it"));
                         }
+                        // dictation: records while pressed, then the text goes at the end of the field
+                        let recording = c.voice.as_ref().map(|r| r.started.elapsed().as_secs());
+                        let dictation = if recording.is_some() { t!("■ Fin", "■ End") } else { t!("● Dicter", "● Dictate") };
+                        if ui.button(dictation).on_hover_text(t!("Dicte le message : le texte se met à la fin du champ. Clique ■ Fin pour arrêter (commande voice_transcribe des réglages)", "Dictate the message: the text goes at the end of the field. Click ■ End to stop (voice_transcribe command in the settings)")).clicked() {
+                            voice_click = true;
+                        }
+                        if let Some(s) = recording {
+                            ui.label(RichText::new(format!("● {}:{:02}", s / 60, s % 60)).color(err()).small());
+                            ui.ctx().request_repaint_after(std::time::Duration::from_millis(500));
+                        }
                         if c.busy {
                             if ui.button(t!("■ Arrêter", "■ Stop")).on_hover_text(t!("Arrêter la réponse en cours (la conversation continue)", "Stop the current answer (the conversation goes on)")).clicked() {
                                 stop = true;
@@ -2302,6 +2315,9 @@ impl App {
         }
         if let Some(a) = hold_act {
             self.claude_hold_act(a);
+        }
+        if voice_click {
+            self.claude_voice_toggle();
         }
         if compact {
             // a command of Claude Code: it goes alone, as the other commands

@@ -270,6 +270,10 @@ command and your login: no key to set up.
   lines)” chip above the field, sent whole with the message; the field stays short. A copied image
   (a screenshot) pastes with Ctrl+V and goes with the message, scaled down to 1568 pixels to cost
   fewer tokens. A chip is removed with its ×.
+- **Dictate** (● Dictate): records your voice; click **■ End** and the transcribed text goes at the
+  end of the field, to read before you send it. It needs two commands in `settings.toml`:
+  `voice_record` (the recorder, `arecord` by default on Linux) and `voice_transcribe` (the speech
+  engine, for example whisper.cpp in French). Everything stays on your machine.
 - **Questions first**: if the request leaves choices open, Claude codes nothing and asks 1 to 3
   questions with options (the recommended one ticked already, **Other** to write yours);
   **Answer** sends them and it goes on. In the task queue, the task waits for your answers
