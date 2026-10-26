@@ -270,6 +270,10 @@ command and your login: no key to set up.
   questions with options (the recommended one ticked already, **Other** to write yours);
   **Answer** sends them and it goes on. In the task queue, the task waits for your answers
   before the next one.
+- **Model first**: before a message goes, Haiku checks whether the request needs another model
+  (Opus for a hard job, Haiku for a small task) and suggests it. You choose **Switch to…** or
+  **Keep…**; **Cancel** puts the message back in the field. It only applies to the messages you
+  send, not to the tasks of the queue.
 - **Mentioned definitions**: the classes and functions of the project named in the message
   (`SaleOrder`, `_compute_total`, `foo()`…) go with it, their first lines included, found in
   Florm's index: Claude does not have to look for them (fewer tokens). A name defined in more

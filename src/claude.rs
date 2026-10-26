@@ -461,6 +461,40 @@ pub fn btw(dir: &Path, session: Option<&str>, model: &str, question: &str) -> Re
     run_once(dir, &args, String::new())
 }
 
+/// Before a message starts work: the model that suits it better than `current` (index in `MODELS`),
+/// with the reason; None when the current one does. Haiku reads only the message, without tools.
+pub fn model_check(dir: &Path, message: &str, current: usize) -> Result<Option<(usize, String)>, String> {
+    let label = MODELS[current.min(MODELS.len() - 1)].1;
+    let prompt = tf!(
+        "Tu choisis le modèle de Claude Code pour une demande, avant qu'il commence. Modèles :\n\
+         - opus : Opus 5.5, pour les travaux difficiles (bug subtil, architecture, grosse refactorisation).\n\
+         - sonnet : Sonnet 5.5, équilibré, pour la plupart des modifications.\n\
+         - haiku : Haiku 5.5, rapide et économique, pour les petites tâches simples (renommer, une ligne, expliquer).\n\
+         - fable : Fable 5.1, le plus capable, pour les tâches très longues ou très difficiles.\n\
+         Le modèle actuel est {label}. La demande est sur l'entrée standard. Si le modèle actuel convient, réponds seulement \
+         par : MODELE: garder. Sinon réponds sur deux lignes, sans rien d'autre :\n\
+         MODELE: <opus, sonnet, haiku ou fable>\n\
+         RAISON: <une phrase courte, en français, pourquoi>",
+        "You choose the Claude Code model for a request, before it starts. Models:\n\
+         - opus: Opus 5.5, for hard work (subtle bug, architecture, large refactoring).\n\
+         - sonnet: Sonnet 5.5, balanced, for most changes.\n\
+         - haiku: Haiku 5.5, fast and cheap, for small simple tasks (rename, one line, explain).\n\
+         - fable: Fable 5.1, the most capable, for very long or very hard tasks.\n\
+         The current model is {label}. The request is on the standard input. If the current model suits, answer only \
+         with: MODELE: garder. Otherwise answer on two lines, nothing else:\n\
+         MODELE: <opus, sonnet, haiku or fable>\n\
+         RAISON: <one short sentence, in English, why>"
+    );
+    let text = run_once(dir, &["-p", &prompt, "--output-format", "text", "--model", "haiku", "--tools", "", "--no-session-persistence"], message.to_string())?;
+    let line = |key: &str| text.lines().find_map(|l| l.trim().strip_prefix(key)).map(|v| v.trim().to_string());
+    let Some(name) = line("MODELE:") else { return Err(text) };
+    let Some(m) = MODELS.iter().position(|(v, _)| !v.is_empty() && *v == name.to_lowercase()) else { return Ok(None) };
+    if m == current {
+        return Ok(None);
+    }
+    Ok(Some((m, line("RAISON:").unwrap_or_default())))
+}
+
 /// Runs `claude` once with `args`, `input` on its standard input; returns its answer (its
 /// spaces at the start kept: the indentation of code).
 fn run_once(dir: &Path, args: &[&str], input: String) -> Result<String, String> {

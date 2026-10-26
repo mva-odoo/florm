@@ -132,6 +132,10 @@ pub(super) struct ClaudeUi {
     no_defs: bool,
     /// Claude asks its questions (with options) before coding when the request leaves choices open.
     ask_first: bool,
+    /// Before a message starts, another model may be suggested for it (checked by Haiku).
+    model_first: bool,
+    /// The message held while its model is checked, then the model suggested for it.
+    model_hold: Option<ModelHold>,
     /// The choices made for the questions of the last answer.
     answers: Option<claude_ask::Answers>,
     /// Last commits of its folder for « + Contexte → Un commit »: (hash, short hash, subject, when).
@@ -142,6 +146,23 @@ pub(super) struct ClaudeUi {
     /// `/btw` or `/status`: what was asked and the answer (None: on its way), shown above the
     /// field until closed; not part of the conversation.
     side: Option<(String, Option<Result<String, String>>)>,
+}
+
+/// A message held before it starts, while the model suited to it is checked (`suggestion` None),
+/// or until the choice is made (`suggestion`: index in `claude::MODELS` and the reason).
+#[derive(Clone)]
+struct ModelHold {
+    text: String,
+    ask: bool,
+    suggestion: Option<(usize, String)>,
+}
+
+/// What the user chooses for a held message.
+#[derive(Clone, Copy)]
+enum HoldAct {
+    Switch(usize),
+    Keep,
+    Cancel,
 }
 
 /// What the height of a message depends on: its content, its place and the width.
@@ -517,9 +538,77 @@ impl App {
             self.claude_save();
             return;
         }
+        if self.claude.model_hold.is_some() {
+            self.set_status(t!("Choisis d'abord le modèle proposé pour le message en attente", "Choose the suggested model for the message waiting first"));
+            return;
+        }
         let ask = self.claude.ask_first;
+        // a message starting work: the model suited to it is checked first, when the option is on
+        if self.claude.model_first && !self.claude.busy && !text.is_empty() {
+            self.claude_check_model(text, ask);
+            self.claude.input.clear();
+            return;
+        }
         if self.claude_send_text(text, ask) {
             self.claude.input.clear();
+        }
+    }
+
+    /// Holds `text` and asks Haiku which model suits it (see `claude::model_check`).
+    fn claude_check_model(&mut self, text: String, ask: bool) {
+        let Some(dir) = self.claude.dir.clone() else {
+            self.set_status(t!("Aucun dossier ouvert", "No folder open"));
+            return;
+        };
+        let (id, current) = (self.claude.id, self.claude.model);
+        self.claude.model_hold = Some(ModelHold { text: text.clone(), ask, suggestion: None });
+        self.jobs.spawn(move || JobResult::ClaudeModelCheck(id, claude::model_check(&dir, &text, current)));
+    }
+
+    /// The model checked for the message held of conversation `id`.
+    pub(super) fn claude_model_checked(&mut self, id: u64, r: Result<Option<(usize, String)>, String>) {
+        let Some(k) = self.claude_others.iter().position(|c| c.id == id) else {
+            if self.claude.id == id {
+                self.claude_model_checked_done(r);
+            }
+            return;
+        };
+        // a conversation not shown: made the current one the time to send its message
+        std::mem::swap(&mut self.claude, &mut self.claude_others[k]);
+        self.claude_model_checked_done(r);
+        std::mem::swap(&mut self.claude, &mut self.claude_others[k]);
+    }
+
+    fn claude_model_checked_done(&mut self, r: Result<Option<(usize, String)>, String>) {
+        let Some(hold) = self.claude.model_hold.as_mut() else { return };
+        match r {
+            Ok(Some(suggestion)) => hold.suggestion = Some(suggestion),
+            // the current model suits, or the check failed: the message goes as it is
+            Ok(None) => self.claude_hold_act(HoldAct::Keep),
+            Err(e) => {
+                self.set_status(tf!("Modèle non vérifié ({e}) : le message part avec le modèle choisi", "Model not checked ({e}): the message goes with the model chosen"));
+                self.claude_hold_act(HoldAct::Keep);
+            }
+        }
+    }
+
+    /// What the user chose for the held message: the model changed if asked, then it is sent.
+    fn claude_hold_act(&mut self, act: HoldAct) {
+        let Some(hold) = self.claude.model_hold.take() else { return };
+        match act {
+            HoldAct::Cancel => {
+                self.claude.input = hold.text;
+                return;
+            }
+            HoldAct::Switch(m) if m != self.claude.model => {
+                // another model: the process starts again, the conversation goes on (--resume)
+                self.claude.model = m;
+                self.claude.session = None;
+            }
+            _ => {}
+        }
+        if !self.claude_send_text(hold.text.clone(), hold.ask) {
+            self.claude.input = hold.text;
         }
     }
 
@@ -762,7 +851,7 @@ impl App {
     /// The next waiting task, if the queue runs and Claude is free.
     fn claude_queue_next(&mut self) {
         let q = &self.claude.queue;
-        if !q.running || self.claude.busy || q.current().is_some() {
+        if !q.running || self.claude.busy || self.claude.model_hold.is_some() || q.current().is_some() {
             return;
         }
         let Some(k) = q.next_waiting() else {
@@ -1430,7 +1519,7 @@ impl App {
         let dir_name = self.claude.dir.as_deref().map(|d| self.repo_label(d)).unwrap_or_default();
         let dirs: Vec<(PathBuf, String)> = self.repos.iter().map(|r| (r.clone(), self.repo_label(r))).collect();
         let (mut send, mut stop, mut new_conv, mut review_click, mut all) = (false, false, false, None, None);
-        let mut later = false;
+        let (mut later, mut hold_act) = (false, None);
         let (mut chosen_dir, mut move_to, mut ctx_add) = (None, None, None);
         let (mut queue_act, mut queued, mut read_commits) = (None, None, false);
         let mut answer: Option<String> = None;
@@ -1716,6 +1805,36 @@ impl App {
                         (false, true) => 3,
                         (false, false) => 2,
                     };
+                    // the message held while its model is checked, then the model suggested for it
+                    if let Some(hold) = &c.model_hold {
+                        egui::Frame::none().fill(icons::mix(fill, accent, 0.08)).rounding(6.0).inner_margin(8.0).show(ui, |ui| {
+                            match &hold.suggestion {
+                                None => {
+                                    ui.horizontal(|ui| {
+                                        spinner(ui);
+                                        ui.label(RichText::new(t!("Je regarde si la demande demande un autre modèle…", "Checking whether the request needs another model…")).weak());
+                                    });
+                                }
+                                Some((m, why)) => {
+                                    ui.label(RichText::new(tf!("Pour cette demande, {} conviendrait mieux", "For this request, {} would suit better", claude::label(claude::MODELS[*m].1))).strong());
+                                    if !why.is_empty() {
+                                        ui.label(RichText::new(why.as_str()).weak());
+                                    }
+                                    ui.horizontal(|ui| {
+                                        if ui.button(tf!("Passer à {}", "Switch to {}", claude::label(claude::MODELS[*m].1))).clicked() {
+                                            hold_act = Some(HoldAct::Switch(*m));
+                                        }
+                                        if ui.button(tf!("Garder {}", "Keep {}", claude::label(claude::MODELS[c.model].1))).clicked() {
+                                            hold_act = Some(HoldAct::Keep);
+                                        }
+                                    });
+                                }
+                            }
+                            if ui.small_button(t!("Annuler (le message revient dans le champ)", "Cancel (the message goes back to the field)")).clicked() {
+                                hold_act = Some(HoldAct::Cancel);
+                            }
+                        });
+                    }
                     // /btw, /status: the answer above the field, until closed
                     let mut close_side = false;
                     if let Some((asked, answer)) = &c.side {
@@ -1878,11 +1997,12 @@ impl App {
                         }
                         ctx_menu.response.on_hover_text(t!("Donner à Claude un fichier, la sélection, le diff, un commit, les problèmes…", "Give Claude a file, the selection, the diff, a commit, the problems…"));
                         // what goes with each message: in a menu, the options stay one click away
-                        let on = [c.with_context, c.ask_first, !c.no_defs].iter().filter(|b| **b).count();
-                        ui.menu_button(tf!("Options ({on}/3) ▾", "Options ({on}/3) ▾"), |ui| {
+                        let on = [c.with_context, c.ask_first, c.model_first, !c.no_defs].iter().filter(|b| **b).count();
+                        ui.menu_button(tf!("Options ({on}/4) ▾", "Options ({on}/4) ▾"), |ui| {
                             ui.set_min_width(300.0);
                             ui.checkbox(&mut c.with_context, t!("Fichier ouvert et sélection", "Open file and selection")).on_hover_text(t!("Dit à Claude quel fichier tu édites, la ligne du curseur et le texte sélectionné", "Tells Claude which file you are editing, the cursor line and the selected text"));
                             ui.checkbox(&mut c.ask_first, t!("Questions d'abord", "Questions first")).on_hover_text(t!("Si la demande laisse des choix ouverts, Claude pose d'abord 1 à 3 questions avec des options à cocher, au lieu de partir dans une direction à refaire (moins de tokens)", "If the request leaves choices open, Claude first asks 1 to 3 questions with options to tick, instead of going in a direction to redo (fewer tokens)"));
+                            ui.checkbox(&mut c.model_first, t!("Modèle d'abord", "Model first")).on_hover_text(t!("Avant qu'un message parte, Haiku regarde si la demande demande un autre modèle (plus fort pour un travail difficile, plus rapide pour une petite tâche) et te le propose : tu choisis. La vérification coûte peu", "Before a message goes, Haiku checks whether the request needs another model (stronger for a hard job, faster for a small task) and suggests it: you choose. The check costs little"));
                             let mut defs = !c.no_defs;
                             if ui.checkbox(&mut defs, t!("Définitions citées", "Mentioned definitions")).on_hover_text(t!("Les classes et fonctions du projet nommées dans le message (SaleOrder, _compute_total, `foo`…) partent avec lui, leurs premières lignes comprises : Claude n'a pas à les chercher (moins de tokens)", "The classes and functions of the project named in the message (SaleOrder, _compute_total, `foo`…) go with it, their first lines included: Claude does not have to look for them (fewer tokens)")).changed() {
                                 c.no_defs = !defs;
@@ -2136,6 +2256,9 @@ impl App {
         if let Some(m) = answer {
             self.claude.answers = None;
             self.claude_send_text(m, false);
+        }
+        if let Some(a) = hold_act {
+            self.claude_hold_act(a);
         }
         if let Some(n) = queued {
             self.set_status(tf!("{n} tâche(s) ajoutée(s) à la file — « Lancer » pour les envoyer une à une", "{n} task(s) added to the queue — “Run” to send them one by one"));
