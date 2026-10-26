@@ -499,13 +499,22 @@ impl App {
         }
     }
 
-    /// The message written in the field of the chat.
-    fn claude_send(&mut self) {
+    /// The message written in the field of the chat. While Claude works it goes into the answer
+    /// being written, or, when `later`, waits in the queue until the answer is done.
+    fn claude_send(&mut self, later: bool) {
         let text = self.claude.input.trim().to_string();
         if let Some(clear) = text.starts_with('/').then(|| self.claude_command(&text)).flatten() {
             if clear {
                 self.claude.input.clear();
             }
+            return;
+        }
+        if later && self.claude.busy && !text.is_empty() {
+            self.claude.queue.push_message(&text);
+            self.claude.queue.running = true;
+            self.claude.input.clear();
+            self.set_status(t!("Message ajouté à la file : il partira quand Claude aura fini", "Message queued: it goes when Claude is done"));
+            self.claude_save();
             return;
         }
         let ask = self.claude.ask_first;
@@ -579,7 +588,8 @@ impl App {
 
     /// Sends `text` (with the context given) to Claude, asking it for its questions first when
     /// `ask_first`; false when it could not be sent. A slash command (`/usage`…) goes alone: Claude
-    /// Code reads it only at the start of the message.
+    /// Code reads it only at the start of the message. While Claude works, the message goes into
+    /// the answer being written (Claude Code reads it between two steps).
     fn claude_send_text(&mut self, text: String, ask_first: bool) -> bool {
         let Some(dir) = self.claude.dir.clone() else {
             self.set_status(t!("Aucun dossier ouvert", "No folder open"));
@@ -588,17 +598,12 @@ impl App {
         if text.is_empty() {
             return false;
         }
-        // Claude is still answering: the message waits in the queue and goes on when the answer is done
-        if self.claude.busy && !text.starts_with('/') {
-            self.claude.queue.push_message(&text);
-            self.claude.queue.running = true;
-            self.set_status(t!("Message ajouté à la file : il partira quand Claude aura fini", "Message queued: it goes when Claude is done"));
-            return true;
-        }
-        if self.claude.busy {
+        let command = text.starts_with('/');
+        let during = self.claude.busy;
+        if during && (command || self.claude.session.is_none()) {
             return false;
         }
-        let command = text.starts_with('/');
+        let ask_first = ask_first && !during;
         // the review starts with the first message: everything changed since is Claude's
         if self.claude.review_index.is_none() && !command {
             self.claude_start_review();
@@ -650,7 +655,13 @@ impl App {
         let Some(s) = self.claude.session.as_mut() else { return false };
         match s.send(&message) {
             Ok(()) => {
-                self.claude.items.push(Item::User(text.clone(), given));
+                let items = &mut self.claude.items;
+                // the text being written stays last: what follows of it is added to it
+                let at = if matches!(items.last(), Some(Item::Streaming(_))) { items.len() - 1 } else { items.len() };
+                items.insert(at, Item::User(text.clone(), given));
+                if during {
+                    self.set_status(t!("Message envoyé : Claude le prend en compte dans le travail en cours", "Message sent: Claude takes it into account in the work going on"));
+                }
                 // the conversation goes down to the message just sent, even if it was read up before
                 let chat_id = egui::Id::new("claude_chat").with(self.claude.id);
                 self.egui_ctx.data_mut(|d| d.insert_temp(egui::Id::new(("claude_to_end", chat_id)), true));
@@ -1419,6 +1430,7 @@ impl App {
         let dir_name = self.claude.dir.as_deref().map(|d| self.repo_label(d)).unwrap_or_default();
         let dirs: Vec<(PathBuf, String)> = self.repos.iter().map(|r| (r.clone(), self.repo_label(r))).collect();
         let (mut send, mut stop, mut new_conv, mut review_click, mut all) = (false, false, false, None, None);
+        let mut later = false;
         let (mut chosen_dir, mut move_to, mut ctx_add) = (None, None, None);
         let (mut queue_act, mut queued, mut read_commits) = (None, None, false);
         let mut answer: Option<String> = None;
@@ -1800,15 +1812,26 @@ impl App {
                     }
                     if resp.has_focus() && ui.input(|i| i.modifiers.command && i.key_pressed(Key::Enter)) {
                         send = true;
+                        later = ui.input(|i| i.modifiers.shift);
                     }
                     ui.horizontal(|ui| {
+                        let has_text = !c.input.trim().is_empty();
                         if c.busy {
                             if ui.button(t!("■ Arrêter", "■ Stop")).on_hover_text(t!("Arrêter la réponse en cours (la conversation continue)", "Stop the current answer (the conversation goes on)")).clicked() {
                                 stop = true;
                             }
+                            let tip = t!("Envoie le message tout de suite : Claude le lit entre deux étapes et en tient compte dans le travail en cours (Ctrl+Entrée)", "Sends the message at once: Claude reads it between two steps and takes it into account in the work going on (Ctrl+Enter)");
+                            if ui.add_enabled(has_text, filled_button(t!("Envoyer", "Send"), accent)).on_hover_text(tip).clicked() {
+                                send = true;
+                            }
+                            let tip = t!("Le message attend dans la file et part quand Claude a fini ce qu'il fait (Ctrl+Maj+Entrée)", "The message waits in the queue and goes when Claude is done with what it does (Ctrl+Shift+Enter)");
+                            if ui.add_enabled(has_text, egui::Button::new(t!("⏭ Après", "⏭ After"))).on_hover_text(tip).clicked() {
+                                send = true;
+                                later = true;
+                            }
                             spinner(ui);
                             ui.label(RichText::new(t!("Claude travaille…", "Claude is working…")).weak());
-                        } else if ui.add_enabled(!c.input.trim().is_empty(), filled_button(t!("Envoyer", "Send"), accent)).clicked() {
+                        } else if ui.add_enabled(has_text, filled_button(t!("Envoyer", "Send"), accent)).clicked() {
                             send = true;
                         }
                         let tip = t!("Ajoute la demande à la file de tâches au lieu de l'envoyer.\nUne liste (- …, * …, 1. …) donne une tâche par élément ; la phrase avant la liste va avec chacune.\n« Lancer » les envoie une à une, chacune quand Claude a fini la précédente.", "Adds the request to the task queue instead of sending it.\nA list (- …, * …, 1. …) gives one task per item; the sentence before the list goes with each.\n“Run” sends them one by one, each when Claude is done with the previous one.");
@@ -2108,7 +2131,7 @@ impl App {
             q.running = false;
         }
         if send {
-            self.claude_send();
+            self.claude_send(later);
         }
         if let Some(m) = answer {
             self.claude.answers = None;

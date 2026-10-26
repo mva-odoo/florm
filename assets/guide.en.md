@@ -284,8 +284,11 @@ command and your login: no key to set up.
 - On the right, **what Claude changed** since your first message, file by file and block by
   block: **✔ Keep** (the block leaves the review and stays in the file) or **↺ Reject** (it is
   removed from the file). Your own earlier changes are not in it.
-- **While it answers**, Ctrl+Enter does not send: the message goes in the queue and is sent by itself
-  when Claude is done. A list stays one message (no splitting); the queue makes no commit for it.
+- **While it works**, you choose where your message goes:
+  - **Send** (Ctrl+Enter): at once. Claude reads it between two steps and takes it into account in the
+    work going on (“use that file instead”, “add a test too”…).
+  - **⏭ After** (Ctrl+Shift+Enter): the message waits in the queue and is sent by itself when Claude is
+    done. A list stays one message (no splitting); the queue makes no commit for it.
 - **Task queue**: write several requests as a list (`- …`, `1. …`) and click **+ Queue**
   instead of Send: each item becomes a task (the sentence before the list goes with each).
   **Run** sends them one by one in the same conversation, each when Claude is done with the

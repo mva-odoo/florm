@@ -289,8 +289,11 @@ panneau du bas (⇱ pour lui donner tout un onglet de l'éditeur, ⇲ pour l'y r
   par bloc : **✔ Garder** (le bloc quitte la revue et reste dans le fichier) ou **↺ Rejeter**
   (il est retiré du fichier). Tes propres changements d'avant ne sont pas dedans.
 - **■ Arrêter** coupe la réponse en cours ; la conversation continue.
-- **Pendant qu'il répond**, Ctrl+Entrée n'envoie pas : le message part dans la file et s'envoie tout seul
-  quand Claude a fini. Une liste reste un seul message (pas de découpage) ; la file ne fait pas de commit.
+- **Pendant qu'il travaille**, tu choisis où part ton message :
+  - **Envoyer** (Ctrl+Entrée) : tout de suite. Claude le lit entre deux étapes et en tient compte dans
+    le travail en cours (« utilise plutôt tel fichier », « ajoute aussi un test »…).
+  - **⏭ Après** (Ctrl+Maj+Entrée) : le message attend dans la file et part tout seul quand Claude a fini.
+    Une liste reste un seul message (pas de découpage) ; la file ne fait pas de commit pour lui.
 - **File de tâches** : écris plusieurs demandes en liste (`- …`, `1. …`) et clique **+ File**
   au lieu d'Envoyer : chaque élément devient une tâche (la phrase avant la liste va avec
   chacune). **Lancer** les envoie une à une dans la même conversation, chacune quand Claude a
