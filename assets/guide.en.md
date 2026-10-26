@@ -325,6 +325,15 @@ list: read and change the messages, move a block from one commit to another (**�
 of the commits, change the order (**↑**). Nothing is committed before **Commit the N commits**;
 **Cancel** leaves everything as before.
 
+## Markdown
+
+Above the text of a `.md` file, a **formatting bar**: **B** bold, *I* italic, ~~S~~ strikethrough,
+`c` code, Link, headings H1 to H3, lists (• and 1.), checkbox ☐, quote ❝, code block, horizontal
+rule `――` and table `▦`. A button puts the syntax around the selection, or on the selected lines;
+a second click removes the prefix. The text stays editable by hand. To hide the bar:
+`markdown_toolbar = false` in `settings.toml`. The rendered preview stays Ctrl+Shift+V (tab) or
+Ctrl+K V (side).
+
 ## Appearance
 
 **Preferences → Appearance**: language (Français / English), theme (clickable previews),

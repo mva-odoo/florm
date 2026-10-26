@@ -46,6 +46,8 @@ pub struct Settings {
     /// Most dollars a conversation may spend (0: no limit).
     pub claude_budget: f64,
     /// Branch and upstream of git repositories on their folder in the tree.
+    /// The toolbar of formatting buttons above a Markdown source (the source stays editable).
+    pub markdown_toolbar: bool,
     pub tree_git_info: bool,
     /// Show git changes inside the editor (deleted lines in red, added in green).
     pub inline_diff: bool,
@@ -158,6 +160,7 @@ impl Default for Settings {
             claude_done_sound: "chime".into(),
             claude_perms: ["edit", "agents", "sandbox"].map(String::from).to_vec(),
             claude_budget: 0.0,
+            markdown_toolbar: true,
             tree_git_info: true,
             inline_diff: false,
             auto_pair: true,
@@ -240,6 +243,8 @@ claude_review = true
 claude_perms = ["edit", "agents", "sandbox"]
 # dépense maximale d'une conversation en dollars (0 = sans limite)
 claude_budget = 0.0
+# barre de mise en forme au-dessus du Markdown (le texte reste modifiable à la main)
+markdown_toolbar = true
 # branche et branche distante des dépôts git sur leur dossier dans l'arborescence
 tree_git_info = true
 # diff git dans l'éditeur : lignes supprimées en rouge, ajoutées en vert (Ctrl+Alt+D)

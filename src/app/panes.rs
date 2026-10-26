@@ -76,6 +76,7 @@ impl App {
         self.breadcrumbs_ui(ui, i, pane);
         self.conflict_bar(ui, i, pane);
         self.disk_bar(ui, i, pane);
+        self.md_toolbar_ui(ui, i, pane);
         let focused = pane == self.focused_pane;
         let id = if focused { editor_id() } else { editor_view::other_editor_id() };
         let r = self.doc_body(ui, i, id, focused)?;

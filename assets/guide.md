@@ -331,6 +331,15 @@ liste de la vue Git : relis et modifie les messages, déplace un bloc d'un commi
 laisse-le hors des commits, change l'ordre (**↑**). Rien n'est commité avant **Commiter les N
 commits** ; **Annuler** laisse tout comme avant.
 
+## Markdown
+
+Au-dessus du texte d'un fichier `.md`, une **barre de mise en forme** : **B** gras, *I* italique,
+~~S~~ barré, `c` code, Lien, titres H1 à H3, listes (• et 1.), case à cocher ☐, citation ❝, bloc
+de code, ligne horizontale `――` et tableau `▦`. Le bouton met la syntaxe autour de la sélection, ou
+sur les lignes sélectionnées ; un second clic enlève le préfixe. Le texte reste modifiable à la main.
+Pour masquer la barre : `markdown_toolbar = false` dans `settings.toml`. L'aperçu rendu reste
+Ctrl+Shift+V (onglet) ou Ctrl+K V (à côté).
+
 ## Apparence
 
 **Préférences → Apparence** : langue (Français / English), thème (aperçus cliquables), couleur d'accentuation,
