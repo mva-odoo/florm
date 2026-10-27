@@ -34,8 +34,9 @@ symbols, a class or a function takes you there.
 - On the folder of a git repository: its branch, the tracked remote branch (↑ to push, ↓ to
   pull) and the number of changed files; hovering shows the remotes
   (can be turned off in Preferences → Git).
-- The icons at the bottom (Preferences, Search, Terminal, Claude…): **▾** at the end of the row
-  chooses those shown, and can move them to the top of the sidebar. A hidden view stays in the palette (Ctrl+Shift+P) and the menus.
+- The icons of the views (Preferences, Search, Terminal, Claude, Git…) are **in the status bar, bottom left**, as in Zed. **▾** at the end of the row chooses those shown, and can move them back to the sidebar (top or bottom). A hidden view stays in the palette (Ctrl+Shift+P) and the menus.
+- **Copy / paste files**: right click → **Copy** puts the file or folder on the system clipboard; **Paste** (or Ctrl+C / Ctrl+V in the tree) drops the files copied from your PC's file manager, or from the tree. A name already taken becomes “name (copy).ext”: nothing is replaced.
+- Right click on a folder → **Initialize a git repository here** (`git init`), for a new project.
 
 ## Find in folder (Ctrl+Shift+F)
 

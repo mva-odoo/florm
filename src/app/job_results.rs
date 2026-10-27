@@ -418,21 +418,17 @@ impl App {
                         self.submit_prompt(prompt, p.display().to_string());
                     }
                 }
-                JobResult::Repos(root, repos) => {
-                    if self.root.as_ref() == Some(&root) {
-                        self.repos = repos;
-                        let active = self.docs.get(self.active).and_then(|d| d.path.clone());
-                        let pick = active.as_deref().and_then(|p| self.repo_for(p)).or_else(|| self.repos.first().cloned());
-                        if let Some(r) = pick {
-                            self.select_repo(r);
+                JobResult::Repos(root, repos) => self.apply_repos(root, repos),
+                JobResult::RepoInit { root, dir, result, repos } => {
+                    match result {
+                        Ok(out) => {
+                            self.log(out);
+                            self.set_status(tf!("Dépôt git créé dans {}", "Git repository created in {}", dir.display()));
                         }
-                        // git marks of the files already open
-                        for i in 0..self.docs.len() {
-                            if self.docs[i].path.is_some() {
-                                self.analyze(i, false);
-                            }
-                        }
+                        Err(e) => self.set_error(tf!("git init a échoué : {e}", "git init failed: {e}")),
                     }
+                    self.apply_repos(root, repos);
+                    self.exec_refresh_tree();
                 }
                 JobResult::Update { manual, result } => match result {
                     Ok(Some(u)) => {

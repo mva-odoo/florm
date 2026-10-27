@@ -289,6 +289,82 @@ impl App {
         }
     }
 
+    /// Put a file or folder of the tree on the system clipboard (as the file manager does).
+    pub(super) fn copy_entry(&mut self, path: &Path) {
+        match arboard::Clipboard::new().and_then(|mut c| c.set().file_list(&[path])) {
+            Ok(()) => self.set_status(tf!("Copié : {}", "Copied: {}", path.display())),
+            Err(e) => self.set_error(tf!("Copie impossible : {e}", "Cannot copy: {e}")),
+        }
+    }
+
+    /// Paste the files copied in the file manager (or in the tree) into `dir`. A name already taken
+    /// becomes "name (copie).ext" instead of replacing the file.
+    pub(super) fn paste_into(&mut self, dir: PathBuf) {
+        let files = match arboard::Clipboard::new().and_then(|mut c| c.get().file_list()) {
+            Ok(f) if !f.is_empty() => f,
+            _ => {
+                self.set_error(t!("Aucun fichier copié : copie-en un dans le gestionnaire de fichiers", "No file copied: copy one in the file manager"));
+                return;
+            }
+        };
+        let (mut done, mut first) = (0, None);
+        for src in files {
+            let Some(name) = src.file_name() else { continue };
+            let dest = free_name(&dir, name);
+            // a folder into itself would never end
+            if src.is_dir() && dest.starts_with(&src) {
+                self.set_error(tf!("Impossible de copier {} dans lui-même", "Cannot copy {} into itself", src.display()));
+                continue;
+            }
+            match copy_recursive(&src, &dest) {
+                Ok(()) => {
+                    done += 1;
+                    first.get_or_insert(dest);
+                }
+                Err(e) => self.set_error(tf!("Copie de {} impossible : {e}", "Cannot copy {}: {e}", src.display())),
+            }
+        }
+        if done > 0 {
+            self.log(tf!("Collé {done} élément(s) dans {}", "Pasted {done} item(s) into {}", dir.display()));
+            self.set_status(tf!("{done} élément(s) collé(s) dans {}", "{done} item(s) pasted into {}", dir.display()));
+            if let (Some(tree), Some(p)) = (self.tree.as_mut(), first) {
+                tree.reveal(&p);
+                self.tree_scroll = Some(p);
+            }
+            self.exec_refresh_tree();
+        }
+    }
+
+    /// `git init` in a folder of the tree, then it is known as a repository of the project.
+    pub(super) fn init_repo(&mut self, dir: PathBuf) {
+        let Some(root) = self.root.clone() else { return };
+        self.log("$ git init".to_string());
+        self.set_status(t!("git init…", "git init…"));
+        self.jobs.spawn(move || {
+            let result = git::run(&dir, &["init"]);
+            JobResult::RepoInit { root: root.clone(), dir, result, repos: git::find_repos(&root, 3) }
+        });
+    }
+
+    /// The repositories found in the opened folder: the one of the active file (else the first) is selected.
+    pub(super) fn apply_repos(&mut self, root: PathBuf, repos: Vec<PathBuf>) {
+        if self.root.as_ref() != Some(&root) {
+            return;
+        }
+        self.repos = repos;
+        let active = self.docs.get(self.active).and_then(|d| d.path.clone());
+        let pick = active.as_deref().and_then(|p| self.repo_for(p)).or_else(|| self.repos.first().cloned());
+        if let Some(r) = pick {
+            self.select_repo(r);
+        }
+        // git marks of the files already open
+        for i in 0..self.docs.len() {
+            if self.docs[i].path.is_some() {
+                self.analyze(i, false);
+            }
+        }
+    }
+
     pub(super) fn refresh_index(&mut self) {
         let Some(root) = self.root.clone() else { return };
         self.index.files_at = Some(Instant::now());
@@ -318,5 +394,61 @@ impl App {
             let labels = v.iter().map(|p| p.to_string_lossy().into_owned()).collect();
             JobResult::FileIndex(root, Some((v, labels)))
         });
+    }
+}
+
+/// `dir/name`, or `dir/name (copie).ext`, `dir/name (copie 2).ext`… when it exists.
+fn free_name(dir: &Path, name: &std::ffi::OsStr) -> PathBuf {
+    let first = dir.join(name);
+    if first.symlink_metadata().is_err() {
+        return first;
+    }
+    let path = Path::new(name);
+    let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let ext = path.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
+    (1..)
+        .map(|k| {
+            let copy = if k == 1 { t!("copie", "copy").to_string() } else { format!("{} {k}", t!("copie", "copy")) };
+            dir.join(format!("{stem} ({copy}){ext}"))
+        })
+        .find(|p| p.symlink_metadata().is_err())
+        .expect("endless range")
+}
+
+fn copy_recursive(src: &Path, dest: &Path) -> std::io::Result<()> {
+    if src.is_dir() {
+        std::fs::create_dir_all(dest)?;
+        for e in std::fs::read_dir(src)? {
+            let e = e?;
+            copy_recursive(&e.path(), &dest.join(e.file_name()))?;
+        }
+        Ok(())
+    } else {
+        std::fs::copy(src, dest).map(|_| ())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pasted_name_never_replaces_a_file() {
+        let dir = std::env::temp_dir().join(format!("florm_paste_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let name = std::ffi::OsStr::new("a.txt");
+        assert_eq!(free_name(&dir, name), dir.join("a.txt"));
+        std::fs::write(dir.join("a.txt"), "x").unwrap();
+        let second = free_name(&dir, name);
+        assert_ne!(second, dir.join("a.txt"));
+        std::fs::write(&second, "y").unwrap();
+        assert_ne!(free_name(&dir, name), second);
+        let src = dir.join("d");
+        std::fs::create_dir_all(src.join("s")).unwrap();
+        std::fs::write(src.join("s/f"), "z").unwrap();
+        copy_recursive(&src, &dir.join("d2")).unwrap();
+        assert_eq!(std::fs::read_to_string(dir.join("d2/s/f")).unwrap(), "z");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

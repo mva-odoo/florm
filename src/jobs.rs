@@ -91,6 +91,8 @@ pub enum JobResult {
     Fonts(Vec<crate::fonts::FontInfo>),
     /// Git repositories found in the opened folder.
     Repos(PathBuf, Vec<PathBuf>),
+    /// `git init` in a folder of the tree: its output, then the repositories of the project again.
+    RepoInit { root: PathBuf, dir: PathBuf, result: Result<String, String>, repos: Vec<PathBuf> },
     /// Symbols of the whole project (go to definition, completion).
     /// `bool`: only the repositories being worked on so far, the whole index follows.
     SymbolIndex(PathBuf, crate::index::Index, bool),

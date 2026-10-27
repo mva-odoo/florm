@@ -23,6 +23,12 @@ pub enum TreeAction {
     /// Give the file or folder to Claude with the next message.
     Claude(PathBuf),
     Refresh,
+    /// Put the file or folder on the system clipboard (to paste it in the file manager or here).
+    CopyFile(PathBuf),
+    /// Paste the files copied on the system clipboard into this folder.
+    Paste(PathBuf),
+    /// `git init` in this folder (new project).
+    InitRepo(PathBuf),
     /// Leave the folder out of go to file, the symbol index and find in files (`true`), or
     /// take it back.
     Exclude(PathBuf, bool),
@@ -249,6 +255,10 @@ pub fn show(
         }
         if ui.button(t!("Nouveau dossier…", "New folder…")).clicked() {
             act = Some(TreeAction::NewFolder(root.path.clone()));
+            ui.close_menu();
+        }
+        if ui.button(t!("Coller", "Paste")).clicked() {
+            act = Some(TreeAction::Paste(root.path.clone()));
             ui.close_menu();
         }
     });
@@ -504,6 +514,19 @@ fn keyboard(ui: &Ui, root: &mut Node, nav: &mut Nav, scroll_to: &mut Option<Path
     });
     let mut act = None;
     for (key, m) in keys {
+        // Ctrl+C / Ctrl+V on the entry under the keyboard cursor (the root when there is none)
+        if m.command && !m.alt && !m.shift && matches!(key, egui::Key::C | egui::Key::V) {
+            let (path, is_dir) = match &nav.cursor {
+                Some(c) if *c != root.path => (c.clone(), root.find_mut(c).is_some_and(|n| n.is_dir)),
+                _ => (root.path.clone(), true),
+            };
+            act = Some(if key == egui::Key::C {
+                TreeAction::CopyFile(path)
+            } else {
+                TreeAction::Paste(if is_dir { path } else { path.parent().map(Path::to_path_buf).unwrap_or_else(|| root.path.clone()) })
+            });
+            continue;
+        }
         if m.ctrl || m.alt || m.command {
             continue;
         }
@@ -687,6 +710,12 @@ fn menu(ui: &mut Ui, path: &Path, is_dir: bool, excluded: Option<bool>, act: &mu
         pick(TreeAction::NewFolder(dir.clone()), ui);
     }
     ui.separator();
+    if ui.button(t!("Copier", "Copy")).on_hover_text(t!("Sur le presse-papiers du système : à coller ici ou dans le gestionnaire de fichiers (Ctrl+C)", "On the system clipboard: paste it here or in the file manager (Ctrl+C)")).clicked() {
+        pick(TreeAction::CopyFile(path.to_path_buf()), ui);
+    }
+    if ui.button(t!("Coller", "Paste")).on_hover_text(t!("Les fichiers copiés depuis le gestionnaire de fichiers (ou ici) arrivent dans ce dossier (Ctrl+V)", "The files copied from the file manager (or here) land in this folder (Ctrl+V)")).clicked() {
+        pick(TreeAction::Paste(dir.clone()), ui);
+    }
     if ui.button(t!("Renommer…", "Rename…")).clicked() {
         pick(TreeAction::Rename(path.to_path_buf()), ui);
     }
@@ -708,6 +737,12 @@ fn menu(ui: &mut Ui, path: &Path, is_dir: bool, excluded: Option<bool>, act: &mu
     }
     if ui.button(t!("Rafraîchir", "Refresh")).clicked() {
         pick(TreeAction::Refresh, ui);
+    }
+    if is_dir && !path.join(".git").exists() {
+        ui.separator();
+        if ui.button(t!("Initialiser un dépôt git ici", "Initialize a git repository here")).on_hover_text(t!("git init dans ce dossier", "git init in this folder")).clicked() {
+            pick(TreeAction::InitRepo(path.to_path_buf()), ui);
+        }
     }
     match excluded {
         Some(false) => {

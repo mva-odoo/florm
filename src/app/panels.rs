@@ -915,6 +915,9 @@ impl App {
             TreeAction::SwitchProject(p) => self.switch_project(p),
             TreeAction::Exclude(p, on) => self.exclude_folder(&p, on),
             TreeAction::OpenFolder => self.pending.push(Cmd::OpenFolder),
+            TreeAction::CopyFile(p) => self.copy_entry(&p),
+            TreeAction::Paste(d) => self.paste_into(d),
+            TreeAction::InitRepo(d) => self.init_repo(d),
         }
     }
 

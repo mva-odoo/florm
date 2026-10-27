@@ -34,8 +34,9 @@ liste ses symboles, une classe ou une fonction y emmène.
 - Sur le dossier d'un dépôt git : sa branche, la branche distante suivie (↑ à pousser, ↓ à
   récupérer) et le nombre de fichiers modifiés ; le survol montre les remotes
   (désactivable dans Préférences → Git).
-- Les icônes en bas (Préférences, Recherche, Terminal, Claude…) : **▾** au bout de la ligne choisit
-  celles qui sont affichées, et les met en haut de la barre latérale si on le souhaite. Une vue masquée reste dans la palette (Ctrl+Shift+P) et les menus.
+- Les icônes des vues (Préférences, Recherche, Terminal, Claude, Git…) sont **dans la barre d'état, en bas à gauche**, comme dans Zed. **▾** au bout de la ligne choisit celles qui sont affichées, et permet de les remettre dans la barre latérale (en haut ou en bas). Une vue masquée reste dans la palette (Ctrl+Shift+P) et les menus.
+- **Copier / coller des fichiers** : clic droit → **Copier** met le fichier ou le dossier sur le presse-papiers du système ; **Coller** (ou Ctrl+C / Ctrl+V dans l'arborescence) y dépose les fichiers copiés depuis le gestionnaire de fichiers de ton PC, ou depuis l'arborescence. Un nom déjà pris devient « nom (copie).ext » : rien n'est remplacé.
+- Clic droit sur un dossier → **Initialiser un dépôt git ici** (`git init`), pour un nouveau projet.
 
 ## Rechercher dans le dossier (Ctrl+Shift+F)
 
