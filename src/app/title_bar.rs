@@ -72,7 +72,7 @@ impl App {
     /// on macOS, none under a tiling window manager).
     pub(super) fn title_bar(&mut self, ctx: &egui::Context) {
         let mut pending = Vec::new();
-        let panel = ctx.style().visuals.panel_fill;
+        let panel = self.hl.tab_colors().bar;
         let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
         let controls = os::window_controls();
         egui::TopBottomPanel::top("menu")

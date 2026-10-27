@@ -1538,6 +1538,12 @@ fn tab_widget(
     } else if active || hovered || dirty {
         p.text(close_rect.center(), Align2::CENTER_CENTER, "×", egui::FontId::proportional(15.0), text_color);
     }
+    // a thin line between two tabs (not around the active or the hovered one)
+    if !active && !hovered {
+        let x = rect.right() - 0.5;
+        let c = tc.text_inactive.gamma_multiply(0.45);
+        ui.painter().line_segment([egui::pos2(x, tab.top() + 7.0), egui::pos2(x, tab.bottom() - 5.0)], egui::Stroke::new(1.0, c));
+    }
     let closed = close.on_hover_text(t!("Fermer (Ctrl+W)", "Close (Ctrl+W)")).clicked();
     (resp, closed)
 }

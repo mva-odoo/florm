@@ -266,7 +266,8 @@ impl Highlighting {
             let f = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t) as u8;
             Color32::from_rgb(f(a.r(), b.r()), f(a.g(), b.g()), f(a.b(), b.b()))
         };
-        let bar = self.visuals().panel_fill;
+        // the title bar and the tab strip a bit darker than the panels, so they stand out
+        let bar = adj(self.visuals().panel_fill, if light { -14 } else { -10 });
         TabColors {
             bar,
             hover: adj(c.bg, if light { -5 } else { 9 }),
