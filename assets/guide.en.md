@@ -90,7 +90,7 @@ The `.gitignore` is respected.
 Florm goes through the `git` command (your configuration, your credentials). Without `git`, the view
 explains how to install it (the system is detected) and comes back by itself as soon as it is found.
 
-- **Ctrl+Shift+G** (or click the branch in the status bar): Git view. At the top the branch,
+- **Ctrl+Shift+G** (or click the branch in the status bar): Git view. At the top the repository (large, a click lists them when the project has several), the branch (**🔀 name ▾**: switch or create one),
   pull / push / fetch and the commit message (Ctrl+Enter); below it the graph, whose first
   rows are the changes to stage / staged.
   A click on a file opens its changes in the commits view.

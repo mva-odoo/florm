@@ -284,14 +284,10 @@ impl App {
             .show_inside(ui, |ui| {
                 ui.horizontal(|ui| {
                     crate::view_bar::title(ui, "Pull requests");
-                    if repo_choices.len() > 1 {
-                        let labels: Vec<String> = repo_choices.iter().map(|(_, l)| l.clone()).collect();
-                        let current = repo_choices.iter().position(|(r, _)| p.repo.as_ref() == Some(r));
-                        if let Some(k) = crate::pick::combo(ui, "pr_repo", &repo_name, &labels, current).filter(|k| Some(*k) != current) {
-                            act = Some(PrAct::Repo(repo_choices[k].0.clone()));
-                        }
-                    } else {
-                        ui.label(RichText::new(&repo_name).weak());
+                    let labels: Vec<String> = repo_choices.iter().map(|(_, l)| l.clone()).collect();
+                    let current = repo_choices.iter().position(|(r, _)| p.repo.as_ref() == Some(r));
+                    if let Some(k) = crate::view_bar::repo_chip(ui, "pr_repo", &repo_name, &labels, current).filter(|k| Some(*k) != current) {
+                        act = Some(PrAct::Repo(repo_choices[k].0.clone()));
                     }
                     ui.add_space(8.0);
                     let before = (p.state, p.who);

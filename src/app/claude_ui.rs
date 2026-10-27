@@ -1543,14 +1543,10 @@ impl App {
                     ui.label(RichText::new("✳ Claude").strong().size(15.0).color(accent));
                     let running = c.session.is_some();
                     ui.add_enabled_ui(!running, |ui| {
-                        if dirs.len() > 1 {
-                            let labels: Vec<String> = dirs.iter().map(|(_, l)| l.clone()).collect();
-                            let current = dirs.iter().position(|(d, _)| c.dir.as_ref() == Some(d));
-                            if let Some(k) = crate::pick::combo(ui, ("claude_dir", conv), &dir_name, &labels, current) {
-                                chosen_dir = Some(dirs[k].0.clone());
-                            }
-                        } else {
-                            ui.label(RichText::new(&dir_name).weak());
+                        let labels: Vec<String> = dirs.iter().map(|(_, l)| l.clone()).collect();
+                        let current = dirs.iter().position(|(d, _)| c.dir.as_ref() == Some(d));
+                        if let Some(k) = crate::view_bar::repo_chip(ui, ("claude_dir", conv), &dir_name, &labels, current) {
+                            chosen_dir = Some(dirs[k].0.clone());
                         }
                         egui::ComboBox::from_id_salt(("claude_model", conv)).selected_text(claude::label(claude::MODELS[c.model].1)).show_ui(ui, |ui| {
                             for (k, (_, label)) in claude::MODELS.iter().enumerate() {

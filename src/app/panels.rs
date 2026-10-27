@@ -960,10 +960,29 @@ impl App {
         let (big, mut move_to) = (self.has_tab(document::View::Git), None);
         let (mut stash_act, mut stash_open) = (None, false);
         // --- branch, its upstream and the remote actions
+        let mut cmds = Vec::new();
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
+            // the repository first and large (easy to mistake in a project with several)
+            let labels: Vec<String> = repo_choices.iter().map(|(_, l)| l.clone()).collect();
+            let current = repo_choices.iter().position(|(r, _)| self.history.repo.as_ref() == Some(r));
+            if let Some(k) = crate::view_bar::repo_chip(ui, "history_repo", &repo_name, &labels, current) {
+                chosen_repo = Some(repo_choices[k].0.clone());
+            }
             if let Some(st) = &self.git.status {
-                ui.label(RichText::new(format!("🔀 {}", st.branch)).strong().size(15.0));
+                // the branch and its menu are one: switch, or create a new one
+                ui.menu_button(RichText::new(format!("🔀 {} ▾", st.branch)).strong().size(15.0), |ui| {
+                    if ui.button(t!("Changer de branche…", "Switch branch…")).clicked() {
+                        cmds.push(Cmd::GitCheckout);
+                        ui.close_menu();
+                    }
+                    if ui.button(t!("+ Nouvelle branche…", "+ New branch…")).clicked() {
+                        cmds.push(Cmd::GitNewBranch);
+                        ui.close_menu();
+                    }
+                })
+                .response
+                .on_hover_text(t!("Changer de branche ou en créer une", "Switch branch or create one"));
                 match st.upstream() {
                     Some((up, ahead, behind)) => {
                         if ahead > 0 {
@@ -997,7 +1016,6 @@ impl App {
                 spinner(ui);
             }
             ui.add_space(8.0);
-            let mut cmds = Vec::new();
             ui.menu_button(t!("↕ Synchroniser ▾", "↕ Sync ▾"), |ui| {
                 for (label, cmd, tip) in [
                     ("⬇ Pull", Cmd::GitPull, t!("Récupérer et intégrer les commits distants", "Fetch and merge the remote commits")),
@@ -1012,19 +1030,12 @@ impl App {
             })
             .response
             .on_hover_text(t!("Pull, Push, Fetch : récupérer et envoyer les commits", "Pull, Push, Fetch: get and send the commits"));
-            if ui.button(t!("Branche ▾", "Branch ▾")).on_hover_text(t!("Changer de branche", "Switch branch")).clicked() {
-                cmds.push(Cmd::GitCheckout);
-            }
             // the graph: repository, filter; the rest under ⋯
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let changes = self.git.status.as_ref().is_some_and(|s| !s.entries.is_empty());
                 let (git, all) = (&mut self.git, &mut self.history.all);
                 let mut stash_shown = false;
                 let mut more = |ui: &mut egui::Ui| {
-                    if ui.button(t!("+ Nouvelle branche…", "+ New branch…")).clicked() {
-                        cmds.push(Cmd::GitNewBranch);
-                        ui.close_menu();
-                    }
                     let n = git.stashes.len();
                     let label = if n > 0 { format!("Stash ({n})") } else { "Stash".into() };
                     ui.menu_button(label, |ui| {
@@ -1058,16 +1069,9 @@ impl App {
                 }
                 ui.add(egui::TextEdit::singleline(&mut h.filter).hint_text(t!("🔍 Filtrer : message, auteur, hash, branche…", "🔍 Filter: message, author, hash, branch…")).desired_width(220.0))
                     .on_hover_text(t!("↑ ↓ commits · ← → fichiers du diff · Page ↑ ↓ défiler", "↑ ↓ commits · ← → files of the diff · Page ↑ ↓ scroll"));
-                if repo_choices.len() > 1 {
-                    let labels: Vec<String> = repo_choices.iter().map(|(_, l)| l.clone()).collect();
-                    let current = repo_choices.iter().position(|(r, _)| h.repo.as_ref() == Some(r));
-                    if let Some(k) = crate::pick::combo(ui, "history_repo", &repo_name, &labels, current) {
-                        chosen_repo = Some(repo_choices[k].0.clone());
-                    }
-                }
             });
-            self.pending.extend(cmds);
         });
+        self.pending.extend(cmds);
 
         if stash_open {
             self.stash_reload();

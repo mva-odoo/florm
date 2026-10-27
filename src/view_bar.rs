@@ -56,3 +56,16 @@ pub fn in_tab_notice(ui: &mut egui::Ui) -> bool {
     })
     .inner
 }
+
+/// The repository (or folder) a view works on, large and tinted at the left of its header, so it is not
+/// mistaken for another. With several, a click lists them (filterable); returns the index chosen.
+pub fn repo_chip(ui: &mut egui::Ui, id_salt: impl std::hash::Hash, name: &str, items: &[String], current: Option<usize>) -> Option<usize> {
+    let accent = ui.visuals().hyperlink_color;
+    let text = RichText::new(name).strong().size(14.0).color(accent);
+    if items.len() > 1 {
+        return crate::pick::combo(ui, id_salt, text, items, current);
+    }
+    let fill = crate::icons::mix(ui.visuals().panel_fill, accent, 0.15);
+    egui::Frame::none().fill(fill).rounding(5.0).inner_margin(egui::Margin::symmetric(8.0, 2.0)).show(ui, |ui| ui.label(text));
+    None
+}
