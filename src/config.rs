@@ -96,6 +96,8 @@ pub struct Settings {
     pub sidebar_hidden: Vec<String>,
     /// The icons of the views at the top of the sidebar rather than at its bottom.
     pub sidebar_tools_top: bool,
+    /// The icons of the views in the status bar (as Zed) rather than in the sidebar.
+    pub tools_in_status_bar: bool,
     /// Debugger: the container the program runs in, empty for this computer.
     pub debug_target: String,
     /// "launch" (Florm starts the program) or "attach" (it listens with debugpy).
@@ -188,6 +190,7 @@ impl Default for Settings {
             docker_order: HashMap::new(),
             sidebar_hidden: Vec::new(),
             sidebar_tools_top: false,
+            tools_in_status_bar: true,
             debug_target: String::new(),
             debug_mode: "launch".into(),
             debug_command: String::new(),
@@ -243,6 +246,8 @@ claude_review = true
 claude_perms = ["edit", "agents", "sandbox"]
 # dépense maximale d'une conversation en dollars (0 = sans limite)
 claude_budget = 0.0
+# les icônes des vues (Préférences, Recherche, Terminal, Claude, Git…) dans la barre d'état plutôt que dans la barre latérale
+tools_in_status_bar = true
 # barre de mise en forme au-dessus du Markdown (le texte reste modifiable à la main)
 markdown_toolbar = true
 # branche et branche distante des dépôts git sur leur dossier dans l'arborescence

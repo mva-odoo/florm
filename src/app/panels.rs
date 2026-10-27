@@ -418,7 +418,7 @@ impl App {
         let (mut toggle_spaces, mut convert_utf8) = (false, false);
         let panel = ctx.style().visuals.panel_fill;
         egui::TopBottomPanel::bottom("status")
-            .exact_height(24.0)
+            .exact_height(26.0)
             .frame(egui::Frame::none().fill(panel).inner_margin(egui::Margin::symmetric(12.0, 0.0)))
             .show(ctx, |ui| {
             ui.style_mut().text_styles.insert(egui::TextStyle::Body, egui::FontId::proportional(12.5));
@@ -439,6 +439,10 @@ impl App {
                     .response
                     .on_hover_text(t!("Menus (barre de menus masquée)", "Menus (menu bar hidden)"));
                     self.pending.extend(pending);
+                }
+                if self.settings.tools_in_status_bar {
+                    self.sidebar_tools(ui, true);
+                    ui.separator();
                 }
                 if let Some(d) = self.docs.get(self.active) {
                     let p = d.primary_sel();
@@ -734,11 +738,13 @@ impl App {
             // the views of the bottom panel, icons only: left click in the editor area, right click
             // there; projects are under the folder name (Ctrl+Alt+P). At the top or the bottom of the sidebar.
             let top = self.settings.sidebar_tools_top;
+            let in_bar = self.settings.tools_in_status_bar;
             let frame = egui::Frame::none().inner_margin(if top { egui::Margin { left: 0.0, right: 0.0, top: 0.0, bottom: 6.0 } } else { egui::Margin { left: 0.0, right: 0.0, top: 6.0, bottom: 0.0 } });
-            if top {
-                egui::TopBottomPanel::top("sidebar_tools").frame(frame).show_inside(ui, |ui| self.sidebar_tools(ui));
+            if in_bar {
+            } else if top {
+                egui::TopBottomPanel::top("sidebar_tools").frame(frame).show_inside(ui, |ui| self.sidebar_tools(ui, false));
             } else {
-                egui::TopBottomPanel::bottom("sidebar_tools").frame(frame).show_inside(ui, |ui| self.sidebar_tools(ui));
+                egui::TopBottomPanel::bottom("sidebar_tools").frame(frame).show_inside(ui, |ui| self.sidebar_tools(ui, false));
             }
             match self.tree.as_mut() {
                 Some(tree) => {
@@ -783,15 +789,24 @@ impl App {
     }
 
     /// The icons of the views (`sidebar`), with the menu that chooses which are shown.
-    fn sidebar_tools(&mut self, ui: &mut egui::Ui) {
+    /// `in_bar`: in the status bar (one row, smaller) rather than in the sidebar.
+    fn sidebar_tools(&mut self, ui: &mut egui::Ui, in_bar: bool) {
         let top = self.settings.sidebar_tools_top;
-        ui.horizontal_wrapped(|ui| {
+        let size = if in_bar { egui::vec2(24.0, 22.0) } else { egui::vec2(26.0, 24.0) };
+        let row = |ui: &mut egui::Ui, add: &mut dyn FnMut(&mut egui::Ui)| {
+            if in_bar {
+                ui.horizontal(|ui| add(ui));
+            } else {
+                ui.horizontal_wrapped(|ui| add(ui));
+            }
+        };
+        row(ui, &mut |ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
             let hidden = self.settings.sidebar_hidden.clone();
             let shown = |key: &str| !hidden.iter().any(|h| h == key);
             // preferences, left of the search (the first view)
             if shown("settings") {
-                let (rect, r) = ui.allocate_exact_size(egui::vec2(26.0, 24.0), Sense::click());
+                let (rect, r) = ui.allocate_exact_size(size, Sense::click());
                 if r.hovered() {
                     ui.painter().rect_filled(rect, 4.0, ui.visuals().widgets.hovered.weak_bg_fill);
                 }
@@ -803,7 +818,7 @@ impl App {
             }
             // problems and output are in the status bar, the debugger opens by itself: not here
             for (tab, icon, label) in BottomTab::shown().filter(|(t, ..)| t.in_sidebar() && shown(&t.key())) {
-                let (rect, r) = ui.allocate_exact_size(egui::vec2(26.0, 24.0), Sense::click());
+                let (rect, r) = ui.allocate_exact_size(size, Sense::click());
                 let on = self.bottom == Some(tab);
                 // Claude finished in the bottom panel, not seen yet: in green
                 let done = tab == BottomTab::Claude && !on && self.claude_bottom_done();
@@ -824,7 +839,9 @@ impl App {
             // which icons are shown
             let mut changed = None;
             let mut placed = None;
+            let mut to_bar = None;
             let menu = ui.menu_button(RichText::new("▾").weak(), |ui| {
+                ui.visuals_mut().override_text_color = None;
                 ui.label(RichText::new(t!("Icônes affichées", "Icons shown")).small().weak());
                 let mut items = vec![("settings".to_string(), t!("Préférences", "Preferences").to_string())];
                 items.extend(BottomTab::shown().filter(|(t, ..)| t.in_sidebar()).map(|(t, _, l)| (t.key(), l.to_string())));
@@ -839,11 +856,21 @@ impl App {
                     changed = Some((String::new(), true));
                     ui.close_menu();
                 }
-                let mut at_top = top;
-                if ui.checkbox(&mut at_top, t!("En haut de la barre latérale", "At the top of the sidebar")).changed() {
-                    placed = Some(at_top);
+                let mut bar = in_bar;
+                if ui.checkbox(&mut bar, t!("Dans la barre d'état (en bas)", "In the status bar (at the bottom)")).changed() {
+                    to_bar = Some(bar);
+                }
+                if !in_bar {
+                    let mut at_top = top;
+                    if ui.checkbox(&mut at_top, t!("En haut de la barre latérale", "At the top of the sidebar")).changed() {
+                        placed = Some(at_top);
+                    }
                 }
             });
+            if let Some(bar) = to_bar {
+                self.settings.tools_in_status_bar = bar;
+                self.persist("tools_in_status_bar", bar.to_string());
+            }
             if let Some(at_top) = placed {
                 self.settings.sidebar_tools_top = at_top;
                 self.persist("sidebar_tools_top", at_top.to_string());
