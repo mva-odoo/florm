@@ -525,6 +525,10 @@ impl App {
         let root = self.root.clone();
         let accent = self.hl.colors.accent;
         let Some(d) = self.docs.get_mut(i) else { return };
+        // the views (Claude, Git, GitHub, Docker, terminal…) have their own bar: no room lost
+        if !matches!(d.view, document::View::Text | document::View::Image | document::View::Preview(_)) {
+            return;
+        }
         let line = d.rope.char_to_line(d.primary_sel().head);
         // folders of the path (relative to the project), with their absolute path for the menus
         let mut dirs: Vec<(String, Option<PathBuf>)> = Vec::new();

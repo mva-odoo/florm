@@ -18,7 +18,8 @@ Every shortcut can be changed in **Preferences → Shortcuts** (Ctrl+,).
 | **Alt+Z** | Word wrap of the lines that are too long (display only; ↑ ↓ follow the rows) |
 
 The breadcrumbs above the code are clickable: a folder shows its content, the file lists its
-symbols, a class or a function takes you there.
+symbols, a class or a function takes you there. The views (Claude, Git, GitHub, Docker,
+terminal…) have none: they keep the whole height.
 
 ## Sidebar
 

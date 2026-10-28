@@ -18,7 +18,8 @@ Tous les raccourcis se changent dans **Préférences → Raccourcis** (Ctrl+,).
 | **Alt+Z** | Retour à la ligne automatique des lignes trop longues (l'affichage seulement ; ↑ ↓ suivent les rangées) |
 
 Le fil d'Ariane au-dessus du code est cliquable : un dossier montre son contenu, le fichier
-liste ses symboles, une classe ou une fonction y emmène.
+liste ses symboles, une classe ou une fonction y emmène. Les vues (Claude, Git, GitHub,
+Docker, terminal…) n'en ont pas : elles gardent toute la hauteur.
 
 ## Barre latérale
 
