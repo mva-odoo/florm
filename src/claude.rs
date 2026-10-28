@@ -3,7 +3,7 @@
 
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Stdio};
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::{Arc, Mutex};
@@ -481,6 +481,55 @@ fn run_cli(dir: &Path, args: &[&str]) -> Result<(), String> {
     }
 }
 
+/// The project's file of rules for the commit messages written by Claude.
+pub fn commit_rules_path(repo: &Path) -> PathBuf {
+    repo.join(".florm").join("commit.md")
+}
+
+/// The rules the commit messages of `repo` must follow: `.florm/commit.md`, else the section of
+/// the CLAUDE.md of the project about commits (its title contains "commit").
+pub fn commit_rules(repo: &Path) -> String {
+    let root = crate::git::repo_root(repo).unwrap_or_else(|| repo.to_path_buf());
+    if let Ok(t) = std::fs::read_to_string(commit_rules_path(&root)) {
+        // the comment lines of the template are only for the reader
+        let t: String = t.lines().filter(|l| !l.trim_start().starts_with("<!--")).collect::<Vec<_>>().join("\n");
+        if !t.trim().is_empty() {
+            return t.trim().to_string();
+        }
+    }
+    claude_md_section(&std::fs::read_to_string(root.join("CLAUDE.md")).unwrap_or_default(), "commit")
+}
+
+/// The section of a Markdown text whose title contains `word` (any case), without its title,
+/// down to the next title of the same level or above.
+fn claude_md_section(text: &str, word: &str) -> String {
+    let mut out: Vec<&str> = Vec::new();
+    let mut level = None;
+    for l in text.lines() {
+        let hashes = l.chars().take_while(|&c| c == '#').count();
+        let title = hashes > 0 && l[hashes..].starts_with(' ');
+        match level {
+            Some(n) if title && hashes <= n => break,
+            Some(_) => out.push(l),
+            None if title && l.to_lowercase().contains(word) => level = Some(hashes),
+            None => {}
+        }
+    }
+    out.join("\n").trim().to_string()
+}
+
+/// The rules of the project, at the end of a prompt that writes commit messages.
+fn push_rules(prompt: &mut String, dir: &Path) {
+    let rules = commit_rules(dir);
+    if !rules.is_empty() {
+        prompt.push_str(t!(
+            "\n\nConsignes du projet pour les messages de commit (elles passent avant le style des derniers messages) :\n",
+            "\n\nRules of the project for the commit messages (they come before the style of the last messages):\n"
+        ));
+        prompt.push_str(&rules);
+    }
+}
+
 /// A commit message for `diff`, in the style of the last messages of the repository; `wish`:
 /// what was asked to Claude for these changes, if known.
 pub fn commit_message(dir: &Path, diff: &str, recent: &str, wish: &str) -> Result<String, String> {
@@ -500,6 +549,7 @@ pub fn commit_message(dir: &Path, diff: &str, recent: &str, wish: &str) -> Resul
         prompt.push_str(t!("\n\nCe que le développeur avait demandé pour ces changements :\n", "\n\nWhat the developer had asked for these changes:\n"));
         prompt.push_str(wish.trim());
     }
+    push_rules(&mut prompt, dir);
     // a very large diff is cut: the beginning says enough
     let diff: String = diff.chars().take(30_000).collect();
     run_once(dir, &["-p", &prompt, "--output-format", "text", "--model", "haiku", "--tools", "", "--no-session-persistence"], diff).map(|t| clean_message(&t))
@@ -551,6 +601,7 @@ pub fn commit_plan(dir: &Path, blocks: &str, recent: &str, wish: &str) -> Result
         prompt.push_str(t!("\n\nCe que le développeur avait demandé pour ces changements :\n", "\n\nWhat the developer had asked for these changes:\n"));
         prompt.push_str(wish.trim());
     }
+    push_rules(&mut prompt, dir);
     let text = run_once(dir, &["-p", &prompt, "--output-format", "text", "--model", "sonnet", "--tools", "", "--no-session-persistence"], blocks.to_string())?;
     parse_plan(&text)
 }
@@ -852,6 +903,13 @@ fn clean_message(t: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn commit_section_of_claude_md() {
+        let md = "# P\n\n## Commandes\n\nx\n\n## Commits\n\nEn français, `[TAG] Zone : …`.\n\n### Exemple\n\nex\n\n## Réponses\n\ny";
+        assert_eq!(claude_md_section(md, "commit"), "En français, `[TAG] Zone : …`.\n\n### Exemple\n\nex");
+        assert_eq!(claude_md_section("# A\nrien", "commit"), "");
+    }
 
     #[test]
     fn plan_of_commits() {
