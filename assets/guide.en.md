@@ -21,6 +21,12 @@ The breadcrumbs above the code are clickable: a folder shows its content, the fi
 symbols, a class or a function takes you there. The views (Claude, Git, GitHub, Docker,
 terminal…) have none: they keep the whole height.
 
+**Groups of tabs**: right click a tab → **Add to a group** (an existing one or **+ New
+group**). The tabs of a group stay side by side, with a band of its color and its name before
+them: a click on the name folds the group (only its name stays, with the number of tabs), right
+click to rename it, close its tabs or dissolve it. In a pull request, **📑 Open the files** opens
+them in the group “PR #…”. The groups are kept with the session.
+
 ## Sidebar
 
 - **Ctrl+Shift+E** (or a click on a file): the keyboard goes to the tree. **↑ ↓** to move,

@@ -65,6 +65,9 @@ pub struct SessionFile {
     /// "search", "help", "welcome".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub view: Option<String>,
+    /// Group of tabs it is in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
 }
 
 /// State remembered across projects and restarts.
@@ -212,8 +215,8 @@ mod tests {
             active: 1,
             search_include: "*.py".into(),
             files: vec![
-                SessionFile { path: "/a/b.py".into(), line: 3, col: 4, backup: Some("doc0.txt".into()), bookmarks: vec![2, 7], view: None },
-                SessionFile { path: PathBuf::new(), line: 0, col: 0, backup: None, bookmarks: Vec::new(), view: Some("claude:12".into()) },
+                SessionFile { path: "/a/b.py".into(), line: 3, col: 4, backup: Some("doc0.txt".into()), bookmarks: vec![2, 7], view: None, group: Some("PR #1".into()) },
+                SessionFile { path: PathBuf::new(), line: 0, col: 0, backup: None, bookmarks: Vec::new(), view: Some("claude:12".into()), group: None },
             ],
             recent: vec!["/a/b.py".into()],
             breakpoints: vec![SessionBreakpoint { path: "/a/b.py".into(), line: 4, condition: "x > 1".into() }, SessionBreakpoint { path: "/a/b.py".into(), line: 9, condition: String::new() }],

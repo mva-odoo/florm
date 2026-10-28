@@ -184,6 +184,9 @@ pub struct Document {
     pub flash: Option<(usize, usize, Instant)>,
     /// Editor panel showing the document (0 or 1 when split), `NO_PANE` until the app places it.
     pub pane: u8,
+    /// Group of tabs it belongs to (its name): the tabs of a group stay side by side, under a
+    /// colored label that folds them.
+    pub group: Option<String>,
     /// Symbols of the text: (version, syntax, symbols).
     symbols_cache: Option<(u64, String, Vec<crate::symbols::Symbol>)>,
     /// Folded blocks: start of their first line (char position, follows the edits).
@@ -463,6 +466,7 @@ impl Document {
             max_cols_version: u64::MAX,
             flash: None,
             pane: NO_PANE,
+            group: None,
             symbols_cache: None,
             folds: Vec::new(),
             bookmarks: Vec::new(),

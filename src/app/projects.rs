@@ -91,7 +91,7 @@ impl App {
                 if i == self.active {
                     active = files.len();
                 }
-                files.push(SessionFile { path: PathBuf::new(), line: 0, col: 0, backup: None, bookmarks: Vec::new(), view: Some(view) });
+                files.push(SessionFile { path: PathBuf::new(), line: 0, col: 0, backup: None, bookmarks: Vec::new(), view: Some(view), group: d.group.clone() });
                 continue;
             }
             if d.read_only {
@@ -111,7 +111,7 @@ impl App {
             if let Some(name) = &backup {
                 backups.push((name.clone(), d.rope.to_string()));
             }
-            files.push(SessionFile { path, line, col, backup, bookmarks: d.bookmark_lines(), view: None });
+            files.push(SessionFile { path, line, col, backup, bookmarks: d.bookmark_lines(), view: None, group: d.group.clone() });
         }
         let mut expanded = Vec::new();
         if let Some(t) = &self.tree {
@@ -159,7 +159,11 @@ impl App {
         let mut restored = 0;
         for f in &s.files {
             if let Some(view) = &f.view {
-                opened.push(self.restore_view(view).then_some(self.active));
+                let ok = self.restore_view(view);
+                if let (true, Some(d)) = (ok, self.docs.get_mut(self.active)) {
+                    d.group = f.group.clone();
+                }
+                opened.push(ok.then_some(self.active));
                 continue;
             }
             let backup = f.backup.as_deref().and_then(|b| project::load_backup(&root, b));
@@ -188,6 +192,7 @@ impl App {
                 }
                 self.docs[i].goto_line(f.line, f.col);
                 self.docs[i].set_bookmark_lines(&f.bookmarks);
+                self.docs[i].group = f.group.clone();
                 opened.push(Some(i));
             } else {
                 opened.push(None);

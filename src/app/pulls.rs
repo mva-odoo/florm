@@ -146,6 +146,8 @@ enum PrAct {
     Log(String, u64),
     /// Something copied, said in the status bar.
     Copied(String),
+    /// The files of the pull request opened together, in a group of tabs.
+    OpenGroup,
 }
 
 impl App {
@@ -533,6 +535,13 @@ impl App {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         maximize::button(ui, view, "detail");
                         ui.menu_button("⋯", |ui| quick_menu(ui, d.number, &d.url, false, &mut act));
+                        if ui
+                            .button(t!("📑 Ouvrir les fichiers", "📑 Open the files"))
+                            .on_hover_text(t!("Ouvre les fichiers de la PR dans un groupe d'onglets « PR #… » (clic sur son nom pour le replier). Fais le Checkout d'abord pour avoir leur version de la PR.", "Opens the files of the PR in a group of tabs “PR #…” (click its name to fold it). Checkout first to get their version of the PR."))
+                            .clicked()
+                        {
+                            act = Some(PrAct::OpenGroup);
+                        }
                         if ui.button("⟳").on_hover_text(t!("Recharger la pull request", "Reload the pull request")).clicked() {
                             act = Some(PrAct::Select(d.number));
                         }
@@ -958,8 +967,37 @@ impl App {
                 self.jobs.spawn(move || JobResult::PrLog(name, github::job_log(&repo, job)));
             }
             Some(PrAct::Copied(what)) => self.set_status(tf!("Copié : {what}", "Copied: {what}")),
+            Some(PrAct::OpenGroup) => self.pr_open_group(repo, n),
             None => {}
         }
+    }
+
+    /// The files of the pull request (those still there) opened in the group of tabs "PR #n".
+    fn pr_open_group(&mut self, repo: PathBuf, n: u64) {
+        const MAX: usize = 40;
+        let Some(diff) = &self.pr.files.diff else { return };
+        let paths: Vec<PathBuf> = diff.files.iter().filter(|f| f.status != 'D').map(|f| repo.join(&f.path)).filter(|p| p.is_file()).collect();
+        if paths.is_empty() {
+            self.set_status(t!("Aucun fichier de la PR dans tes fichiers (Checkout de la PR ?)", "No file of the PR in your files (Checkout of the PR?)"));
+            return;
+        }
+        let back = self.docs.get(self.active).map(|d| d.uid);
+        let group = format!("PR #{n}");
+        let mut opened = 0;
+        for p in paths.iter().take(MAX) {
+            if self.open_path(p.clone()) {
+                self.set_tab_group(self.active, Some(group.clone()));
+                opened += 1;
+            }
+        }
+        if let Some(k) = back.and_then(|u| self.docs.iter().position(|d| d.uid == u)) {
+            self.activate_tab(k);
+        }
+        self.set_status(if paths.len() > MAX {
+            tf!("{opened} fichier(s) ouverts dans le groupe {group} (les {MAX} premiers sur {})", "{opened} file(s) opened in the group {group} (the first {MAX} of {})", paths.len())
+        } else {
+            tf!("{opened} fichier(s) ouverts dans le groupe {group}", "{opened} file(s) opened in the group {group}")
+        });
     }
 
     pub(super) fn pr_job(&mut self, label: String, reload: Option<u64>, draft: Option<String>, f: impl FnOnce() -> Result<String, String> + Send + 'static) {

@@ -730,6 +730,28 @@ impl App {
     }
 
     /// Moves tab `from` before tab `to` (`to == len`: at the end); the moved tab becomes active.
+    /// Puts tab `i` in group `name`, or out of its group (None); the tabs of a group stay side by
+    /// side: it moves after the last one of the group (the one it joins, or leaves).
+    pub(super) fn set_tab_group(&mut self, i: usize, name: Option<String>) {
+        let Some(d) = self.docs.get_mut(i) else { return };
+        let Some(along) = name.clone().or_else(|| d.group.clone()) else { return };
+        d.group = name.clone();
+        let pane = d.pane;
+        let uid_active = self.docs.get(self.active).map(|d| d.uid);
+        let last = self.docs.iter().enumerate().filter(|(j, d)| *j != i && d.pane == pane && d.group.as_ref() == Some(&along)).map(|(j, _)| j).last();
+        if let Some(last) = last {
+            let d = self.docs.remove(i);
+            self.docs.insert(if last > i { last } else { last + 1 }, d);
+        }
+        if let Some(k) = uid_active.and_then(|u| self.docs.iter().position(|d| d.uid == u)) {
+            self.active = k;
+        }
+        if let Some(g) = name {
+            self.folded_groups.remove(&g);
+        }
+        self.tab_scrolled = None;
+    }
+
     pub(super) fn move_tab(&mut self, from: usize, to: usize) {
         if from >= self.docs.len() {
             return;

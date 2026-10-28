@@ -267,9 +267,34 @@ impl App {
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 2.0;
                         ui.add_space(6.0);
+                        let mut groups: Vec<String> = Vec::new();
+                        for g in self.docs.iter().filter_map(|d| d.group.clone()) {
+                            if !groups.contains(&g) {
+                                groups.push(g);
+                            }
+                        }
+                        let mut prev_group: Option<&str> = None;
                         for (i, d) in self.docs.iter().enumerate() {
                             if pane.is_some_and(|p| p != d.pane) {
                                 continue;
+                            }
+                            // where a group starts: its label, which folds it
+                            if let Some(g) = d.group.as_deref() {
+                                let folded = self.folded_groups.contains(g);
+                                if prev_group != Some(g) {
+                                    let count = self.docs.iter().filter(|x| x.group.as_deref() == Some(g) && pane.is_none_or(|p| p == x.pane)).count();
+                                    let r = group_pill(ui, g, count, folded);
+                                    if r.clicked() {
+                                        menu_act = Some(TabAct::FoldGroup(g.to_string()));
+                                    }
+                                    r.context_menu(|ui| group_menu(ui, g, &mut menu_act));
+                                }
+                                prev_group = Some(g);
+                                if folded && i != self.active {
+                                    continue;
+                                }
+                            } else {
+                                prev_group = None;
                             }
                             let shown = match pane {
                                 Some(p) if p != self.focused_pane => self.pane_active[p as usize] == Some(d.uid),
@@ -286,6 +311,11 @@ impl App {
                                 let tip = if self.claude_tab_tint(d.uid) == Some(ok()) { t!("Claude a fini", "Claude is done") } else { t!("Claude travaille…", "Claude is working…") };
                                 let _ = body.clone().on_hover_text(tip);
                             }
+                            // the tabs of a group: a band of its color on top
+                            if let Some(g) = &d.group {
+                                let r = body.rect;
+                                ui.painter().rect_filled(egui::Rect::from_min_max(egui::pos2(r.left() + 4.0, r.top() + 4.0), egui::pos2(r.right() - 4.0, r.top() + 6.5)), 1.5, group_color(g));
+                            }
                             strip.1.push((body.rect, i));
                             if body.drag_started() {
                                 drag_start = Some(i);
@@ -300,7 +330,7 @@ impl App {
                                 scrolled = Some(i);
                             }
                             let alone = counts[(d.pane as usize).min(1)] == 1;
-                            body.context_menu(|ui| tab_menu(ui, i, d, is_split, alone, &mut menu_act));
+                            body.context_menu(|ui| tab_menu(ui, i, d, is_split, alone, &groups, &mut menu_act));
                             if let Some(p) = &d.path {
                                 body.on_hover_text(p.display().to_string());
                             }
@@ -367,6 +397,54 @@ impl App {
                 self.set_status(tf!("Copié : {t}", "Copied: {t}"));
             }
             Some(TabAct::Reveal(p)) => self.reveal(&p),
+            Some(TabAct::Group(i, g)) => {
+                let g = g.unwrap_or_else(|| {
+                    (1..).map(|n| tf!("Groupe {n}", "Group {n}")).find(|n| !self.docs.iter().any(|d| d.group.as_ref() == Some(n))).unwrap_or_default()
+                });
+                self.set_tab_group(i, Some(g));
+            }
+            Some(TabAct::Ungroup(i)) => self.set_tab_group(i, None),
+            Some(TabAct::FoldGroup(g)) => {
+                if !self.folded_groups.remove(&g) {
+                    self.folded_groups.insert(g);
+                }
+            }
+            Some(TabAct::CloseGroup(g)) => {
+                let before = self.docs.len();
+                let keep = self.docs.get(self.active).map(|d| d.uid);
+                for j in (0..self.docs.len()).rev() {
+                    if self.docs[j].group.as_ref() == Some(&g) && !self.docs[j].is_dirty() {
+                        self.close_tab(j, true);
+                    }
+                }
+                if let Some(k) = keep.and_then(|u| self.docs.iter().position(|d| d.uid == u)) {
+                    self.active = k;
+                }
+                self.active = self.active.min(self.docs.len().saturating_sub(1));
+                self.tab_scrolled = None;
+                let kept = self.docs.iter().filter(|d| d.group.as_ref() == Some(&g)).count();
+                self.folded_groups.remove(&g);
+                let closed = before - self.docs.len();
+                self.set_status(if kept > 0 {
+                    tf!("{closed} onglet(s) fermé(s), {kept} non enregistré(s) gardé(s)", "{closed} tab(s) closed, {kept} unsaved kept")
+                } else {
+                    tf!("{closed} onglet(s) fermé(s)", "{closed} tab(s) closed")
+                });
+            }
+            Some(TabAct::Dissolve(g)) => {
+                for d in self.docs.iter_mut().filter(|d| d.group.as_ref() == Some(&g)) {
+                    d.group = None;
+                }
+                self.folded_groups.remove(&g);
+            }
+            Some(TabAct::RenameGroup(old, new)) => {
+                for d in self.docs.iter_mut().filter(|d| d.group.as_ref() == Some(&old)) {
+                    d.group = Some(new.clone());
+                }
+                if self.folded_groups.remove(&old) {
+                    self.folded_groups.insert(new);
+                }
+            }
             Some(TabAct::Locate(i)) => {
                 self.activate_tab(i);
                 if let Some(p) = self.docs.get(i).and_then(|d| d.path.clone()) {

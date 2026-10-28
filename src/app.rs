@@ -844,6 +844,8 @@ pub struct App {
     tab_scrolled: Option<usize>,
     /// Tab being dragged to another position.
     tab_drag: Option<usize>,
+    /// Groups of tabs folded: only their label shows (and the active tab).
+    folded_groups: HashSet<String>,
     /// The tab shown before the current one (Échap on Git or the preferences goes back to it).
     prev_tab: Option<u64>,
     /// Split editor: orientation, panel with the keyboard focus, document shown by each panel.
@@ -1088,6 +1090,7 @@ impl App {
             visuals_dirty: false,
             tab_scrolled: None,
             tab_drag: None,
+            folded_groups: HashSet::new(),
             prev_tab: None,
             split_dir: SplitDir::Right,
             focused_pane: 0,
@@ -1582,6 +1585,52 @@ fn tab_widget(
     (resp, closed)
 }
 
+/// The color of a group of tabs, from its name.
+fn group_color(name: &str) -> Color32 {
+    let h = name.bytes().fold(11u32, |h, b| h.wrapping_mul(31).wrapping_add(b as u32));
+    egui::epaint::Hsva::new((h % 360) as f32 / 360.0, 0.55, 0.8, 1.0).into()
+}
+
+/// Right click on the label of a group: rename it, close its tabs, or dissolve it.
+fn group_menu(ui: &mut egui::Ui, g: &str, act: &mut Option<TabAct>) {
+    ui.set_min_width(240.0);
+    let id = egui::Id::new(("group_rename", g));
+    let mut name = ui.data(|d| d.get_temp::<String>(id)).unwrap_or_else(|| g.to_string());
+    ui.horizontal(|ui| {
+        ui.label(t!("Nom :", "Name:"));
+        let r = ui.text_edit_singleline(&mut name);
+        let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+        if enter && !name.trim().is_empty() && name.trim() != g {
+            *act = Some(TabAct::RenameGroup(g.to_string(), name.trim().to_string()));
+            ui.close_menu();
+        }
+    });
+    ui.data_mut(|d| d.insert_temp(id, name));
+    ui.separator();
+    if ui.button(t!("Fermer les onglets du groupe", "Close the tabs of the group")).clicked() {
+        *act = Some(TabAct::CloseGroup(g.to_string()));
+        ui.close_menu();
+    }
+    if ui.button(t!("Dissoudre le groupe (garder les onglets)", "Dissolve the group (keep the tabs)")).clicked() {
+        *act = Some(TabAct::Dissolve(g.to_string()));
+        ui.close_menu();
+    }
+}
+
+/// The label of a group of tabs, before its tabs: a click folds or unfolds them.
+fn group_pill(ui: &mut egui::Ui, name: &str, count: usize, folded: bool) -> egui::Response {
+    let color = group_color(name);
+    let text = if folded { format!("{name} · {count}") } else { name.to_string() };
+    let galley = ui.painter().layout_no_wrap(text, egui::FontId::proportional(12.5), text_on(color));
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(galley.size().x + 18.0, TAB_STRIP_H), Sense::click());
+    let pill = egui::Rect::from_center_size(egui::pos2(rect.center().x, rect.center().y + 2.0), egui::vec2(rect.width() - 4.0, 20.0));
+    let fill = if resp.hovered() { icons::mix(color, Color32::WHITE, 0.15) } else { color };
+    ui.painter().rect_filled(pill, 10.0, fill);
+    ui.painter().galley(egui::pos2(pill.center().x - galley.size().x / 2.0, pill.center().y - galley.size().y / 2.0), galley, text_on(color));
+    let tip = if folded { t!("Déplier le groupe", "Unfold the group") } else { t!("Replier le groupe : seul son nom reste (clic droit : fermer, renommer, dissoudre)", "Fold the group: only its name stays (right click: close, rename, dissolve)") };
+    resp.on_hover_text(tip)
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 enum SplitDir {
     #[default]
@@ -1617,9 +1666,17 @@ enum TabAct {
     CopyPath(String),
     Reveal(PathBuf),
     Locate(usize),
+    /// Tab in a group (an existing one, or a new one when None), or out of its group.
+    Group(usize, Option<String>),
+    Ungroup(usize),
+    FoldGroup(String),
+    CloseGroup(String),
+    /// The group gone, its tabs kept.
+    Dissolve(String),
+    RenameGroup(String, String),
 }
 
-fn tab_menu(ui: &mut egui::Ui, i: usize, d: &Document, split: bool, alone: bool, act: &mut Option<TabAct>) {
+fn tab_menu(ui: &mut egui::Ui, i: usize, d: &Document, split: bool, alone: bool, groups: &[String], act: &mut Option<TabAct>) {
     ui.set_min_width(240.0);
     let mut item = |ui: &mut egui::Ui, label: &str, a: TabAct, enabled: bool, tip: &str| {
         let r = ui.add_enabled(enabled, egui::Button::new(label));
@@ -1639,6 +1696,23 @@ fn tab_menu(ui: &mut egui::Ui, i: usize, d: &Document, split: bool, alone: bool,
         item(ui, t!("Diviser en bas", "Split down"), TabAct::Split(i, SplitDir::Down), !alone, tip);
     }
     ui.separator();
+    let mut grouped = None;
+    ui.menu_button(t!("Ajouter à un groupe", "Add to a group"), |ui| {
+        for g in groups.iter().filter(|g| d.group.as_ref() != Some(*g)) {
+            if ui.button(RichText::new(format!("● {g}")).color(group_color(g))).clicked() {
+                grouped = Some(TabAct::Group(i, Some(g.clone())));
+                ui.close_menu();
+            }
+        }
+        if ui.button(t!("+ Nouveau groupe", "+ New group")).clicked() {
+            grouped = Some(TabAct::Group(i, None));
+            ui.close_menu();
+        }
+    });
+    if d.group.is_some() {
+        item(ui, t!("Retirer du groupe", "Remove from the group"), TabAct::Ungroup(i), true, "");
+    }
+    ui.separator();
     item(ui, t!("Fermer", "Close"), TabAct::Close(i), true, "");
     item(ui, t!("Fermer les autres onglets", "Close the other tabs"), TabAct::CloseOthers(i), !alone, "");
     if let Some(p) = &d.path {
@@ -1646,6 +1720,9 @@ fn tab_menu(ui: &mut egui::Ui, i: usize, d: &Document, split: bool, alone: bool,
         item(ui, t!("Afficher dans l'arborescence (Alt+L)", "Show in the tree (Alt+L)"), TabAct::Locate(i), true, "");
         item(ui, t!("Copier le chemin", "Copy the path"), TabAct::CopyPath(p.display().to_string()), true, "");
         item(ui, t!("Afficher dans le gestionnaire de fichiers", "Show in the file manager"), TabAct::Reveal(p.clone()), true, "");
+    }
+    if grouped.is_some() {
+        *act = grouped;
     }
 }
 
