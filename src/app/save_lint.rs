@@ -32,9 +32,14 @@ impl App {
             }
         }
         let doc = &mut self.docs[idx];
+        // the version replaced, and the new one, in the local history
+        if let Some(p) = &doc.path {
+            crate::local_history::keep(p);
+        }
         match doc.save(trim) {
             Ok(()) => {
                 let path = doc.path.clone().unwrap();
+                crate::local_history::keep(&path);
                 self.set_status(tf!("Enregistré : {}", "Saved: {}", path.display()));
                 self.after_save(idx, &path);
                 true

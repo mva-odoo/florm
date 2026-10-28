@@ -203,6 +203,7 @@ impl App {
                 JobResult::PrOp { label, result, reload, draft } => self.pr_op_done(label, result, reload, draft),
                 JobResult::PrChoices(repo, r) => self.pr_choices_loaded(repo, r),
                 JobResult::PrLog(name, r) => self.pr_log_loaded(name, r),
+                JobResult::Compare(title, r) => self.compare_loaded(title, r),
                 JobResult::History(repo, gen, r) => {
                     if self.history.repo.as_ref() == Some(&repo) && gen == self.history.gen {
                         self.history.loading = false;

@@ -98,6 +98,16 @@ The `.gitignore` is respected.
 - **TODO / FIXME** (on the right of the bar, or Tools → TODO / FIXME of the project): all the
   `TODO`, `FIXME`, `XXX` and `HACK` of the project, by file.
 
+### Compare, local history
+
+- **Compare two files or two folders**: right click the first one in the sidebar → **⇄ Select …
+  to compare**, then right click the other → **⇄ Compare with “…”**.
+- **Compare with the clipboard** and **Compare with…** (another file, or a folder): right click
+  the tab, or the Tools menu. The text of the editor counts, even unsaved.
+- The result opens in a tab: in red what is on the left, in green what is on the right.
+- **Local history** (right click the tab, or Tools): Florm keeps a copy of the file at each save,
+  outside git (the last 50). **Compare** a version with the current text, or **Restore** it in
+  the editor (Ctrl+Z to come back).
 
 ## Git
 

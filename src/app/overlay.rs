@@ -168,7 +168,7 @@ impl App {
         let with_sep = |p: &Path| format!("{}{}", p.display(), std::path::MAIN_SEPARATOR);
         let query = match &p {
             Prompt::OpenFolder => with_sep(&root),
-            Prompt::OpenFile => with_sep(&root),
+            Prompt::OpenFile | Prompt::CompareWith => with_sep(&root),
             Prompt::SaveAs => match self.docs.get(self.active).and_then(|d| d.path.clone()) {
                 Some(path) => path.display().to_string(),
                 None => with_sep(&root),
@@ -217,6 +217,7 @@ impl App {
             Mode::Prompt(p) => match p {
                 Prompt::OpenFolder => t!("Ouvrir le dossier", "Open the folder").into(),
                 Prompt::OpenFile => t!("Ouvrir le fichier", "Open the file").into(),
+                Prompt::CompareWith => t!("Comparer le fichier avec   (un fichier, ou un dossier pour comparer son dossier ; Tab complète)", "Compare the file with   (a file, or a folder to compare its folder; Tab completes)").into(),
                 Prompt::SaveAs => t!("Enregistrer sous", "Save as").into(),
                 Prompt::NewFile(d) => tf!("Nouveau fichier dans {}", "New file in {}", d.display()),
                 Prompt::NewFolder(d) => tf!("Nouveau dossier dans {}", "New folder in {}", d.display()),
@@ -238,7 +239,7 @@ impl App {
         let is_list = !matches!(ov.mode, Mode::Prompt(_) | Mode::GotoLine);
         // prompts asking for a path complete it with Tab, like a shell
         let path_base = match &ov.mode {
-            Mode::Prompt(Prompt::OpenFolder | Prompt::OpenFile | Prompt::SaveAs) => {
+            Mode::Prompt(Prompt::OpenFolder | Prompt::OpenFile | Prompt::SaveAs | Prompt::CompareWith) => {
                 Some((self.root.clone().unwrap_or_else(|| std::env::current_dir().unwrap_or_default()), matches!(ov.mode, Mode::Prompt(Prompt::OpenFolder))))
             }
             Mode::Prompt(Prompt::NewFile(d) | Prompt::NewFolder(d)) => Some((d.clone(), matches!(ov.mode, Mode::Prompt(Prompt::NewFolder(_))))),
@@ -633,6 +634,10 @@ impl App {
             Prompt::OpenFile => {
                 let path = self.resolve(PathBuf::from(&text));
                 self.open_path(path);
+            }
+            Prompt::CompareWith => {
+                let path = self.resolve(PathBuf::from(&text));
+                self.compare_with(path);
             }
             Prompt::SaveAs => {
                 let path = self.resolve(PathBuf::from(&text));

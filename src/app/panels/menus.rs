@@ -154,6 +154,9 @@ impl App {
             item(ui, t!("Débogage (F5)", "Debug (F5)"), Cmd::Debug);
             item(ui, t!("TODO / FIXME du projet", "TODO / FIXME of the project"), Cmd::ListTodos);
             ui.separator();
+            item(ui, t!("Historique local du fichier…", "Local history of the file…"), Cmd::LocalHistory);
+            item(ui, t!("Comparer avec le presse-papiers", "Compare with the clipboard"), Cmd::CompareClipboard);
+            item(ui, t!("Comparer avec…", "Compare with…"), Cmd::CompareWith);
             ui.separator();
             item(ui, t!("Insérer un modèle…", "Insert a template…"), Cmd::InsertTemplate);
             item(ui, t!("Nouveau modèle…", "New template…"), Cmd::NewTemplate);

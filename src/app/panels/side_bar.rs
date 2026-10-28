@@ -211,6 +211,7 @@ impl App {
             }
             TreeAction::Refresh => self.exec_refresh_tree(),
             TreeAction::Claude(p) => self.claude_attach_path(p),
+            TreeAction::Compare(a, b) => self.compare_paths(a, b),
             TreeAction::SwitchProject(p) => self.switch_project(p),
             TreeAction::Exclude(p, on) => self.exclude_folder(&p, on),
             TreeAction::OpenFolder => self.pending.push(Cmd::OpenFolder),

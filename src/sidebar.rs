@@ -32,6 +32,8 @@ pub enum TreeAction {
     /// Leave the folder out of go to file, the symbol index and find in files (`true`), or
     /// take it back.
     Exclude(PathBuf, bool),
+    /// Compare two files, or two folders (the one chosen first, then this one).
+    Compare(PathBuf, PathBuf),
     /// Chosen in the menu of the folder name at the top.
     SwitchProject(PathBuf),
     OpenFolder,
@@ -728,6 +730,21 @@ fn menu(ui: &mut Ui, path: &Path, is_dir: bool, excluded: Option<bool>, act: &mu
     }
     if ui.button(t!("Copier le chemin", "Copy the path")).clicked() {
         pick(TreeAction::CopyPath(path.to_path_buf()), ui);
+    }
+    // compare: this one first, then "compare with" on the other (two files or two folders)
+    let first_id = Id::new("tree_compare_first");
+    let first: Option<PathBuf> = ui.data(|d| d.get_temp(first_id));
+    if let Some(f) = first.filter(|f| f != path && f.is_dir() == is_dir) {
+        let name = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        if ui.button(tf!("⇄ Comparer avec « {name} »", "⇄ Compare with “{name}”")).clicked() {
+            ui.data_mut(|d| d.remove::<PathBuf>(first_id));
+            pick(TreeAction::Compare(f, path.to_path_buf()), ui);
+        }
+    }
+    let what = if is_dir { t!("⇄ Choisir ce dossier pour comparer", "⇄ Select this folder to compare") } else { t!("⇄ Choisir ce fichier pour comparer", "⇄ Select this file to compare") };
+    if ui.button(what).on_hover_text(t!("Puis clic droit sur l'autre → Comparer avec", "Then right click the other one → Compare with")).clicked() {
+        ui.data_mut(|d| d.insert_temp(first_id, path.to_path_buf()));
+        ui.close_menu();
     }
     if ui.button(t!("Afficher dans le gestionnaire de fichiers", "Show in the file manager")).clicked() {
         pick(TreeAction::Reveal(path.to_path_buf()), ui);

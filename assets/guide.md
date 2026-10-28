@@ -99,6 +99,16 @@ Le `.gitignore` est respecté.
 - **TODO / FIXME** (à droite de la barre, ou Outils → TODO / FIXME du projet) : tous les
   `TODO`, `FIXME`, `XXX` et `HACK` du projet, rangés par fichier.
 
+### Comparer, historique local
+
+- **Comparer deux fichiers ou deux dossiers** : clic droit sur le premier dans la barre latérale
+  → **⇄ Choisir … pour comparer**, puis clic droit sur l'autre → **⇄ Comparer avec « … »**.
+- **Comparer avec le presse-papiers** et **Comparer avec…** (un autre fichier, ou un dossier) :
+  clic droit sur l'onglet, ou le menu Outils. Le texte de l'éditeur compte, même non enregistré.
+- Le résultat s'ouvre dans un onglet : en rouge ce qui est à gauche, en vert ce qui est à droite.
+- **Historique local** (clic droit sur l'onglet, ou Outils) : Florm garde une copie du fichier à
+  chaque enregistrement, hors de git (les 50 dernières). **Comparer** une version au texte
+  actuel, ou la **Restaurer** dans l'éditeur (Ctrl+Z pour revenir).
 
 ## Git
 

@@ -24,6 +24,7 @@ mod index;
 mod jobs;
 mod keymap;
 mod lint;
+mod local_history;
 mod logo;
 mod lsp;
 mod odoo_test;

@@ -51,6 +51,7 @@ mod template_edit;
 mod split_commit;
 mod commit_plan;
 mod panes;
+mod compare;
 mod lsp_client;
 mod maximize;
 mod navigation;
@@ -258,6 +259,8 @@ enum Prompt {
     RenameSymbol,
     /// Trigger of a new template, with its body (the selection) and the extension of the file.
     NewTemplate { body: String, ext: String },
+    /// The other file (or folder) to compare the active file with.
+    CompareWith,
 }
 
 use git::BranchPick;
@@ -907,6 +910,8 @@ pub struct App {
     blame_mode: bool,
     blame_req: Option<(u64, usize, u64)>,
     line_history: Option<LineHistoryUi>,
+    /// The window of the versions of a file (local history).
+    local_history: Option<compare::LocalHistory>,
     /// Search history and last filters, shared by all projects.
     state: UiState,
     /// Documents with a live lint running.
@@ -1131,6 +1136,7 @@ impl App {
             blame_mode: false,
             blame_req: None,
             line_history: None,
+            local_history: None,
             state: project::load_state(),
             lint_inflight: HashSet::new(),
             python_linter: None,
@@ -1446,6 +1452,7 @@ impl eframe::App for App {
         }
         self.track_nav();
         self.line_history_ui(ctx);
+        self.local_history_ui(ctx);
         self.pr_create_ui(ctx);
         self.inline_ai_ui(ctx);
         self.overlay_ui(ctx);
@@ -1679,6 +1686,8 @@ enum TabAct {
     /// The group gone, its tabs kept.
     Dissolve(String),
     RenameGroup(String, String),
+    /// A command on this tab (it becomes the active one first).
+    Cmd(usize, Cmd),
 }
 
 fn tab_menu(ui: &mut egui::Ui, i: usize, d: &Document, split: bool, alone: bool, groups: &[String], act: &mut Option<TabAct>) {
@@ -1721,6 +1730,10 @@ fn tab_menu(ui: &mut egui::Ui, i: usize, d: &Document, split: bool, alone: bool,
     item(ui, t!("Fermer", "Close"), TabAct::Close(i), true, "");
     item(ui, t!("Fermer les autres onglets", "Close the other tabs"), TabAct::CloseOthers(i), !alone, "");
     if let Some(p) = &d.path {
+        ui.separator();
+        item(ui, t!("Historique local…", "Local history…"), TabAct::Cmd(i, Cmd::LocalHistory), true, "");
+        item(ui, t!("Comparer avec le presse-papiers", "Compare with the clipboard"), TabAct::Cmd(i, Cmd::CompareClipboard), true, "");
+        item(ui, t!("Comparer avec…", "Compare with…"), TabAct::Cmd(i, Cmd::CompareWith), true, "");
         ui.separator();
         item(ui, t!("Afficher dans l'arborescence (Alt+L)", "Show in the tree (Alt+L)"), TabAct::Locate(i), true, "");
         item(ui, t!("Copier le chemin", "Copy the path"), TabAct::CopyPath(p.display().to_string()), true, "");

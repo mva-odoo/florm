@@ -227,6 +227,10 @@ impl App {
                 self.set_status(tf!("Copié : {t}", "Copied: {t}"));
             }
             Some(TabAct::Reveal(p)) => self.reveal(&p),
+            Some(TabAct::Cmd(i, cmd)) => {
+                self.activate_tab(i);
+                self.pending.push(cmd);
+            }
             Some(TabAct::Group(i, g)) => {
                 let g = g.unwrap_or_else(|| {
                     (1..).map(|n| tf!("Groupe {n}", "Group {n}")).find(|n| !self.docs.iter().any(|d| d.group.as_ref() == Some(n))).unwrap_or_default()
