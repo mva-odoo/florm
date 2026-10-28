@@ -164,7 +164,7 @@ impl App {
         if python && !d.read_only && lint::is_installed("ruff") && problems.iter().any(|g| matches!(g.source.as_str(), "ruff" | "flake8" | "pyflakes")) {
             out.push((t!("Corriger tout ce qui peut l'être dans le fichier (ruff --fix)", "Fix everything that can be in the file (ruff --fix)").into(), Fix::Cmd(Cmd::FixDocument)));
         }
-        if let Some(g) = problems.first() {
+        if let Some(g) = problems.first().filter(|_| crate::features::on(crate::features::Feature::Claude)) {
             let ask = tf!("Corrige ce problème signalé par {} : {}", "Fix this problem reported by {}: {}", g.source, g.message);
             out.push((tf!("✳ Corriger avec Claude : {}", "✳ Fix with Claude: {}", g.message), Fix::Claude(ask)));
         }

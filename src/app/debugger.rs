@@ -209,6 +209,11 @@ impl App {
         }
     }
 
+    /// A program is being debugged, started or waited for.
+    pub(super) fn debug_active(&self) -> bool {
+        self.debug.session.is_some() || self.debug.preparing.is_some()
+    }
+
     /// Where the debugger is paused in document `i`, for the editor.
     pub(super) fn debug_exec_line(&self, i: usize) -> Option<(usize, bool)> {
         let s = self.debug.session.as_ref()?;

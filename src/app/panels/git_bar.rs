@@ -175,7 +175,7 @@ impl App {
                     open_pr = Some(pr.number);
                 }
             }
-            if !main_branch && !branch_prs.iter().any(|p| p.state == "OPEN") && ui.small_button(t!("+ Créer une PR", "+ Create a PR")).on_hover_text(t!("Pousser la branche et ouvrir une pull request (choix de la branche cible)", "Push the branch and open a pull request (choice of the target branch)")).clicked() {
+            if crate::features::on(crate::features::Feature::GitHub) && !main_branch && !branch_prs.iter().any(|p| p.state == "OPEN") && ui.small_button(t!("+ Créer une PR", "+ Create a PR")).on_hover_text(t!("Pousser la branche et ouvrir une pull request (choix de la branche cible)", "Push the branch and open a pull request (choice of the target branch)")).clicked() {
                 create_pr = true;
             }
             if self.git.busy > 0 {
@@ -213,7 +213,7 @@ impl App {
                     })
                     .response
                     .on_hover_text(t!("Mettre des changements de côté (git stash) et les reprendre plus tard", "Put changes aside (git stash) and take them back later"));
-                    if ui.button(t!("Pull requests GitHub", "GitHub pull requests")).on_hover_text(t!("Commentaires, suggestions, commits", "Comments, suggestions, commits")).clicked() {
+                    if crate::features::on(crate::features::Feature::GitHub) && ui.button(t!("Pull requests GitHub", "GitHub pull requests")).on_hover_text(t!("Commentaires, suggestions, commits", "Comments, suggestions, commits")).clicked() {
                         cmds.push(Cmd::PullRequests);
                         ui.close_menu();
                     }
@@ -275,7 +275,7 @@ impl App {
                         cmds.push(Cmd::GitClean);
                         ui.close_menu();
                     }
-                    if ui.button(t!("✨ Consignes des messages de commit (Claude)…", "✨ Commit message rules (Claude)…")).on_hover_text(t!("Ce que Claude doit suivre en écrivant les messages de ce projet (langue, préfixes…) : .florm/commit.md", "What Claude must follow when writing the messages of this project (language, prefixes…): .florm/commit.md")).clicked() {
+                    if crate::features::on(crate::features::Feature::Claude) && ui.button(t!("✨ Consignes des messages de commit (Claude)…", "✨ Commit message rules (Claude)…")).on_hover_text(t!("Ce que Claude doit suivre en écrivant les messages de ce projet (langue, préfixes…) : .florm/commit.md", "What Claude must follow when writing the messages of this project (language, prefixes…): .florm/commit.md")).clicked() {
                         cmds.push(Cmd::GitCommitRules);
                         ui.close_menu();
                     }

@@ -89,7 +89,7 @@ impl App {
             document::View::Text => {
                 let tests = self.test_marks(i);
                 let exec_line = self.debug_exec_line(i);
-                let breakpoints = self.docs[i].path.as_deref().is_some_and(crate::app::debugger::debuggable);
+                let breakpoints = crate::features::on(crate::features::Feature::Debugger) && self.docs[i].path.as_deref().is_some_and(crate::app::debugger::debuggable);
                 let matches: &[(usize, usize)] = if focused && self.find.open { &self.find.matches } else { &[] };
                 let doc = self.docs.get_mut(i)?;
                 let s = &self.settings;
@@ -107,7 +107,7 @@ impl App {
                 };
                 let r = editor_view::show(ui, doc, &self.hl, &opts, matches, id);
                 if let Some(t) = doc.test_pick.take() {
-                    if std::mem::take(&mut doc.test_debug) {
+                    if std::mem::take(&mut doc.test_debug) && crate::features::on(crate::features::Feature::Debugger) {
                         self.debug_test(t);
                     } else {
                         self.run_tests(t);

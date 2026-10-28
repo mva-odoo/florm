@@ -725,7 +725,7 @@ fn menu(ui: &mut Ui, path: &Path, is_dir: bool, excluded: Option<bool>, act: &mu
         pick(TreeAction::Delete(path.to_path_buf()), ui);
     }
     ui.separator();
-    if ui.button(t!("✳ Ajouter au contexte de Claude", "✳ Add to Claude's context")).clicked() {
+    if crate::features::on(crate::features::Feature::Claude) && ui.button(t!("✳ Ajouter au contexte de Claude", "✳ Add to Claude's context")).clicked() {
         pick(TreeAction::Claude(path.to_path_buf()), ui);
     }
     if ui.button(t!("Copier le chemin", "Copy the path")).clicked() {

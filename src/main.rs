@@ -13,6 +13,7 @@ mod diff;
 mod docker;
 mod document;
 mod editor_view;
+mod features;
 mod fuzzy;
 mod fonts;
 mod git;

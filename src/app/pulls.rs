@@ -548,7 +548,8 @@ impl App {
                         if ui.button(t!("Ouvrir sur GitHub", "Open on GitHub")).clicked() {
                             act = Some(PrAct::Web(d.number));
                         }
-                        if ui
+                        if crate::features::on(crate::features::Feature::Claude)
+                            && ui
                             .add_enabled(!p.ai.loading, egui::Button::new(t!("✳ Revue IA", "✳ AI review")))
                             .on_hover_text(t!("Claude relit la PR et propose des remarques sous les lignes : tu gardes, modifies ou écartes chacune, rien n'est publié sans toi", "Claude reads over the PR and suggests remarks under the lines: you keep, edit or drop each one, nothing is published without you"))
                             .clicked()

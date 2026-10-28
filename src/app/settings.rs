@@ -24,9 +24,38 @@ impl App {
             self.hl.set_overrides(highlight::parse_hex(&s.accent_color), s.text_softness);
             self.visuals_dirty = true;
         }
+        let parts = (s.github, s.debugger, s.claude) != (self.settings.github, self.settings.debugger, self.settings.claude);
         self.settings = s;
+        if parts {
+            self.apply_features();
+        }
         self.rebuild_keymap();
         self.set_status(t!("Préférences rechargées", "Preferences reloaded"));
+    }
+
+    /// GitHub, the debugger and Claude on or off as the settings say: the views of those turned
+    /// off are closed (tab and bottom panel), a debugging session is stopped.
+    pub(super) fn apply_features(&mut self) {
+        use crate::features::{self, Feature};
+        let s = &self.settings;
+        features::set_all(s.github, s.debugger, s.claude);
+        let off = |v: &document::View| match v {
+            document::View::PullRequests => !features::on(Feature::GitHub),
+            document::View::Debug => !features::on(Feature::Debugger),
+            document::View::Claude => !features::on(Feature::Claude),
+            _ => false,
+        };
+        for i in (0..self.docs.len()).rev() {
+            if off(&self.docs[i].view) {
+                self.close_tab(i, true);
+            }
+        }
+        if self.bottom.is_some_and(|b| !b.feature_on()) {
+            self.bottom = None;
+        }
+        if !features::on(Feature::Debugger) && self.debug_active() {
+            self.debug_stop();
+        }
     }
 
     /// Synchronizes, publishes or creates the shared configuration in the background.

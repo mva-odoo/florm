@@ -152,6 +152,11 @@ impl App {
 
     pub(super) fn exec(&mut self, ctx: &egui::Context, cmd: Cmd) {
         use Cmd::*;
+        // a shortcut of a part turned off (GitHub, the debugger, Claude)
+        if let Some(f) = crate::features::of_cmd(cmd).filter(|f| !crate::features::on(*f)) {
+            self.set_status(tf!("{} est désactivé (Préférences)", "{} is turned off (Preferences)", crate::features::name(f)));
+            return;
+        }
         if matches!(cmd, GitRevertChange | GitRevertFile) {
             if let Some(d) = self.docs.get_mut(self.active) {
                 if d.diff_version != d.version {

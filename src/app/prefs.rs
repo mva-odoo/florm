@@ -222,6 +222,8 @@ impl App {
         // to write in the log once the settings are no longer borrowed
         let mut note: Option<String> = None;
         match sec {
+            // turned off: only the switch to turn it back on
+            PrefSection::PullRequests | PrefSection::Claude | PrefSection::Debug if !feature_enabled(s, sec) => feature_toggle(ui, rc, sec, s),
             PrefSection::Appearance => {
                 pref_row(ui, rc, t!("Langue", "Language"), t!("Langue des menus, des panneaux et des messages (Language).", "Language of the menus, panels and messages (Langue)."), |ui| {
                     let cur = crate::i18n::from_code(&s.language);
@@ -515,6 +517,7 @@ impl App {
                 });
             }
             PrefSection::PullRequests => {
+                feature_toggle(ui, rc, sec, s);
                 pref_row(ui, rc, t!("État affiché au départ", "State shown at the start"), t!("Les pull requests affichées à l'ouverture de la vue : ouvertes, fusionnées, fermées ou toutes.", "The pull requests shown when the view opens: open, merged, closed or all."), |ui| {
                     let cur = super::pulls::STATES.iter().find(|(k, _, _)| *k == s.pr_default_state).map_or("", |(_, fr, en)| t!(*fr, *en));
                     egui::ComboBox::from_id_salt("pref_pr_state").selected_text(cur).width(220.0).show_ui(ui, |ui| {
@@ -533,6 +536,7 @@ impl App {
                 });
             }
             PrefSection::Claude => {
+                feature_toggle(ui, rc, sec, s);
                 pref_row(ui, rc, t!("Claude en onglet", "Claude in a tab"), t!("Ctrl+Alt+C ouvre Claude dans un onglet de l'éditeur plutôt que dans le panneau du bas (boutons « en onglet » / « en bas » de son en-tête pour changer).", "Ctrl+Alt+C opens Claude in an editor tab rather than in the bottom panel (“in a tab” / “at the bottom” buttons of its header to switch)."), |ui| {
                     toggle_switch(ui, &mut s.claude_in_tab);
                 });
@@ -565,6 +569,7 @@ impl App {
                 });
             }
             PrefSection::Debug => {
+                feature_toggle(ui, rc, sec, s);
                 pref_row(ui, rc, t!("Mode", "Mode"), t!("Lancer : Florm lance le programme sous le débogueur. S'attacher : F5 attend le programme lancé avec debugpy --listen. Dans les deux modes, dès qu'un point d'arrêt est posé, Florm attend tout seul un programme lancé avec debugpy et s'y attache.", "Launch: Florm runs the program under the debugger. Attach: F5 waits for the program started with debugpy --listen. In both modes, as soon as a breakpoint is set, Florm waits by itself for a program started with debugpy and attaches to it."), |ui| {
                     ui.selectable_value(&mut s.debug_mode, "launch".to_string(), t!("Lancer", "Launch"));
                     ui.selectable_value(&mut s.debug_mode, "attach".to_string(), t!("S'attacher", "Attach"));
@@ -984,6 +989,9 @@ impl App {
             ("search_in_tab", s.search_in_tab, before.search_in_tab),
             ("claude_in_tab", s.claude_in_tab, before.claude_in_tab),
             ("claude_done_blink", s.claude_done_blink, before.claude_done_blink),
+            ("github", s.github, before.github),
+            ("debugger", s.debugger, before.debugger),
+            ("claude", s.claude, before.claude),
             ("tree_git_info", s.tree_git_info, before.tree_git_info),
             ("auto_pair", s.auto_pair, before.auto_pair),
             ("trim_trailing_whitespace_on_save", s.trim_trailing_whitespace_on_save, before.trim_trailing_whitespace_on_save),
@@ -998,6 +1006,9 @@ impl App {
             if now != was {
                 self.persist(key, now.to_string());
             }
+        }
+        if (s.github, s.debugger, s.claude) != (before.github, before.debugger, before.claude) {
+            self.apply_features();
         }
         let mut lint_changed = s.python_linter != before.python_linter || s.python_lint_args != before.python_lint_args || s.lint_live != before.lint_live;
         if s.claude_done_sound != before.claude_done_sound {
@@ -1099,5 +1110,41 @@ impl App {
         if let Some(op) = self.shared_op.take() {
             self.shared_job(op);
         }
+    }
+}
+
+/// The switch of GitHub, Claude or the debugger, on top of its section.
+fn feature_switch(s: &mut Settings, sec: PrefSection) -> Option<&mut bool> {
+    match sec {
+        PrefSection::PullRequests => Some(&mut s.github),
+        PrefSection::Claude => Some(&mut s.claude),
+        PrefSection::Debug => Some(&mut s.debugger),
+        _ => None,
+    }
+}
+
+fn feature_enabled(s: &mut Settings, sec: PrefSection) -> bool {
+    feature_switch(s, sec).is_none_or(|on| *on)
+}
+
+fn feature_toggle(ui: &mut egui::Ui, rc: &mut RowCtx, sec: PrefSection, s: &mut Settings) {
+    let (label, tip) = match sec {
+        PrefSection::PullRequests => (
+            t!("Activer GitHub", "Enable GitHub"),
+            t!("Désactivé : plus de vue Pull requests, de création de PR, de lien GitHub ni de PR liées dans la vue Git ; gh n'est plus appelé.", "Off: no more Pull requests view, PR creation, GitHub link nor linked PRs in the Git view; gh is no longer called."),
+        ),
+        PrefSection::Claude => (
+            t!("Activer Claude", "Enable Claude"),
+            t!("Désactivé : plus de vue Claude, de ✨ / ✂ dans Git, de revue IA, de « Corriger avec Claude » ni d'entrées Claude dans les menus.", "Off: no more Claude view, ✨ / ✂ in Git, AI review, “Fix with Claude” nor Claude entries in the menus."),
+        ),
+        _ => (
+            t!("Activer le débogueur", "Enable the debugger"),
+            t!("Désactivé : plus de vue Débogage, de points d'arrêt dans la marge, de F5 / F9 / F10… ni de « déboguer ce test ».", "Off: no more Debug view, breakpoints in the margin, F5 / F9 / F10… nor “debug this test”."),
+        ),
+    };
+    if let Some(on) = feature_switch(s, sec) {
+        pref_row(ui, rc, label, tip, |ui| {
+            toggle_switch(ui, on);
+        });
     }
 }

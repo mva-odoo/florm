@@ -140,7 +140,8 @@ impl App {
     /// it, until it is stopped by hand.
     pub(super) fn debug_auto(&mut self) {
         let d = &self.debug;
-        let want = !d.auto_off && d.bps.values().any(|v| !v.is_empty());
+        // the debugger turned off: the breakpoints kept do not wait for a program
+        let want = !d.auto_off && d.bps.values().any(|v| !v.is_empty()) && crate::features::on(crate::features::Feature::Debugger);
         if !want {
             // nothing to wait for any more (breakpoints removed): the waiting stops
             if d.session.as_ref().is_some_and(|s| s.auto && !s.connected) {

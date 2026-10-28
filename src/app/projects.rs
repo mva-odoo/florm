@@ -227,7 +227,7 @@ impl App {
         }
         self.show_sidebar = !s.sidebar_hidden;
         (self.sql.conn, self.sql.query) = (s.sql_conn.clone(), s.sql_query.clone());
-        if let Some(b) = s.bottom.as_deref().and_then(BottomTab::from_key) {
+        if let Some(b) = s.bottom.as_deref().and_then(BottomTab::from_key).filter(|b| b.feature_on()) {
             self.show_bottom(b, false);
             // back where it was, without taking the keyboard from the editor
             self.search.focus = false;
@@ -260,7 +260,11 @@ impl App {
 
     /// Opens again a view tab of the session; false when it is unknown.
     fn restore_view(&mut self, view: &str) -> bool {
+        use crate::features::{on, Feature};
         match view.split_once(':').unwrap_or((view, "")) {
+            ("claude", _) if !on(Feature::Claude) => return false,
+            ("pulls", _) if !on(Feature::GitHub) => return false,
+            ("debug", _) if !on(Feature::Debugger) => return false,
             ("claude", key) => self.claude_restore_tab(key.parse().unwrap_or(0)),
             ("docker", _) => self.open_docker(),
             ("sql", _) => self.open_sql(),

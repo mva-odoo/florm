@@ -43,6 +43,10 @@ impl App {
         let plugins = &self.plugins;
         let plugin_cmds = &self.plugin_cmds;
         let mut item = |ui: &mut egui::Ui, label: &str, cmd: Cmd| {
+            // GitHub, the debugger, Claude turned off: their entries go
+            if !crate::features::cmd_on(cmd) {
+                return;
+            }
             if ui.add(egui::Button::new(label).shortcut_text(km.label(cmd))).clicked() {
                 pending.push(cmd);
                 ui.close_menu();

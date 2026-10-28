@@ -897,7 +897,7 @@ impl App {
                                 wip_ops.push(vec!["add".into(), "-A".into()]);
                             }
                             let tip = t!("Claude relit tout ce qui n'est pas commité (indexé ou non, nouveaux fichiers compris) et propose des remarques sous les lignes : tu gardes celles qui comptent", "Claude reads over everything not committed (staged or not, new files included) and suggests remarks under the lines: you keep the ones that matter");
-                            if ui.add_enabled(!ai.loading, egui::Button::new(t!("✳ Revue IA", "✳ AI review"))).on_hover_text(tip).clicked() {
+                            if crate::features::on(crate::features::Feature::Claude) && ui.add_enabled(!ai.loading, egui::Button::new(t!("✳ Revue IA", "✳ AI review"))).on_hover_text(tip).clicked() {
                                 ai_start = true;
                             }
                         });
@@ -1262,6 +1262,7 @@ pub(super) fn worktree_diff(repo: &Path, args: &[&str]) -> Result<String, String
 /// the changes into several commits; returns (commit now, ask the message, ask the split).
 #[allow(clippy::too_many_arguments)]
 fn commit_box(ui: &mut egui::Ui, msg: &mut String, amend: &mut bool, pushed: bool, focus: bool, n_staged: usize, n_changed: usize, suggesting: bool, planning: bool, accent: Color32) -> (bool, bool, bool) {
+    let claude_on = crate::features::on(crate::features::Feature::Claude);
     let (label, tip) = if *amend && n_staged > 0 {
         (tf!("✔ Modifier le dernier commit (+{n_staged} indexé(s))", "✔ Amend the last commit (+{n_staged} staged)"), t!("Le dernier commit est remplacé : ce message, et les fichiers indexés en plus", "The last commit is replaced: this message, and the staged files added"))
     } else if *amend {
@@ -1276,12 +1277,14 @@ fn commit_box(ui: &mut egui::Ui, msg: &mut String, amend: &mut bool, pushed: boo
     egui::Frame::none().inner_margin(egui::Margin { left: 4.0, right: 4.0, top: 4.0, bottom: 6.0 }).show(ui, |ui| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
             let clicked = ui.add_enabled(can, filled_button(label, accent)).on_hover_text(tip).clicked();
-            if planning {
+            if !claude_on {
+            } else if planning {
                 spinner(ui);
             } else if ui.button("✂").on_hover_text(t!("Claude découpe les changements (tous, nouveaux fichiers compris) en plusieurs commits par thème, avec leurs messages : tu relis et modifies le plan avant de commiter", "Claude splits the changes (all of them, new files included) into several commits by theme, with their messages: you read and change the plan before committing")).clicked() {
                 plan = true;
             }
-            if suggesting {
+            if !claude_on {
+            } else if suggesting {
                 spinner(ui);
             } else if ui.button("✨").on_hover_text(t!("Claude propose le message d'après les changements (indexés, sinon tous) et ta demande dans l'onglet Claude", "Claude suggests the message from the changes (staged, else all) and your request in the Claude tab")).clicked() {
                 suggest = true;

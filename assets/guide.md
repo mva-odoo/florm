@@ -482,3 +482,9 @@ en bas à gauche).
 fonctions, classes, balises…, en italique ou non), appliquées tout de suite. **Enregistrer le
 thème** l'écrit dans le dossier `themes` de la configuration ; **Modifier ce thème** /
 **Supprimer ce thème** quand c'est un des tiens.
+
+**GitHub, Claude et le débogueur se désactivent** : un interrupteur en haut de leur section des
+préférences (Pull requests, Claude, Débogueur). Désactivés, leurs vues, commandes, menus, icônes,
+raccourcis et boutons disparaissent (✨ et ✂ de Git, revue IA, colonne ✳ et points d'arrêt de la
+marge, PR liées dans la vue Git…), et `gh` n'est plus appelé. Le même interrupteur les ramène,
+sans redémarrer.

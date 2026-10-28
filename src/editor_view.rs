@@ -40,8 +40,11 @@ fn removed_bg(light: bool) -> Color32 {
     if light { Color32::from_rgba_unmultiplied(0xd0, 0x3a, 0x4c, 0x2c) } else { Color32::from_rgba_premultiplied(0x34, 0x16, 0x19, 0x38) }
 }
 
-/// Width of the ✳ of the gutter (left of the line numbers) that gives lines to Claude.
-const CLAUDE_W: f32 = 14.0;
+/// Width of the ✳ of the gutter (left of the line numbers) that gives lines to Claude (none
+/// when Claude is off).
+fn claude_w() -> f32 {
+    if crate::features::on(crate::features::Feature::Claude) { 14.0 } else { 0.0 }
+}
 /// Width of the ▶ of the tests (right of the breakpoints), in test files only.
 const TEST_W: f32 = 14.0;
 /// Width of the breakpoints (right of the ✳), in Python files.
@@ -216,7 +219,7 @@ fn text_area(
     // numbers, then the fold arrows, then the git marks
     let test_w = if opts.tests.is_empty() { 0.0 } else { TEST_W };
     let bp_w = if opts.breakpoints { BP_W } else { 0.0 };
-    let test_x = CLAUDE_W + bp_w;
+    let test_x = claude_w() + bp_w;
     let gutter_w = (digits as f32 + 1.0) * cw + 30.0 + bp_w + test_w;
     let bps: HashSet<usize> = doc.breakpoint_lines().unwrap_or_default().into_iter().collect();
     let test_at = |l: usize| opts.tests.iter().find(|(t, _)| *t == l).map(|(_, tags)| tags);
@@ -329,9 +332,9 @@ fn text_area(
                 let end = at(line, doc.vcol(line, doc.line_len(line)));
                 let on_pill = !in_gutter && folded.contains(&line) && p.x >= end.x + cw && p.y >= end.y;
                 // ✳ on the left of the numbers: the line, or the lines selected around it, for Claude
-                let on_claude = in_gutter && pressed && p.x < gx + CLAUDE_W;
+                let on_claude = in_gutter && pressed && p.x < gx + claude_w();
                 let on_test = in_gutter && pressed && p.x >= gx + test_x && p.x < gx + test_x + test_w && test_at(line).is_some();
-                let on_bp = in_gutter && pressed && p.x >= gx + CLAUDE_W && p.x < gx + CLAUDE_W + bp_w;
+                let on_bp = in_gutter && pressed && p.x >= gx + claude_w() && p.x < gx + claude_w() + bp_w;
                 if on_test {
                     doc.test_pick = test_at(line).cloned();
                 } else if on_bp {
@@ -492,14 +495,18 @@ fn text_area(
                     let mut msgs: Vec<String> =
                         doc.diagnostics.iter().filter(|d| d.line == l).map(|d| format!("{} : {}", d.source, d.message)).collect();
                     msgs.extend(opts.notes.iter().filter(|(n, _)| *n == l).map(|(_, t)| t.clone()));
-                    if p.x < gx + CLAUDE_W {
+                    if p.x < gx + claude_w() {
                         msgs.push(t!("✳ Clic : ajouter cette ligne (ou les lignes sélectionnées) au contexte de Claude", "✳ Click: add this line (or the selected lines) to Claude's context").into());
-                    } else if p.x < gx + CLAUDE_W + bp_w {
+                    } else if p.x < gx + claude_w() + bp_w {
                         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
                         msgs.push(if bps.contains(&l) { t!("● Clic : retirer le point d'arrêt (F9)", "● Click: remove the breakpoint (F9)") } else { t!("● Clic : point d'arrêt du débogueur (F9)", "● Click: debugger breakpoint (F9)") }.into());
                     } else if let Some(tags) = test_at(l).filter(|_| p.x >= gx + test_x && p.x < gx + test_x + test_w) {
                         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
-                        msgs.push(tf!("▶ Clic : lancer {tags} dans le conteneur des tests (Ctrl+F6 : relancer) · clic droit : le déboguer", "▶ Click: run {tags} in the tests container (Ctrl+F6: run again) · right click: debug it"));
+                        msgs.push(if crate::features::on(crate::features::Feature::Debugger) {
+                            tf!("▶ Clic : lancer {tags} dans le conteneur des tests (Ctrl+F6 : relancer) · clic droit : le déboguer", "▶ Click: run {tags} in the tests container (Ctrl+F6: run again) · right click: debug it")
+                        } else {
+                            tf!("▶ Clic : lancer {tags} dans le conteneur des tests (Ctrl+F6 : relancer)", "▶ Click: run {tags} in the tests container (Ctrl+F6: run again)")
+                        });
                     }
                     if p.x >= gx + gutter_w - 8.0 && doc.hunks.iter().any(|h| h.contains(l)) {
                         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
@@ -873,11 +880,11 @@ fn text_area(
                 painter.text(Pos2::new(gx + 2.0, line_y(l) + rh * 0.5), Align2::LEFT_CENTER, "✳", FontId::proportional(opts.font_size * 0.85), c.accent);
             }
             if bp_w > 0.0 {
-                let m = Pos2::new(gx + CLAUDE_W + BP_W / 2.0, line_y(l) + rh * 0.5);
+                let m = Pos2::new(gx + claude_w() + BP_W / 2.0, line_y(l) + rh * 0.5);
                 let r = (rh * 0.24).min(5.0);
                 if bps.contains(&l) {
                     painter.circle_filled(m, r, highlight::red());
-                } else if hover_line == Some(l) && ui.ctx().pointer_hover_pos().is_some_and(|p| p.x >= gx + CLAUDE_W && p.x < gx + CLAUDE_W + bp_w) {
+                } else if hover_line == Some(l) && ui.ctx().pointer_hover_pos().is_some_and(|p| p.x >= gx + claude_w() && p.x < gx + claude_w() + bp_w) {
                     painter.circle_filled(m, r, highlight::red().gamma_multiply(0.45));
                 }
                 if let Some((_, top)) = opts.exec_line.filter(|(e, _)| *e == l) {

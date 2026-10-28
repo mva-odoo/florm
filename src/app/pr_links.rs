@@ -72,6 +72,9 @@ impl App {
 
     /// Pull requests of the current branch of the selected repository (asked when needed).
     pub(super) fn current_branch_prs(&mut self) -> Vec<github::PrSummary> {
+        if !crate::features::on(crate::features::Feature::GitHub) {
+            return Vec::new();
+        }
         let (Some(repo), Some(branch)) = (self.repo.clone(), self.git.status.as_ref().map(|s| s.branch.clone())) else { return Vec::new() };
         if branch.is_empty() || branch.starts_with("HEAD") {
             return Vec::new();
@@ -96,6 +99,9 @@ impl App {
     /// Pull requests of commit `sha` of `repo`: from GitHub, and those named by the merge bot in
     /// its message ("closes odoo/odoo#123").
     pub(super) fn commit_prs(&mut self, repo: &Path, sha: &str, message: &str) -> Vec<github::LinkedPr> {
+        if !crate::features::on(crate::features::Feature::GitHub) {
+            return Vec::new();
+        }
         let Some((base, _)) = self.gh_base(repo) else { return Vec::new() };
         let mut v = match self.gh.commit_prs.get(sha) {
             Some(v) => v.clone(),
@@ -271,7 +277,7 @@ impl App {
                     ui.vertical(|ui| {
                         ui.label(RichText::new("Description").weak());
                         let can = base.is_some() && !c.base_remote.is_empty() && !c.writing && !c.busy;
-                        if ui.add_enabled(can, egui::Button::new(t!("✳ Rédiger", "✳ Write")).small()).on_hover_text(t!("Claude rédige la description à partir des commits et du diff de la branche (si elle est vide)", "Claude writes the description from the commits and the diff of the branch (if it is empty)")).clicked() {
+                        if crate::features::on(crate::features::Feature::Claude) && ui.add_enabled(can, egui::Button::new(t!("✳ Rédiger", "✳ Write")).small()).on_hover_text(t!("Claude rédige la description à partir des commits et du diff de la branche (si elle est vide)", "Claude writes the description from the commits and the diff of the branch (if it is empty)")).clicked() {
                             write = true;
                         }
                         if c.writing {

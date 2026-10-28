@@ -469,3 +469,9 @@ accent, cursor, selection, gutter…) and of the code (comments, keywords, strin
 classes, tags…, italic or not), applied right away. **Save the theme** writes it in the
 `themes` folder of the configuration; **Edit this theme** / **Delete this theme** when it is
 one of yours.
+
+**GitHub, Claude and the debugger can be turned off**: a switch on top of their section of the
+preferences (Pull requests, Claude, Debugger). Off, their views, commands, menus, icons,
+shortcuts and buttons go away (✨ and ✂ of Git, AI review, ✳ column and breakpoints of the
+margin, linked PRs in the Git view…), and `gh` is no longer called. The same switch brings them
+back, without restarting.

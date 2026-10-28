@@ -9,7 +9,7 @@ impl App {
             Mode::Commands => {
                 let mut v: Vec<Item> = commands::ALL
                     .iter()
-                    .filter(|(_, l, _)| !l.is_empty())
+                    .filter(|(_, l, c)| !l.is_empty() && crate::features::cmd_on(*c))
                     .map(|(id, l, c)| Item { label: commands::label(id, l).to_string(), detail: self.keymap.label(*c), action: Action::Cmd(*c) })
                     .collect();
                 for (k, &(pi, ci)) in self.plugin_cmds.iter().enumerate() {

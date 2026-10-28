@@ -177,6 +177,17 @@ enum BottomTab {
 }
 
 impl BottomTab {
+    /// Its part (Claude, GitHub, the debugger) is on, or it has none.
+    fn feature_on(self) -> bool {
+        use crate::features::{on, Feature};
+        match self {
+            BottomTab::Claude => on(Feature::Claude),
+            BottomTab::Pulls => on(Feature::GitHub),
+            BottomTab::Debug => on(Feature::Debugger),
+            _ => true,
+        }
+    }
+
     /// The view of `key` (settings, session).
     fn from_key(k: &str) -> Option<BottomTab> {
         Self::ALL.iter().map(|a| a.0).find(|b| b.key() == k)
@@ -198,7 +209,7 @@ impl BottomTab {
     /// The views offered. Docker is always there: without the docker command, its view explains
     /// how to install it.
     fn shown() -> impl Iterator<Item = (BottomTab, icons::ViewIcon, &'static str)> {
-        Self::ALL.into_iter().map(|(t, i, l)| {
+        Self::ALL.into_iter().filter(|(t, ..)| t.feature_on()).map(|(t, i, l)| {
             let l = match l {
                 "Recherche" => t!(l, "Search"),
                 "Problèmes" => t!(l, "Problems"),
@@ -1023,6 +1034,7 @@ impl App {
     /// `new` with only the egui context (the tests make an app without a window).
     fn with_ctx(egui_ctx: &egui::Context, arg: Option<PathBuf>) -> Self {
         let (settings, settings_err) = config::load();
+        crate::features::set_all(settings.github, settings.debugger, settings.claude);
         // Florm has its own palette: egui must not switch to its light / dark style with the system
         // theme (Windows), and both styles get the same settings
         egui_ctx.set_theme(egui::ThemePreference::Dark);
@@ -1853,7 +1865,9 @@ fn commit_menu(ui: &mut egui::Ui, c: &history::Commit, m: &MenuCtx, selected: Op
     }
     ui.separator();
     item(ui, t!("Voir le diff complet", "See the full diff"), HistAct::Diff(c.hash.clone()), act);
-    item(ui, t!("✳ Donner ce commit à Claude (contexte)", "✳ Give this commit to Claude (context)"), HistAct::Claude(c.hash.clone()), act);
+    if crate::features::on(crate::features::Feature::Claude) {
+        item(ui, t!("✳ Donner ce commit à Claude (contexte)", "✳ Give this commit to Claude (context)"), HistAct::Claude(c.hash.clone()), act);
+    }
     if let Some(s) = selected {
         let title = format!("{} → {}", &s[..s.len().min(8)], short);
         item(ui, t!("Comparer avec le commit sélectionné", "Compare with the selected commit"), HistAct::Compare(s.to_string(), c.hash.clone(), title), act);

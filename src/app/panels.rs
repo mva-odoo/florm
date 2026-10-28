@@ -109,6 +109,9 @@ impl App {
         let (km, blame_on, has_root) = (&self.keymap, self.blame_mode, self.root.is_some());
         let mut chosen = None;
         let mut item = |ui: &mut egui::Ui, label: &str, cmd: Cmd, enabled: bool| {
+            if !crate::features::cmd_on(cmd) {
+                return;
+            }
             let mod_key = if cfg!(target_os = "macos") { "Cmd" } else { "Ctrl" };
             let shortcut = match cmd {
                 // handled by egui's clipboard events, not by the keymap

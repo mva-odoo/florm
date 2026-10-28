@@ -34,6 +34,10 @@ pub struct Settings {
     pub search_in_tab: bool,
     /// Claude in an editor tab instead of the bottom panel.
     pub claude_in_tab: bool,
+    /// Parts that can be turned off: GitHub (pull requests), the debugger, Claude.
+    pub github: bool,
+    pub debugger: bool,
+    pub claude: bool,
     /// The review of Claude's changes on the right of the conversation.
     pub claude_review: bool,
     /// Claude is done and its conversation is not shown: its tab blinks a few seconds.
@@ -161,6 +165,9 @@ impl Default for Settings {
             show_menu_bar: true,
             search_in_tab: false,
             claude_in_tab: false,
+            github: true,
+            debugger: true,
+            claude: true,
             claude_review: true,
             claude_done_blink: true,
             claude_done_sound: "chime".into(),
@@ -242,6 +249,10 @@ breadcrumbs = true
 show_menu_bar = true
 # recherche dans le dossier (Ctrl+Shift+F) dans un onglet plutôt que dans le panneau du bas
 search_in_tab = false
+# Fonctions à activer ou désactiver (false : leurs vues, commandes, menus et boutons disparaissent)
+github = true
+debugger = true
+claude = true
 # Claude (Ctrl+Alt+C) dans un onglet plutôt que dans le panneau du bas
 claude_in_tab = false
 # revue des changements de Claude à droite de la conversation (bouton « Revue »)
