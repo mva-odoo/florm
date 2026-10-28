@@ -193,6 +193,22 @@ one of the commits.
   review of Claude), filled when it is shown. Git, the Preferences and the split of a commit are
   tabs like the others: Escape goes back to the previous tab, Ctrl+W closes them.
 
+## SQL (PostgreSQL)
+
+**Tools → SQL** (or “sql” in the palette): a tab to query a PostgreSQL database with the `psql`
+command (the client alone is enough).
+
+- On top, the **connection**: the name of a database (`odoo17`), `host=… user=… dbname=…` or
+  `postgresql://…`. **Databases ▾** lists those of the server. The password goes in `~/.pgpass`
+  (or the `PGPASSWORD` variable) rather than in the field.
+- The query, colored; **▶ Run** or **Ctrl+Enter**. The result shows as a table (resizable
+  columns, `NULL` in grey, click a value to copy it, **Copy (spreadsheet)** to paste it all in a
+  spreadsheet), with the number of rows and the time. **■ Stop** interrupts a query too long.
+- **⏱ EXPLAIN ANALYZE**: the plan of the query with its real times. It runs in a transaction
+  rolled back afterwards: an `UPDATE` or a `DELETE` changes nothing. The slowest steps are in red
+  (orange for the next ones).
+- The connection and the query are kept with the project.
+
 ## Docker
 
 **Docker** in the palette (“docker”) or **Tools → Docker (containers and logs)**: the list of

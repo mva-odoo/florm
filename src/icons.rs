@@ -179,6 +179,7 @@ pub enum ViewIcon {
     Problems,
     Output,
     Debug,
+    Sql,
 }
 
 /// Claude's color (its asterisk), whatever the theme.
@@ -223,6 +224,24 @@ pub fn paint_view(painter: &Painter, center: Pos2, icon: ViewIcon, color: Color3
                 painter.rect_stroke(Rect::from_center_size(center + Vec2::new(dx, dy - 1.5), Vec2::new(3.6, 3.2)), 0.5, Stroke::new(1.1_f32, color));
             }
             painter.add(Shape::line(vec![center + Vec2::new(-7.5, 1.5), center + Vec2::new(-5.5, 5.5), center + Vec2::new(5.5, 5.5), center + Vec2::new(7.5, 1.5)], st));
+        }
+        ViewIcon::Sql => {
+            // a database: a cylinder
+            let ring = |cy: f32, full: bool| -> Vec<Pos2> {
+                let n = 16;
+                (0..=n)
+                    .filter_map(|k| {
+                        let a = std::f32::consts::PI * k as f32 / n as f32 * 2.0;
+                        let p = center + Vec2::new(6.0 * a.cos(), cy + 2.0 * a.sin());
+                        (full || a.sin() >= -0.01).then_some(p)
+                    })
+                    .collect()
+            };
+            painter.add(Shape::closed_line(ring(-4.5, true), st));
+            painter.add(Shape::line(ring(0.0, false), st));
+            painter.add(Shape::line(ring(4.5, false), st));
+            painter.line_segment([center + Vec2::new(-6.0, -4.5), center + Vec2::new(-6.0, 4.5)], st);
+            painter.line_segment([center + Vec2::new(6.0, -4.5), center + Vec2::new(6.0, 4.5)], st);
         }
         ViewIcon::Help => {
             painter.circle_stroke(center, 6.5, st);

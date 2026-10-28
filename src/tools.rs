@@ -12,6 +12,7 @@ pub enum Tool {
     Gh,
     Claude,
     Docker,
+    Psql,
 }
 
 /// A step of an installation: what it does, and the command to type (None: only a note).
@@ -58,6 +59,7 @@ impl Tool {
             Tool::Gh => "gh",
             Tool::Claude => "claude",
             Tool::Docker => "docker",
+            Tool::Psql => "psql",
         }
     }
 
@@ -67,6 +69,7 @@ impl Tool {
             Tool::Gh => "GitHub CLI (gh)",
             Tool::Claude => "Claude Code (claude)",
             Tool::Docker => "Docker",
+            Tool::Psql => "PostgreSQL (psql)",
         }
     }
 
@@ -89,6 +92,10 @@ impl Tool {
                 "Florm liste les conteneurs, les démarre et suit leurs logs avec la commande docker.",
                 "Florm lists the containers, starts them and follows their logs with the docker command."
             ),
+            Tool::Psql => t!(
+                "Florm envoie les requêtes SQL à PostgreSQL avec la commande psql (le client seul suffit, le serveur peut être ailleurs).",
+                "Florm sends the SQL queries to PostgreSQL with the psql command (the client alone is enough, the server can be elsewhere)."
+            ),
         }
     }
 
@@ -98,6 +105,7 @@ impl Tool {
             Tool::Gh => "https://github.com/cli/cli#installation",
             Tool::Claude => "https://docs.claude.com/en/docs/claude-code/setup",
             Tool::Docker => "https://docs.docker.com/engine/install/",
+            Tool::Psql => "https://www.postgresql.org/download/",
         }
     }
 
@@ -179,6 +187,19 @@ impl Tool {
                 v.push(step(t!("Installer Docker Desktop avec Homebrew", "Install Docker Desktop with Homebrew"), "brew install --cask docker"));
                 v.push(note(t!("Lance une fois l'application Docker (elle démarre le moteur).", "Start the Docker app once (it starts the engine).")));
             }
+            (Tool::Psql, System::Arch) => v.push(step(t!("Installer le paquet", "Install the package"), "sudo pacman -S --needed postgresql")),
+            (Tool::Psql, System::Debian) => v.push(step(t!("Installer le client", "Install the client"), "sudo apt update && sudo apt install -y postgresql-client")),
+            (Tool::Psql, System::Fedora) => v.push(step(t!("Installer le client", "Install the client"), "sudo dnf install -y postgresql")),
+            (Tool::Psql, System::Suse) => v.push(step(t!("Installer le client", "Install the client"), "sudo zypper install -y postgresql")),
+            (Tool::Psql, System::OtherLinux) => v.push(note(t!(
+                "Installe le client PostgreSQL (psql) de ta distribution : voir la documentation.",
+                "Install the PostgreSQL client (psql) of your distribution: see the documentation."
+            ))),
+            (Tool::Psql, System::Mac) => v.push(step(t!("Installer avec Homebrew", "Install with Homebrew"), "brew install libpq && brew link --force libpq")),
+            (Tool::Psql, System::Windows) => {
+                v.push(step(t!("Installer avec winget", "Install with winget"), "winget install --id PostgreSQL.PostgreSQL.17 -e"));
+                v.push(note(t!("Ajoute le dossier bin de PostgreSQL au PATH, puis relance Florm.", "Add the bin folder of PostgreSQL to the PATH, then restart Florm.")));
+            }
             (Tool::Docker, System::Windows) => {
                 v.push(step(t!("Installer Docker Desktop avec winget", "Install Docker Desktop with winget"), "winget install --id Docker.DockerDesktop -e"));
                 v.push(note(t!("Lance une fois Docker Desktop (il démarre le moteur).", "Start Docker Desktop once (it starts the engine).")));
@@ -199,7 +220,7 @@ impl Tool {
                     "Log out and back in (or restart) for the docker group to count, then start Florm again."
                 )));
             }
-            Tool::Docker => {}
+            Tool::Docker | Tool::Psql => {}
         }
         v
     }
@@ -283,7 +304,7 @@ mod tests {
     #[test]
     fn every_tool_has_steps_everywhere() {
         let all = [System::Arch, System::Debian, System::Fedora, System::Suse, System::OtherLinux, System::Mac, System::Windows];
-        for tool in [Tool::Git, Tool::Gh, Tool::Claude, Tool::Docker] {
+        for tool in [Tool::Git, Tool::Gh, Tool::Claude, Tool::Docker, Tool::Psql] {
             for sys in all {
                 assert!(!tool.steps(sys).is_empty(), "{tool:?} {sys:?}");
             }

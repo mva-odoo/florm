@@ -197,6 +197,23 @@ interactif** (clic droit → « Rebase interactif à partir d'ici… »), l'acti
   masque un panneau latéral (la revue de Claude), pleine quand il est affiché. Git, les Préférences et le découpage d'un commit
   sont des onglets comme les autres : Échap revient à l'onglet d'avant, Ctrl+W les ferme.
 
+## SQL (PostgreSQL)
+
+**Outils → SQL** (ou « sql » dans la palette) : un onglet pour interroger une base PostgreSQL
+avec la commande `psql` (le client seul suffit).
+
+- En haut, la **connexion** : le nom d'une base (`odoo17`), `host=… user=… dbname=…` ou
+  `postgresql://…`. **Bases ▾** liste celles du serveur. Le mot de passe va dans `~/.pgpass` (ou
+  la variable `PGPASSWORD`) plutôt que dans le champ.
+- La requête, colorée ; **▶ Exécuter** ou **Ctrl+Entrée**. Le résultat s'affiche en tableau
+  (colonnes redimensionnables, `NULL` en gris, clic sur une valeur pour la copier, **Copier
+  (tableur)** pour tout coller dans un tableur), avec le nombre de lignes et le temps. **■ Arrêter**
+  interrompt une requête trop longue.
+- **⏱ EXPLAIN ANALYZE** : le plan de la requête avec ses vrais temps. Elle est exécutée dans une
+  transaction annulée ensuite : un `UPDATE` ou un `DELETE` ne change rien. Les étapes les plus
+  lentes sont en rouge (orange pour les suivantes).
+- La connexion et la requête sont gardées avec le projet.
+
 ## Docker
 
 **Docker** dans la palette (« docker ») ou **Outils → Docker (conteneurs et logs)** : la liste des conteneurs à

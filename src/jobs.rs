@@ -56,6 +56,10 @@ pub enum JobResult {
     PrOp { label: String, result: Result<String, String>, reload: Option<u64>, draft: Option<String> },
     /// Labels and milestones of the repository of the pull requests.
     PrChoices(PathBuf, Result<(Vec<crate::github::Label>, Vec<String>), String>),
+    /// A SQL query answered (its number).
+    SqlDone(u64, Result<crate::sql::Outcome, String>),
+    /// The databases of the PostgreSQL server.
+    SqlDbs(Result<Vec<String>, String>),
     /// Two files or folders compared: the title of the tab, the diff.
     Compare(String, Result<String, String>),
     /// Log of a check (its name).

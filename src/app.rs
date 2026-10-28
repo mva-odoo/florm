@@ -52,6 +52,7 @@ mod split_commit;
 mod commit_plan;
 mod panes;
 mod compare;
+mod sql_view;
 mod lsp_client;
 mod maximize;
 mod navigation;
@@ -912,6 +913,7 @@ pub struct App {
     line_history: Option<LineHistoryUi>,
     /// The window of the versions of a file (local history).
     local_history: Option<compare::LocalHistory>,
+    sql: sql_view::SqlUi,
     /// Search history and last filters, shared by all projects.
     state: UiState,
     /// Documents with a live lint running.
@@ -1137,6 +1139,7 @@ impl App {
             blame_req: None,
             line_history: None,
             local_history: None,
+            sql: Default::default(),
             state: project::load_state(),
             lint_inflight: HashSet::new(),
             python_linter: None,
@@ -1500,6 +1503,7 @@ fn doc_tab(d: &Document) -> (TabIcon<'_>, String) {
         View::Welcome => Some(ViewIcon::Welcome),
         View::PullRequests => Some(ViewIcon::PullRequests),
         View::Docker => Some(ViewIcon::Docker),
+        View::Sql => Some(ViewIcon::Sql),
         View::Debug => Some(ViewIcon::Debug),
         View::Git => Some(ViewIcon::Git),
         View::Settings => Some(ViewIcon::Settings),

@@ -46,6 +46,11 @@ pub struct Session {
     pub bottom: Option<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub sidebar_hidden: bool,
+    /// The connection and the query of the SQL view.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub sql_conn: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub sql_query: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]

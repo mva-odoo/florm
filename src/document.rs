@@ -235,6 +235,8 @@ pub enum View {
     Docker,
     /// The debugger: variables, call stack, breakpoints, console.
     Debug,
+    /// PostgreSQL queries and their results (through psql).
+    Sql,
     /// The Git view: branch, commit, graph of the commits and their diffs.
     Git,
     /// The preferences.

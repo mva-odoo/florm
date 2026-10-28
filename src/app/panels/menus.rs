@@ -152,6 +152,7 @@ impl App {
             // also when docker is missing: the view then tells how to install it
             item(ui, t!("Docker (conteneurs et logs)", "Docker (containers and logs)"), Cmd::Docker);
             item(ui, t!("Débogage (F5)", "Debug (F5)"), Cmd::Debug);
+            item(ui, t!("SQL (PostgreSQL)", "SQL (PostgreSQL)"), Cmd::OpenSql);
             item(ui, t!("TODO / FIXME du projet", "TODO / FIXME of the project"), Cmd::ListTodos);
             ui.separator();
             item(ui, t!("Historique local du fichier…", "Local history of the file…"), Cmd::LocalHistory);
