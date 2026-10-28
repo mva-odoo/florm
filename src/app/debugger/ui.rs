@@ -314,7 +314,7 @@ impl App {
                 } else {
                     (&mut self.settings.debug_docker_command, DOCKER_COMMAND.to_string(), "debug_docker_command")
                 };
-                let r = ui.add(egui::TextEdit::singleline(value).hint_text(hint).font(egui::TextStyle::Monospace).desired_width((ui.available_width() - 190.0).max(160.0)));
+                let r = crate::input::add(ui, egui::TextEdit::singleline(value).hint_text(hint).font(egui::TextStyle::Monospace).desired_width((ui.available_width() - 190.0).max(160.0)));
                 if r.lost_focus() {
                     let v = config::toml_str(value);
                     self.persist(key, v);
@@ -394,7 +394,7 @@ impl App {
                     });
                 });
             }
-            let r = ui.add(egui::TextEdit::singleline(draft).hint_text(t!("+ expression à espionner (self.state…)", "+ expression to watch (self.state…)")).font(egui::TextStyle::Small).desired_width(f32::INFINITY));
+            let r = crate::input::add(ui, egui::TextEdit::singleline(draft).hint_text(t!("+ expression à espionner (self.state…)", "+ expression to watch (self.state…)")).font(egui::TextStyle::Small).desired_width(f32::INFINITY));
             if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) && !draft.trim().is_empty() {
                 *act = Some(DebugAct::Watch(std::mem::take(draft).trim().to_string()));
             }
@@ -490,7 +490,7 @@ impl App {
                             if ui.small_button("×").on_hover_text(t!("Retirer", "Remove")).clicked() {
                                 *act = Some(DebugAct::RemoveBp(path.clone(), b.line));
                             }
-                            let r = ui.add(egui::TextEdit::singleline(&mut b.condition).hint_text(t!("condition", "condition")).font(egui::TextStyle::Small).desired_width(ui.available_width()));
+                            let r = crate::input::add(ui, egui::TextEdit::singleline(&mut b.condition).hint_text(t!("condition", "condition")).font(egui::TextStyle::Small).desired_width(ui.available_width()));
                             let r = r.on_hover_text(t!("S'arrêter seulement quand elle est vraie, ex. self.id == 7 (Entrée)", "Stop only when it is true, e.g. self.id == 7 (Enter)"));
                             if r.lost_focus() {
                                 *act = Some(DebugAct::ConditionChanged(path.clone()));
@@ -509,7 +509,7 @@ impl App {
                 ui.label(RichText::new("›").text_style(mono.clone()).color(self.hl.colors.accent));
                 let paused = self.debug.session.as_ref().is_some_and(|s| s.paused.is_some());
                 let hint = if paused { t!("Python dans le cadre en pause : self.env['res.partner'].search([]), x = 2…", "Python in the paused frame: self.env['res.partner'].search([]), x = 2…") } else { t!("Python, une fois le programme en pause", "Python, once the program is paused") };
-                let r = ui.add(egui::TextEdit::singleline(&mut self.debug.repl).hint_text(hint).font(mono.clone()).desired_width(ui.available_width() - 60.0));
+                let r = crate::input::add(ui, egui::TextEdit::singleline(&mut self.debug.repl).hint_text(hint).font(mono.clone()).desired_width(ui.available_width() - 60.0));
                 if std::mem::take(&mut self.debug.focus_console) {
                     r.request_focus();
                 }

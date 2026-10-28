@@ -124,7 +124,7 @@ pub(super) fn questions_ui(ui: &mut egui::Ui, questions: &[Question], answers: O
                         }
                         ui.horizontal(|ui| {
                             ui.label(RichText::new(t!("Autre :", "Other:")).small().weak());
-                            ui.add(egui::TextEdit::singleline(&mut a.other[k]).hint_text(t!("ta réponse", "your answer")).desired_width(320.0));
+                            crate::input::add(ui, egui::TextEdit::singleline(&mut a.other[k]).hint_text(t!("ta réponse", "your answer")).desired_width(320.0));
                         });
                     }
                     ui.add_space(4.0);

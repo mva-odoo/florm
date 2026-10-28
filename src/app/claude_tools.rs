@@ -221,7 +221,7 @@ pub(super) fn rules_ui(ui: &mut egui::Ui, t: &mut ToolsUi, allow: &[String], den
             ui.selectable_value(&mut t.rule_deny, false, t!("Autoriser", "Allow"));
             ui.selectable_value(&mut t.rule_deny, true, t!("Interdire", "Refuse"));
         });
-        let r = ui.add(egui::TextEdit::singleline(&mut t.rule).hint_text("Bash(git *)").desired_width(150.0));
+        let r = crate::input::add(ui, egui::TextEdit::singleline(&mut t.rule).hint_text("Bash(git *)").desired_width(150.0));
         let enter = r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
         if (ui.add_enabled(!t.rule.trim().is_empty(), egui::Button::new(t!("Ajouter", "Add"))).clicked() || enter) && !t.rule.trim().is_empty() {
             act = Some(ToolAct::Rule(std::mem::take(&mut t.rule).trim().to_string(), t.rule_deny));
@@ -246,7 +246,7 @@ pub(super) fn worktree_menu(ui: &mut egui::Ui, t: &mut ToolsUi, in_git: bool) ->
         }
         ui.horizontal(|ui| {
             ui.label(t!("Branche", "Branch"));
-            let r = ui.add(egui::TextEdit::singleline(&mut t.branch).hint_text("claude/ma-tache").desired_width(180.0));
+            let r = crate::input::add(ui, egui::TextEdit::singleline(&mut t.branch).hint_text("claude/ma-tache").desired_width(180.0));
             let enter = r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
             if (ui.add_enabled(!t.branch.trim().is_empty(), egui::Button::new(t!("Créer", "Create"))).clicked() || enter) && !t.branch.trim().is_empty() {
                 act = Some(ToolAct::Worktree(std::mem::take(&mut t.branch)));
@@ -317,10 +317,10 @@ pub(super) fn tools_menu(ui: &mut egui::Ui, c: &mut ClaudeUi, allow: &[String], 
             ui.label(RichText::new(t!("Ajouter un serveur", "Add a server")).strong());
             egui::Grid::new("claude_mcp_add").num_columns(2).show(ui, |ui| {
                 ui.label(t!("Nom", "Name"));
-                ui.add(egui::TextEdit::singleline(&mut t.mcp_name).hint_text("github").desired_width(300.0));
+                crate::input::add(ui, egui::TextEdit::singleline(&mut t.mcp_name).hint_text("github").desired_width(300.0));
                 ui.end_row();
                 ui.label(t!("Commande ou URL", "Command or URL"));
-                ui.add(egui::TextEdit::singleline(&mut t.mcp_target).hint_text("npx -y @modelcontextprotocol/server-github").desired_width(300.0));
+                crate::input::add(ui, egui::TextEdit::singleline(&mut t.mcp_target).hint_text("npx -y @modelcontextprotocol/server-github").desired_width(300.0));
                 ui.end_row();
                 ui.label(t!("Pour", "For"));
                 egui::ComboBox::from_id_salt("claude_mcp_scope").selected_text(scope_label(t.mcp_scope)).show_ui(ui, |ui| {
@@ -355,7 +355,7 @@ pub(super) fn tools_menu(ui: &mut egui::Ui, c: &mut ClaudeUi, allow: &[String], 
             }
             ui.separator();
             ui.horizontal(|ui| {
-                ui.add(egui::TextEdit::singleline(&mut t.agent_name).hint_text("relecteur-sql").desired_width(180.0));
+                crate::input::add(ui, egui::TextEdit::singleline(&mut t.agent_name).hint_text("relecteur-sql").desired_width(180.0));
                 let ok_name = !t.agent_name.is_empty() && t.agent_name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
                 if ui.add_enabled(ok_name, egui::Button::new(t!("+ Nouvel agent", "+ New agent"))).on_hover_text(t!("Crée .claude/agents/<nom>.md dans le projet et l'ouvre (minuscules, chiffres et -)", "Creates .claude/agents/<name>.md in the project and opens it (lowercase, digits and -)")).clicked() {
                     act = Some(ToolAct::NewAgent(std::mem::take(&mut t.agent_name)));
@@ -407,7 +407,7 @@ pub(super) fn tools_menu(ui: &mut egui::Ui, c: &mut ClaudeUi, allow: &[String], 
                 }
             }
             ui.horizontal(|ui| {
-                ui.add(egui::TextEdit::singleline(&mut t.add_dir).hint_text(t!("/chemin/du/dossier", "/path/of/the/folder")).desired_width(240.0));
+                crate::input::add(ui, egui::TextEdit::singleline(&mut t.add_dir).hint_text(t!("/chemin/du/dossier", "/path/of/the/folder")).desired_width(240.0));
                 let p = PathBuf::from(t.add_dir.trim());
                 if ui.add_enabled(p.is_dir(), egui::Button::new(t!("Ajouter", "Add"))).clicked() {
                     act = Some(ToolAct::AddDir(p));

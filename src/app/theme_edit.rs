@@ -149,7 +149,7 @@ impl ThemeDraft {
         egui::Frame::group(ui.style()).show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(RichText::new(t!("Nom du thème", "Theme name")).strong());
-                ui.add(egui::TextEdit::singleline(&mut self.name).desired_width(260.0));
+                crate::input::add(ui, egui::TextEdit::singleline(&mut self.name).desired_width(260.0));
             });
             let taken = builtin.iter().any(|b| *b == self.name);
             if taken {

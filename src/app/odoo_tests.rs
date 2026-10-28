@@ -142,7 +142,7 @@ impl App {
         let mut run = None;
         ui.horizontal(|ui| {
             ui.label("Tags");
-            let r = ui.add(egui::TextEdit::singleline(&mut self.tests.draft).desired_width(280.0).hint_text(t!(":MaClasse, /mon_module, :MaClasse.test_x", ":MyClass, /my_module, :MyClass.test_x")).font(egui::TextStyle::Monospace));
+            let r = crate::input::add(ui, egui::TextEdit::singleline(&mut self.tests.draft).desired_width(280.0).hint_text(t!(":MaClasse, /mon_module, :MaClasse.test_x", ":MyClass, /my_module, :MyClass.test_x")).font(egui::TextStyle::Monospace));
             if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                 run = Some(self.tests.draft.clone());
             }
@@ -172,7 +172,7 @@ impl App {
             ui.menu_button(RichText::new("⋯").strong(), |ui| {
                 ui.set_min_width(420.0);
                 ui.label(RichText::new(t!("Commande lancée dans le conteneur ({tags} : les tags)", "Command run in the container ({tags}: the tags)")).small().weak());
-                let r = ui.add(egui::TextEdit::singleline(&mut self.settings.odoo_test_command).desired_width(f32::INFINITY).hint_text(odoo_test::DEFAULT_COMMAND).font(egui::TextStyle::Monospace));
+                let r = crate::input::add(ui, egui::TextEdit::singleline(&mut self.settings.odoo_test_command).desired_width(f32::INFINITY).hint_text(odoo_test::DEFAULT_COMMAND).font(egui::TextStyle::Monospace));
                 // saved as typed: the menu may close before the field loses the focus
                 save = r.changed();
             })

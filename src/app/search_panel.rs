@@ -142,176 +142,181 @@ impl App {
         let hl = &self.hl;
         let s = &mut self.search;
         let enter = |r: &egui::Response, ui: &egui::Ui| r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
-        let field_w = (ui.available_width() * 0.45).clamp(220.0, 520.0);
+        // the fields take the width there is (minus the buttons around them)
+        let field_w = (ui.available_width() - 470.0).clamp(240.0, 900.0);
+        let filter_w = ((ui.available_width() - 330.0) / 2.0).clamp(160.0, 560.0);
 
-        // --- search line: [▸ replace] [pattern] [Aa .* « »] [⏷] [Rechercher]
-        ui.horizontal(|ui| {
-            let arrow = if s.show_replace { "⏷" } else { "⏵" };
-            if ui
-                .add(egui::Button::new(RichText::new(arrow).color(accent)).frame(false).min_size(egui::vec2(18.0, 0.0)))
-                .on_hover_text(t!("Afficher / masquer le remplacement", "Show / hide the replacement"))
-                .clicked()
-            {
-                s.show_replace = !s.show_replace;
-            }
-            let te = ui.add(
-                egui::TextEdit::singleline(&mut s.q.pattern)
-                    .desired_width(field_w)
-                    .hint_text(t!("🔍  Rechercher dans le dossier… (Entrée)", "🔍  Find in folder… (Enter)"))
-                    .font(egui::TextStyle::Monospace),
-            );
-            if s.focus {
-                te.request_focus();
-                s.focus = false;
-            }
-            if enter(&te, ui) {
-                go = true;
-                te.request_focus();
-            }
-            if te.has_focus() {
-                if let Some(t) = history_arrows(ui, &st.search_history, &mut s.hist_pos) {
-                    s.q.pattern = t;
+        // the bar of the search: room around it and between its lines
+        egui::Frame::none().inner_margin(egui::Margin { left: 10.0, right: 10.0, top: 8.0, bottom: 4.0 }).show(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 7.0;
+            // --- search line: [▸ replace] [pattern] [Aa .* « »] [⏷] [Rechercher]
+            ui.horizontal(|ui| {
+                let arrow = if s.show_replace { "⏷" } else { "⏵" };
+                if ui
+                    .add(egui::Button::new(RichText::new(arrow).color(accent)).frame(false).min_size(egui::vec2(18.0, 0.0)))
+                    .on_hover_text(t!("Afficher / masquer le remplacement", "Show / hide the replacement"))
+                    .clicked()
+                {
+                    s.show_replace = !s.show_replace;
                 }
-            }
-            go |= history_menu(ui, &st.search_history, &mut s.q.pattern, t!("Recherches récentes", "Recent searches"));
-            ui.toggle_value(&mut s.q.case, "Aa").on_hover_text(t!("Respecter la casse", "Match case"));
-            ui.toggle_value(&mut s.q.regex, ".*").on_hover_text(t!("Expression régulière", "Regular expression"));
-            ui.toggle_value(&mut s.q.whole, "« »").on_hover_text(t!("Mot entier", "Whole word"));
-            let search_btn = filled_button(t!("Rechercher", "Find"), accent);
-            if ui.add(search_btn).clicked() {
-                go = true;
-            }
-            if s.running {
-                spinner(ui);
-            }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if let Some(crate::view_bar::BarAct::Move(b)) = crate::view_bar::controls(ui, in_tab, None, None) {
-                    act = Some(SearchAct::Move(b));
+                let te = crate::input::add(ui,
+                    egui::TextEdit::singleline(&mut s.q.pattern)
+                        .desired_width(field_w)
+                        .hint_text(t!("🔍  Rechercher dans le dossier… (Entrée)", "🔍  Find in folder… (Enter)"))
+                        .font(egui::TextStyle::Monospace),
+                );
+                if s.focus {
+                    te.request_focus();
+                    s.focus = false;
                 }
-                if ui.button("TODO / FIXME").on_hover_text(t!("Les TODO, FIXME, XXX et HACK du projet, par fichier", "The TODO, FIXME, XXX and HACK of the project, by file")).clicked() {
-                    set_todo_query(&mut s.q);
+                if enter(&te, ui) {
+                    go = true;
+                    te.request_focus();
+                }
+                if te.has_focus() {
+                    if let Some(t) = history_arrows(ui, &st.search_history, &mut s.hist_pos) {
+                        s.q.pattern = t;
+                    }
+                }
+                go |= history_menu(ui, &st.search_history, &mut s.q.pattern, t!("Recherches récentes", "Recent searches"));
+                ui.toggle_value(&mut s.q.case, "Aa").on_hover_text(t!("Respecter la casse", "Match case"));
+                ui.toggle_value(&mut s.q.regex, ".*").on_hover_text(t!("Expression régulière", "Regular expression"));
+                ui.toggle_value(&mut s.q.whole, "« »").on_hover_text(t!("Mot entier", "Whole word"));
+                let search_btn = filled_button(t!("Rechercher", "Find"), accent);
+                if ui.add(search_btn).clicked() {
                     go = true;
                 }
-            });
-        });
-
-        // --- replace line
-        if s.show_replace {
-            ui.horizontal(|ui| {
-                ui.add_space(22.0);
-                let hint = if s.q.regex { t!("Remplacer par… ($1, $2 = groupes, \\n = retour à la ligne)", "Replace with… ($1, $2 = groups, \\n = new line)") } else { t!("Remplacer par… (vide = supprimer)", "Replace with… (empty = delete)") };
-                ui.add(replace_field(&mut s.replacement, hint).desired_width(field_w)).on_hover_text(replace_tip());
-                let n = s.hit_count();
-                if ui.add_enabled(n > 0 && !s.running, filled_button(tf!("Tout remplacer ({n})", "Replace all ({n})"), warn())).clicked() {
-                    act = Some(SearchAct::ReplaceAll);
+                if s.running {
+                    spinner(ui);
                 }
-                ui.toggle_value(&mut s.q.preserve, t!("Garder la casse", "Keep case")).on_hover_text(t!("chat → chien, Chat → Chien, CHAT → CHIEN", "cat → dog, Cat → Dog, CAT → DOG"));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if let Some(crate::view_bar::BarAct::Move(b)) = crate::view_bar::controls(ui, in_tab, None, None) {
+                        act = Some(SearchAct::Move(b));
+                    }
+                    if ui.button("TODO / FIXME").on_hover_text(t!("Les TODO, FIXME, XXX et HACK du projet, par fichier", "The TODO, FIXME, XXX and HACK of the project, by file")).clicked() {
+                        set_todo_query(&mut s.q);
+                        go = true;
+                    }
+                });
             });
-            ui.horizontal(|ui| {
-                ui.add_space(22.0);
-                ui.spacing_mut().item_spacing.x = 4.0;
-                let small = |t: &str| RichText::new(t).small();
-                ui.label(small(t!("Aperçu :", "Preview:")).weak());
-                ui.label(small(t!(" ancien ", " old ")).strikethrough().background_color(icons::mix(ui.visuals().panel_fill, err(), 0.4)));
-                ui.label(small("→").weak());
-                ui.label(small(t!(" nouveau ", " new ")).background_color(icons::mix(ui.visuals().panel_fill, ok(), 0.4)));
-                ui.label(
-                    small(t!("· survol ou clic droit sur un résultat pour le remplacer seul ou l'écarter (× = ne pas remplacer)", "· hover or right click a result to replace it alone or drop it (× = don't replace)"))
-                        .weak(),
-                );
-            });
-        }
 
-        // --- filters line
-        ui.horizontal(|ui| {
-            ui.add_space(22.0);
-            ui.label(RichText::new(t!("Fichiers", "Files")).color(ok()));
-            let inc = ui
-                .add(egui::TextEdit::singleline(&mut s.q.include).desired_width(220.0).hint_text("*.py, models/*.py, !tests"))
-                .on_hover_text(t!(
-                    "Plusieurs règles, séparées par des virgules ; ! devant une règle l'exclut :\n\
-                     *.py — tous les fichiers Python\n\
-                     models/*.py — les fichiers Python des dossiers « models » (où qu'ils soient) et de leurs sous-dossiers\n\
-                     tests — tout dossier (ou fichier) nommé « tests »\n\
-                     ./src/*.rs ou /chemin/absolu/*.py — à partir de la racine du projet\n\
-                     *.py, !tests — les .py, sauf ceux des dossiers « tests »\n\
-                     florm/*.py, !florm/test — le nom du projet ouvert peut se mettre devant\n\
-                     Aide → Guide de Florm pour plus d'exemples",
-                    "Several rules, separated by commas; ! in front of a rule excludes it:\n\
-                     *.py — all the Python files\n\
-                     models/*.py — the Python files of the “models” folders (wherever they are) and of their subfolders\n\
-                     tests — any folder (or file) named “tests”\n\
-                     ./src/*.rs or /absolute/path/*.py — from the root of the project\n\
-                     *.py, !tests — the .py files, except those of the “tests” folders\n\
-                     florm/*.py, !florm/test — the name of the open project can go in front\n\
-                     Help → Florm guide for more examples"
-                ));
-            go |= history_menu(ui, &st.include_history, &mut s.q.include, t!("Filtres récents", "Recent filters"));
-            ui.add_space(8.0);
-            ui.label(RichText::new(t!("Exclure", "Exclude")).color(err()));
-            let exc = ui.add(
-                egui::TextEdit::singleline(&mut s.q.exclude).desired_width(170.0).hint_text("tests, *.min.js"),
-            ).on_hover_text(t!(
-                "Ce qui est ignoré, en plus du .gitignore (mêmes règles que « Fichiers », séparées par des virgules) :\n\
-                 tests — tout dossier nommé « tests »\n\
-                 addons/sale/tests — seulement celui-là\n\
-                 ./test ou florm/test — le dossier « test » à la racine du projet « florm »\n\
-                 *.min.js, i18n — ces fichiers et ces dossiers\n\n\
-                 Ex. : Fichiers « *.py » + Exclure « test » = les .py du projet, sauf le dossier test",
-                "What is ignored, on top of the .gitignore (same rules as “Files”, separated by commas):\n\
-                 tests — any folder named “tests”\n\
-                 addons/sale/tests — only that one\n\
-                 ./test or florm/test — the “test” folder at the root of the “florm” project\n\
-                 *.min.js, i18n — these files and folders\n\n\
-                 E.g.: Files “*.py” + Exclude “test” = the .py files of the project, except the test folder"
-            ));
-            go |= history_menu(ui, &st.exclude_history, &mut s.q.exclude, t!("Exclusions récentes", "Recent exclusions"));
-            go |= enter(&inc, ui) || enter(&exc, ui);
-        });
-
-        // --- summary
-        ui.horizontal(|ui| {
-            ui.add_space(22.0);
-            ui.spacing_mut().item_spacing.x = 0.0;
-            if let Some(e) = &s.error {
-                ui.label(RichText::new(format!("⚠ {e}")).color(err()));
-            } else if let Some((scanned, millis, truncated)) = s.stats {
-                let n = s.hit_count();
-                if scanned == 0 && !s.done.include.trim().is_empty() {
+            // --- replace line
+            if s.show_replace {
+                ui.horizontal(|ui| {
+                    ui.add_space(22.0);
+                    let hint = if s.q.regex { t!("Remplacer par… ($1, $2 = groupes, \\n = retour à la ligne)", "Replace with… ($1, $2 = groups, \\n = new line)") } else { t!("Remplacer par… (vide = supprimer)", "Replace with… (empty = delete)") };
+                    crate::input::add(ui, replace_field(&mut s.replacement, hint).desired_width(field_w)).on_hover_text(replace_tip());
+                    let n = s.hit_count();
+                    if ui.add_enabled(n > 0 && !s.running, filled_button(tf!("Tout remplacer ({n})", "Replace all ({n})"), warn())).clicked() {
+                        act = Some(SearchAct::ReplaceAll);
+                    }
+                    ui.toggle_value(&mut s.q.preserve, t!("Garder la casse", "Keep case")).on_hover_text(t!("chat → chien, Chat → Chien, CHAT → CHIEN", "cat → dog, Cat → Dog, CAT → DOG"));
+                });
+                ui.horizontal(|ui| {
+                    ui.add_space(22.0);
+                    ui.spacing_mut().item_spacing.x = 4.0;
+                    let small = |t: &str| RichText::new(t).small();
+                    ui.label(small(t!("Aperçu :", "Preview:")).weak());
+                    ui.label(small(t!(" ancien ", " old ")).strikethrough().background_color(icons::mix(ui.visuals().panel_fill, err(), 0.4)));
+                    ui.label(small("→").weak());
+                    ui.label(small(t!(" nouveau ", " new ")).background_color(icons::mix(ui.visuals().panel_fill, ok(), 0.4)));
                     ui.label(
-                        RichText::new(tf!("Aucun fichier ne correspond au filtre « {} »", "No file matches the filter “{}”", s.done.include.trim()))
-                            .color(warn()),
+                        small(t!("· survol ou clic droit sur un résultat pour le remplacer seul ou l'écarter (× = ne pas remplacer)", "· hover or right click a result to replace it alone or drop it (× = don't replace)"))
+                            .weak(),
                     );
-                } else if n == 0 {
-                    ui.label(RichText::new(tf!("Aucun résultat pour « {} »", "No result for “{}”", s.done.pattern)).color(warn()));
-                } else {
-                    ui.label(RichText::new(n.to_string()).color(accent).strong());
-                    ui.label(t!(" résultat(s) dans ", " result(s) in "));
-                    ui.label(RichText::new(s.files.len().to_string()).color(accent).strong());
-                    ui.label(t!(" fichier(s)", " file(s)"));
-                }
-                ui.label(RichText::new(tf!("   ·   {scanned} fichiers parcourus en {millis} ms", "   ·   {scanned} files scanned in {millis} ms")).weak());
-                if truncated {
-                    ui.label(RichText::new(t!("   ·   limite atteinte", "   ·   limit reached")).color(warn()));
-                }
-                if n > 0 {
-                    ui.label(RichText::new(t!("   ·   F4 / Maj+F4 pour naviguer   ", "   ·   F4 / Shift+F4 to navigate   ")).weak());
-                    ui.spacing_mut().item_spacing.x = 6.0;
-                    if ui.small_button(t!("Tout replier", "Fold all")).clicked() {
-                        s.collapsed = (0..s.files.len()).collect();
-                        s.rebuild_rows();
-                    }
-                    if ui.small_button(t!("Tout déplier", "Unfold all")).clicked() {
-                        s.collapsed.clear();
-                        s.rebuild_rows();
-                    }
-                }
-            } else {
-                ui.label(
-                    RichText::new(t!("Tape un texte puis Entrée. Filtre les fichiers avec « *.py », exclus des dossiers avec « tests ».", "Type a text then Enter. Filter the files with “*.py”, exclude folders with “tests”."))
-                        .weak(),
-                );
+                });
             }
+
+            // --- filters line
+            ui.horizontal(|ui| {
+                ui.add_space(22.0);
+                ui.label(RichText::new(t!("Fichiers", "Files")).color(ok()));
+                let inc = crate::input::add(ui, egui::TextEdit::singleline(&mut s.q.include).desired_width(filter_w).hint_text("*.py, models/*.py, !tests"))
+                    .on_hover_text(t!(
+                        "Plusieurs règles, séparées par des virgules ; ! devant une règle l'exclut :\n\
+                         *.py — tous les fichiers Python\n\
+                         models/*.py — les fichiers Python des dossiers « models » (où qu'ils soient) et de leurs sous-dossiers\n\
+                         tests — tout dossier (ou fichier) nommé « tests »\n\
+                         ./src/*.rs ou /chemin/absolu/*.py — à partir de la racine du projet\n\
+                         *.py, !tests — les .py, sauf ceux des dossiers « tests »\n\
+                         florm/*.py, !florm/test — le nom du projet ouvert peut se mettre devant\n\
+                         Aide → Guide de Florm pour plus d'exemples",
+                        "Several rules, separated by commas; ! in front of a rule excludes it:\n\
+                         *.py — all the Python files\n\
+                         models/*.py — the Python files of the “models” folders (wherever they are) and of their subfolders\n\
+                         tests — any folder (or file) named “tests”\n\
+                         ./src/*.rs or /absolute/path/*.py — from the root of the project\n\
+                         *.py, !tests — the .py files, except those of the “tests” folders\n\
+                         florm/*.py, !florm/test — the name of the open project can go in front\n\
+                         Help → Florm guide for more examples"
+                    ));
+                go |= history_menu(ui, &st.include_history, &mut s.q.include, t!("Filtres récents", "Recent filters"));
+                ui.add_space(8.0);
+                ui.label(RichText::new(t!("Exclure", "Exclude")).color(err()));
+                let exc = crate::input::add(ui,
+                    egui::TextEdit::singleline(&mut s.q.exclude).desired_width(filter_w).hint_text("tests, *.min.js"),
+                ).on_hover_text(t!(
+                    "Ce qui est ignoré, en plus du .gitignore (mêmes règles que « Fichiers », séparées par des virgules) :\n\
+                     tests — tout dossier nommé « tests »\n\
+                     addons/sale/tests — seulement celui-là\n\
+                     ./test ou florm/test — le dossier « test » à la racine du projet « florm »\n\
+                     *.min.js, i18n — ces fichiers et ces dossiers\n\n\
+                     Ex. : Fichiers « *.py » + Exclure « test » = les .py du projet, sauf le dossier test",
+                    "What is ignored, on top of the .gitignore (same rules as “Files”, separated by commas):\n\
+                     tests — any folder named “tests”\n\
+                     addons/sale/tests — only that one\n\
+                     ./test or florm/test — the “test” folder at the root of the “florm” project\n\
+                     *.min.js, i18n — these files and folders\n\n\
+                     E.g.: Files “*.py” + Exclude “test” = the .py files of the project, except the test folder"
+                ));
+                go |= history_menu(ui, &st.exclude_history, &mut s.q.exclude, t!("Exclusions récentes", "Recent exclusions"));
+                go |= enter(&inc, ui) || enter(&exc, ui);
+            });
+
+            // --- summary
+            ui.horizontal(|ui| {
+                ui.add_space(22.0);
+                ui.spacing_mut().item_spacing.x = 0.0;
+                if let Some(e) = &s.error {
+                    ui.label(RichText::new(format!("⚠ {e}")).color(err()));
+                } else if let Some((scanned, millis, truncated)) = s.stats {
+                    let n = s.hit_count();
+                    if scanned == 0 && !s.done.include.trim().is_empty() {
+                        ui.label(
+                            RichText::new(tf!("Aucun fichier ne correspond au filtre « {} »", "No file matches the filter “{}”", s.done.include.trim()))
+                                .color(warn()),
+                        );
+                    } else if n == 0 {
+                        ui.label(RichText::new(tf!("Aucun résultat pour « {} »", "No result for “{}”", s.done.pattern)).color(warn()));
+                    } else {
+                        ui.label(RichText::new(n.to_string()).color(accent).strong());
+                        ui.label(t!(" résultat(s) dans ", " result(s) in "));
+                        ui.label(RichText::new(s.files.len().to_string()).color(accent).strong());
+                        ui.label(t!(" fichier(s)", " file(s)"));
+                    }
+                    ui.label(RichText::new(tf!("   ·   {scanned} fichiers parcourus en {millis} ms", "   ·   {scanned} files scanned in {millis} ms")).weak());
+                    if truncated {
+                        ui.label(RichText::new(t!("   ·   limite atteinte", "   ·   limit reached")).color(warn()));
+                    }
+                    if n > 0 {
+                        ui.label(RichText::new(t!("   ·   F4 / Maj+F4 pour naviguer   ", "   ·   F4 / Shift+F4 to navigate   ")).weak());
+                        ui.spacing_mut().item_spacing.x = 6.0;
+                        if ui.small_button(t!("Tout replier", "Fold all")).clicked() {
+                            s.collapsed = (0..s.files.len()).collect();
+                            s.rebuild_rows();
+                        }
+                        if ui.small_button(t!("Tout déplier", "Unfold all")).clicked() {
+                            s.collapsed.clear();
+                            s.rebuild_rows();
+                        }
+                    }
+                } else {
+                    ui.label(
+                        RichText::new(t!("Tape un texte puis Entrée. Filtre les fichiers avec « *.py », exclus des dossiers avec « tests ».", "Type a text then Enter. Filter the files with “*.py”, exclude folders with “tests”."))
+                            .weak(),
+                    );
+                }
+            });
         });
         ui.add_space(2.0);
 

@@ -60,7 +60,7 @@ impl App {
             .show_inside(ui, |ui| {
                 ui.horizontal(|ui| {
                     crate::view_bar::title(ui, "SQL");
-                    ui.add(
+                    crate::input::add(ui,
                         egui::TextEdit::singleline(&mut s.conn)
                             .hint_text(t!("base (odoo17), host=… user=… dbname=…, ou postgresql://…", "database (odoo17), host=… user=… dbname=…, or postgresql://…"))
                             .desired_width(340.0),

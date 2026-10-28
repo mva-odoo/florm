@@ -22,6 +22,7 @@ mod highlight;
 mod history;
 mod icons;
 mod index;
+mod input;
 mod jobs;
 mod keymap;
 mod lint;

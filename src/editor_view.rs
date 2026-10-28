@@ -1332,7 +1332,7 @@ fn definitions_popup(ui: &Ui, doc: &mut Document, id: Id, new: Option<(TipAt, St
             let fid = pid.with("filter");
             let mut filter: String = ctx.data(|d| d.get_temp(fid)).unwrap_or_default();
             if defs.len() > 8 {
-                ui.add(egui::TextEdit::singleline(&mut filter).hint_text(t!("Filtrer : fichier, dossier, nom…", "Filter: file, folder, name…")).desired_width(300.0));
+                crate::input::add(ui, egui::TextEdit::singleline(&mut filter).hint_text(t!("Filtrer : fichier, dossier, nom…", "Filter: file, folder, name…")).desired_width(300.0));
                 ctx.data_mut(|d| d.insert_temp(fid, filter.clone()));
             }
             let f = filter.to_lowercase();

@@ -83,7 +83,7 @@ impl App {
             .default_width(620.0)
             .anchor(Align2::CENTER_TOP, [0.0, 70.0])
             .show(ctx, |ui| {
-                let resp = ui.add(
+                let resp = crate::input::add(ui,
                     egui::TextEdit::singleline(&mut st.ask)
                         .hint_text(t!("Que faire ? « gère le cas vide », « simplifie », « explique »… (Entrée)", "What to do? “handle the empty case”, “simplify”, “explain”… (Enter)"))
                         .desired_width(f32::INFINITY),

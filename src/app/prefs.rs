@@ -185,7 +185,7 @@ impl App {
         egui::CentralPanel::default()
             .frame(egui::Frame::none().fill(self.hl.colors.bg).inner_margin(egui::Margin::symmetric(28.0, 18.0)))
             .show_inside(ui, |ui| {
-                ui.add(
+                crate::input::add(ui,
                     egui::TextEdit::singleline(&mut self.prefs.filter)
                         .hint_text(t!("Rechercher un réglage…", "Search a setting…"))
                         .desired_width(420.0)
@@ -394,7 +394,7 @@ impl App {
                 });
                 let rulers = &mut self.prefs.rulers;
                 pref_row(ui, rc, t!("Règles verticales", "Vertical rulers"), t!("Lignes verticales aux colonnes données, séparées par des virgules (ex. 79, 120). Vide : aucune.", "Vertical lines at the given columns, separated by commas (e.g. 79, 120). Empty: none."), |ui| {
-                    let r = ui.add(egui::TextEdit::singleline(rulers).desired_width(120.0).font(egui::TextStyle::Monospace).hint_text("79, 120"));
+                    let r = crate::input::add(ui, egui::TextEdit::singleline(rulers).desired_width(120.0).font(egui::TextStyle::Monospace).hint_text("79, 120"));
                     if r.lost_focus() || r.changed() && ui.input(|i| i.key_pressed(Key::Enter)) {
                         s.rulers = rulers.split(',').filter_map(|c| c.trim().parse().ok()).filter(|c| *c > 0).collect();
                     }
@@ -456,7 +456,7 @@ impl App {
                 });
                 let args = &mut self.prefs.lint_args;
                 pref_row(ui, rc, t!("Arguments du linter", "Linter arguments"), t!("Ajoutés à la ligne de commande, séparés par des espaces. Ex. : --max-line-length=120 (en automatique, ruff ne reçoit que la longueur de ligne).", "Added to the command line, separated by spaces. E.g.: --max-line-length=120 (in automatic mode, ruff only gets the line length)."), |ui| {
-                    let r = ui.add(egui::TextEdit::singleline(args).desired_width(260.0).font(egui::TextStyle::Monospace).hint_text("--max-line-length=120"));
+                    let r = crate::input::add(ui, egui::TextEdit::singleline(args).desired_width(260.0).font(egui::TextStyle::Monospace).hint_text("--max-line-length=120"));
                     if r.lost_focus() || r.changed() && ui.input(|i| i.key_pressed(Key::Enter)) {
                         s.python_lint_args = args.split_whitespace().map(String::from).collect();
                     }
@@ -486,7 +486,7 @@ impl App {
                     let buf = &mut self.prefs.lint_ignore[k];
                     let desc = tf!("Problèmes de {name} à ne pas afficher, séparés par des virgules : un code, un préfixe (E5 : tous les E5xx){}.", "Problems of {name} not to show, separated by commas: a code, a prefix (E5: all the E5xx){}.", if matches!(*name, "pylint" | "eslint") { t!(" ou le nom d'une règle", " or the name of a rule") } else { "" });
                     pref_row(ui, rc, &tf!("Codes ignorés par {name}", "Codes ignored by {name}"), &desc, |ui| {
-                        let r = ui.add(egui::TextEdit::singleline(buf).desired_width(260.0).font(egui::TextStyle::Monospace).hint_text(*example));
+                        let r = crate::input::add(ui, egui::TextEdit::singleline(buf).desired_width(260.0).font(egui::TextStyle::Monospace).hint_text(*example));
                         if r.lost_focus() || r.changed() && ui.input(|i| i.key_pressed(Key::Enter)) {
                             *s.lint_ignore_mut(name) = codes_of(buf);
                         }
@@ -562,10 +562,10 @@ impl App {
             }
             PrefSection::Docker => {
                 pref_row(ui, rc, t!("Conteneur des tests Odoo", "Odoo tests container"), t!("Le conteneur où tournent les tests Odoo (Tests dans la vue Docker).", "The container the Odoo tests run in (Tests in the Docker view)."), |ui| {
-                    ui.add(egui::TextEdit::singleline(&mut s.odoo_test_container).desired_width(260.0).font(egui::TextStyle::Monospace));
+                    crate::input::add(ui, egui::TextEdit::singleline(&mut s.odoo_test_container).desired_width(260.0).font(egui::TextStyle::Monospace));
                 });
                 pref_row_wide(ui, rc, t!("Commande des tests Odoo", "Odoo tests command"), t!("Lancée dans le conteneur, {tags} est remplacé par les tags. Vide : la commande par défaut.", "Run in the container, {tags} is replaced by the tags. Empty: the default command."), |ui| {
-                    ui.add(egui::TextEdit::singleline(&mut s.odoo_test_command).desired_width(f32::INFINITY).font(egui::TextStyle::Monospace).hint_text(crate::odoo_test::DEFAULT_COMMAND));
+                    crate::input::add(ui, egui::TextEdit::singleline(&mut s.odoo_test_command).desired_width(f32::INFINITY).font(egui::TextStyle::Monospace).hint_text(crate::odoo_test::DEFAULT_COMMAND));
                 });
             }
             PrefSection::Debug => {
@@ -578,13 +578,13 @@ impl App {
                     ui.add(egui::DragValue::new(&mut s.debug_port).range(1..=65535));
                 });
                 pref_row_wide(ui, rc, t!("Commande sur cet ordinateur", "Command on this computer"), t!("Lancée sous le débogueur (lancer), dans le panneau du bas. Vide : l'odoo-bin du dossier.", "Run under the debugger (launch), in the bottom panel. Empty: the odoo-bin of the folder."), |ui| {
-                    ui.add(egui::TextEdit::singleline(&mut s.debug_command).desired_width(f32::INFINITY).font(egui::TextStyle::Monospace).hint_text("./odoo-bin -c odoo.conf -d ma_base --workers 0"));
+                    crate::input::add(ui, egui::TextEdit::singleline(&mut s.debug_command).desired_width(f32::INFINITY).font(egui::TextStyle::Monospace).hint_text("./odoo-bin -c odoo.conf -d ma_base --workers 0"));
                 });
                 pref_row_wide(ui, rc, t!("Commande dans le conteneur", "Command in the container"), t!("Lancée dans le conteneur sous le débogueur. Vide : la commande par défaut.", "Run in the container under the debugger. Empty: the default command."), |ui| {
-                    ui.add(egui::TextEdit::singleline(&mut s.debug_docker_command).desired_width(f32::INFINITY).font(egui::TextStyle::Monospace).hint_text(super::debugger::DOCKER_COMMAND));
+                    crate::input::add(ui, egui::TextEdit::singleline(&mut s.debug_docker_command).desired_width(f32::INFINITY).font(egui::TextStyle::Monospace).hint_text(super::debugger::DOCKER_COMMAND));
                 });
                 pref_row(ui, rc, t!("Python de cet ordinateur", "Python of this computer"), t!("Avec debugpy installé. Vide : python3 (python sous Windows).", "With debugpy installed. Empty: python3 (python on Windows)."), |ui| {
-                    ui.add(egui::TextEdit::singleline(&mut s.debug_python).desired_width(260.0).font(egui::TextStyle::Monospace).hint_text("python3"));
+                    crate::input::add(ui, egui::TextEdit::singleline(&mut s.debug_python).desired_width(260.0).font(egui::TextStyle::Monospace).hint_text("python3"));
                 });
                 pref_row(ui, rc, t!("Exceptions", "Exceptions"), t!("Où le débogueur s'arrête sur une exception. Aussi réglable dans la vue Débogage.", "Where the debugger stops on an exception. Also set in the Debugging view."), |ui| {
                     for (key, label) in [("uncaught", t!("non interceptées", "uncaught")), ("raised", t!("toutes", "all raised")), ("userUnhandled", t!("hors de mon code", "leaving my code"))] {
@@ -604,7 +604,7 @@ impl App {
             PrefSection::Terminal => {
                 let shell = &mut self.prefs.shell;
                 pref_row(ui, rc, "Shell", t!("Shell lancé dans le terminal intégré (ex. bash, zsh, fish, powershell). Vide : $SHELL (Linux / macOS) ou cmd (Windows). Pris en compte pour les nouveaux terminaux.", "Shell run in the built-in terminal (e.g. bash, zsh, fish, powershell). Empty: $SHELL (Linux / macOS) or cmd (Windows). Applies to new terminals."), |ui| {
-                    let r = ui.add(egui::TextEdit::singleline(shell).desired_width(260.0).font(egui::TextStyle::Monospace).hint_text("/bin/bash"));
+                    let r = crate::input::add(ui, egui::TextEdit::singleline(shell).desired_width(260.0).font(egui::TextStyle::Monospace).hint_text("/bin/bash"));
                     if r.lost_focus() {
                         s.shell = (!shell.trim().is_empty()).then(|| shell.trim().to_string());
                     }
@@ -743,7 +743,7 @@ impl App {
                     t!("Fichiers exclus", "Excluded files"),
                     t!("Ni dans « aller au fichier » (Ctrl+P), ni dans l'index des symboles, ni dans la recherche. Séparés par des virgules, syntaxe .gitignore (dossier/ ou *.ext). Le .gitignore des dépôts et .git sont toujours appliqués.", "Not in “go to file” (Ctrl+P), nor in the symbol index, nor in the search. Separated by commas, .gitignore syntax (folder/ or *.ext). The .gitignore of the repositories and .git always apply."),
                     |ui| {
-                        let r = ui.add(egui::TextEdit::singleline(exclude).desired_width(320.0).font(egui::TextStyle::Monospace).hint_text("__pycache__/, *.pyc"));
+                        let r = crate::input::add(ui, egui::TextEdit::singleline(exclude).desired_width(320.0).font(egui::TextStyle::Monospace).hint_text("__pycache__/, *.pyc"));
                         if r.lost_focus() || r.changed() && ui.input(|i| i.key_pressed(Key::Enter)) {
                             s.exclude = exclude.split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect();
                         }
@@ -771,7 +771,7 @@ impl App {
                     None => t!("Un dépôt GitHub avec settings.toml, templates/, themes/ et plugins/, utilisé sur chaque ordinateur : « login » (= login/florm-config), « owner/repo » ou une adresse git. « Créer » le fait sur GitHub (privé, avec gh) à partir de cet ordinateur.", "A GitHub repository with settings.toml, templates/, themes/ and plugins/, used on every computer: “login” (= login/florm-config), “owner/repo” or a git address. “Create” makes it on GitHub (private, with gh) from this computer.").to_string(),
                 };
                 pref_row_wide(ui, rc, t!("Configuration partagée", "Shared configuration"), &help, |ui| {
-                    let r = ui.add(egui::TextEdit::singleline(shared).desired_width(220.0).font(egui::TextStyle::Monospace).hint_text("login/florm-config"));
+                    let r = crate::input::add(ui, egui::TextEdit::singleline(shared).desired_width(220.0).font(egui::TextStyle::Monospace).hint_text("login/florm-config"));
                     if r.lost_focus() || r.changed() && ui.input(|i| i.key_pressed(Key::Enter)) {
                         s.shared_config = shared.trim().to_string();
                     }

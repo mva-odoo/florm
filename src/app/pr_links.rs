@@ -272,7 +272,7 @@ impl App {
                     });
                     ui.end_row();
                     ui.label(RichText::new(t!("Titre", "Title")).weak());
-                    ui.add(egui::TextEdit::singleline(&mut c.title).desired_width(f32::INFINITY));
+                    crate::input::add(ui, egui::TextEdit::singleline(&mut c.title).desired_width(f32::INFINITY));
                     ui.end_row();
                     ui.vertical(|ui| {
                         ui.label(RichText::new("Description").weak());

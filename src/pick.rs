@@ -42,7 +42,7 @@ pub fn list(ui: &mut egui::Ui, id: Id, items: &[String], current: Option<usize>)
     let width = (longest + 40.0).min(560.0);
     ui.set_min_width(width);
     ui.set_max_width(ui.min_rect().width().max(width));
-    let edit = ui.add(egui::TextEdit::singleline(&mut filter).hint_text(t!("🔍 taper pour chercher…", "🔍 type to search…")).desired_width(f32::INFINITY));
+    let edit = crate::input::add(ui, egui::TextEdit::singleline(&mut filter).hint_text(t!("🔍 taper pour chercher…", "🔍 type to search…")).desired_width(f32::INFINITY));
     if opening {
         edit.request_focus();
     }

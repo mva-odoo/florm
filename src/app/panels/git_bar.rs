@@ -8,7 +8,7 @@ pub(super) fn stash_menu(ui: &mut egui::Ui, g: &mut GitUi, changes: bool, act: &
     use super::git_actions::StashAct;
     ui.set_min_width(460.0);
     ui.label(RichText::new(t!("Mettre de côté", "Put aside")).strong());
-    ui.add(egui::TextEdit::singleline(&mut g.stash_msg).hint_text(t!("Message (facultatif)", "Message (optional)")).desired_width(f32::INFINITY));
+    crate::input::add(ui, egui::TextEdit::singleline(&mut g.stash_msg).hint_text(t!("Message (facultatif)", "Message (optional)")).desired_width(f32::INFINITY));
     ui.horizontal(|ui| {
         let mut untracked = !g.stash_tracked_only;
         if ui.checkbox(&mut untracked, t!("Nouveaux fichiers compris", "New files included")).on_hover_text(t!("Les fichiers pas encore suivis par git partent aussi (--include-untracked)", "Files not tracked by git yet go too (--include-untracked)")).changed() {
@@ -298,7 +298,7 @@ impl App {
                 if h.loading {
                     spinner(ui);
                 }
-                ui.add(egui::TextEdit::singleline(&mut h.filter).hint_text(t!("🔍 Filtrer : message, auteur, hash, branche…", "🔍 Filter: message, author, hash, branch…")).desired_width(220.0))
+                crate::input::add(ui, egui::TextEdit::singleline(&mut h.filter).hint_text(t!("🔍 Filtrer : message, auteur, hash, branche…", "🔍 Filter: message, author, hash, branch…")).desired_width(220.0))
                     .on_hover_text(t!("↑ ↓ commits · ← → fichiers du diff · Page ↑ ↓ défiler", "↑ ↓ commits · ← → files of the diff · Page ↑ ↓ scroll"));
             });
         });

@@ -105,7 +105,7 @@ impl TemplateDraft {
             }
             egui::Grid::new("template_fields").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
                 ui.label(RichText::new(t!("Nom", "Name")).strong());
-                ui.add(egui::TextEdit::singleline(&mut self.name).hint_text(t!("ipdb, Mon en-tête…", "ipdb, My header…")).desired_width(320.0));
+                crate::input::add(ui, egui::TextEdit::singleline(&mut self.name).hint_text(t!("ipdb, Mon en-tête…", "ipdb, My header…")).desired_width(320.0));
                 ui.end_row();
                 ui.label("");
                 let trigger = self.name.trim();

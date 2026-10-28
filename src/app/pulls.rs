@@ -389,7 +389,7 @@ impl App {
                     if before != (p.state, p.who) {
                         act = Some(PrAct::Reload);
                     }
-                    ui.add(egui::TextEdit::singleline(&mut p.filter).hint_text(t!("🔍 Filtrer : titre, auteur, branche, numéro…", "🔍 Filter: title, author, branch, number…")).desired_width(240.0));
+                    crate::input::add(ui, egui::TextEdit::singleline(&mut p.filter).hint_text(t!("🔍 Filtrer : titre, auteur, branche, numéro…", "🔍 Filter: title, author, branch, number…")).desired_width(240.0));
                     if p.loading || p.busy {
                         spinner(ui);
                     }
@@ -496,10 +496,10 @@ impl App {
                 // header
                 let mut cancel_edit = false;
                 if let Some((title, body, base)) = &mut p.head_edit {
-                    ui.add(egui::TextEdit::singleline(title).font(egui::FontId::proportional(16.0)).desired_width(f32::INFINITY));
+                    crate::input::add(ui, egui::TextEdit::singleline(title).font(egui::FontId::proportional(16.0)).desired_width(f32::INFINITY));
                     ui.horizontal(|ui| {
                         ui.label(t!("Branche de base :", "Base branch:"));
-                        ui.add(egui::TextEdit::singleline(base).desired_width(180.0));
+                        crate::input::add(ui, egui::TextEdit::singleline(base).desired_width(180.0));
                     });
                     ui.add(egui::TextEdit::multiline(body).hint_text(t!("Description (Markdown)", "Description (Markdown)")).desired_rows(6).desired_width(f32::INFINITY));
                     ui.horizontal(|ui| {
@@ -1363,7 +1363,7 @@ fn side_info(ui: &mut egui::Ui, d: &github::PrDetail, new_reviewer: &mut String,
             });
         }
         ui.horizontal(|ui| {
-            let r = ui.add(egui::TextEdit::singleline(new).hint_text(hint).desired_width(ui.available_width() - 30.0));
+            let r = crate::input::add(ui, egui::TextEdit::singleline(new).hint_text(hint).desired_width(ui.available_width() - 30.0));
             let enter = r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
             if (ui.add_enabled(!busy && !new.trim().is_empty(), egui::Button::new("+")).clicked() || enter) && !new.trim().is_empty() {
                 let who = new.trim().trim_start_matches('@').to_string();

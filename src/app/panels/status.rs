@@ -243,7 +243,7 @@ impl App {
                     scope_toggled = true;
                 }
                 let w = (ui.available_width() - 330.0).max(120.0);
-                let te = ui.add(
+                let te = crate::input::add(ui,
                     egui::TextEdit::singleline(&mut f.query)
                         .desired_width(w)
                         .hint_text(t!("Rechercher (Entrée : suivant, Maj+Entrée : précédent, Alt+Entrée : tout sélectionner)", "Find (Enter: next, Shift+Enter: previous, Alt+Enter: select all)"))
@@ -293,7 +293,7 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.add_space(110.0);
                     let w = (ui.available_width() - 330.0).max(120.0);
-                    let te = ui.add(replace_field(&mut self.find.replacement, t!("Remplacer par ($1 pour les groupes en mode regex)", "Replace with ($1 for the groups in regex mode)")).desired_width(w)).on_hover_text(replace_tip());
+                    let te = crate::input::add(ui, replace_field(&mut self.find.replacement, t!("Remplacer par ($1 pour les groupes en mode regex)", "Replace with ($1 for the groups in regex mode)")).desired_width(w)).on_hover_text(replace_tip());
                     if te.has_focus() && ui.input(|i| i.key_pressed(Key::Enter) && !i.modifiers.shift) {
                         action = Some(FindAction::ReplaceOne);
                     }
