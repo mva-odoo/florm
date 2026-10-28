@@ -313,9 +313,9 @@ panneau du bas (⇱ pour lui donner tout un onglet de l'éditeur, ⇲ pour l'y r
   sinon au prochain message, la conversation gardée. **Maj+Tab** dans le champ : mode suivant,
   comme dans Claude Code.
 - **Fin de réponse** : si la conversation n'est pas affichée, son onglet (ou, dans le panneau
-  du bas, l'onglet Claude et son icône de la barre latérale) clignote quelques secondes puis
+  du bas, l'onglet Claude et son icône de la barre latérale) clignote quelques secondes (tout l'onglet s'allume) puis
   reste vert jusqu'à ce que tu la regardes, et un son est joué. **Préférences → Claude** :
-  clignoter ou non, et le son (Carillon, Clochette, Goutte, Bip, Accord, ou aucun ; ▶ pour
+  clignoter ou non, et le son (Carillon, Clochette, Goutte, Bip, Accord, Micro-ondes, ou aucun ; ▶ pour
   écouter).
 - **/** au début du champ : les commandes de Claude Code (`/usage`, `/context`, `/compact`,
   `/clear`, `/model`, tes skills…), **Tab** ou un clic complète. Elles partent seules, sans le

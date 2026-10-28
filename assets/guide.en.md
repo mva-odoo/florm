@@ -309,9 +309,9 @@ command and your login: no key to set up.
   working, else from the next message, the conversation kept. **Shift+Tab** in the field: next
   mode, as in Claude Code.
 - **End of an answer**: if the conversation is not shown, its tab (or, in the bottom panel, the
-  Claude tab and its icon in the sidebar) blinks a few seconds then stays green until you look at
+  Claude tab and its icon in the sidebar) blinks a few seconds (the whole tab lights up) then stays green until you look at
   it, and a sound plays. **Preferences → Claude**: blink or not, and the sound (Chime, Bell,
-  Drop, Beep, Chord, or none; ▶ to listen).
+  Drop, Beep, Chord, Microwave, or none; ▶ to listen).
 - **/** at the start of the field: the commands of Claude Code (`/usage`, `/context`, `/compact`,
   `/clear`, `/model`, your skills…), **Tab** or a click completes. They go alone, without the
   context. **/btw question** asks a question on the side, even while Claude is working: the

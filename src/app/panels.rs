@@ -280,7 +280,8 @@ impl App {
                             // a Claude conversation: working, or finished and not seen yet
                             let tint = if error { Some(err()) } else { self.claude_tab_tint(d.uid) };
                             let (icon, title) = doc_tab(d);
-                            let (body, closed) = tab_widget(ui, &title, icon, d.is_dirty(), active, tint, &tc);
+                            let flash = if error { None } else { self.claude_tab_flash(d.uid) };
+                            let (body, closed) = tab_widget(ui, &title, icon, d.is_dirty(), active, tint, flash, &tc);
                             if tint.is_some() && !error {
                                 let tip = if self.claude_tab_tint(d.uid) == Some(ok()) { t!("Claude a fini", "Claude is done") } else { t!("Claude travaille…", "Claude is working…") };
                                 let _ = body.clone().on_hover_text(tip);

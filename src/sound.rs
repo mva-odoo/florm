@@ -5,12 +5,13 @@
 use std::path::PathBuf;
 
 /// The sounds: (key in the settings, French name, English name).
-pub const SOUNDS: [(&str, &str, &str); 5] = [
+pub const SOUNDS: [(&str, &str, &str); 6] = [
     ("chime", "Carillon", "Chime"),
     ("bell", "Clochette", "Bell"),
     ("drop", "Goutte", "Drop"),
     ("beep", "Bip", "Beep"),
     ("chord", "Accord", "Chord"),
+    ("microwave", "Micro-ondes", "Microwave"),
 ];
 
 const RATE: u32 = 44_100;
@@ -37,6 +38,13 @@ fn tones(name: &str) -> Vec<Tone> {
         "drop" => vec![Tone { from: 1400.0, to: 450.0, at: 0.0, len: 0.18, fade: 14.0, gain: 0.6 }],
         // two short beeps
         "beep" => vec![t(880.0, 0.0, 0.12, 2.0, 0.35), t(880.0, 0.18, 0.12, 2.0, 0.35)],
+        // a microwave that is done: three long beeps, a bit buzzing (an odd harmonic)
+        "microwave" => (0..3)
+            .flat_map(|k| {
+                let at = k as f32 * 0.5;
+                [t(1900.0, at, 0.32, 0.8, 0.42), t(1900.0 * 3.0, at, 0.32, 0.8, 0.07)]
+            })
+            .collect(),
         // a major chord, note after note
         _ => vec![t(523.3, 0.0, 0.8, 4.0, 0.3), t(659.3, 0.09, 0.75, 4.0, 0.3), t(784.0, 0.18, 0.7, 4.0, 0.3)],
     }

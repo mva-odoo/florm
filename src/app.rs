@@ -1520,6 +1520,8 @@ fn tab_widget(
     active: bool,
     // color of the title instead of the usual one (errors, Claude working or finished)
     tint: Option<Color32>,
+    // the whole tab lit in this color (Claude just finished: it blinks)
+    flash: Option<Color32>,
     tc: &crate::highlight::TabColors,
 ) -> (egui::Response, bool) {
     let font = egui::FontId::proportional(13.5);
@@ -1548,6 +1550,9 @@ fn tab_widget(
         p.add(egui::Shape::mesh(mesh));
     } else if hovered {
         p.rect_filled(tab, rounding, tc.hover);
+    }
+    if let Some(c) = flash {
+        p.rect_filled(tab, rounding, icons::mix(if active { tc.active } else { tc.bar }, c, 0.45));
     }
     let icon_at = egui::pos2(tab.left() + 20.0, tab.center().y);
     match icon {

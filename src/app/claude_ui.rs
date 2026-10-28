@@ -1635,6 +1635,13 @@ impl App {
         }
     }
 
+    /// The whole tab of a conversation lit while it blinks, just after it finished.
+    pub(super) fn claude_tab_flash(&self, uid: u64) -> Option<Color32> {
+        let c = std::iter::once(&self.claude).chain(self.claude_others.iter()).find(|c| c.tab == Some(uid))?;
+        let blinking = c.unseen && !c.busy && self.settings.claude_done_blink && c.done_at.is_some_and(|t| t.elapsed() < Duration::from_secs(8));
+        (blinking && self.claude_lit(c)).then(ok)
+    }
+
     /// The conversation of the bottom panel finished and is not seen yet: its tab and its icon
     /// light up (blinking a few seconds first).
     pub(super) fn claude_bottom_done(&self) -> bool {
