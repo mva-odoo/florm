@@ -328,6 +328,8 @@ panneau du bas (⇱ pour lui donner tout un onglet de l'éditeur, ⇲ pour l'y r
   sélectionné.
 - **Coller** : un long texte collé (plus de 6 lignes ou 500 caractères) devient une puce « Texte
   collé (N lignes) » au-dessus du champ, envoyée en entier avec le message ; le champ reste court.
+  Un clic sur la puce montre tout le texte en dessous, modifiable ; un autre clic le replie.
+  Le texte collé peut partir seul : **Envoyer** marche même si le champ est vide.
   Une image copiée (capture d'écran) se colle avec Ctrl+V et part avec le message, réduite à
   1568 pixels pour coûter moins de tokens. Une puce se retire avec son ×.
 - **Questions d'abord** : si la demande laisse des choix ouverts, Claude ne code rien et pose

@@ -618,7 +618,7 @@ impl App {
             return;
         }
         // the model of a message is being chosen: this one waits in the queue, after the answer
-        if self.claude.model_hold.is_some() {
+        if self.claude.model_hold.is_some() && !text.is_empty() {
             self.claude.queue.push_message(&text);
             self.claude.queue.running = true;
             self.claude.input.clear();
@@ -763,7 +763,8 @@ impl App {
             self.set_status(t!("Aucun dossier ouvert", "No folder open"));
             return false;
         };
-        if text.is_empty() {
+        // no text: the context alone (a pasted text…) is the message
+        if text.is_empty() && self.claude.attach.is_empty() {
             return false;
         }
         let command = text.starts_with('/');
@@ -1986,25 +1987,67 @@ impl App {
                         queue_act = claude_queue::queue_ui(ui, &mut c.queue, c.busy, accent, queue_id);
                     }
                     if !c.attach.is_empty() {
-                        let mut remove = None;
+                        let (mut remove, mut toggle) = (None, None);
+                        // the chip whose text is shown below (a pasted text can be read and corrected)
+                        let open_id = input_id.with("attach_open");
+                        let open: Option<usize> = ui.data(|d| d.get_temp(open_id)).filter(|&k: &usize| k < c.attach.len());
                         ui.horizontal_wrapped(|ui| {
                             ui.label(RichText::new(t!("Contexte :", "Context:")).small().weak());
                             for (k, a) in c.attach.iter().enumerate() {
-                                let chip = egui::Button::new(RichText::new(format!("✳ {}  ×", a.label(c.dir.as_deref()))).small().color(accent))
-                                    .fill(icons::mix(fill, accent, 0.12))
+                                let has_text = a.note.is_some() || a.lines.is_some();
+                                let arrow = match (has_text, open == Some(k)) {
+                                    (false, _) => "",
+                                    (true, true) => " ▴",
+                                    (true, false) => " ▾",
+                                };
+                                let chip = egui::Button::new(RichText::new(format!("✳ {}{arrow}", a.label(c.dir.as_deref()))).small().color(accent))
+                                    .fill(icons::mix(fill, accent, if open == Some(k) { 0.25 } else { 0.12 }))
                                     .rounding(10.0);
                                 let tip = match (&a.note, &a.lines) {
-                                    (Some((_, t)), _) | (None, Some((_, _, t))) => t.lines().take(20).collect::<Vec<_>>().join("\n"),
+                                    (Some((_, t)), _) | (None, Some((_, _, t))) => tf!("{}\n\nClic : voir et modifier tout le texte", "{}\n\nClick: see and edit the whole text", t.lines().take(12).collect::<Vec<_>>().join("\n")),
                                     (None, None) => a.path.display().to_string(),
                                 };
-                                if ui.add(chip).on_hover_text(format!("{tip}\n\nClic : retirer")).clicked() {
+                                if ui.add(chip).on_hover_text(tip).clicked() && has_text {
+                                    toggle = Some(k);
+                                }
+                                if ui.small_button("×").on_hover_text(t!("Retirer du contexte", "Remove from the context")).clicked() {
                                     remove = Some(k);
                                 }
                             }
                         });
+                        let mut open = match toggle {
+                            Some(k) if open == Some(k) => None,
+                            Some(k) => Some(k),
+                            None => open,
+                        };
+                        if let Some(k) = open {
+                            let a = &mut c.attach[k];
+                            egui::Frame::none().fill(icons::mix(fill, accent, 0.06)).rounding(6.0).inner_margin(6.0).show(ui, |ui| {
+                                egui::ScrollArea::vertical().id_salt(input_id.with(("attach_text", k))).max_height(240.0).show(ui, |ui| {
+                                    match (&mut a.note, &a.lines) {
+                                        // a pasted text: what is sent, editable
+                                        (Some((label, t)), _) => {
+                                            let pasted = label.starts_with(t!("Texte collé", "Pasted text"));
+                                            if ui.add(egui::TextEdit::multiline(t).code_editor().desired_width(f32::INFINITY)).changed() && pasted {
+                                                *label = tf!("Texte collé ({} lignes)", "Pasted text ({} lines)", t.lines().count());
+                                            }
+                                        }
+                                        (None, Some((_, _, t))) => {
+                                            ui.add(egui::Label::new(RichText::new(t.as_str()).monospace()).wrap());
+                                        }
+                                        (None, None) => {}
+                                    }
+                                });
+                            });
+                        }
                         if let Some(k) = remove {
                             c.attach.remove(k);
+                            open = open.filter(|&o| o != k).map(|o| if o > k { o - 1 } else { o });
                         }
+                        ui.data_mut(|d| match open {
+                            Some(k) => d.insert_temp(open_id, k),
+                            None => d.remove::<usize>(open_id),
+                        });
                     }
                     let rows = match (c.input.lines().count() > 2, in_tab) {
                         (true, true) => 6,
@@ -2250,6 +2293,8 @@ impl App {
                     }
                     ui.horizontal(|ui| {
                         let has_text = !c.input.trim().is_empty();
+                        // a pasted text (or another context) alone can be sent too
+                        let can_send = has_text || !c.attach.is_empty();
                         // a place of its own, always there: the buttons do not move when the estimate appears or changes
                         ui.allocate_ui_with_layout(egui::vec2(84.0, 18.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
                             if has_text {
@@ -2262,7 +2307,7 @@ impl App {
                                 stop = true;
                             }
                             let tip = t!("Envoie le message tout de suite : Claude le lit entre deux étapes et en tient compte dans le travail en cours (Ctrl+Entrée)", "Sends the message at once: Claude reads it between two steps and takes it into account in the work going on (Ctrl+Enter)");
-                            if ui.add_enabled(has_text, filled_button(t!("Envoyer", "Send"), accent)).on_hover_text(tip).clicked() {
+                            if ui.add_enabled(can_send, filled_button(t!("Envoyer", "Send"), accent)).on_hover_text(tip).clicked() {
                                 send = true;
                             }
                             let tip = t!("Le message attend dans la file et part quand Claude a fini ce qu'il fait (Ctrl+Maj+Entrée)", "The message waits in the queue and goes when Claude is done with what it does (Ctrl+Shift+Enter)");
@@ -2272,7 +2317,7 @@ impl App {
                             }
                             spinner(ui);
                             ui.label(RichText::new(t!("Claude travaille…", "Claude is working…")).weak());
-                        } else if ui.add_enabled(has_text, filled_button(t!("Envoyer", "Send"), accent)).clicked() {
+                        } else if ui.add_enabled(can_send, filled_button(t!("Envoyer", "Send"), accent)).clicked() {
                             send = true;
                         }
                         let tip = t!("Ajoute la demande à la file de tâches au lieu de l'envoyer.\nUne liste (- …, * …, 1. …) donne une tâche par élément ; la phrase avant la liste va avec chacune.\n« Lancer » les envoie une à une, chacune quand Claude a fini la précédente.", "Adds the request to the task queue instead of sending it.\nA list (- …, * …, 1. …) gives one task per item; the sentence before the list goes with each.\n“Run” sends them one by one, each when Claude is done with the previous one.");

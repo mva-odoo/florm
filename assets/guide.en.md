@@ -321,7 +321,9 @@ command and your login: no key to set up.
 - **Options ▾**, next to “+ Context”, groups what goes with each message:
 - **Open file and selection**: Claude knows which file you are editing and what you selected.
 - **Pasting**: a long pasted text (more than 6 lines or 500 characters) becomes a “Pasted text (N
-  lines)” chip above the field, sent whole with the message; the field stays short. A copied image
+  lines)” chip above the field, sent whole with the message; the field stays short. A click on the
+  chip shows the whole text below it, editable; another click folds it. The pasted text can go
+  alone: **Send** works even when the field is empty. A copied image
   (a screenshot) pastes with Ctrl+V and goes with the message, scaled down to 1568 pixels to cost
   fewer tokens. A chip is removed with its ×.
 - **Questions first**: if the request leaves choices open, Claude codes nothing and asks 1 to 3
