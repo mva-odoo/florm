@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use history::{DiffAct, DiffClick};
 use super::claude_queue::{self, Queue, QueueAct, TaskState};
 use super::claude_model::{HoldAct, ModelHold};
+use super::claude_turns::{Checkpoint, Rewind, TurnDiff};
 
 /// Something given to Claude with the next message: lines of a file, a file / folder, or a text
 /// (the changes not committed, the problems of a file…).
@@ -77,7 +78,7 @@ enum CtxAdd {
 
 /// A line of the conversation.
 #[derive(Clone, Serialize, Deserialize)]
-enum Item {
+pub(super) enum Item {
     /// A message, with what was given with it.
     User(String, Vec<String>),
     /// The answer, being written (pieces) or whole.
@@ -98,7 +99,7 @@ pub(super) struct ClaudeUi {
     tab: Option<u64>,
     /// List items of the answers ticked (or unticked) by a click: (answer, item's text). Not kept
     /// with the conversation.
-    checks: HashSet<(usize, String)>,
+    pub(super) checks: HashSet<(usize, String)>,
     /// It finished answering while it was not shown: its tab is colored until seen (and blinks
     /// a few seconds after `done_at`).
     unseen: bool,
@@ -107,21 +108,21 @@ pub(super) struct ClaudeUi {
     saved_key: u64,
     /// Session of Claude Code, continued (`--resume`) when the process is started again (after
     /// a restart of Florm), and whether the running process confirmed it.
-    session_id: Option<String>,
+    pub(super) session_id: Option<String>,
     started: bool,
     /// Folder of the conversation (the selected repository, else the project).
     pub(super) dir: Option<PathBuf>,
     pub(super) session: Option<claude::Session>,
-    items: Vec<Item>,
+    pub(super) items: Vec<Item>,
     pub(super) input: String,
     pub(super) busy: bool,
     pub(super) model: usize,
     mode: usize,
     cost: f64,
     /// Tokens of the conversation read by the model for its last message, and its window.
-    context: (u64, u64),
+    pub(super) context: (u64, u64),
     /// The context is over 60 % of its window (the warning is given when it gets there).
-    context_high: bool,
+    pub(super) context_high: bool,
     /// The bar of the full context was closed: shown again when it gets there once more.
     context_hidden: bool,
     /// The file being edited and its selection are given with the message.
@@ -131,8 +132,8 @@ pub(super) struct ClaudeUi {
     /// First message of the conversation: the wish behind the changes (for the commit message).
     pub(super) wish: Option<String>,
     /// The review: its index and the changes since.
-    review_index: Option<PathBuf>,
-    review: Option<HistoryDiff>,
+    pub(super) review_index: Option<PathBuf>,
+    pub(super) review: Option<HistoryDiff>,
     review_loading: bool,
     collapsed: HashSet<usize>,
     jump: Option<history::FileJump>,
@@ -150,19 +151,31 @@ pub(super) struct ClaudeUi {
     /// The message held while its model is checked, then the model suggested for it.
     pub(super) model_hold: Option<ModelHold>,
     /// The choices made for the questions of the last answer.
-    answers: Option<claude_ask::Answers>,
+    pub(super) answers: Option<claude_ask::Answers>,
     /// Last commits of its folder for « + Contexte → Un commit »: (hash, short hash, subject, when).
     recent_commits: Vec<(String, String, String, String)>,
     /// Height of each item when it was last drawn, with the key of what it showed (`item_key`),
     /// and whether it was the same the time before (only then is the item left undrawn out of sight).
-    heights: Vec<(u64, f32, bool)>,
+    pub(super) heights: Vec<(u64, f32, bool)>,
     /// `/btw` or `/status`: what was asked and the answer (None: on its way), shown above the
     /// field until closed; not part of the conversation.
-    side: Option<(String, Option<Result<String, String>>)>,
+    pub(super) side: Option<(String, Option<Result<String, String>>)>,
+    /// The state before each message of the user (to go back to it), and the id of the last
+    /// message of Claude's answers (where the conversation can be cut).
+    pub(super) checkpoints: Vec<Checkpoint>,
+    pub(super) last_uuid: Option<String>,
+    /// After going back: the session starts again from that message (`--resume-session-at`).
+    pub(super) resume_at: Option<String>,
+    /// The messages of the user whose turn is folded (their index).
+    pub(super) folded: HashSet<usize>,
+    /// The changes of one question, shown instead of the review.
+    pub(super) turn_diff: Option<TurnDiff>,
+    /// ↶ clicked on a message: what to take back is asked.
+    pub(super) confirm_rewind: Option<usize>,
 }
 
 /// What the height of a message depends on: its content, its place and the width.
-fn item_key(it: &Item, claude_said: bool, busy: bool, last_turn: bool, width: f32, ppp: f32) -> u64 {
+fn item_key(it: &Item, claude_said: bool, busy: bool, last_turn: bool, extra: u8, width: f32, ppp: f32) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     std::mem::discriminant(it).hash(&mut h);
@@ -172,7 +185,7 @@ fn item_key(it: &Item, claude_said: bool, busy: bool, last_turn: bool, width: f3
         Item::Tool { name, summary, result, .. } => (name, summary, result).hash(&mut h),
         Item::Usage { input, cached, output, cost } => (input, cached, output, cost.to_bits()).hash(&mut h),
     }
-    (claude_said, busy, last_turn, width.to_bits(), ppp.to_bits()).hash(&mut h);
+    (claude_said, busy, last_turn, extra, width.to_bits(), ppp.to_bits()).hash(&mut h);
     h.finish()
 }
 
@@ -196,6 +209,10 @@ pub(super) struct SavedConv {
     /// The options of the messages (the menu Options), kept with the conversation.
     #[serde(default)]
     options: Options,
+    #[serde(default)]
+    checkpoints: Vec<Checkpoint>,
+    #[serde(default)]
+    last_uuid: Option<String>,
 }
 
 /// The options of the messages: what goes with each one, and the questions and model checks.
@@ -279,6 +296,7 @@ fn command_hint(name: &str) -> &'static str {
         "effort" => t!("Effort de réflexion", "Thinking effort"),
         "review" | "code-review" => t!("Relire les changements", "Review the changes"),
         "security-review" => t!("Relire la sécurité des changements", "Review the security of the changes"),
+        "rewind" => t!("Revenir avant le dernier message (fichiers et conversation) ; ↶ sur un message pour un autre", "Go back to before the last message (files and conversation); ↶ on a message for another one"),
         _ => "",
     }
 }
@@ -288,7 +306,7 @@ fn command_hint(name: &str) -> &'static str {
 fn command_list(known: &Commands) -> Vec<(String, String)> {
     let usual = ["clear", "compact", "context", "init", "model", "usage"].map(String::from);
     let message: &[String] = if known.message.is_empty() { &usual } else { &known.message };
-    let mut list: Vec<(String, String)> = ["btw", "status"].iter().map(|n| (n.to_string(), command_hint(n).to_string())).collect();
+    let mut list: Vec<(String, String)> = ["btw", "status", "rewind"].iter().map(|n| (n.to_string(), command_hint(n).to_string())).collect();
     for n in message {
         if !list.iter().any(|(m, _)| m == n) {
             list.push((n.clone(), command_hint(n).to_string()));
@@ -339,7 +357,7 @@ fn review_index_of(repo: &Path, conv: u64) -> PathBuf {
 }
 
 /// git with the review index instead of the real one.
-fn rgit(repo: &Path, index: &Path, args: &[&str], input: Option<&str>) -> Result<String, String> {
+pub(super) fn rgit(repo: &Path, index: &Path, args: &[&str], input: Option<&str>) -> Result<String, String> {
     git::run_with(repo, args, &[("GIT_INDEX_FILE", &index.to_string_lossy())], input)
 }
 
@@ -433,8 +451,13 @@ impl App {
                     }
                 }
                 Event::Session(id) => self.claude.session_id = Some(id),
+                Event::Uuid(id) => self.claude.last_uuid = Some(id),
                 Event::Reset => {
                     items.clear();
+                    self.claude.checkpoints.clear();
+                    self.claude.folded.clear();
+                    self.claude.turn_diff = None;
+                    self.claude.last_uuid = None;
                     items.push(Item::Info(t!("— /clear : Claude repart sans la conversation —", "— /clear: Claude starts again without the conversation —").into()));
                     self.claude.context.0 = 0;
                     self.claude.context_high = false;
@@ -624,6 +647,18 @@ impl App {
                 self.claude.side = Some(("/status".into(), Some(Ok(s))));
                 Some(true)
             }
+            "rewind" => {
+                let last = c.checkpoints.iter().rev().find(|p| matches!(c.items.get(p.item), Some(Item::User(..)))).map(|p| p.item);
+                match last {
+                    _ if c.busy => self.set_status(t!("Claude travaille : arrête-le d'abord (■ Arrêter)", "Claude is working: stop it first (■ Stop)")),
+                    Some(k) => {
+                        self.claude.confirm_rewind = Some(k);
+                        self.claude.folded.remove(&k);
+                    }
+                    None => self.set_status(t!("Aucun message où revenir", "No message to go back to")),
+                }
+                Some(true)
+            }
             _ if self.claude_commands.terminal.iter().any(|t| t == name) => {
                 let ctx = self.egui_ctx.clone();
                 match self.term.open_command_panel(&ctx, &["claude".to_string(), text.to_string()], Some(dir)) {
@@ -705,11 +740,16 @@ impl App {
             let model = claude::MODELS[self.claude.model].0;
             let perms = claude::permission_args(self.claude.mode, &self.settings.claude_perms, self.settings.claude_budget);
             let ctx = self.egui_ctx.clone();
-            // a conversation of before (restart of Florm, process stopped): continued with its context
+            // a conversation of before (restart of Florm, process stopped): continued with its
+            // context; after going back, from the message gone back to
             let resume = self.claude.session_id.clone();
+            let at = self.claude.resume_at.clone().filter(|_| resume.is_some());
             self.claude.started = false;
-            match claude::Session::start(&dir, model, &perms, resume.as_deref(), move || ctx.request_repaint()) {
-                Ok(s) => self.claude.session = Some(s),
+            match claude::Session::start(&dir, model, &perms, resume.as_deref(), at.as_deref(), move || ctx.request_repaint()) {
+                Ok(s) => {
+                    self.claude.session = Some(s);
+                    self.claude.resume_at = None;
+                }
                 Err(e) => {
                     self.claude.items.push(Item::Error(e));
                     self.claude.attach = attach;
@@ -717,6 +757,9 @@ impl App {
                 }
             }
         }
+        // the files as they are before the message starts work: to see its changes, to go back
+        let at = self.claude.items.len() - usize::from(matches!(self.claude.items.last(), Some(Item::Streaming(_))));
+        let checkpoint = (!during && !command).then(|| self.claude_checkpoint(at));
         let Some(s) = self.claude.session.as_mut() else { return false };
         let images: Vec<Vec<u8>> = attach.iter().filter_map(|a| a.image.clone()).collect();
         let sent = if images.is_empty() { s.send(&message) } else { s.send_with_images(&message, &images) };
@@ -729,8 +772,10 @@ impl App {
                 }
                 let items = &mut self.claude.items;
                 // the text being written stays last: what follows of it is added to it
-                let at = if matches!(items.last(), Some(Item::Streaming(_))) { items.len() - 1 } else { items.len() };
                 items.insert(at, Item::User(text.clone(), given));
+                if let Some(cp) = checkpoint {
+                    self.claude.checkpoints.push(cp);
+                }
                 if during {
                     self.set_status(t!("Message envoyé : Claude le prend en compte dans le travail en cours", "Message sent: Claude takes it into account in the work going on"));
                 }
@@ -852,6 +897,8 @@ impl App {
             let last: Option<String> = c.items.iter().rev().find_map(|i| if let Item::Text(t) = i { Some(t.clone()) } else { None });
             c.session = None;
             c.session_id = None;
+            c.last_uuid = None;
+            c.resume_at = None;
             c.context.0 = 0;
             c.items.push(Item::Info(t!("— conversation neuve pour cette tâche —", "— new conversation for this task —").into()));
             if let (Some(prev), Some(last)) = (previous, last) {
@@ -1113,7 +1160,7 @@ impl App {
         }
     }
 
-    fn claude_reload_review(&mut self) {
+    pub(super) fn claude_reload_review(&mut self) {
         let (Some(repo), Some(index)) = (self.claude.dir.clone(), self.claude.review_index.clone()) else { return };
         self.claude.review_loading = true;
         let id = self.claude.id;
@@ -1331,7 +1378,7 @@ impl App {
     }
 
     /// The current conversation written to disk (after each message and each answer).
-    fn claude_save(&mut self) {
+    pub(super) fn claude_save(&mut self) {
         let c = &self.claude;
         if !c.items.iter().any(|i| matches!(i, Item::User(..))) {
             return;
@@ -1354,6 +1401,8 @@ impl App {
             items,
             queue: c.queue.clone(),
             options: Options { with_context: c.with_context, ask_first: c.ask_first, model_first: c.model_first, no_defs: c.no_defs },
+            checkpoints: c.checkpoints.clone(),
+            last_uuid: c.last_uuid.clone(),
         };
         self.claude.saved_key = key;
         self.claude_saved.retain(|s| s.key != key);
@@ -1377,6 +1426,8 @@ impl App {
         c.items = s.items.clone();
         c.queue = s.queue.clone();
         c.queue.settle();
+        c.checkpoints = s.checkpoints.clone();
+        c.last_uuid = s.last_uuid.clone();
         (c.with_context, c.ask_first, c.model_first, c.no_defs) = (s.options.with_context, s.options.ask_first, s.options.model_first, s.options.no_defs);
         c.items.push(Item::Info(t!("— conversation reprise : le prochain message continue avec son contexte —", "— conversation resumed: the next message goes on with its context —").into()));
         c
@@ -1513,6 +1564,7 @@ impl App {
         let (mut chosen_dir, mut move_to, mut ctx_add) = (None, None, None);
         let (mut queue_act, mut queued, mut read_commits) = (None, None, false);
         let mut answer: Option<String> = None;
+        let (mut fold, mut fold_all, mut turn_req, mut rewind, mut close_turn, mut turn_click) = (None, None, None, None, false, None);
         // the kept conversations: (key, title, folder and date)
         let history: Vec<(u64, String, String)> = self
             .claude_saved
@@ -1692,8 +1744,44 @@ impl App {
         // ------------------------------------------------ the review, on the right (or taking all the room)
         let view = cid("claude_view");
         let review_max = maximize::maxed(ui.ctx(), view) == Some("review");
+        let turn_shown = c.turn_diff.is_some();
         let review_ui = |ui: &mut egui::Ui| {
             ui.add_space(4.0);
+            // the changes of one question (± on a message), instead of the review
+            let turn_title = c.turn_diff.as_ref().and_then(|t| match c.items.get(t.item) {
+                Some(Item::User(text, _)) => Some(text.lines().find(|l| !l.trim().is_empty()).unwrap_or("").chars().take(60).collect::<String>()),
+                _ => None,
+            });
+            if let Some(td) = c.turn_diff.as_mut() {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(t!("Changements de la question", "Changes of the question")).size(14.0).strong());
+                    if let Some(d) = &td.diff {
+                        ui.label(RichText::new(tf!("{} fichier(s)", "{} file(s)", d.files.len())).small().color(accent));
+                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        maximize::button(ui, view, "review");
+                        if ui.button(t!("× Revue complète", "× Whole review")).on_hover_text(t!("Revenir à la revue de tous les changements de Claude", "Back to the review of all of Claude's changes")).clicked() {
+                            close_turn = true;
+                        }
+                    });
+                });
+                ui.label(RichText::new(format!("« {} »", turn_title.unwrap_or_default())).small().weak());
+                ui.label(RichText::new(t!("Ce qui a changé dans les fichiers entre ce message et le suivant (tes propres modifications comprises).", "What changed in the files between this message and the next one (your own edits included).")).small().weak());
+                ui.separator();
+                match &td.diff {
+                    None => {
+                        spinner(ui);
+                    }
+                    Some(d) if d.files.is_empty() => {
+                        ui.label(RichText::new(t!("Aucun fichier changé pendant cette question.", "No file changed during this question.")).weak());
+                    }
+                    Some(d) => {
+                        let file_buttons: &[history::DiffButton] = &[(t!("Ouvrir", "Open"), t!("Ouvrir le fichier", "Open the file"), DiffAct::Open)];
+                        turn_click = history::stacked_diff_view(ui, &d.lines, &d.files, &mut td.collapsed, "claude_turn", &[], file_buttons, None, None);
+                    }
+                }
+                return;
+            }
             ui.horizontal(|ui| {
                 ui.label(RichText::new(t!("Changements de Claude", "Claude's changes")).size(14.0).strong());
                 let n = c.review.as_ref().map_or(0, |d| d.files.len());
@@ -1752,7 +1840,7 @@ impl App {
         };
         if review_max {
             egui::CentralPanel::default().show_inside(ui, review_ui);
-        } else if show_review {
+        } else if show_review || turn_shown {
             egui::SidePanel::right(review_id).resizable(true).default_width(ui.available_width() * 0.5).width_range(320.0..=1400.0).show_inside(ui, review_ui);
         }
 
@@ -2076,9 +2164,23 @@ impl App {
                     let ppp = ui.ctx().pixels_per_point();
                     let sight = ui.clip_rect().expand(300.0);
                     c.heights.resize(c.items.len(), (0, 0.0, false));
+                    // a folded question: only its message is shown
+                    let mut hidden = false;
                     for (k, it) in c.items.iter().enumerate() {
+                        if matches!(it, Item::User(..)) {
+                            hidden = c.folded.contains(&k);
+                        } else if hidden {
+                            if matches!(it, Item::Text(_) | Item::Streaming(_)) {
+                                claude_said = true;
+                            }
+                            continue;
+                        }
                         ui.add_space(6.0);
-                        let key = item_key(it, claude_said, c.busy, last_user.is_none_or(|u| k > u), ui.available_width(), ppp);
+                        let extra = match it {
+                            Item::User(..) => u8::from(c.folded.contains(&k)) | u8::from(c.confirm_rewind == Some(k)) << 1,
+                            _ => 0,
+                        };
+                        let key = item_key(it, claude_said, c.busy, last_user.is_none_or(|u| k > u), extra, ui.available_width(), ppp);
                         let top = ui.cursor().top();
                         let (known, h, stable) = c.heights[k];
                         // only a height measured twice the same stands for the message: one still
@@ -2097,6 +2199,8 @@ impl App {
                             Item::User(t, given) => {
                                 claude_said = false;
                                 ui.add_space(6.0);
+                                let folded = c.folded.contains(&k);
+                                let cp = c.checkpoints.iter().find(|p| p.item == k);
                                 // on the left like the answers, set apart by its color and its edge
                                 egui::Frame::none()
                                     .fill(icons::mix(fill, accent, 0.10))
@@ -2106,16 +2210,67 @@ impl App {
                                     .show(ui, |ui| {
                                         ui.set_width(ui.available_width());
                                         ui.horizontal(|ui| {
+                                            let arrow = ui.add(egui::Label::new(RichText::new(if folded { "▸" } else { "▾" }).color(accent)).sense(Sense::click()));
+                                            if arrow.clicked() {
+                                                fold = Some(k);
+                                            }
+                                            arrow.context_menu(|ui| {
+                                                if ui.button(t!("Tout replier sauf la dernière question", "Fold all but the last question")).clicked() {
+                                                    fold_all = Some(true);
+                                                    ui.close_menu();
+                                                }
+                                                if ui.button(t!("Tout déplier", "Unfold all")).clicked() {
+                                                    fold_all = Some(false);
+                                                    ui.close_menu();
+                                                }
+                                            });
+                                            arrow.on_hover_text(t!("Replier / déplier la réponse à cette question (clic droit : toutes)", "Fold / unfold the answer to this question (right click: all)"));
                                             ui.label(RichText::new(t!("Toi", "You")).small().strong().color(accent));
                                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                                 super::md::copy_button(ui, t, t!("Copier", "Copy"));
+                                                if cp.is_some() {
+                                                    let tip = t!("Revenir avant ce message : les fichiers et / ou la conversation", "Go back to before this message: the files and / or the conversation");
+                                                    if ui.add_enabled(!c.busy, egui::Button::new("↶").small()).on_hover_text(tip).on_disabled_hover_text(t!("Claude travaille", "Claude is working")).clicked() {
+                                                        rewind = Some((k, None));
+                                                    }
+                                                }
+                                                if cp.is_some_and(|p| p.tree.is_some()) && ui.small_button("±").on_hover_text(t!("Les changements de fichiers de cette question seule", "The file changes of this question alone")).clicked() {
+                                                    turn_req = Some(k);
+                                                }
                                             });
                                         });
                                         ui.add(egui::Label::new(t.as_str()).wrap());
                                         if !given.is_empty() {
                                             ui.label(RichText::new(format!("✳ {}", given.join(", "))).small().weak());
                                         }
+                                        if c.confirm_rewind == Some(k) {
+                                            ui.separator();
+                                            ui.label(RichText::new(t!("Revenir avant ce message ?", "Go back to before this message?")).strong());
+                                            ui.label(RichText::new(t!("Les fichiers redeviennent comme à l'envoi du message (ce que Claude ou toi avez changé depuis est perdu) ; la conversation reprend sans ce message ni la suite, et le message revient dans le champ.", "The files go back to how they were when the message was sent (what Claude or you changed since is lost); the conversation goes on without this message and what followed, and the message goes back to the field.")).small().weak());
+                                            ui.horizontal_wrapped(|ui| {
+                                                let files = cp.is_some_and(|p| p.tree.is_some());
+                                                if files && ui.add(filled_button(t!("↶ Fichiers et conversation", "↶ Files and conversation"), accent)).clicked() {
+                                                    rewind = Some((k, Some(Rewind::Both)));
+                                                }
+                                                if ui.button(t!("Conversation seulement", "Conversation only")).clicked() {
+                                                    rewind = Some((k, Some(Rewind::Conversation)));
+                                                }
+                                                if files && ui.button(t!("Fichiers seulement", "Files only")).clicked() {
+                                                    rewind = Some((k, Some(Rewind::Files)));
+                                                }
+                                                if ui.small_button(t!("Annuler", "Cancel")).clicked() {
+                                                    rewind = Some((usize::MAX, None));
+                                                }
+                                            });
+                                        }
                                     });
+                                if folded {
+                                    let (steps, files) = super::claude_turns::turn_summary(&c.items, k);
+                                    let text = tf!("▸ {steps} étape(s) · {files} fichier(s) modifié(s) — clic pour déplier", "▸ {steps} step(s) · {files} file(s) changed — click to unfold");
+                                    if ui.add(egui::Label::new(RichText::new(text).small().weak()).sense(Sense::click())).clicked() {
+                                        fold = Some(k);
+                                    }
+                                }
                             }
                             Item::Text(t) | Item::Streaming(t) => {
                                 if !claude_said {
@@ -2242,6 +2397,40 @@ impl App {
 
         if let Some(t) = move_to {
             self.move_claude(t);
+        }
+        if let Some(k) = fold {
+            if !self.claude.folded.remove(&k) {
+                self.claude.folded.insert(k);
+            }
+        }
+        if let Some(all) = fold_all {
+            let c = &mut self.claude;
+            c.folded.clear();
+            if all {
+                let users: Vec<usize> = c.items.iter().enumerate().filter(|(_, i)| matches!(i, Item::User(..))).map(|(k, _)| k).collect();
+                c.folded.extend(users.iter().take(users.len().saturating_sub(1)));
+            }
+        }
+        if let Some(k) = turn_req {
+            self.claude_show_turn_diff(k);
+        }
+        if close_turn {
+            self.claude.turn_diff = None;
+        }
+        if let Some(click) = turn_click {
+            let idx = match click {
+                DiffClick::Line(i) | DiffClick::Hunk(i, _) | DiffClick::File(i, _) => i,
+            };
+            let found = self.claude.turn_diff.as_ref().and_then(|t| t.diff.as_ref()).and_then(|d| Some((history::file_at(&d.text, idx)?, history::target_line(&d.lines, idx))));
+            if let (Some((path, line)), Some(dir)) = (found, self.claude.dir.clone()) {
+                self.pr_open_path(&dir.join(path), line);
+            }
+        }
+        match rewind {
+            Some((usize::MAX, _)) => self.claude.confirm_rewind = None,
+            Some((k, None)) => self.claude.confirm_rewind = Some(k),
+            Some((k, Some(how))) => self.claude_rewind(k, how),
+            None => {}
         }
         if read_commits {
             let dir = self.claude.dir.clone();
@@ -2449,10 +2638,13 @@ mod tests {
                 q
             },
             options: Options { ask_first: true, ..Options::default() },
+            checkpoints: vec![Checkpoint { item: 0, tree: Some("abc".into()), session: None, after: None }],
+            last_uuid: Some("u".into()),
         };
         let back: Vec<SavedConv> = serde_json::from_str(&serde_json::to_string(&vec![s]).unwrap()).unwrap();
         assert_eq!((back[0].key, back[0].session_id.as_deref(), back[0].items.len()), (7, Some("abc"), 3));
         assert!(back[0].options.ask_first && !back[0].options.model_first);
+        assert_eq!((back[0].checkpoints[0].tree.as_deref(), back[0].last_uuid.as_deref()), (Some("abc"), Some("u")));
         assert!(matches!(&back[0].items[1], Item::Tool { result: Some((r, false)), .. } if r == "ok"));
         // the tasks are kept, not the run (it is started again by hand)
         assert_eq!((back[0].queue.tasks.len(), back[0].queue.running), (2, false));

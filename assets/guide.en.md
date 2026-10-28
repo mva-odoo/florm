@@ -299,6 +299,14 @@ command and your login: no key to set up.
 - On the right, **what Claude changed** since your first message, file by file and block by
   block: **✔ Keep** (the block leaves the review and stays in the file) or **↺ Reject** (it is
   removed from the file). Your own earlier changes are not in it.
+- **Question by question**: the **▾** in front of one of your messages folds the answer to that
+  question (one line stays: “N steps · N files changed”); right click on the ▾: fold all but the
+  last one, or unfold all. **±** on the message shows on the right the file changes of that
+  question alone (**× Whole review** to go back to the review).
+- **↶ Go back**: before each message, Florm keeps the state of the files (in git, no commit and
+  nothing staged). **↶** on a message (or **/rewind** for the last one) offers to put **the files
+  and the conversation** back as before that message, **the conversation only** or **the files
+  only**. What changed since is lost; the message goes back to the field to be written again.
 - **While it works**, you choose where your message goes:
   - **Send** (Ctrl+Enter): at once. Claude reads it between two steps and takes it into account in the
     work going on (“use that file instead”, “add a test too”…).

@@ -305,6 +305,15 @@ panneau du bas (⇱ pour lui donner tout un onglet de l'éditeur, ⇲ pour l'y r
 - À droite, **ce que Claude a changé** depuis ton premier message, fichier par fichier et bloc
   par bloc : **✔ Garder** (le bloc quitte la revue et reste dans le fichier) ou **↺ Rejeter**
   (il est retiré du fichier). Tes propres changements d'avant ne sont pas dedans.
+- **Question par question** : le **▾** devant un de tes messages replie la réponse à cette
+  question (il reste une ligne « N étapes · N fichiers modifiés ») ; clic droit sur le ▾ : tout
+  replier sauf la dernière, ou tout déplier. **±** sur le message montre à droite les seuls
+  changements de fichiers de cette question (**× Revue complète** pour revenir à la revue).
+- **↶ Revenir en arrière** : avant chaque message, Florm garde l'état des fichiers (dans git, sans
+  commit ni rien d'indexé). **↶** sur un message (ou **/rewind** pour le dernier) propose de
+  remettre **les fichiers et la conversation** comme avant ce message, **la conversation
+  seulement** ou **les fichiers seulement**. Ce qui a changé depuis est perdu ; le message revient
+  dans le champ pour être réécrit.
 - **■ Arrêter** coupe la réponse en cours ; la conversation continue.
 - **Pendant qu'il travaille**, tu choisis où part ton message :
   - **Envoyer** (Ctrl+Entrée) : tout de suite. Claude le lit entre deux étapes et en tient compte dans

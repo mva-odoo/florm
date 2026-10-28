@@ -131,6 +131,9 @@ pub enum Event {
     Init { session: String, model: String, version: String, commands: Vec<String>, terminal: Vec<String> },
     /// The session of the answer that just ended (another one after `/clear`).
     Session(String),
+    /// Id of a message of the answer: the conversation can be taken back to just after it
+    /// (`--resume-session-at`).
+    Uuid(String),
     /// `/clear`: Claude starts again without the conversation.
     Reset,
     /// A piece of the answer being written.
@@ -194,6 +197,9 @@ pub fn parse_line(line: &str) -> Vec<Event> {
                         .collect()
                 })
                 .unwrap_or_default();
+            if let Some(id) = v["uuid"].as_str().filter(|i| !i.is_empty()) {
+                events.push(Event::Uuid(id.to_string()));
+            }
             let u = &v["message"]["usage"];
             let tokens: u64 = ["input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens", "output_tokens"].iter().filter_map(|k| u[*k].as_u64()).sum();
             if tokens > 0 {
@@ -287,12 +293,16 @@ pub struct Session {
 impl Session {
     /// Starts `claude` in `dir`; `repaint` is called when something arrives.
     /// `perms`: the arguments of `permission_args`.
-    /// `resume`: the id of an earlier session to continue (its context is kept).
-    pub fn start(dir: &Path, model: &str, perms: &[String], resume: Option<&str>, repaint: impl Fn() + Send + 'static) -> Result<Session, String> {
+    /// `resume`: the id of an earlier session to continue (its context is kept), and `at`: the
+    /// message of it after which it goes on (a copy of it, what came after is left out).
+    pub fn start(dir: &Path, model: &str, perms: &[String], resume: Option<&str>, at: Option<&str>, repaint: impl Fn() + Send + 'static) -> Result<Session, String> {
         let mut args = vec!["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages"];
         args.extend(perms.iter().map(String::as_str));
         if let Some(id) = resume {
             args.extend(["--resume", id]);
+            if let Some(at) = at {
+                args.extend(["--resume-session-at", at, "--fork-session"]);
+            }
         }
         if !model.is_empty() {
             args.extend(["--model", model]);
@@ -784,6 +794,9 @@ mod tests {
         // usage: the context of the last message, the window of the model, the plan's quotas
         let a = r#"{"type":"assistant","parent_tool_use_id":null,"message":{"content":[],"usage":{"input_tokens":2,"cache_creation_input_tokens":4005,"cache_read_input_tokens":3262,"output_tokens":4}}}"#;
         assert_eq!(parse_line(a), vec![Event::Context(7273)]);
+        // the id of a message of the answer: where the conversation can be taken back to
+        let a = r#"{"type":"assistant","parent_tool_use_id":null,"uuid":"u-1","message":{"content":[{"type":"text","text":"ok"}]}}"#;
+        assert_eq!(parse_line(a), vec![Event::Text("ok".into()), Event::Uuid("u-1".into())]);
         let r = r#"{"type":"result","is_error":false,"result":"ok","total_cost_usd":0.001,"modelUsage":{"claude-haiku":{"contextWindow":1000000}}}"#;
         assert_eq!(parse_line(r), vec![Event::Done { error: false, text: "ok".into(), cost: 0.001, window: 1_000_000, tokens: Tokens::default() }]);
         let l = r#"{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","unifiedWindows":{"five_hour":{"utilization":0.8,"resetsAt":1792619400},"seven_day":{"utilization":0.5,"resetsAt":1792688400}}}}"#;

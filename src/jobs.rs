@@ -18,6 +18,8 @@ pub enum JobResult {
     ClaudeBtw(u64, Result<String, String>),
     /// Model suggested for a message of conversation (id) before it starts; None: the current one.
     ClaudeModelCheck(u64, Result<Option<(usize, String)>, String>),
+    /// The changes of one question of a Claude conversation (its message's index): a diff.
+    ClaudeTurnDiff(u64, usize, Result<String, String>),
     /// The changes not committed split by Claude into commits: the blocks, then each commit's
     /// message and blocks.
     CommitPlan(PathBuf, Result<(Vec<split::Block>, Vec<(String, Vec<usize>)>), String>),
