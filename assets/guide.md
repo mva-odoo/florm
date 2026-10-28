@@ -436,7 +436,9 @@ Ctrl+Shift+V (onglet) ou Ctrl+K V (à côté).
 
 ## Apparence
 
-**Préférences → Apparence** : langue (Français / English), thème (aperçus cliquables), couleur d'accentuation,
+**Préférences → Apparence** : langue (Français / English), thème (aperçus cliquables : Florm et
+Florm Light, et Florm Monokai, One Dark, Dracula, GitHub Light d'après les thèmes habituels des autres
+éditeurs), couleur d'accentuation,
 **texte adouci** (texte moins « gras », utile sur les thèmes clairs), polices de l'éditeur et
 de l'interface, minimap, fil d'Ariane, **barre de menus** (masquée, les menus restent sous **☰**
 en bas à gauche).

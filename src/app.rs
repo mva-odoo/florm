@@ -2328,7 +2328,7 @@ mod font_tests {
 
     #[test]
     fn readable_text_on_filled_buttons() {
-        // white on dark fills (Light+ accent), dark on light ones (yellow)
+        // white on dark fills (a blue accent), dark on light ones (yellow)
         assert_eq!(text_on(Color32::from_rgb(0x00, 0x7a, 0xcc)), Color32::WHITE);
         assert_ne!(text_on(Color32::from_rgb(0xe5, 0xc0, 0x7b)), Color32::WHITE);
         assert_ne!(text_on(Color32::from_rgb(0x98, 0xc3, 0x79)), Color32::WHITE);

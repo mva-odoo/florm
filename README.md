@@ -324,7 +324,7 @@ flake8 --version || ruff --version
 | Travail non enregistré gardé | À la fermeture ou en changeant de projet, les modifications non enregistrées (et les onglets sans titre) sont gardées et rouvertes, sans question (désactivable) |
 | Git avancé | Cherry-pick, revert, rebase interactif (réordonner, changer un message, fusionner, supprimer), comparer deux commits ou un commit avec une branche, **stash** (mettre de côté, voir, appliquer, reprendre, supprimer) |
 | Apparence | Interface en français ou en anglais (Préférences → Apparence → Langue), thèmes avec aperçus, couleur d'accentuation, **texte adouci** (texte moins gras, surtout sur les thèmes clairs), barre de menus masquable (menus sous ☰), **thème à soi** (Préférences → Apparence : toutes les couleurs de l'éditeur et du code, appliquées en direct) |
-| Divers | Palette de commandes (accents facultatifs, les dernières utilisées en tête), Ctrl+P fuzzy, retour à la ligne automatique (Alt+Z), Tab pour compléter les chemins (ouvrir, enregistrer sous), minimap, guides d'indentation, crochets appariés, auto-fermeture, rechercher/remplacer (regex), polices au choix parmi celles installées (Préférences → Apparence ; par défaut Consolas / Segoe UI sous Windows), thèmes `.tmTheme` (intégrés : « Florm » sombre, « Florm Light » et « Light+ (VS Code) » clairs). Un fichier non enregistré modifié ou supprimé par un autre programme : un bandeau demande quelle version garder, Ctrl+S n'écrase pas l'autre sans demander. Clic sur le message de la barre d'état : les derniers messages (erreurs en rouge) |
+| Divers | Palette de commandes (accents facultatifs, les dernières utilisées en tête), Ctrl+P fuzzy, retour à la ligne automatique (Alt+Z), Tab pour compléter les chemins (ouvrir, enregistrer sous), minimap, guides d'indentation, crochets appariés, auto-fermeture, rechercher/remplacer (regex), polices au choix parmi celles installées (Préférences → Apparence ; par défaut Consolas / Segoe UI sous Windows), thèmes `.tmTheme` (intégrés : « Florm » et « Florm Light », plus « Florm Monokai », « Florm One Dark », « Florm Dracula » et « Florm GitHub Light » d'après les thèmes habituels des autres éditeurs). Un fichier non enregistré modifié ou supprimé par un autre programme : un bandeau demande quelle version garder, Ctrl+S n'écrase pas l'autre sans demander. Clic sur le message de la barre d'état : les derniers messages (erreurs en rouge) |
 
 ## Raccourcis (comme Sublime)
 
@@ -403,7 +403,7 @@ language = "fr"
 font_size = 14.0
 tab_size = 4
 translate_tabs_to_spaces = true
-theme = "base16-ocean.dark"
+theme = "Florm One Dark"
 show_minimap = true
 lint_on_save = true
 

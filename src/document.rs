@@ -2442,7 +2442,7 @@ mod tests {
     fn latin1_file_saved_unchanged() {
         let p = std::env::temp_dir().join(format!("florm_enc_{}.txt", std::process::id()));
         std::fs::write(&p, b"Cr\xe9\xe9 le \x93test\x94\n").unwrap();
-        let hl = crate::highlight::Highlighting::new("Light+ (VS Code)", Path::new("/nonexistent"));
+        let hl = crate::highlight::Highlighting::new("Florm GitHub Light", Path::new("/nonexistent"));
         let mut d = Document::open(1, &p, 4, true, &hl).unwrap();
         assert_eq!(d.encoding, Encoding::Windows1252);
         assert_eq!(d.rope.to_string(), "Créé le “test”\n");

@@ -103,11 +103,15 @@ fn col(c: Option<Color>, d: Color32) -> Color32 {
 impl Highlighting {
     pub fn new(theme_name: &str, extra_themes: &Path) -> Self {
         let ss = SyntaxSet::load_defaults_newlines();
-        let mut ts = ThemeSet::load_defaults();
+        // only the themes of Florm: its own two, and four after the usual ones of other editors
+        let mut ts = ThemeSet::new();
         for (name, src) in [
             ("Florm", include_str!("../assets/Florm.tmTheme")),
             ("Florm Light", include_str!("../assets/Florm Light.tmTheme")),
-            ("Light+ (VS Code)", include_str!("../assets/Light+.tmTheme")),
+            ("Florm Monokai", include_str!("../assets/Florm Monokai.tmTheme")),
+            ("Florm One Dark", include_str!("../assets/Florm One Dark.tmTheme")),
+            ("Florm Dracula", include_str!("../assets/Florm Dracula.tmTheme")),
+            ("Florm GitHub Light", include_str!("../assets/Florm GitHub Light.tmTheme")),
         ] {
             if let Ok(t) = ThemeSet::load_from_reader(&mut std::io::Cursor::new(src)) {
                 ts.themes.insert(name.into(), t);
@@ -139,7 +143,7 @@ impl Highlighting {
             softness: 0.0,
         };
         if !h.set_theme(theme_name) {
-            h.set_theme("Florm");
+            h.set_theme(replacement(theme_name));
         }
         h
     }
@@ -503,13 +507,23 @@ impl HlCache {
     }
 }
 
+/// The theme of Florm taking the place of one that is no longer built in (or was removed).
+fn replacement(old: &str) -> &'static str {
+    match old {
+        "Light+ (VS Code)" | "InspiredGitHub" => "Florm GitHub Light",
+        _ if old.to_lowercase().contains("light") => "Florm Light",
+        _ if old.to_lowercase().contains("monokai") => "Florm Monokai",
+        _ => "Florm",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn accent_and_softer_text() {
-        let mut hl = Highlighting::new("Light+ (VS Code)", Path::new("/nonexistent"));
+        let mut hl = Highlighting::new("Florm GitHub Light", Path::new("/nonexistent"));
         let (fg, accent) = (hl.colors.fg, hl.colors.accent);
         let red = parse_hex("#E5534B").unwrap();
         assert_eq!(to_hex(red), "#E5534B");
@@ -527,12 +541,24 @@ mod tests {
     }
 
     #[test]
-    fn vscode_light_plus() {
-        let hl = Highlighting::new("Light+ (VS Code)", Path::new("/nonexistent"));
-        assert_eq!(hl.theme_name, "Light+ (VS Code)");
+    fn florm_themes_only() {
+        let hl = Highlighting::new("Florm Monokai", Path::new("/nonexistent"));
+        let mut names = hl.theme_names();
+        names.sort();
+        assert_eq!(names, ["Florm", "Florm Dracula", "Florm GitHub Light", "Florm Light", "Florm Monokai", "Florm One Dark"]);
+        assert!(!hl.is_light());
+        // the old built-in themes give way to the closest one
+        assert_eq!(Highlighting::new("Light+ (VS Code)", Path::new("/nonexistent")).theme_name, "Florm GitHub Light");
+        assert_eq!(Highlighting::new("Solarized (light)", Path::new("/nonexistent")).theme_name, "Florm Light");
+        assert_eq!(Highlighting::new("base16-ocean.dark", Path::new("/nonexistent")).theme_name, "Florm");
+    }
+
+    #[test]
+    fn github_light() {
+        let hl = Highlighting::new("Florm GitHub Light", Path::new("/nonexistent"));
+        assert_eq!(hl.theme_name, "Florm GitHub Light");
         assert!(hl.is_light());
-        assert_eq!(hl.colors.caret, Color32::BLACK);
-        assert_eq!(hl.colors.accent, Color32::from_rgb(0x00, 0x7a, 0xcc));
+        assert_eq!(hl.colors.accent, Color32::from_rgb(0x09, 0x69, 0xda));
         // colors of a Python line, like in VS Code
         let rope = Rope::from_str("def f(x):  # note\n    return 'a'\n");
         let mut cache = HlCache::default();
@@ -543,16 +569,16 @@ mod tests {
             cache.spans(line).unwrap().iter().find(|(_, r)| r.contains(&at)).map(|(c, _)| *c).unwrap()
         };
         let rgb = |h: u32| Color32::from_rgb((h >> 16) as u8, (h >> 8) as u8, h as u8);
-        assert_eq!(color_of(0, "def"), rgb(0x0000ff));
-        assert_eq!(color_of(0, "f("), rgb(0x795e26));
-        assert_eq!(color_of(0, "note"), rgb(0x008000));
-        assert_eq!(color_of(1, "return"), rgb(0xaf00db));
-        assert_eq!(color_of(1, "a'"), rgb(0xa31515));
+        assert_eq!(color_of(0, "def"), rgb(0xcf222e));
+        assert_eq!(color_of(0, "f("), rgb(0x8250df));
+        assert_eq!(color_of(0, "note"), rgb(0x6e7781));
+        assert_eq!(color_of(1, "return"), rgb(0xcf222e));
+        assert_eq!(color_of(1, "a'"), rgb(0x0a3069));
         // a line alone (search results) gets the same colors
         let spans = hl.line_spans("Python", "return 'a'");
         let at = |i: usize| spans.iter().find(|(_, r)| r.contains(&i)).map(|(c, _)| *c).unwrap();
-        assert_eq!(at(0), rgb(0xaf00db));
-        assert_eq!(at(8), rgb(0xa31515));
+        assert_eq!(at(0), rgb(0xcf222e));
+        assert_eq!(at(8), rgb(0x0a3069));
         assert_eq!(spans.last().unwrap().1.end, "return 'a'".len());
     }
 

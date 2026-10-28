@@ -219,8 +219,7 @@ language = "fr"
 font_size = 14.0
 tab_size = 4
 translate_tabs_to_spaces = true
-# Thèmes intégrés : Florm, Florm Light, Light+ (VS Code), base16-ocean.dark, base16-eighties.dark, base16-mocha.dark,
-# Solarized (dark), Solarized (light), InspiredGitHub.
+# Thèmes intégrés : Florm, Florm Light, Florm Monokai, Florm One Dark, Florm Dracula, Florm GitHub Light.
 # Tout fichier .tmTheme déposé dans le dossier "themes" de la config est aussi chargé.
 theme = "Florm"
 # couleur d'accentuation de l'interface, ex. #4F8CFF ; vide = celle du thème

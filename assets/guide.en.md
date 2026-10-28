@@ -425,7 +425,8 @@ Ctrl+K V (side).
 
 ## Appearance
 
-**Preferences → Appearance**: language (Français / English), theme (clickable previews),
+**Preferences → Appearance**: language (Français / English), theme (clickable previews: Florm and
+Florm Light, and Florm Monokai, One Dark, Dracula, GitHub Light after the usual themes of other editors),
 accent color, **softened text** (less “bold” text, useful on light themes), fonts of the editor
 and of the interface, minimap, breadcrumbs, **menu bar** (hidden, the menus are still under
 **☰** at the bottom left).
