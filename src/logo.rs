@@ -204,22 +204,21 @@ pub fn paint_backdrop(painter: &Painter, rect: Rect, light: bool) {
     }
 }
 
-/// Empty margin around the rounded square of the icon, as a fraction of its side: macOS draws
-/// icons as given (Apple's grid: an 824 px square in a 1024 px canvas), the other systems
-/// expect a full-bleed image.
+/// Empty margin around the icon, as a fraction of its side: macOS draws icons as given (Apple's
+/// grid: an 824 px square in a 1024 px canvas), the other systems expect a full-bleed image.
 #[cfg_attr(not(any(test, target_os = "macos")), allow(dead_code))]
 pub const MACOS_INSET: f32 = 100.0 / 1024.0;
 #[cfg(target_os = "macos")]
 pub const ICON_INSET: f32 = MACOS_INSET;
 #[cfg(not(target_os = "macos"))]
 pub const ICON_INSET: f32 = 0.0;
-/// Height of the F relative to the icon's rounded square.
-const LETTER: f32 = 0.72;
+/// Height of the F relative to the icon (alone on a transparent background, it fills it).
+const LETTER: f32 = 0.98;
 /// Horizontal point of the F (unit coordinates) put at the center of the icon.
 const LETTER_CX: f32 = 0.53;
 
-/// Window icon: navy rounded square with the gradient F, 4×4 supersampled, `inset` of empty
-/// margin around the square.
+/// Window icon: the gradient F alone on a transparent background, 4×4 supersampled, `inset` of
+/// empty margin around it.
 pub fn icon(size: usize, inset: f32) -> egui::IconData {
     let pieces = pieces();
     let inside = |poly: &[Vec2], p: Vec2| {
@@ -239,18 +238,16 @@ pub fn icon(size: usize, inset: f32) -> egui::IconData {
                     let side = 1.0 - 2.0 * inset;
                     let u = ((x as f32 + (sx as f32 + 0.5) / ss as f32) / size as f32 - inset) / side;
                     let v = ((y as f32 + (sy as f32 + 0.5) / ss as f32) / size as f32 - inset) / side;
-                    // rounded square background
-                    let (dx, dy) = ((u - 0.5).abs() - 0.32, (v - 0.5).abs() - 0.32);
-                    let outside = Vec2::new(dx.max(0.0), dy.max(0.0)).length() - 0.18;
-                    if outside > 0.0 {
+                    // Letter scaled to LETTER. Its box (x 0.20..0.96) is wider on the right than its
+                    // ink (the stem is on the left): centering the box would push the F to the
+                    // right, centering the ink to the left, so the point halfway between both
+                    // centers goes in the middle.
+                    let p = Vec2::new((u - 0.5) / LETTER + LETTER_CX, (v - 0.5) / LETTER + 0.5);
+                    // around the letter: transparent
+                    if !pieces.iter().any(|poly| inside(poly, p)) {
                         continue;
                     }
-                    // Letter scaled to LETTER inside the square. Its box (x 0.20..0.96) is wider on
-                    // the right than its ink (the stem is on the left): centering the box would
-                    // push the F to the right, centering the ink to the left, so the point halfway
-                    // between both centers goes in the middle.
-                    let p = Vec2::new((u - 0.5) / LETTER + LETTER_CX, (v - 0.5) / LETTER + 0.5);
-                    let c = if pieces.iter().any(|poly| inside(poly, p)) { grad_at(p) } else { NAVY };
+                    let c = grad_at(p);
                     r += c.r() as f32;
                     g += c.g() as f32;
                     b += c.b() as f32;
@@ -276,5 +273,24 @@ mod tests {
             let icon = super::icon(512, inset);
             image::RgbaImage::from_raw(icon.width, icon.height, icon.rgba).unwrap().save(path).unwrap();
         }
+        // Windows: every size drawn on its own (sharper than a scaled 256 px one)
+        let frames: Vec<_> = [256u32, 64, 48, 32, 24, 16]
+            .iter()
+            .map(|&n| {
+                let icon = super::icon(n as usize, 0.0);
+                image::codecs::ico::IcoFrame::as_png(&icon.rgba, n, n, image::ExtendedColorType::Rgba8).unwrap()
+            })
+            .collect();
+        let file = std::fs::File::create("packaging/windows/florm.ico").unwrap();
+        image::codecs::ico::IcoEncoder::new(file).encode_images(&frames).unwrap();
+    }
+
+    #[test]
+    fn icon_is_transparent_around_the_letter() {
+        let icon = super::icon(64, 0.0);
+        let alpha = |x: usize, y: usize| icon.rgba[(y * 64 + x) * 4 + 3];
+        // the corners are empty, the stem of the F is solid
+        assert_eq!((alpha(0, 0), alpha(63, 63), alpha(63, 0)), (0, 0, 0));
+        assert_eq!(alpha(24, 32), 255);
     }
 }
