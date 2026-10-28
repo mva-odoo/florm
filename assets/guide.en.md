@@ -27,6 +27,10 @@ them: a click on the name folds the group (only its name stays, with the number 
 click to rename it, close its tabs or dissolve it. In a pull request, **📑 Open the files** opens
 them in the group “PR #…”. The groups are kept with the session.
 
+On restart (or back to a project), everything comes back as you left it: the tabs and the views,
+the cursor position, the split editor with its tabs on each side, the open bottom panel and the
+sidebar shown or not.
+
 ## Sidebar
 
 - **Ctrl+Shift+E** (or a click on a file): the keyboard goes to the tree. **↑ ↓** to move,

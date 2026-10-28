@@ -85,13 +85,15 @@ impl App {
         let mut files = Vec::new();
         let mut backups = Vec::new();
         let mut active = 0;
+        let pane_of = |d: &Document| if d.pane == document::NO_PANE { 0 } else { d.pane };
+        let shown = |i: usize, d: &Document| i == self.active || self.pane_active[pane_of(d) as usize & 1] == Some(d.uid);
         for (i, d) in self.docs.iter().enumerate() {
             // the views come back in their tab (not the terminals: their programs are gone)
             if let Some(view) = self.session_view(d) {
                 if i == self.active {
                     active = files.len();
                 }
-                files.push(SessionFile { path: PathBuf::new(), line: 0, col: 0, backup: None, bookmarks: Vec::new(), view: Some(view), group: d.group.clone() });
+                files.push(SessionFile { path: PathBuf::new(), line: 0, col: 0, backup: None, bookmarks: Vec::new(), view: Some(view), group: d.group.clone(), pane: pane_of(d), shown: shown(i, d) });
                 continue;
             }
             if d.read_only {
@@ -111,7 +113,7 @@ impl App {
             if let Some(name) = &backup {
                 backups.push((name.clone(), d.rope.to_string()));
             }
-            files.push(SessionFile { path, line, col, backup, bookmarks: d.bookmark_lines(), view: None, group: d.group.clone() });
+            files.push(SessionFile { path, line, col, backup, bookmarks: d.bookmark_lines(), view: None, group: d.group.clone(), pane: pane_of(d), shown: shown(i, d) });
         }
         let mut expanded = Vec::new();
         if let Some(t) = &self.tree {
@@ -125,6 +127,9 @@ impl App {
             search_exclude: self.search.q.exclude.clone(),
             recent: self.index.recent.clone(),
             breakpoints: self.debug_session_breakpoints(),
+            split: self.is_split().then(|| if self.split_dir == SplitDir::Down { "down" } else { "right" }.to_string()),
+            bottom: self.bottom.map(|b| b.key()),
+            sidebar_hidden: !self.show_sidebar,
         };
         (session, backups)
     }
@@ -162,6 +167,7 @@ impl App {
                 let ok = self.restore_view(view);
                 if let (true, Some(d)) = (ok, self.docs.get_mut(self.active)) {
                     d.group = f.group.clone();
+                    d.pane = f.pane.min(1);
                 }
                 opened.push(ok.then_some(self.active));
                 continue;
@@ -193,13 +199,33 @@ impl App {
                 self.docs[i].goto_line(f.line, f.col);
                 self.docs[i].set_bookmark_lines(&f.bookmarks);
                 self.docs[i].group = f.group.clone();
+                self.docs[i].pane = f.pane.min(1);
                 opened.push(Some(i));
             } else {
                 opened.push(None);
             }
         }
+        // the split, the tab shown in each pane, the panels
+        if s.split.is_some() && self.is_split() {
+            self.split_dir = if s.split.as_deref() == Some("down") { SplitDir::Down } else { SplitDir::Right };
+            for (f, i) in s.files.iter().zip(&opened) {
+                if let (true, Some(d)) = (f.shown, i.and_then(|i| self.docs.get(i))) {
+                    self.pane_active[d.pane as usize & 1] = Some(d.uid);
+                }
+            }
+        } else {
+            self.unsplit();
+        }
         if let Some(Some(i)) = opened.get(s.active) {
             self.active = *i;
+            self.focused_pane = self.docs.get(*i).map_or(0, |d| d.pane);
+        }
+        self.show_sidebar = !s.sidebar_hidden;
+        if let Some(b) = s.bottom.as_deref().and_then(BottomTab::from_key) {
+            self.show_bottom(b, false);
+            // back where it was, without taking the keyboard from the editor
+            self.search.focus = false;
+            self.term.want_focus = false;
         }
         if restored > 0 {
             self.set_status(tf!("{restored} fichier(s) avec des modifications non enregistrées restauré(s)", "{restored} file(s) with unsaved changes restored"));

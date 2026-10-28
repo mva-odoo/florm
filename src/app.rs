@@ -175,6 +175,11 @@ enum BottomTab {
 }
 
 impl BottomTab {
+    /// The view of `key` (settings, session).
+    fn from_key(k: &str) -> Option<BottomTab> {
+        Self::ALL.iter().map(|a| a.0).find(|b| b.key() == k)
+    }
+
     /// The views of the bottom panel: its tabs, and the buttons at the bottom of the sidebar.
     const ALL: [(BottomTab, icons::ViewIcon, &'static str); 9] = [
         (BottomTab::Search, icons::ViewIcon::Search, "Recherche"),

@@ -28,6 +28,10 @@ d'onglets), clic droit pour le renommer, fermer ses onglets ou le dissoudre. Dan
 request, **📑 Ouvrir les fichiers** les ouvre dans le groupe « PR #… ». Les groupes sont gardés
 avec la session.
 
+Au redémarrage (ou en revenant sur un projet), tout revient comme tu l'as laissé : les onglets et
+les vues, la position du curseur, l'éditeur divisé avec ses onglets de chaque côté, le panneau du
+bas ouvert et la barre latérale affichée ou non.
+
 ## Barre latérale
 
 - **Ctrl+Shift+E** (ou un clic sur un fichier) : le clavier va dans l'arborescence. **↑ ↓** pour se
