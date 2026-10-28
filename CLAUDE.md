@@ -22,7 +22,9 @@ scripts/build-windows.sh    # binaire Windows depuis Linux/WSL
 
 - `src/main.rs` : démarrage, options de fenêtre, déclaration des modules.
 - `src/app.rs` + `src/app/*.rs` : l'application egui (`impl App` réparti par thème : `claude_ui.rs`,
-  `git_view.rs`, `pulls.rs`, `debugger.rs`, `panels.rs`, `prefs.rs`, `job_results.rs`…).
+  `git_view.rs`, `pulls.rs`, `debugger.rs`, `panels.rs`, `prefs.rs`, `job_results.rs`…). Les plus
+  gros ont des sous-modules dans un dossier du même nom (`claude_ui/`, `debugger/`, `panels/`) :
+  un fichier par partie, avec `use super::*;`.
 - `src/*.rs` hors `app/` : la logique sans UI (`git.rs`, `github.rs`, `claude.rs`, `dap.rs`, `lsp.rs`,
   `docker.rs`, `terminal.rs`, `document.rs` (buffer `ropey`), `highlight.rs` (`syntect`), `split.rs`…).
 - Travail en arrière-plan : `src/jobs.rs`. Les tâches tournent sur des threads et renvoient un
