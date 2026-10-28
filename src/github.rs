@@ -979,3 +979,64 @@ mod tests {
         assert_eq!(pr_args("ready", 5, &["--undo"]), ["pr", "ready", "5", "--undo"]);
     }
 }
+
+#[cfg(test)]
+mod emoji_tests {
+    use super::*;
+
+    /// Every emoji of the reactions must be drawn by a font egui ships (else a box). Checked
+    /// against the font files, by their character map.
+    #[test]
+    fn reactions_are_in_egui_fonts() {
+        let dir = std::fs::read_dir(std::env::var("CARGO_HOME").map(std::path::PathBuf::from).unwrap_or_else(|_| {
+            std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".cargo")
+        }).join("registry/src"));
+        let Ok(dir) = dir else { return };
+        let font = dir
+            .flatten()
+            .flat_map(|e| std::fs::read_dir(e.path()).into_iter().flatten().flatten())
+            .find_map(|e| {
+                let p = e.path().join("epaint_default_fonts-0.29.1/fonts/NotoEmoji-Regular.ttf");
+                p.is_file().then_some(p)
+            });
+        let Some(font) = font else { return };
+        let bytes = std::fs::read(font).unwrap();
+        let face = ttf_parser_cmap(&bytes);
+        let mut all: Vec<&str> = REACTIONS.iter().map(|(_, e)| *e).collect();
+        all.push("☺");
+        for e in all {
+            let c = e.chars().next().unwrap() as u32;
+            assert!(face.contains(&c), "{e} (U+{c:04X}) is not in the emoji font of egui");
+        }
+    }
+
+    /// Code points of the format 4 subtables of a TrueType cmap (enough for the emoji font).
+    fn ttf_parser_cmap(d: &[u8]) -> std::collections::HashSet<u32> {
+        let u16at = |i: usize| u16::from_be_bytes([d[i], d[i + 1]]) as usize;
+        let u32at = |i: usize| u32::from_be_bytes([d[i], d[i + 1], d[i + 2], d[i + 3]]) as usize;
+        let mut out = std::collections::HashSet::new();
+        let n = u16at(4);
+        let mut cmap = 0;
+        for i in 0..n {
+            let rec = 12 + 16 * i;
+            if &d[rec..rec + 4] == b"cmap" {
+                cmap = u32at(rec + 8);
+            }
+        }
+        let nt = u16at(cmap + 2);
+        for i in 0..nt {
+            let s = cmap + u32at(cmap + 4 + 8 * i + 4);
+            if u16at(s) == 4 {
+                let segx2 = u16at(s + 6);
+                for k in 0..segx2 / 2 {
+                    let end = u16at(s + 14 + 2 * k);
+                    let start = u16at(s + 16 + segx2 + 2 * k);
+                    if start <= end && end < 0xFFFF {
+                        out.extend(start as u32..=end as u32);
+                    }
+                }
+            }
+        }
+        out
+    }
+}

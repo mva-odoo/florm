@@ -1435,7 +1435,8 @@ fn hex_color(hex: &str) -> Color32 {
     Color32::from_rgb(c(0), c(2), c(4))
 }
 
-/// The reactions given (a click gives or takes back mine), then 🙂 to add one.
+/// The reactions given (a click gives or takes back mine), then ☺ to add one (🙂 is not in the fonts
+/// of egui: a box).
 fn reactions_row(ui: &mut egui::Ui, id: &str, reactions: &[github::Reaction], busy: bool, act: &mut Option<PrAct>) {
     if id.is_empty() {
         return;
@@ -1447,7 +1448,7 @@ fn reactions_row(ui: &mut egui::Ui, id: &str, reactions: &[github::Reaction], bu
         }
     }
     ui.add_enabled_ui(!busy, |ui| {
-        ui.menu_button(RichText::new("🙂").small(), |ui| {
+        ui.menu_button(RichText::new("☺").small(), |ui| {
             ui.horizontal(|ui| {
                 for (content, e) in github::REACTIONS {
                     let mine = reactions.iter().any(|r| r.content == content && r.mine);
