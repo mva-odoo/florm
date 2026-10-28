@@ -716,7 +716,7 @@ impl App {
 
     /// Thin strip at the left edge while the sidebar is hidden: a click brings it back.
     pub(super) fn sidebar_strip(&mut self, ctx: &egui::Context) {
-        let panel = ctx.style().visuals.panel_fill;
+        let panel = sidebar_fill(&ctx.style().visuals);
         egui::SidePanel::left("sidebar_strip").exact_width(10.0).resizable(false).frame(egui::Frame::none().fill(panel)).show(ctx, |ui| {
             let rect = ui.max_rect();
             let r = ui.interact(rect, egui::Id::new("sidebar_strip_btn"), Sense::click());
@@ -730,13 +730,15 @@ impl App {
 
     pub(super) fn sidebar(&mut self, ctx: &egui::Context) {
         let mut tree_action = None;
-        let panel = ctx.style().visuals.panel_fill;
+        let panel = sidebar_fill(&ctx.style().visuals);
         let shown = egui::SidePanel::left("sidebar")
             .resizable(true)
             .default_width(260.0)
             .width_range(150.0..=700.0)
             .frame(egui::Frame::none().fill(panel).inner_margin(egui::Margin { left: 10.0, right: 8.0, top: 4.0, bottom: 6.0 }))
             .show(ctx, |ui| {
+            // what is drawn inside (sticky folders, icons) on the same background
+            ui.visuals_mut().panel_fill = panel;
             self.sidebar_mac_buttons(ui);
             // the views of the bottom panel, icons only: left click in the editor area, right click
             // there; projects are under the folder name (Ctrl+Alt+P). At the top or the bottom of the sidebar.
@@ -1909,4 +1911,9 @@ enum GitBarAct {
     AddSubmodule,
     /// `git submodule …` with these arguments.
     Submodules(Vec<String>),
+}
+
+/// The sidebar a little darker than the rest, to set the tree apart from the editor.
+fn sidebar_fill(v: &egui::Visuals) -> Color32 {
+    icons::mix(v.panel_fill, Color32::BLACK, if v.dark_mode { 0.15 } else { 0.04 })
 }
