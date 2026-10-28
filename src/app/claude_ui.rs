@@ -172,6 +172,9 @@ pub(super) struct ClaudeUi {
     pub(super) turn_diff: Option<TurnDiff>,
     /// ↶ clicked on a message: what to take back is asked.
     pub(super) confirm_rewind: Option<usize>,
+    /// The model, the mode, the permissions… changed while Claude ran: the next message starts
+    /// it again with them (`--resume`: the conversation goes on).
+    pub(super) restart: bool,
 }
 
 /// What the height of a message depends on: its content, its place and the width.
@@ -704,6 +707,11 @@ impl App {
             return false;
         }
         let ask_first = ask_first && !during;
+        // the model, the mode or the permissions changed while it ran: started again with them
+        if self.claude.restart && !during {
+            self.claude.session = None;
+            self.claude.restart = false;
+        }
         // the review starts with the first message: everything changed since is Claude's
         if self.claude.review_index.is_none() && !command {
             self.claude_start_review();
@@ -1564,6 +1572,7 @@ impl App {
         let (mut chosen_dir, mut move_to, mut ctx_add) = (None, None, None);
         let (mut queue_act, mut queued, mut read_commits) = (None, None, false);
         let mut answer: Option<String> = None;
+        let mut mode_cycle = false;
         let (mut fold, mut fold_all, mut turn_req, mut rewind, mut close_turn, mut turn_click) = (None, None, None, None, false, None);
         // the kept conversations: (key, title, folder and date)
         let history: Vec<(u64, String, String)> = self
@@ -1586,6 +1595,7 @@ impl App {
         let (bar_id, review_id, input_id, chat_id) = (cid("claude_bar"), cid("claude_review"), cid("claude_input"), cid("claude_chat"));
         let queue_id = cid("claude_queue");
         let conv = c.id;
+        let (model_before, mode_before) = (c.model, c.mode);
 
         // ------------------------------------------------ settings of the conversation
         egui::TopBottomPanel::top(bar_id)
@@ -1600,19 +1610,23 @@ impl App {
                         if let Some(k) = crate::view_bar::repo_chip(ui, ("claude_dir", conv), &dir_name, &labels, current) {
                             chosen_dir = Some(dirs[k].0.clone());
                         }
-                        egui::ComboBox::from_id_salt(("claude_model", conv)).selected_text(claude::label(claude::MODELS[c.model].1)).show_ui(ui, |ui| {
-                            for (k, (_, label)) in claude::MODELS.iter().enumerate() {
-                                ui.selectable_value(&mut c.model, k, claude::label(label));
-                            }
-                        });
-                        egui::ComboBox::from_id_salt(("claude_mode", conv)).selected_text(claude::label(claude::MODES[c.mode].1)).show_ui(ui, |ui| {
-                            for (k, (_, label, tip)) in claude::MODES.iter().enumerate() {
-                                ui.selectable_value(&mut c.mode, k, claude::label(label)).on_hover_text(claude::label(tip));
-                            }
-                        });
                     })
                     .response
                     .on_disabled_hover_text(t!("Pour changer : « Nouvelle conversation »", "To change: “New conversation”"));
+                    // changed during the conversation: Claude goes on with it (at once while it works,
+                    // else from the next message, the conversation kept)
+                    egui::ComboBox::from_id_salt(("claude_model", conv)).selected_text(claude::label(claude::MODELS[c.model].1)).show_ui(ui, |ui| {
+                        for (k, (_, label)) in claude::MODELS.iter().enumerate() {
+                            ui.selectable_value(&mut c.model, k, claude::label(label));
+                        }
+                    });
+                    egui::ComboBox::from_id_salt(("claude_mode", conv)).selected_text(claude::label(claude::MODES[c.mode].1)).show_ui(ui, |ui| {
+                        for (k, (_, label, tip)) in claude::MODES.iter().enumerate() {
+                            ui.selectable_value(&mut c.mode, k, claude::label(label)).on_hover_text(claude::label(tip));
+                        }
+                    })
+                    .response
+                    .on_hover_text(t!("Maj+Tab dans le champ : mode suivant", "Shift+Tab in the field: next mode"));
                     let n_perms = perms.iter().filter(|p| claude::PERMS.iter().any(|(k, ..)| k == p)).count();
                     ui.menu_button(format!("🔒 Permissions ({n_perms})"), |ui| {
                         ui.set_min_width(330.0);
@@ -1965,6 +1979,10 @@ impl App {
                     }
                     // a slash command being typed: the matching ones; Tab or a click completes it
                     let field_id = input_id.with("field");
+                    // Shift+Tab: the next mode, as in Claude Code
+                    if ui.memory(|m| m.has_focus(field_id)) && ui.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, Key::Tab)) {
+                        mode_cycle = true;
+                    }
                     // a long text pasted goes in as a chip (« Texte collé »), a copied image too
                     if ui.memory(|m| m.has_focus(field_id)) {
                         let (mut long, mut paste_key) = (None, false);
@@ -2037,7 +2055,7 @@ impl App {
                     let resp = ui.add(
                         egui::TextEdit::multiline(&mut c.input)
                             .id(field_id)
-                            .hint_text(t!("Demande à Claude… (Ctrl+Entrée pour envoyer, / pour les commandes)", "Ask Claude… (Ctrl+Enter to send, / for the commands)"))
+                            .hint_text(t!("Demande à Claude… (Ctrl+Entrée pour envoyer, / les commandes, Maj+Tab le mode)", "Ask Claude… (Ctrl+Enter to send, / commands, Shift+Tab the mode)"))
                             .desired_rows(rows)
                             .desired_width(f32::INFINITY)
                             .layouter(&mut layout_cutting),
@@ -2432,6 +2450,14 @@ impl App {
             Some((k, Some(how))) => self.claude_rewind(k, how),
             None => {}
         }
+        if mode_cycle {
+            self.claude.mode = (self.claude.mode + 1) % claude::MODES.len();
+            self.set_status(tf!("Mode : {}", "Mode: {}", claude::label(claude::MODES[self.claude.mode].1)));
+        }
+        let (model_changed, mode_changed) = (self.claude.model != model_before, self.claude.mode != mode_before);
+        if model_changed || mode_changed {
+            self.claude_switch(model_changed, mode_changed);
+        }
         if read_commits {
             let dir = self.claude.dir.clone();
             let out = dir.and_then(|d| git::stdout(&d, &["log", "-40", "--format=%H%x1f%h%x1f%s%x1f%cr"]).ok()).unwrap_or_default();
@@ -2508,6 +2534,23 @@ impl App {
         if let Some(keep) = all {
             self.claude_review_all(keep);
         }
+    }
+
+    /// The model or the mode changed during the conversation: while Claude works it switches at
+    /// once (and starts again at the next message, so that the arguments match); otherwise the
+    /// next message starts it again with them, the conversation kept.
+    fn claude_switch(&mut self, model: bool, mode: bool) {
+        let c = &mut self.claude;
+        let Some(s) = c.session.as_mut() else { return };
+        if c.busy {
+            if mode {
+                let _ = s.set_mode(claude::mode_value(c.mode));
+            }
+            if model {
+                let _ = s.set_model(claude::MODELS[c.model].0);
+            }
+        }
+        c.restart = true;
     }
 
     /// A commit message proposed by Claude for what is staged (else for all the changes).

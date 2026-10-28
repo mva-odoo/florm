@@ -256,6 +256,9 @@ command and your login: no key to set up.
 
 - At the top: the repository, the model, and what Claude is allowed to do (**Edit files**,
   **Plan only**, **Allow everything** so that it also runs commands).
+  The model and the mode can change in the middle of a conversation: at once if Claude is
+  working, else from the next message, the conversation kept. **Shift+Tab** in the field: next
+  mode, as in Claude Code.
 - **End of an answer**: if the conversation is not shown, its tab (or, in the bottom panel, the
   Claude tab and its icon in the sidebar) blinks a few seconds then stays green until you look at
   it, and a sound plays. **Preferences → Claude**: blink or not, and the sound (Chime, Bell,

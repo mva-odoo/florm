@@ -87,6 +87,15 @@ fn perm_tools(perm: &str) -> (&'static [&'static str], &'static [&'static str]) 
     }
 }
 
+/// The value of `--permission-mode` of mode `mode` (index in `MODES`), also used to change it
+/// while Claude works.
+pub fn mode_value(mode: usize) -> &'static str {
+    match MODES.get(mode).map_or("custom", |m| m.0) {
+        "custom" => "dontAsk",
+        m => m,
+    }
+}
+
 /// Arguments of `claude` for mode `mode` (index in `MODES`), the permissions checked and the
 /// budget (0: none). Nothing is ever asked: what is not allowed is refused.
 pub fn permission_args(mode: usize, perms: &[String], budget: f64) -> Vec<String> {
@@ -363,6 +372,17 @@ impl Session {
     /// Stops the answer being written (the conversation goes on).
     pub fn interrupt(&mut self) -> Result<(), String> {
         self.write(json!({"type": "control_request", "request_id": format!("stop-{}", std::process::id()), "request": {"subtype": "interrupt"}}))
+    }
+
+    /// The permission mode changed while Claude works (`mode_value`).
+    pub fn set_mode(&mut self, mode: &str) -> Result<(), String> {
+        self.write(json!({"type": "control_request", "request_id": format!("mode-{}", std::process::id()), "request": {"subtype": "set_permission_mode", "mode": mode}}))
+    }
+
+    /// The model changed while Claude works (empty: the default one).
+    pub fn set_model(&mut self, model: &str) -> Result<(), String> {
+        let model = if model.is_empty() { Value::Null } else { json!(model) };
+        self.write(json!({"type": "control_request", "request_id": format!("model-{}", std::process::id()), "request": {"subtype": "set_model", "model": model}}))
     }
 
     /// What arrived since the last call.
@@ -826,6 +846,7 @@ mod tests {
         assert!(a.ends_with("--max-budget-usd 2.5"), "{a}");
         assert_eq!(permission_args(1, &[], 0.0), p(&["--permission-prompts", "none", "--permission-mode", "plan"]));
         assert!(permission_args(2, &p(&["sandbox"]), 0.0).join(" ").contains("bypassPermissions --settings"));
+        assert_eq!((mode_value(0), mode_value(1), mode_value(2)), ("dontAsk", "plan", "bypassPermissions"));
     }
 
     #[test]
