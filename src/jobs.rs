@@ -84,8 +84,15 @@ pub enum JobResult {
     HistoryDetails(String, Result<history::Details, String>),
     Blame { uid: u64, line: usize, version: u64, result: Result<git::Blame, String> },
     LineHistory(Result<Vec<git::LineCommit>, String>),
+    /// Diff of a commit of the history window (its hash), read when it is chosen.
+    LineHistoryDiff(String, Result<String, String>),
+    /// Message of the last commit, to amend it.
+    LastCommitMessage(Result<String, String>),
+    /// `git clean -n -d`: what would be deleted.
+    CleanPreview(Result<String, String>),
     HistoryDiff { hash: String, path: Option<String>, result: Result<String, String> },
-    GitBranches(Vec<String>),
+    /// The branches, what to do with the one chosen, and the one already chosen if any.
+    GitBranches(Vec<git::Branch>, git::BranchPick, Option<String>),
     /// `status`: the repository read again right after, in the same job (shown at once).
     GitOp { label: String, result: Result<String, String>, status: Option<(PathBuf, Result<git::Status, String>)> },
     NewTab { title: String, text: String, syntax: String },

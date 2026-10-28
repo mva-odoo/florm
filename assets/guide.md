@@ -109,6 +109,40 @@ explique comment l'installer (le système est détecté) et reprend toute seule 
   fichiers compris ou non), puis pour chaque stash **Voir**, **Appliquer** (il reste),
   **Reprendre** (appliqué puis supprimé) ou **Supprimer**. Aussi dans la palette :
   « Git : mettre les changements de côté », « Git : reprendre le dernier stash ».
+- **🔀 branche ▾** : aussi **fusionner une branche** dans la branche courante, **rebaser** la branche
+  courante sur une autre, **renommer** une branche (sa branche distante du même nom suit),
+  **supprimer** une branche locale (et sa branche distante si tu le choisis) ou distante, et
+  **modifier le dernier commit**.
+- **Modifier le dernier commit** (case sous le message, ou menu de la branche) : le message du
+  dernier commit revient dans la zone ; le bouton le remplace (avec les fichiers indexés en plus).
+  S'il était déjà poussé, il faudra un push --force-with-lease.
+- **↕ Synchroniser** : Pull, **Pull --rebase** (tes commits rejoués par-dessus, sans commit de
+  merge), Push, **Push --force-with-lease** (après un rebase ou un amend : refusé si quelqu'un a
+  poussé entre-temps), **Pousser les tags**, Fetch. Quand un push est refusé, le message d'erreur
+  propose aussi **⬆ Forcer (--force-with-lease)**.
+- Clic droit sur un commit du graphe : en plus du checkout, du cherry-pick, du revert…
+  - **Créer un tag ici**  (« v1.2 », ou « v1.2 message » pour un tag annoté) ; sur un tag :
+    **Pousser le tag**, **Supprimer le tag** (en local, ou aussi sur le remote)
+  - sur chaque branche du commit : **Fusionner** dans la branche courante, **Renommer**,
+    **Supprimer** ; **Fusionner ce commit**
+  - **Ramener la branche ici (reset)** : soft (changements gardés, indexés), mixed (gardés, non
+    indexés) ou hard (tout jeté, demande confirmation)
+  - **Bisect** : marque un commit mauvais et un bon ; un bandeau propose ensuite **✔ Bon**,
+    **× Mauvais**, **Passer** sur chaque commit que git sort, jusqu'au premier mauvais, puis **Terminer**.
+- **⋯** dans la barre :
+  - **Rechercher dans l'historique** : par message, auteur, texte ajouté ou supprimé (`-S`),
+    regex dans les lignes changées (`-G`) ou fichier (avec ses renommages). Tab dans la question
+    change de critère. Les commits trouvés s'affichent avec leur diff.
+  - **Reflog** : où HEAD est passée (commits, checkouts, resets, rebases). Un commit perdu y est
+    encore : **Récupérer ▾** crée une branche dessus, le cherry-pick ou y ramène la branche.
+  - **Remotes** : ajouter (« nom URL ») ou retirer un remote. **Sous-modules** : les initialiser
+    et mettre à jour, suivre leur branche distante, reprendre les URL, en ajouter un.
+  - **Supprimer les fichiers non suivis** (`git clean`) : la liste est montrée avant.
+  - **✨ Consignes des messages de commit** : ouvre `.florm/commit.md`, ce que Claude doit suivre
+    pour ✨ et ✂ dans ce projet (langue, préfixes, longueur…). À commiter pour le partager.
+    Sans ce fichier, Claude prend la section « Commits » du CLAUDE.md du projet s'il y en a une.
+- **Historique du fichier** (clic droit dans l'éditeur, menu Git) : tous ses commits, à travers
+  ses renommages. **Historique de la ligne** (Ctrl+Alt+B) prend aussi plusieurs lignes sélectionnées.
 
 ### Découper un commit
 

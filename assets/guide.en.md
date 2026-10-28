@@ -107,6 +107,39 @@ explains how to install it (the system is detected) and comes back by itself as 
 - **⋯ → Stash** in the bar: put the changes aside (with a message, new files included or not),
   then for each stash **Show**, **Apply** (it stays), **Pop** (applied then deleted) or
   **Delete**. Also in the palette: “Git: put the changes aside”, “Git: take back the last stash”.
+- **🔀 branch ▾**: also **merge a branch** into the current one, **rebase** the current branch onto
+  another, **rename** a branch (its remote branch of the same name follows), **delete** a local
+  branch (and its remote branch if you choose so) or a remote one, and **amend the last commit**.
+- **Amend the last commit** (box under the message, or branch menu): the message of the last
+  commit comes back in the field; the button replaces it (with the staged files added). If it
+  was already pushed, a push --force-with-lease will be needed.
+- **↕ Sync**: Pull, **Pull --rebase** (your commits replayed on top, no merge commit), Push,
+  **Push --force-with-lease** (after a rebase or an amend: refused if someone pushed meanwhile),
+  **Push the tags**, Fetch. When a push is refused, the error message also offers
+  **⬆ Force (--force-with-lease)**.
+- Right click on a commit of the graph: besides checkout, cherry-pick, revert…
+  - **Create a tag here** (“v1.2”, or “v1.2 message” for an annotated tag); on a tag:
+    **Push the tag**, **Delete the tag** (locally, or on the remote too)
+  - on each branch of the commit: **Merge** into the current branch, **Rename**, **Delete**;
+    **Merge this commit**
+  - **Move the branch here (reset)**: soft (changes kept, staged), mixed (kept, unstaged) or
+    hard (everything thrown away, asks for confirmation)
+  - **Bisect**: mark a bad commit and a good one; a banner then offers **✔ Good**, **× Bad**,
+    **Skip** on each commit git checks out, down to the first bad one, then **Finish**.
+- **⋯** in the bar:
+  - **Search the history**: by message, author, text added or removed (`-S`), regex in the
+    changed lines (`-G`) or file (through its renames). Tab in the question changes the
+    criterion. The commits found are shown with their diff.
+  - **Reflog**: where HEAD has been (commits, checkouts, resets, rebases). A lost commit is still
+    there: **Bring back ▾** creates a branch on it, cherry-picks it or moves the branch there.
+  - **Remotes**: add (“name URL”) or remove a remote. **Submodules**: init and update them,
+    follow their remote branch, take the URLs again, add one.
+  - **Delete the untracked files** (`git clean`): the list is shown first.
+  - **✨ Commit message rules**: opens `.florm/commit.md`, what Claude must follow for ✨ and ✂ in
+    this project (language, prefixes, length…). Commit it to share it. Without this file, Claude
+    takes the “Commits” section of the project's CLAUDE.md if there is one.
+- **File history** (right click in the editor, Git menu): all its commits, through its renames.
+  **Line history** (Ctrl+Alt+B) also takes several selected lines.
 
 ### Split a commit
 

@@ -181,6 +181,13 @@ impl App {
 
     pub(super) fn overlay_ui(&mut self, ctx: &egui::Context) {
         let Some(mut ov) = self.overlay.take() else { return };
+        // search in the history: Tab goes to the next criterion
+        if let Mode::Prompt(Prompt::HistorySearch(k)) = &mut ov.mode {
+            if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Tab)) {
+                let all = git::SearchKind::ALL;
+                *k = all[(all.iter().position(|x| x == k).unwrap_or(0) + 1) % all.len()];
+            }
+        }
         let title = match &ov.mode {
             Mode::Commands => t!("Palette de commandes", "Command palette").to_string(),
             Mode::Files => t!("Aller au fichier   (fichier:ligne, ou :ligne dans le fichier courant)", "Go to file   (file:line, or :line in the current file)").into(),
@@ -191,7 +198,16 @@ impl App {
             Mode::Syntax => t!("Syntaxe du fichier", "Syntax of the file").into(),
             Mode::Themes => t!("Thème", "Theme").into(),
             Mode::Templates => t!("Insérer un modèle   (${model}, ${Model}, ${module} remplis d'après le fichier courant)", "Insert a template   (${model}, ${Model}, ${module} filled from the current file)").into(),
-            Mode::Branches => t!("Changer de branche", "Switch branch").into(),
+            Mode::Branches(pick) => {
+                let cur = self.git.status.as_ref().map(|s| s.branch.clone()).unwrap_or_default();
+                match pick {
+                    BranchPick::Checkout => t!("Changer de branche", "Switch branch").into(),
+                    BranchPick::Merge => tf!("Fusionner une branche dans « {cur} »", "Merge a branch into “{cur}”"),
+                    BranchPick::Rebase => tf!("Rebaser « {cur} » sur la branche…", "Rebase “{cur}” onto the branch…"),
+                    BranchPick::Rename => t!("Renommer la branche", "Rename the branch").into(),
+                    BranchPick::Delete => t!("Supprimer la branche (demande confirmation)", "Delete the branch (asks for confirmation)").into(),
+                }
+            }
             Mode::Projects => t!("Changer de projet", "Switch project").into(),
             Mode::Symbols => t!("Aller au symbole   (classe, fonction, méthode, record Odoo, titre…)", "Go to symbol   (class, function, method, Odoo record, heading…)").into(),
             Mode::Definitions(w) => tf!("Définitions de « {w} »", "Definitions of “{w}”"),
@@ -211,6 +227,12 @@ impl App {
                 Prompt::NewTemplate { ext, .. } => tf!("Nouveau modèle pour les .{ext} : son déclencheur (ex. ipdb ; nom.xml pour un autre type)", "New template for .{ext} files: its trigger (e.g. ipdb; name.xml for another type)"),
                 Prompt::RenameProject(_) => t!("Nom du projet", "Project name").into(),
                 Prompt::BranchAt(h) => tf!("Nouvelle branche sur le commit {}", "New branch on commit {}", &h[..h.len().min(8)]),
+                Prompt::RenameBranch { old, upstream } if upstream.is_empty() => tf!("Nouveau nom de la branche « {old} »", "New name of the branch “{old}”"),
+                Prompt::RenameBranch { old, upstream } => tf!("Nouveau nom de « {old} » ({upstream} est renommée aussi)", "New name of “{old}” ({upstream} is renamed too)"),
+                Prompt::TagAt(h) => tf!("Nom du tag sur le commit {}   (« v1.2 » ; « v1.2 message » : tag annoté)", "Name of the tag on commit {}   (“v1.2”; “v1.2 message”: annotated tag)", &h[..h.len().min(8)]),
+                Prompt::AddRemote => t!("Nouveau remote : nom puis URL   (upstream git@github.com:odoo/odoo.git)", "New remote: name then URL   (upstream git@github.com:odoo/odoo.git)").into(),
+                Prompt::AddSubmodule => t!("Nouveau sous-module : URL, puis le dossier si besoin   (git@github.com:org/lib.git libs/lib)", "New submodule: URL, then the folder if needed   (git@github.com:org/lib.git libs/lib)").into(),
+                Prompt::HistorySearch(k) => tf!("Rechercher dans l'historique — {}   (Tab : changer de critère)", "Search the history — {}   (Tab: change the criterion)", k.label()),
             },
         };
         let is_list = !matches!(ov.mode, Mode::Prompt(_) | Mode::GotoLine);
@@ -557,10 +579,7 @@ impl App {
                 self.persist("theme", config::toml_str(&n));
                 self.set_status(tf!("Thème « {n} » enregistré", "Theme “{n}” saved"));
             }
-            Action::Branch(b) => {
-                let name = b.split_once('/').filter(|(r, _)| *r == "origin").map(|(_, n)| n.to_string()).unwrap_or(b);
-                self.git_job("checkout", &["checkout", &name]);
-            }
+            Action::Branch(b, pick) => self.branch_act(b, pick),
             Action::Project(p) => self.switch_project(p),
             Action::Template(k) => self.insert_template(k),
             Action::Remote(t) => self.remote_connect(t),
@@ -685,6 +704,47 @@ impl App {
             }
             Prompt::NewBranch => self.git_job("checkout -b", &["checkout", "-b", &text]),
             Prompt::BranchAt(hash) => self.git_job("branch", &["branch", &text, &hash]),
+            Prompt::RenameBranch { old, upstream } => {
+                let Some(repo) = self.repo.clone() else { return };
+                if text == old {
+                    return;
+                }
+                let mut cmds = vec![vec!["branch".to_string(), "-m".into(), old.clone(), text.clone()]];
+                // the remote branch of the same name follows: pushed under the new name, the old one deleted
+                let names: Vec<String> = self.git.remotes.iter().map(|(n, _)| n.clone()).collect();
+                if let Some((remote, rb)) = git::split_remote(&names, &upstream) {
+                    if rb == old {
+                        cmds.push(vec!["push".into(), "-u".into(), remote.clone(), text.clone()]);
+                        cmds.push(vec!["push".into(), remote, "--delete".into(), old]);
+                    }
+                }
+                self.git_seq_at(repo, "branch -m", cmds);
+            }
+            Prompt::TagAt(hash) => {
+                let (name, msg) = text.split_once(char::is_whitespace).map_or((text.as_str(), ""), |(n, m)| (n, m.trim()));
+                if msg.is_empty() {
+                    self.git_job("tag", &["tag", name, &hash]);
+                } else {
+                    self.git_job("tag", &["tag", "-a", name, "-m", msg, &hash]);
+                }
+            }
+            Prompt::AddRemote => match text.split_once(char::is_whitespace) {
+                Some((name, url)) => self.git_job("remote add", &["remote", "add", name, url.trim()]),
+                None => {
+                    self.set_error(t!("Donne le nom puis l'URL, séparés par un espace", "Give the name then the URL, separated by a space"));
+                    self.open_overlay_with(Mode::Prompt(Prompt::AddRemote), Vec::new(), text);
+                }
+            },
+            Prompt::AddSubmodule => {
+                let mut args = vec!["submodule", "add"];
+                args.extend(text.split_whitespace().take(2));
+                self.git_job("submodule add", &args);
+            }
+            Prompt::HistorySearch(kind) => {
+                if let Some(repo) = self.repo.clone() {
+                    self.history_search(repo, kind, text);
+                }
+            }
             Prompt::RenameSymbol => {
                 let ctx = self.egui_ctx.clone();
                 let i = self.active;
@@ -744,6 +804,7 @@ impl App {
                 )
             }
             Confirm::DropStash(_, what) => (t!("Supprimer le stash", "Delete the stash"), tf!("Supprimer définitivement « {what} » ?\nSes changements seront perdus.", "Delete “{what}” for good?\nIts changes will be lost.")),
+            Confirm::Git { title, msg, .. } => (title.as_str(), msg.clone()),
             Confirm::ReplaceInFiles => {
                 let n = self.search.hit_count();
                 (
@@ -765,7 +826,7 @@ impl App {
                 ui.painter().rect_filled(screen, 0.0, Color32::from_black_alpha(90));
             });
         // what loses something (or cannot be undone) is not chosen by Entrée alone
-        let careful = matches!(c, Confirm::Delete(_) | Confirm::DropStash(..) | Confirm::DiffOp { .. } | Confirm::ReplaceInFiles | Confirm::Overwrite(_));
+        let careful = matches!(c, Confirm::Delete(_) | Confirm::DropStash(..) | Confirm::DiffOp { .. } | Confirm::ReplaceInFiles | Confirm::Overwrite(_) | Confirm::Git { .. });
         egui::Window::new(title)
             .collapsible(false)
             .resizable(false)
@@ -786,6 +847,7 @@ impl App {
                         Confirm::ReplaceInFiles => (t!("Remplacer", "Replace"), None),
                         Confirm::DiffOp { .. } => (t!("Oui, annuler le changement", "Yes, undo the change"), None),
                         Confirm::DropStash(..) => (t!("Supprimer", "Delete"), None),
+                        Confirm::Git { yes, alt, .. } => (yes.as_str(), alt.as_ref().map(|(l, _)| l.as_str())),
                         Confirm::Overwrite(_) => (t!("Écraser avec ma version", "Overwrite with mine"), Some(t!("Recharger la version du disque", "Reload the version on disk"))),
                     };
                     let r = ui.button(yes);
@@ -823,6 +885,12 @@ impl App {
         match (c, choice) {
             (Confirm::DiffOp { label, op, .. }, 1) => self.run_diff_op(label, op),
             (Confirm::DropStash(hash, _), 1) => self.stash_act(super::git_actions::StashAct::Drop(hash)),
+            (Confirm::Git { label, cmds, alt, .. }, 1 | 2) => {
+                let cmds = if choice == 2 { alt.map(|(_, c)| c).unwrap_or_default() } else { cmds };
+                if let (Some(repo), false) = (self.repo.clone(), cmds.is_empty()) {
+                    self.git_seq_at(repo, &label, cmds);
+                }
+            }
             (Confirm::CloseTab(uid), 1 | 2) => {
                 if let Some(i) = self.docs.iter().position(|d| d.uid == uid) {
                     if choice == 2 || self.save(i) {

@@ -569,6 +569,25 @@ impl App {
                 });
             }
             GitLineHistory => self.open_line_history(),
+            GitFileHistory => self.open_file_history(),
+            GitSearchHistory => self.open_prompt(Prompt::HistorySearch(git::SearchKind::Message)),
+            GitReflog => self.open_reflog(),
+            GitPullRebase => self.git_job("pull --rebase", &["pull", "--rebase", "--autostash"]),
+            GitForcePush => self.force_push(),
+            GitPushTags => match self.default_remote() {
+                Some(r) => self.git_job("push --tags", &["push", &r, "--tags"]),
+                None => self.set_error(t!("Aucun remote où pousser", "No remote to push to")),
+            },
+            GitMerge => self.pick_branch(BranchPick::Merge, None),
+            GitRebaseOnto => self.pick_branch(BranchPick::Rebase, None),
+            GitRenameBranch => self.pick_branch(BranchPick::Rename, None),
+            GitDeleteBranch => self.pick_branch(BranchPick::Delete, None),
+            GitAmend => {
+                self.open_git_view();
+                self.start_amend();
+            }
+            GitClean => self.ask_clean(),
+            GitCommitRules => self.open_commit_rules(),
             ToggleInlineDiff => {
                 self.settings.inline_diff = !self.settings.inline_diff;
                 self.persist("inline_diff", self.settings.inline_diff.to_string());
@@ -657,11 +676,7 @@ impl App {
                 self.show_wip(false);
                 self.ai_review_wip();
             }
-            GitCheckout => {
-                if let Some(repo) = self.repo.clone() {
-                    self.jobs.spawn(move || JobResult::GitBranches(git::branches(&repo)));
-                }
-            }
+            GitCheckout => self.pick_branch(BranchPick::Checkout, None),
             GitNewBranch => self.open_prompt(Prompt::NewBranch),
             GitDiffFile => {
                 let path = self.docs.get(self.active).and_then(|d| d.path.clone());

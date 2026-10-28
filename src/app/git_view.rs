@@ -82,27 +82,86 @@ impl App {
             self.set_status(t!("Le fichier n'est pas enregistré", "The file is not saved"));
             return;
         };
-        let line = d.rope.char_to_line(d.primary_sel().head);
+        // the selected lines, or the cursor line
+        let sel = d.primary_sel();
+        let (a, b) = (d.rope.char_to_line(sel.start()), d.rope.char_to_line(sel.end()));
+        // a selection ending at the start of a line does not take that line
+        let b = if b > a && d.rope.line_to_char(b) == sel.end() { b - 1 } else { b };
         let name = d.title();
-        let Some(head_line) = d.head_line(line) else {
+        let Some(repo) = self.repo_for(&path) else {
+            self.set_status(t!("Ce fichier n'est pas dans un dépôt git", "This file is not in a git repository"));
+            return;
+        };
+        // the lines as they are in HEAD (the buffer may have changed since)
+        let lines: Vec<usize> = (a..=b).filter_map(|l| d.head_line(l)).collect();
+        let (Some(&first), Some(&last)) = (lines.iter().min(), lines.iter().max()) else {
             self.set_status(t!("Ligne ajoutée depuis le dernier commit : pas encore d'historique", "Line added since the last commit: no history yet"));
             return;
         };
-        self.line_history = Some(LineHistoryUi {
-            title: tf!("Historique de la ligne {} — {name}", "History of line {} — {name}", line + 1),
-            loading: true,
-            error: None,
-            commits: Vec::new(),
-            diffs: Vec::new(),
-            selected: 0,
+        let title = if a == b { tf!("Historique de la ligne {} — {name}", "History of line {} — {name}", a + 1) } else { tf!("Historique des lignes {}–{} — {name}", "History of lines {}–{} — {name}", a + 1, b + 1) };
+        self.open_history_window(title, repo, false);
+        self.jobs.spawn(move || JobResult::LineHistory(git::line_history(&path, first + 1, last + 1)));
+    }
+
+    fn open_history_window(&mut self, title: String, repo: PathBuf, reflog: bool) {
+        self.line_history = Some(LineHistoryUi { title, repo, loading: true, error: None, commits: Vec::new(), diffs: Vec::new(), selected: 0, reflog });
+    }
+
+    /// Every commit of the current file, through its renames.
+    pub(super) fn open_file_history(&mut self) {
+        let Some(path) = self.docs.get(self.active).and_then(|d| d.path.clone()) else {
+            self.set_status(t!("Le fichier n'est pas enregistré", "The file is not saved"));
+            return;
+        };
+        let Some(repo) = self.repo_for(&path) else {
+            self.set_status(t!("Ce fichier n'est pas dans un dépôt git", "This file is not in a git repository"));
+            return;
+        };
+        let rel = path.strip_prefix(&repo).map(|r| r.to_string_lossy().replace('\\', "/")).unwrap_or_default();
+        self.file_history(repo, rel);
+    }
+
+    /// Every commit of `rel` (path in `repo`), through its renames.
+    pub(super) fn file_history(&mut self, repo: PathBuf, rel: String) {
+        self.history_search(repo, git::SearchKind::File, rel);
+    }
+
+    /// The commits of the history matching `query`, in the history window.
+    pub(super) fn history_search(&mut self, repo: PathBuf, kind: git::SearchKind, query: String) {
+        let title = match kind {
+            git::SearchKind::File => tf!("Historique du fichier — {query}", "History of the file — {query}"),
+            _ => format!("{} : « {query} »", kind.label()),
+        };
+        self.open_history_window(title, repo.clone(), false);
+        self.jobs.spawn(move || JobResult::LineHistory(git::search(&repo, kind, &query, 300)));
+    }
+
+    /// Where HEAD has been (commits, checkouts, resets…): a lost commit can be brought back.
+    pub(super) fn open_reflog(&mut self) {
+        let Some(repo) = self.repo.clone() else {
+            self.set_status(t!("Pas de dépôt git", "No git repository"));
+            return;
+        };
+        self.open_history_window(t!("Reflog : où HEAD est passée", "Reflog: where HEAD has been").into(), repo.clone(), true);
+        self.jobs.spawn(move || JobResult::LineHistory(git::reflog(&repo, 500)));
+    }
+
+    /// The diff of the commit chosen in the history window, when not read yet.
+    pub(super) fn line_history_load_diff(&mut self) {
+        let Some(lh) = self.line_history.as_ref() else { return };
+        let (Some(c), Some(None)) = (lh.commits.get(lh.selected), lh.diffs.get(lh.selected)) else { return };
+        let (repo, hash) = (lh.repo.clone(), c.hash.clone());
+        self.jobs.spawn(move || {
+            let r = git::run(&repo, &["show", "--format=", "--patch", "-m", "--first-parent", &hash]).map(|t| t.chars().take(400_000).collect());
+            JobResult::LineHistoryDiff(hash, r)
         });
-        self.jobs.spawn(move || JobResult::LineHistory(git::line_history(&path, head_line + 1)));
     }
 
     pub(super) fn line_history_ui(&mut self, ctx: &egui::Context) {
         let Some(lh) = self.line_history.as_mut() else { return };
         let mut open = true;
-        let (mut show_graph, mut copy) = (None, None);
+        let (mut show_graph, mut copy, mut chose) = (None, None, false);
+        let mut act: Option<HistAct> = None;
         egui::Window::new(lh.title.clone())
             .id(egui::Id::new("line_history"))
             .open(&mut open)
@@ -114,7 +173,7 @@ impl App {
                 if lh.loading {
                     ui.horizontal(|ui| {
                         spinner(ui);
-                        ui.label(t!("Recherche des commits qui ont modifié cette ligne…", "Looking for the commits that changed this line…"));
+                        ui.label(t!("Recherche des commits…", "Looking for the commits…"));
                     });
                     return;
                 }
@@ -123,7 +182,7 @@ impl App {
                     return;
                 }
                 if lh.commits.is_empty() {
-                    ui.label(RichText::new(t!("Aucun commit trouvé pour cette ligne.", "No commit found for this line.")).weak());
+                    ui.label(RichText::new(t!("Aucun commit trouvé.", "No commit found.")).weak());
                     return;
                 }
                 ui.set_min_size(ui.available_size());
@@ -132,7 +191,8 @@ impl App {
                     // commit list
                     ui.vertical(|ui| {
                         ui.set_width(320.0);
-                        ui.label(RichText::new(tf!("{} COMMIT(S) ONT MODIFIÉ CETTE LIGNE", "{} COMMIT(S) CHANGED THIS LINE", lh.commits.len())).small().strong());
+                        let head = if lh.reflog { tf!("{} ENTRÉE(S), LA PLUS RÉCENTE EN HAUT", "{} ENTRIES, THE NEWEST AT THE TOP", lh.commits.len()) } else { tf!("{} COMMIT(S)", "{} COMMIT(S)", lh.commits.len()) };
+                        ui.label(RichText::new(head).small().strong());
                         egui::ScrollArea::vertical().id_salt("lh_list").max_height(height - 24.0).auto_shrink([false, false]).show(ui, |ui| {
                             for (i, c) in lh.commits.iter().enumerate() {
                                 let (rect, r) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 44.0), Sense::click());
@@ -151,8 +211,9 @@ impl App {
                                     egui::FontId::proportional(12.0),
                                     v.weak_text_color(),
                                 );
-                                if r.clicked() {
+                                if r.clicked() && lh.selected != i {
                                     lh.selected = i;
+                                    chose = true;
                                 }
                             }
                         });
@@ -162,9 +223,24 @@ impl App {
                     ui.vertical(|ui| {
                         let c = &lh.commits[lh.selected];
                         ui.horizontal(|ui| {
-                            ui.label(RichText::new(&c.subject).strong());
+                            ui.add(egui::Label::new(RichText::new(&c.subject).strong()).truncate());
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                if ui.button(t!("Voir dans le graphe", "Show in the graph")).clicked() {
+                                if lh.reflog {
+                                    ui.menu_button(t!("Récupérer ▾", "Bring back ▾"), |ui| {
+                                        let items = [
+                                            (t!("Créer une branche ici…", "Create a branch here…"), HistAct::BranchAt(c.hash.clone())),
+                                            (t!("Checkout de ce commit (HEAD détachée)", "Checkout of this commit (detached HEAD)"), HistAct::Checkout(c.hash.clone())),
+                                            (t!("Cherry-pick sur la branche courante", "Cherry-pick on the current branch"), HistAct::CherryPick(c.hash.clone())),
+                                            (t!("Ramener la branche courante ici (reset --hard)…", "Move the current branch here (reset --hard)…"), HistAct::Reset(c.hash.clone(), "--hard")),
+                                        ];
+                                        for (label, a) in items {
+                                            if ui.button(label).clicked() {
+                                                act = Some(a);
+                                                ui.close_menu();
+                                            }
+                                        }
+                                    });
+                                } else if ui.button(t!("Voir dans le graphe", "Show in the graph")).clicked() {
                                     show_graph = Some(c.hash.clone());
                                 }
                                 if ui.button(t!("Copier le hash", "Copy the hash")).clicked() {
@@ -174,22 +250,40 @@ impl App {
                         });
                         ui.label(RichText::new(format!("{} · {} · {}", c.author, c.date, &c.hash[..c.hash.len().min(10)])).weak());
                         ui.separator();
-                        let _ = history::diff_view(ui, &lh.diffs[lh.selected], "line_history_diff", &[]);
+                        match &lh.diffs[lh.selected] {
+                            Some(d) => {
+                                let _ = history::diff_view(ui, d, "line_history_diff", &[]);
+                            }
+                            None => {
+                                spinner(ui);
+                            }
+                        }
                     });
                 });
             });
         if !open {
             self.line_history = None;
         }
+        if chose {
+            self.line_history_load_diff();
+        }
         if let Some(h) = copy {
             ctx.output_mut(|o| o.copied_text = h);
             self.set_status(t!("Hash copié", "Hash copied"));
         }
-        if let Some(h) = show_graph {
-            self.line_history = None;
-            if let Some(r) = self.docs.get(self.active).and_then(|d| d.path.clone()).and_then(|p| self.repo_for(&p)) {
-                self.select_repo(r);
+        if let Some(a) = act {
+            let Some(repo) = self.line_history.as_ref().map(|l| l.repo.clone()) else { return };
+            self.select_repo(repo.clone());
+            match a {
+                HistAct::BranchAt(hash) => self.open_overlay_with(Mode::Prompt(Prompt::BranchAt(hash)), Vec::new(), String::new()),
+                HistAct::Checkout(hash) => self.git_job_at(repo, "checkout", &["checkout", &hash]),
+                HistAct::CherryPick(hash) => self.git_job_at(repo, "cherry-pick", &["-c", "core.editor=true", "cherry-pick", &hash]),
+                a => self.hist_git_act(a, repo),
             }
+        }
+        if let Some(h) = show_graph {
+            let Some(r) = self.line_history.take().map(|l| l.repo) else { return };
+            self.select_repo(r);
             self.show_tab(document::View::Git);
             self.history.all = true;
             // the filter could hide it
@@ -416,6 +510,9 @@ impl App {
         let accent = self.hl.colors.accent;
         // working tree status (same repository as the graph)
         let wip = self.git.status.clone().filter(|_| self.repo == self.history.repo);
+        let current = wip.as_ref().map(|s| s.branch.clone()).unwrap_or_default();
+        let bisecting = wip.as_ref().is_some_and(|s| s.bisecting);
+        let mut bisect_cmd: Option<&'static str> = None;
         let (n_staged, n_changed) = wip.as_ref().map_or((0, 0), |st| {
             (st.entries.iter().filter(|e| e.staged()).count(), st.entries.iter().filter(|e| e.unstaged() && e.x != '?').count())
         });
@@ -432,6 +529,10 @@ impl App {
         let (mut do_commit, mut suggest_msg, suggesting) = (false, false, self.git.suggesting);
         let (mut ask_plan, planning) = (false, self.git.planning);
         let commit_msg = &mut self.git.commit_msg;
+        let amend = &mut self.git.amend;
+        let mut start_amend = false;
+        // the last commit is already on the remote: amending it will need a forced push
+        let pushed = wip.as_ref().and_then(|s| s.upstream()).is_some_and(|(_, ahead, _)| ahead == 0);
         let focus_commit = std::mem::take(&mut self.git.focus_commit);
         // AI review of the changes not committed: asked, kept remarks given to Claude, a remark's action
         let (mut ai_start, mut ai_fix, mut ai_act) = (false, false, None);
@@ -439,7 +540,7 @@ impl App {
         let cache = &mut self.md_cache;
         let h = &mut self.history;
         // messages and operations in progress, above the list (nothing when there are none)
-        let banner = h.notice.is_some() || split_hidden.is_some() || op_banner.is_some() || h.graph.as_ref().is_some_and(|g| g.rebasing);
+        let banner = h.notice.is_some() || split_hidden.is_some() || op_banner.is_some() || bisecting || h.graph.as_ref().is_some_and(|g| g.rebasing);
         egui::TopBottomPanel::top("history_top").show_animated_inside(ui, banner, |ui| {
             if let Some((n, color)) = &h.notice {
                 ui.horizontal(|ui| {
@@ -447,6 +548,21 @@ impl App {
                     ui.label(RichText::new(format!("{icon} {n}")).color(*color).strong());
                     if ui.small_button("×").clicked() {
                         clear_notice = true;
+                    }
+                });
+            }
+            if bisecting {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(RichText::new(t!("🔎 Bisect en cours : teste le commit actuel, puis dis s'il est bon ou mauvais", "🔎 Bisect in progress: test the current commit, then say whether it is good or bad")).color(warn()).strong());
+                    for (label, verb, tip) in [
+                        (t!("✔ Bon", "✔ Good"), "good", t!("Le bug n'est pas là : il est apparu après", "The bug is not there: it came later")),
+                        (t!("× Mauvais", "× Bad"), "bad", t!("Le bug est là : il est apparu avant ou ici", "The bug is there: it came before or here")),
+                        (t!("Passer", "Skip"), "skip", t!("Impossible à tester : en essayer un autre", "Cannot be tested: try another one")),
+                        (t!("Terminer", "Finish"), "reset", t!("Arrêter le bisect et revenir sur la branche", "Stop the bisect and go back to the branch")),
+                    ] {
+                        if ui.button(label).on_hover_text(tip).clicked() {
+                            bisect_cmd = Some(verb);
+                        }
                     }
                 });
             }
@@ -512,8 +628,10 @@ impl App {
 
         // ------------------------------------------------ commit list, with the working tree on top
         let mut list = |ui: &mut egui::Ui| {
-            if n_staged + n_changed > 0 || !commit_msg.is_empty() || focus_commit {
-                (do_commit, suggest_msg, ask_plan) = commit_box(ui, commit_msg, focus_commit, n_staged, n_changed, suggesting, planning, accent);
+            if n_staged + n_changed > 0 || !commit_msg.is_empty() || focus_commit || *amend {
+                let was = *amend;
+                (do_commit, suggest_msg, ask_plan) = commit_box(ui, commit_msg, amend, pushed, focus_commit, n_staged, n_changed, suggesting, planning, accent);
+                start_amend = *amend && !was;
             }
             if let Some(st) = &wip {
                 let staged: Vec<&git::Entry> = st.entries.iter().filter(|e| e.staged()).collect();
@@ -621,7 +739,7 @@ impl App {
                     }
                     let sel = h.selected.filter(|&s| s != i).map(|s| g.commits[s].hash.as_str());
                     r.context_menu(|ui| {
-                        commit_menu(ui, c, &g.local, sel, &mut menu_act);
+                        commit_menu(ui, c, &MenuCtx { local: &g.local, current: &current, bisecting }, sel, &mut menu_act);
                     });
                 }
             });
@@ -670,10 +788,10 @@ impl App {
                         RichText::new(t!(
                             "Du plus ancien (en haut) au plus récent. Change l'ordre avec ↑ ↓ et choisis quoi faire de chaque commit. \
                              « Découper » s'arrête sur le commit et ouvre l'assistant de découpage. \
-                             Les commits sont réécrits : si la branche est déjà poussée, il faudra un push --force.",
+                             Les commits sont réécrits : si la branche est déjà poussée, il faudra ensuite « ⬆ Push --force-with-lease » (menu ↕ Synchroniser).",
                             "From the oldest (at the top) to the newest. Change the order with ↑ ↓ and choose what to do with each commit. \
                              “Split” stops on the commit and opens the splitting assistant. \
-                             The commits are rewritten: if the branch is already pushed, a push --force will be needed."
+                             The commits are rewritten: if the branch is already pushed, “⬆ Push --force-with-lease” (↕ Sync menu) will be needed afterwards."
                         ))
                         .weak()
                         .small(),
@@ -817,7 +935,8 @@ impl App {
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                     ui.add_space(52.0); // the × closing the detail, the button taking all the room
                                     ui.menu_button("Actions ▾", |ui| {
-                                        commit_menu(ui, c, h.graph.as_ref().map_or(&[][..], |g| &g.local[..]), None, &mut menu_act);
+                                        let local = h.graph.as_ref().map_or(&[][..], |g| &g.local[..]);
+                                        commit_menu(ui, c, &MenuCtx { local, current: &current, bisecting }, None, &mut menu_act);
                                     });
                                     if ui.button(t!("Diff dans un onglet", "Diff in a tab")).on_hover_text(t!("Tout le diff du commit dans un onglet de l'éditeur (double-clic sur le commit)", "The whole diff of the commit in an editor tab (double-click on the commit)")).clicked() {
                                         diff_to_tab = true;
@@ -967,8 +1086,14 @@ impl App {
         if close_detail {
             self.close_history_detail();
         }
+        if start_amend {
+            self.start_amend();
+        }
         if do_commit {
             self.commit(n_staged);
+        }
+        if let (Some(verb), Some(repo)) = (bisect_cmd, self.history.repo.clone()) {
+            self.git_job_at(repo, "bisect", &["bisect", verb]);
         }
         if suggest_msg {
             self.suggest_commit_message();
@@ -1045,6 +1170,7 @@ impl App {
                     }
                     Err(e) => self.history.notice = Some((e, err())),
                 },
+                (a, Some(repo)) => self.hist_git_act(a, repo),
                 _ => {}
             }
         }
@@ -1134,13 +1260,18 @@ pub(super) fn worktree_diff(repo: &Path, args: &[&str]) -> Result<String, String
 
 /// Message and button of the next commit, ✨ to have it written by Claude, ✂ to have Claude split
 /// the changes into several commits; returns (commit now, ask the message, ask the split).
-fn commit_box(ui: &mut egui::Ui, msg: &mut String, focus: bool, n_staged: usize, n_changed: usize, suggesting: bool, planning: bool, accent: Color32) -> (bool, bool, bool) {
-    let (label, tip) = if n_staged > 0 {
+#[allow(clippy::too_many_arguments)]
+fn commit_box(ui: &mut egui::Ui, msg: &mut String, amend: &mut bool, pushed: bool, focus: bool, n_staged: usize, n_changed: usize, suggesting: bool, planning: bool, accent: Color32) -> (bool, bool, bool) {
+    let (label, tip) = if *amend && n_staged > 0 {
+        (tf!("✔ Modifier le dernier commit (+{n_staged} indexé(s))", "✔ Amend the last commit (+{n_staged} staged)"), t!("Le dernier commit est remplacé : ce message, et les fichiers indexés en plus", "The last commit is replaced: this message, and the staged files added"))
+    } else if *amend {
+        (t!("✔ Modifier le dernier commit", "✔ Amend the last commit").to_string(), t!("Rien d'indexé : seul le message du dernier commit change", "Nothing staged: only the message of the last commit changes"))
+    } else if n_staged > 0 {
         (tf!("✔ Commit ({n_staged} indexé(s))", "✔ Commit ({n_staged} staged)"), t!("Valide les fichiers indexés", "Commits the staged files"))
     } else {
         (tf!("✔ Commit tout ({n_changed})", "✔ Commit all ({n_changed})"), t!("Rien d'indexé : valide toutes les modifications des fichiers suivis", "Nothing staged: commits all the changes of the tracked files"))
     };
-    let can = !msg.trim().is_empty() && (n_staged > 0 || n_changed > 0);
+    let can = !msg.trim().is_empty() && (*amend || n_staged > 0 || n_changed > 0);
     let (mut go, mut suggest, mut plan) = (false, false, false);
     egui::Frame::none().inner_margin(egui::Margin { left: 4.0, right: 4.0, top: 4.0, bottom: 6.0 }).show(ui, |ui| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
@@ -1161,6 +1292,13 @@ fn commit_box(ui: &mut egui::Ui, msg: &mut String, focus: bool, n_staged: usize,
             }
             let ctrl_enter = resp.has_focus() && ui.input(|i| i.modifiers.command && i.key_pressed(Key::Enter));
             go = can && (clicked || ctrl_enter);
+        });
+        ui.horizontal(|ui| {
+            ui.checkbox(amend, t!("Modifier le dernier commit", "Amend the last commit"))
+                .on_hover_text(t!("git commit --amend : remplace le dernier commit (message, et fichiers indexés en plus) au lieu d'en créer un", "git commit --amend: replaces the last commit (message, and staged files added) instead of making a new one"));
+            if *amend && pushed {
+                ui.label(RichText::new(t!("⚠ déjà poussé : il faudra ensuite un push --force-with-lease", "⚠ already pushed: a push --force-with-lease will be needed afterwards")).small().color(warn()));
+            }
         });
     });
     (go, suggest, plan)

@@ -135,6 +135,9 @@ impl App {
             item(ui, t!("Diff dans l'éditeur (vert / rouge)", "Diff in the editor (green / red)"), Cmd::ToggleInlineDiff);
             item(ui, t!("Blame de la ligne", "Line blame"), Cmd::GitBlame);
             item(ui, t!("Historique de la ligne", "Line history"), Cmd::GitLineHistory);
+            item(ui, t!("Historique du fichier", "File history"), Cmd::GitFileHistory);
+            item(ui, t!("Rechercher dans l'historique…", "Search the history…"), Cmd::GitSearchHistory);
+            item(ui, t!("Reflog (retrouver un commit perdu)", "Reflog (find a lost commit)"), Cmd::GitReflog);
         });
         ui.menu_button(t!("Outils", "Tools"), |ui| {
             item(ui, t!("Linter le fichier", "Lint the file"), Cmd::Lint);
@@ -961,6 +964,9 @@ impl App {
         let (mut stash_act, mut stash_open) = (None, false);
         // --- branch, its upstream and the remote actions
         let mut cmds = Vec::new();
+        let mut bar_act: Option<GitBarAct> = None;
+        let remotes = self.git.remotes.clone();
+        let repo_dir = self.history.repo.clone();
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
             // the repository first and large (easy to mistake in a project with several)
@@ -979,6 +985,20 @@ impl App {
                     if ui.button(t!("+ Nouvelle branche…", "+ New branch…")).clicked() {
                         cmds.push(Cmd::GitNewBranch);
                         ui.close_menu();
+                    }
+                    ui.separator();
+                    let b = &st.branch;
+                    for (label, cmd) in [
+                        (tf!("Fusionner une branche dans « {b} »…", "Merge a branch into “{b}”…"), Cmd::GitMerge),
+                        (tf!("Rebaser « {b} » sur une branche…", "Rebase “{b}” onto a branch…"), Cmd::GitRebaseOnto),
+                        (t!("Renommer une branche…", "Rename a branch…").to_string(), Cmd::GitRenameBranch),
+                        (t!("Supprimer une branche…", "Delete a branch…").to_string(), Cmd::GitDeleteBranch),
+                        (t!("Modifier le dernier commit…", "Amend the last commit…").to_string(), Cmd::GitAmend),
+                    ] {
+                        if ui.button(label).clicked() {
+                            cmds.push(cmd);
+                            ui.close_menu();
+                        }
                     }
                 })
                 .response
@@ -1018,8 +1038,11 @@ impl App {
             ui.add_space(8.0);
             ui.menu_button(t!("↕ Synchroniser ▾", "↕ Sync ▾"), |ui| {
                 for (label, cmd, tip) in [
-                    ("⬇ Pull", Cmd::GitPull, t!("Récupérer et intégrer les commits distants", "Fetch and merge the remote commits")),
+                    ("⬇ Pull", Cmd::GitPull, t!("Récupérer et intégrer les commits distants (merge s'il le faut)", "Fetch and merge the remote commits (merge when needed)")),
+                    ("⬇ Pull --rebase", Cmd::GitPullRebase, t!("Récupérer les commits distants et rejouer les tiens par-dessus : pas de commit de merge (tes changements non commités sont mis de côté le temps du pull)", "Fetch the remote commits and replay yours on top: no merge commit (your uncommitted changes are put aside during the pull)")),
                     ("⬆ Push", Cmd::GitPush, t!("Envoyer tes commits", "Send your commits")),
+                    ("⬆ Push --force-with-lease…", Cmd::GitForcePush, t!("Après un rebase ou un amend : remplacer la branche distante (refusé si quelqu'un y a poussé entre-temps)", "After a rebase or an amend: replace the remote branch (refused if someone pushed to it meanwhile)")),
+                    (t!("⬆ Pousser les tags", "⬆ Push the tags"), Cmd::GitPushTags, t!("git push --tags", "git push --tags")),
                     ("Fetch", Cmd::GitFetch, t!("Récupérer sans intégrer", "Fetch without merging")),
                 ] {
                     if ui.button(label).on_hover_text(tip).clicked() {
@@ -1046,6 +1069,68 @@ impl App {
                     .on_hover_text(t!("Mettre des changements de côté (git stash) et les reprendre plus tard", "Put changes aside (git stash) and take them back later"));
                     if ui.button(t!("Pull requests GitHub", "GitHub pull requests")).on_hover_text(t!("Commentaires, suggestions, commits", "Comments, suggestions, commits")).clicked() {
                         cmds.push(Cmd::PullRequests);
+                        ui.close_menu();
+                    }
+                    ui.menu_button(t!("🔍 Rechercher dans l'historique", "🔍 Search the history"), |ui| {
+                        for k in git::SearchKind::ALL {
+                            if ui.button(format!("{}…", k.label())).clicked() {
+                                bar_act = Some(GitBarAct::Search(k));
+                                ui.close_menu();
+                            }
+                        }
+                    });
+                    if ui.button(t!("Reflog : retrouver un commit perdu…", "Reflog: find a lost commit…")).on_hover_text(t!("Où HEAD est passée : commits, checkouts, resets, rebases. Un commit perdu (reset, rebase, branche supprimée) y est encore.", "Where HEAD has been: commits, checkouts, resets, rebases. A lost commit (reset, rebase, deleted branch) is still there.")).clicked() {
+                        cmds.push(Cmd::GitReflog);
+                        ui.close_menu();
+                    }
+                    ui.menu_button(tf!("Remotes ({})", "Remotes ({})", remotes.len()), |ui| {
+                        for (name, url) in &remotes {
+                            ui.horizontal(|ui| {
+                                if ui.small_button("×").on_hover_text(t!("Retirer ce remote (rien n'est supprimé sur le serveur)", "Remove this remote (nothing is deleted on the server)")).clicked() {
+                                    bar_act = Some(GitBarAct::RemoveRemote(name.clone()));
+                                    ui.close_menu();
+                                }
+                                ui.label(RichText::new(name).strong());
+                                ui.label(RichText::new(url).weak().small());
+                            });
+                        }
+                        if ui.button(t!("+ Ajouter un remote…", "+ Add a remote…")).clicked() {
+                            bar_act = Some(GitBarAct::AddRemote);
+                            ui.close_menu();
+                        }
+                    });
+                    ui.menu_button(t!("Sous-modules", "Submodules"), |ui| {
+                        // read when the menu is open only
+                        let submodules = repo_dir.as_deref().map(git::submodules).unwrap_or_default();
+                        for p in &submodules {
+                            ui.label(RichText::new(format!("📁 {p}")).small());
+                        }
+                        if !submodules.is_empty() {
+                            ui.separator();
+                            if ui.button(t!("Initialiser et mettre à jour (update --init --recursive)", "Init and update (update --init --recursive)")).clicked() {
+                                bar_act = Some(GitBarAct::Submodules(vec!["submodule".into(), "update".into(), "--init".into(), "--recursive".into()]));
+                                ui.close_menu();
+                            }
+                            if ui.button(t!("Suivre leur branche distante (update --remote)", "Follow their remote branch (update --remote)")).clicked() {
+                                bar_act = Some(GitBarAct::Submodules(vec!["submodule".into(), "update".into(), "--remote".into(), "--recursive".into()]));
+                                ui.close_menu();
+                            }
+                            if ui.button(t!("Reprendre les URL de .gitmodules (sync)", "Take the URLs of .gitmodules again (sync)")).clicked() {
+                                bar_act = Some(GitBarAct::Submodules(vec!["submodule".into(), "sync".into(), "--recursive".into()]));
+                                ui.close_menu();
+                            }
+                        }
+                        if ui.button(t!("+ Ajouter un sous-module…", "+ Add a submodule…")).clicked() {
+                            bar_act = Some(GitBarAct::AddSubmodule);
+                            ui.close_menu();
+                        }
+                    });
+                    if ui.button(t!("Supprimer les fichiers non suivis…", "Delete the untracked files…")).on_hover_text(t!("git clean : la liste est montrée avant", "git clean: the list is shown first")).clicked() {
+                        cmds.push(Cmd::GitClean);
+                        ui.close_menu();
+                    }
+                    if ui.button(t!("✨ Consignes des messages de commit (Claude)…", "✨ Commit message rules (Claude)…")).on_hover_text(t!("Ce que Claude doit suivre en écrivant les messages de ce projet (langue, préfixes…) : .florm/commit.md", "What Claude must follow when writing the messages of this project (language, prefixes…): .florm/commit.md")).clicked() {
+                        cmds.push(Cmd::GitCommitRules);
                         ui.close_menu();
                     }
                     ui.separator();
@@ -1084,6 +1169,7 @@ impl App {
             Some(false) => self.show_bottom(BottomTab::Git, false),
             None => {}
         }
+        let mut cmds_after = Vec::new();
         // --- errors stay until dismissed (or until a later git command succeeds)
         if let Some((label, e)) = self.git.op_error.clone().or_else(|| self.git.error.clone().map(|e| ("status".into(), e))) {
             egui::Frame::none()
@@ -1098,6 +1184,11 @@ impl App {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui.small_button("×").on_hover_text(t!("Masquer", "Hide")).clicked() {
                                 dismiss_error = true;
+                            }
+                            // a push refused because the branch was rewritten (rebase, amend)
+                            let refused = label.starts_with("push") && !label.contains("force") && ["non-fast-forward", "[rejected]", "fetch first"].iter().any(|k| e.contains(k));
+                            if refused && ui.small_button(t!("⬆ Forcer (--force-with-lease)…", "⬆ Force (--force-with-lease)…")).on_hover_text(t!("Si tu as réécrit la branche (rebase, amend) : remplacer la branche distante. Sinon, fais plutôt un pull.", "If you rewrote the branch (rebase, amend): replace the remote branch. Otherwise, pull instead.")).clicked() {
+                                cmds_after.push(Cmd::GitForcePush);
                             }
                             if ui.small_button(t!("Copier", "Copy")).clicked() {
                                 ui.ctx().output_mut(|o| o.copied_text = e.clone());
@@ -1114,6 +1205,26 @@ impl App {
         if dismiss_error {
             self.git.op_error = None;
             self.git.error = None;
+        }
+        self.pending.extend(cmds_after);
+        match bar_act {
+            Some(GitBarAct::Search(k)) => self.open_prompt(Prompt::HistorySearch(k)),
+            Some(GitBarAct::AddRemote) => self.open_prompt(Prompt::AddRemote),
+            Some(GitBarAct::AddSubmodule) => self.open_prompt(Prompt::AddSubmodule),
+            Some(GitBarAct::RemoveRemote(name)) => self.confirm_git(
+                t!("Retirer le remote", "Remove the remote"),
+                tf!("Retirer le remote « {name} » de ce dépôt ?\nSes branches distantes disparaissent du graphe ; rien n'est supprimé sur le serveur.", "Remove the remote “{name}” from this repository?\nIts remote branches leave the graph; nothing is deleted on the server."),
+                t!("Retirer", "Remove"),
+                "remote remove",
+                vec![vec!["remote".into(), "remove".into(), name]],
+                None,
+            ),
+            Some(GitBarAct::Submodules(args)) => {
+                if let Some(repo) = self.repo.clone() {
+                    self.git_seq_at(repo, "submodule", vec![args]);
+                }
+            }
+            None => {}
         }
         if let Some(r) = chosen_repo {
             self.select_repo(r.clone());
@@ -1500,6 +1611,7 @@ impl App {
             ui.separator();
             item(ui, if blame_on { t!("Masquer le blame", "Hide the blame") } else { t!("Blame de la ligne", "Line blame") }, Cmd::GitBlame, true);
             item(ui, t!("Historique de la ligne", "Line history"), Cmd::GitLineHistory, true);
+            item(ui, t!("Historique du fichier", "File history"), Cmd::GitFileHistory, true);
             if has_change {
                 item(ui, t!("Voir le changement", "Show the change"), Cmd::ShowChange, true);
                 item(ui, t!("Revenir en arrière sur ce changement", "Revert this change"), Cmd::GitRevertChange, !ro);
@@ -1787,4 +1899,14 @@ fn stash_menu(ui: &mut egui::Ui, g: &mut GitUi, changes: bool, act: &mut Option<
             ui.add_space(4.0);
         }
     });
+}
+
+/// What the ⋯ menu of the git view asked for, beyond a command.
+enum GitBarAct {
+    Search(git::SearchKind),
+    AddRemote,
+    RemoveRemote(String),
+    AddSubmodule,
+    /// `git submodule …` with these arguments.
+    Submodules(Vec<String>),
 }

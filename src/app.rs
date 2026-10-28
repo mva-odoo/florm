@@ -239,11 +239,23 @@ enum Prompt {
     RenameProject(PathBuf),
     BranchAt(String),
     NewBranch,
+    /// New name of a local branch; its upstream ("origin/x") is renamed too.
+    RenameBranch { old: String, upstream: String },
+    /// Tag on a commit.
+    TagAt(String),
+    /// "name url" of a new remote.
+    AddRemote,
+    /// "url [folder]" of a new submodule.
+    AddSubmodule,
+    /// What to look for in the history.
+    HistorySearch(git::SearchKind),
     /// New name of the symbol under the cursor (LSP rename).
     RenameSymbol,
     /// Trigger of a new template, with its body (the selection) and the extension of the file.
     NewTemplate { body: String, ext: String },
 }
+
+use git::BranchPick;
 
 #[derive(Clone)]
 enum Mode {
@@ -252,7 +264,7 @@ enum Mode {
     GotoLine,
     Syntax,
     Themes,
-    Branches,
+    Branches(BranchPick),
     Projects,
     Symbols,
     /// Templates to insert at the cursor.
@@ -274,7 +286,7 @@ enum Action {
     OpenIndexed(usize),
     Syntax(String),
     Theme(String),
-    Branch(String),
+    Branch(git::Branch, BranchPick),
     Project(PathBuf),
     /// Go to a line of the current file (symbol list).
     Line(usize),
@@ -398,6 +410,9 @@ enum Confirm {
     DropStash(String, String),
     /// Saving a document whose file was changed by another program meanwhile.
     Overwrite(u64),
+    /// git commands that lose something or rewrite what was pushed: run one after the other
+    /// when confirmed; `alt`: a second choice (its button and its commands).
+    Git { title: String, msg: String, yes: String, label: String, cmds: Vec<Vec<String>>, alt: Option<(String, Vec<Vec<String>>)> },
 }
 
 /// Change to the files or the index requested from a diff.
@@ -659,13 +674,19 @@ impl SplitUi {
     }
 }
 
+/// A list of commits with the diff of the chosen one: history of a line or of a file, search in
+/// the history, reflog.
 struct LineHistoryUi {
     title: String,
+    repo: PathBuf,
     loading: bool,
     error: Option<String>,
     commits: Vec<git::LineCommit>,
-    diffs: Vec<Vec<history::DiffLine>>,
+    /// Parsed diffs; None: read when the commit is chosen (`git show`).
+    diffs: Vec<Option<Vec<history::DiffLine>>>,
     selected: usize,
+    /// The reflog: its entries can bring a lost commit back.
+    reflog: bool,
 }
 
 struct HistoryDiff {
@@ -688,6 +709,8 @@ struct GitUi {
     plan: Option<commit_plan::CommitPlan>,
     error: Option<String>,
     commit_msg: String,
+    /// The commit replaces the last one (`--amend`).
+    amend: bool,
     busy: usize,
     /// Last failed git command (label, message): shown until dismissed or a later command succeeds.
     op_error: Option<(String, String)>,
@@ -701,6 +724,8 @@ struct GitUi {
     stash_tracked_only: bool,
     /// The stash menu was open at the last frame (the stashes are read when it opens).
     stash_shown: bool,
+    /// Remotes of the selected repository (name, URL), read with its status.
+    remotes: Vec<(String, String)>,
     /// absolute path -> status letter (directories inherit from their files)
     map: HashMap<PathBuf, char>,
 }
@@ -1633,10 +1658,34 @@ enum HistAct {
     Rebase(String),
     /// Given to Claude with the next message.
     Claude(String),
+    /// `git merge` of a branch or commit into the current branch.
+    Merge(String),
+    /// The current branch moved to a commit: (hash, "--soft" / "--mixed" / "--hard").
+    Reset(String, &'static str),
+    RenameBranch(String),
+    /// Local branch (asks first).
+    DeleteBranch(String),
+    /// Branch of a remote, "origin/x" (asks first).
+    DeleteRemoteBranch(String),
+    TagAt(String),
+    PushTag(String),
+    /// Local tag, and on the remotes (asks first).
+    DeleteTag(String),
+    /// `git bisect good|bad <hash>` (starts the bisect when needed).
+    Bisect(String, &'static str),
+}
+
+/// What the commit menu needs to know of the repository.
+struct MenuCtx<'a> {
+    local: &'a [String],
+    /// The branch checked out ("HEAD (no branch)" when detached).
+    current: &'a str,
+    bisecting: bool,
 }
 
 /// Right-click menu of a commit in the graph.
-fn commit_menu(ui: &mut egui::Ui, c: &history::Commit, local: &[String], selected: Option<&str>, act: &mut Option<HistAct>) {
+fn commit_menu(ui: &mut egui::Ui, c: &history::Commit, m: &MenuCtx, selected: Option<&str>, act: &mut Option<HistAct>) {
+    let local = m.local;
     ui.set_min_width(260.0);
     fn item(ui: &mut egui::Ui, label: &str, a: HistAct, act: &mut Option<HistAct>) {
         if ui.button(label).clicked() {
@@ -1666,6 +1715,36 @@ fn commit_menu(ui: &mut egui::Ui, c: &history::Commit, local: &[String], selecte
     }
     item(ui, t!("Checkout de ce commit (HEAD détachée)", "Checkout of this commit (detached HEAD)"), HistAct::Checkout(c.hash.clone()), act);
     item(ui, t!("Créer une branche ici…", "Create a branch here…"), HistAct::BranchAt(c.hash.clone()), act);
+    item(ui, t!("Créer un tag ici…", "Create a tag here…"), HistAct::TagAt(c.hash.clone()), act);
+    // the branches and tags pointing here: merge, rename, delete
+    let cur = m.current;
+    for r in &c.refs {
+        let r = r.strip_prefix("HEAD -> ").unwrap_or(r);
+        if r == "HEAD" || r.ends_with("/HEAD") {
+            continue;
+        }
+        if let Some(tag) = r.strip_prefix("tag: ") {
+            ui.menu_button(format!("🏷 {tag}"), |ui| {
+                item(ui, t!("Pousser le tag", "Push the tag"), HistAct::PushTag(tag.to_string()), act);
+                item(ui, t!("Supprimer le tag…", "Delete the tag…"), HistAct::DeleteTag(tag.to_string()), act);
+            });
+        } else if local.iter().any(|l| l == r) {
+            ui.menu_button(format!("🔀 {r}"), |ui| {
+                if r != cur {
+                    item(ui, &tf!("Fusionner « {r} » dans « {cur} »", "Merge “{r}” into “{cur}”"), HistAct::Merge(r.to_string()), act);
+                }
+                item(ui, t!("Renommer…", "Rename…"), HistAct::RenameBranch(r.to_string()), act);
+                if r != cur {
+                    item(ui, t!("Supprimer…", "Delete…"), HistAct::DeleteBranch(r.to_string()), act);
+                }
+            });
+        } else {
+            ui.menu_button(format!("☁ {r}"), |ui| {
+                item(ui, &tf!("Fusionner « {r} » dans « {cur} »", "Merge “{r}” into “{cur}”"), HistAct::Merge(r.to_string()), act);
+                item(ui, t!("Supprimer la branche distante…", "Delete the remote branch…"), HistAct::DeleteRemoteBranch(r.to_string()), act);
+            });
+        }
+    }
     ui.separator();
     item(ui, t!("Voir le diff complet", "See the full diff"), HistAct::Diff(c.hash.clone()), act);
     item(ui, t!("✳ Donner ce commit à Claude (contexte)", "✳ Give this commit to Claude (context)"), HistAct::Claude(c.hash.clone()), act);
@@ -1686,6 +1765,22 @@ fn commit_menu(ui: &mut egui::Ui, c: &history::Commit, local: &[String], selecte
         item(ui, t!("Rebase interactif à partir d'ici…", "Interactive rebase from here…"), HistAct::Rebase(c.hash.clone()), act);
         item(ui, t!("✂ Découper ce commit en plusieurs…", "✂ Split this commit into several…"), HistAct::Split(c.hash.clone()), act);
     }
+    if !c.refs.iter().any(|r| r.starts_with("HEAD")) {
+        item(ui, &tf!("Fusionner ce commit dans « {cur} »", "Merge this commit into “{cur}”"), HistAct::Merge(c.hash.clone()), act);
+    }
+    ui.menu_button(tf!("Ramener « {cur} » ici (reset)", "Move “{cur}” here (reset)"), |ui| {
+        ui.label(RichText::new(t!("La branche pointera sur ce commit. Les commits d'après restent dans le reflog.", "The branch will point at this commit. The commits after it stay in the reflog.")).small().weak());
+        item(ui, t!("Soft : garder les changements, indexés", "Soft: keep the changes, staged"), HistAct::Reset(c.hash.clone(), "--soft"), act);
+        item(ui, t!("Mixed : garder les changements, non indexés", "Mixed: keep the changes, unstaged"), HistAct::Reset(c.hash.clone(), "--mixed"), act);
+        item(ui, t!("Hard : tout jeter (demande confirmation)…", "Hard: throw everything away (asks for confirmation)…"), HistAct::Reset(c.hash.clone(), "--hard"), act);
+    });
+    ui.menu_button(t!("Bisect : trouver le commit fautif", "Bisect: find the faulty commit"), |ui| {
+        if !m.bisecting {
+            ui.label(RichText::new(t!("Marque un commit mauvais et un bon : git propose ceux du milieu, tu dis s'ils sont bons, jusqu'au premier mauvais.", "Mark a bad commit and a good one: git checks out the ones in between, you say whether they are good, down to the first bad one.")).small().weak());
+        }
+        item(ui, t!("× Ce commit est mauvais (bad)", "× This commit is bad"), HistAct::Bisect(c.hash.clone(), "bad"), act);
+        item(ui, t!("✔ Ce commit est bon (good)", "✔ This commit is good"), HistAct::Bisect(c.hash.clone(), "good"), act);
+    });
     ui.separator();
     item(ui, t!("Copier le hash", "Copy the hash"), HistAct::Copy(c.hash.clone()), act);
     item(ui, t!("Copier le message", "Copy the message"), HistAct::Copy(c.subject.clone()), act);

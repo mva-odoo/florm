@@ -106,6 +106,8 @@ impl App {
                         continue;
                     }
                     self.git.stashes = stashes;
+                    let raw = remotes.iter().find(|(r, _)| *r == selected).map(|(_, t)| t.as_str()).unwrap_or("");
+                    self.git.remotes = git::parse_remotes(raw);
                     // branch / remote of every repository, for the tree
                     self.repo_info.clear();
                     for (repo, st) in &statuses {
@@ -249,10 +251,22 @@ impl App {
                         lh.loading = false;
                         match result {
                             Ok(commits) => {
-                                lh.diffs = commits.iter().map(|c| history::parse_diff(&c.diff)).collect();
+                                lh.diffs = commits.iter().map(|c| (!c.diff.is_empty()).then(|| history::parse_diff(&c.diff))).collect();
                                 lh.commits = commits;
                             }
                             Err(e) => lh.error = Some(e),
+                        }
+                    }
+                    self.line_history_load_diff();
+                }
+                JobResult::LineHistoryDiff(hash, result) => {
+                    if let Some(lh) = self.line_history.as_mut() {
+                        let text = result.unwrap_or_else(|e| e);
+                        let text = if text.trim().is_empty() { t!("(aucune différence)", "(no difference)").to_string() } else { text };
+                        for (k, c) in lh.commits.iter().enumerate() {
+                            if c.hash == hash && lh.diffs[k].is_none() {
+                                lh.diffs[k] = Some(history::parse_diff(&text));
+                            }
                         }
                     }
                 }
@@ -284,11 +298,17 @@ impl App {
                         }
                     }
                 }
-                JobResult::GitBranches(list) => {
-                    let items: Vec<Item> =
-                        list.into_iter().map(|b| Item { label: b.clone(), detail: String::new(), action: Action::Branch(b) }).collect();
-                    self.open_overlay_with(Mode::Branches, items, String::new());
-                }
+                JobResult::GitBranches(list, pick, target) => self.branches_ready(list, pick, target),
+                JobResult::CleanPreview(r) => self.clean_preview_ready(r),
+                JobResult::LastCommitMessage(r) => match r {
+                    // what was typed meanwhile stays
+                    Ok(m) if self.git.amend && self.git.commit_msg.trim().is_empty() => self.git.commit_msg = m,
+                    Ok(_) => {}
+                    Err(e) => {
+                        self.git.amend = false;
+                        self.set_error(tf!("Pas de dernier commit à modifier : {}", "No last commit to amend: {}", e.lines().next().unwrap_or("")));
+                    }
+                },
                 JobResult::GitOp { label, result, status } => {
                     self.git.busy = self.git.busy.saturating_sub(1);
                     if label.starts_with("stash") {
@@ -301,6 +321,13 @@ impl App {
                     }
                     match result {
                         Ok(out) => {
+                            // bisect: where it is, or the commit found
+                            if label == "bisect" {
+                                let line = out.lines().find(|l| l.contains("is the first bad commit")).or_else(|| out.lines().find(|l| l.starts_with("Bisecting:")));
+                                if let Some(l) = line {
+                                    self.history.notice = Some((l.trim().to_string(), ok()));
+                                }
+                            }
                             self.log(out);
                             self.git.op_error = None;
                             self.set_status(tf!("git {label} : OK", "git {label}: OK"));

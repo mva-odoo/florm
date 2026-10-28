@@ -139,6 +139,8 @@ pub struct Status {
     pub unstaged_stats: Stats,
     /// Merge / cherry-pick / revert / rebase stopped in the repository.
     pub operation: Option<Operation>,
+    /// `git bisect` in progress.
+    pub bisecting: bool,
 }
 
 
@@ -273,13 +275,168 @@ pub fn status(root: &Path) -> Result<Status, String> {
     st.staged_stats = numstat(root, &["-c", "core.quotePath=false", "diff", "--cached", "--numstat", "--no-renames"]);
     st.unstaged_stats = numstat(root, &["-c", "core.quotePath=false", "diff", "--numstat", "--no-renames"]);
     st.operation = operation(root);
+    st.bisecting = git_path_exists(root, "BISECT_LOG");
     Ok(st)
 }
 
-pub fn branches(root: &Path) -> Vec<String> {
-    stdout(root, &["branch", "-a", "--format=%(refname:short)"])
-        .map(|s| s.lines().map(str::trim).filter(|l| !l.is_empty() && !l.ends_with("/HEAD")).map(String::from).collect())
+/// What a branch chosen in the list is for.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum BranchPick {
+    Checkout,
+    /// Merged into the current branch.
+    Merge,
+    /// The current branch rebased on it.
+    Rebase,
+    Rename,
+    Delete,
+}
+
+/// A branch of the repository.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Branch {
+    /// "feature", or "origin/feature" for a remote one.
+    pub name: String,
+    pub remote: bool,
+    /// Upstream of a local branch ("origin/feature"), empty when none.
+    pub upstream: String,
+}
+
+/// Local branches, then the remote ones.
+pub fn branch_list(root: &Path) -> Vec<Branch> {
+    stdout(root, &["for-each-ref", "--format=%(refname)%1f%(upstream:short)", "refs/heads", "refs/remotes"])
+        .map(|s| {
+            s.lines()
+                .filter_map(|l| {
+                    let (full, up) = l.split_once('\x1f').unwrap_or((l, ""));
+                    let (name, remote) = match full.strip_prefix("refs/heads/") {
+                        Some(n) => (n, false),
+                        None => (full.strip_prefix("refs/remotes/")?, true),
+                    };
+                    (!name.ends_with("/HEAD")).then(|| Branch { name: name.into(), remote, upstream: up.trim().into() })
+                })
+                .collect()
+        })
         .unwrap_or_default()
+}
+
+/// "origin/feature" -> ("origin", "feature"), with the remote names of the repository (a remote
+/// name may contain a slash).
+pub fn split_remote(remotes: &[String], full: &str) -> Option<(String, String)> {
+    remotes
+        .iter()
+        .filter(|r| full.len() > r.len() + 1 && full.starts_with(r.as_str()) && full.as_bytes()[r.len()] == b'/')
+        .max_by_key(|r| r.len())
+        .map(|r| (r.clone(), full[r.len() + 1..].to_string()))
+}
+
+/// Remotes from the output of `git remote -v`: (name, fetch URL).
+pub fn parse_remotes(text: &str) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    for l in text.lines() {
+        let mut f = l.split_whitespace();
+        if let (Some(n), Some(u)) = (f.next(), f.next()) {
+            if !out.iter().any(|(m, _)| m == n) {
+                out.push((n.to_string(), u.to_string()));
+            }
+        }
+    }
+    out
+}
+
+/// Submodules declared in `.gitmodules` (their paths), read from the file: no git process.
+pub fn submodules(root: &Path) -> Vec<String> {
+    std::fs::read_to_string(root.join(".gitmodules"))
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| {
+            let (k, v) = l.split_once('=')?;
+            (k.trim() == "path").then(|| v.trim().to_string())
+        })
+        .collect()
+}
+
+/// Where HEAD has been, newest first: commits, checkouts, resets, rebases… (the safety net:
+/// a commit lost by a reset is still there).
+pub fn reflog(root: &Path, limit: usize) -> Result<Vec<LineCommit>, String> {
+    let n = format!("-n{limit}");
+    let out = stdout(root, &["reflog", &n, "--date=format:%Y-%m-%d %H:%M", "--format=%H%x1f%gd%x1f%gs%x1f%cd%x1f%an"])?;
+    Ok(out
+        .lines()
+        .filter_map(|l| {
+            let f: Vec<&str> = l.split('\x1f').collect();
+            (f.len() >= 5).then(|| LineCommit {
+                hash: f[0].into(),
+                author: format!("{} · {}", f[1], f[4]),
+                date: f[3].into(),
+                subject: f[2].into(),
+                diff: String::new(),
+            })
+        })
+        .collect())
+}
+
+/// What to look for in the history.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SearchKind {
+    /// In the commit messages.
+    Message,
+    Author,
+    /// Commits that added or removed this text (`-S`).
+    Content,
+    /// Commits whose changed lines match this regex (`-G`).
+    Regex,
+    /// Commits of a file, through its renames (`--follow`).
+    File,
+}
+
+impl SearchKind {
+    pub const ALL: [SearchKind; 5] = [SearchKind::Message, SearchKind::Author, SearchKind::Content, SearchKind::Regex, SearchKind::File];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            SearchKind::Message => t!("Message du commit", "Commit message"),
+            SearchKind::Author => t!("Auteur", "Author"),
+            SearchKind::Content => t!("Texte ajouté ou supprimé (-S)", "Text added or removed (-S)"),
+            SearchKind::Regex => t!("Regex dans les lignes changées (-G)", "Regex in the changed lines (-G)"),
+            SearchKind::File => t!("Fichier (avec ses renommages, --follow)", "File (with its renames, --follow)"),
+        }
+    }
+
+    /// The git log arguments for `query`: with the diffs (only of what matched) when they are small.
+    fn args(self, query: &str) -> Vec<String> {
+        match self {
+            SearchKind::Message => vec!["-i".into(), format!("--grep={query}")],
+            SearchKind::Author => vec!["-i".into(), format!("--author={query}")],
+            SearchKind::Content => vec!["-p".into(), format!("-S{query}")],
+            SearchKind::Regex => vec!["-p".into(), format!("-G{query}")],
+            SearchKind::File => vec!["-p".into(), "-m".into(), "--first-parent".into(), "--follow".into(), "--".into(), query.into()],
+        }
+    }
+}
+
+/// Commits of HEAD matching `query`, newest first (at most `limit`); their diff when git gives
+/// it at once (content, file), else empty: read when the commit is chosen.
+pub fn search(root: &Path, kind: SearchKind, query: &str, limit: usize) -> Result<Vec<LineCommit>, String> {
+    let n = format!("-n{limit}");
+    let mut args: Vec<String> = ["-c", "core.quotePath=false", "log", &n, "--date=format:%Y-%m-%d %H:%M", "--format=%x1e%H%x1f%an%x1f%ad%x1f%s"].map(String::from).to_vec();
+    args.extend(kind.args(query));
+    let a: Vec<&str> = args.iter().map(String::as_str).collect();
+    Ok(parse_log(&stdout(root, &a)?))
+}
+
+/// Commits written by `--format=%x1e%H%x1f%an%x1f%ad%x1f%s`, each followed by its diff.
+fn parse_log(out: &str) -> Vec<LineCommit> {
+    out.split('\x1e')
+        .filter(|c| !c.trim().is_empty())
+        .map(|chunk| {
+            let (meta, diff) = chunk.split_once('\n').unwrap_or((chunk, ""));
+            let f: Vec<&str> = meta.split('\x1f').collect();
+            let get = |i: usize| f.get(i).copied().unwrap_or("").to_string();
+            // a very large commit is cut: the window shows the beginning
+            let diff: String = diff.trim().chars().take(400_000).collect();
+            LineCommit { hash: get(0), author: get(1), date: get(2), subject: get(3), diff }
+        })
+        .collect()
 }
 
 /// Changes put aside with `git stash`.
@@ -409,25 +566,14 @@ pub struct LineCommit {
     pub diff: String,
 }
 
-/// Every commit that touched line `line` (1-based, in HEAD), newest first, with its diff.
-pub fn line_history(file: &Path, line: usize) -> Result<Vec<LineCommit>, String> {
+/// Every commit that touched lines `first..=last` (1-based, in HEAD), newest first, with its diff.
+pub fn line_history(file: &Path, first: usize, last: usize) -> Result<Vec<LineCommit>, String> {
     let dir = file.parent().ok_or(t!("chemin invalide", "invalid path"))?;
     let name = file.file_name().and_then(|n| n.to_str()).ok_or(t!("chemin invalide", "invalid path"))?;
-    let range = format!("{line},{line}:{name}");
-    let out = stdout(
-        dir,
-        &["log", "--date=format:%Y-%m-%d %H:%M", "--format=%x1e%H%x1f%an%x1f%ad%x1f%s", "-L", &range],
-    )?;
-    Ok(out
-        .split('\x1e')
-        .filter(|c| !c.trim().is_empty())
-        .map(|chunk| {
-            let (meta, diff) = chunk.split_once('\n').unwrap_or((chunk, ""));
-            let f: Vec<&str> = meta.split('\x1f').collect();
-            let get = |i: usize| f.get(i).copied().unwrap_or("").to_string();
-            LineCommit { hash: get(0), author: get(1), date: get(2), subject: get(3), diff: diff.trim().to_string() }
-        })
-        .collect())
+    let range = format!("{first},{}:{name}", last.max(first));
+    // HEAD explicitly: a branch named like the file would be taken for it
+    let out = stdout(dir, &["log", "--date=format:%Y-%m-%d %H:%M", "--format=%x1e%H%x1f%an%x1f%ad%x1f%s", "-L", &range, "HEAD"])?;
+    Ok(parse_log(&out))
 }
 
 /// "il y a 3 jours" from a unix timestamp.
@@ -545,6 +691,58 @@ mod status_tests {
         assert!(st.entries.iter().any(|e| e.conflicted()));
         run(&repo, &Operation::CherryPick.abort_args()).unwrap();
         assert_eq!(status(&repo).unwrap().operation, None);
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn branches_search_reflog_bisect() {
+        let repo = std::env::temp_dir().join(format!("florm_hist_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&repo);
+        std::fs::create_dir_all(&repo).unwrap();
+        let g = |args: &[&str]| run(&repo, args).unwrap_or_else(|e| panic!("git {args:?}: {e}"));
+        g(&["init", "-q", "-b", "main"]);
+        g(&["config", "user.name", "Ana"]);
+        g(&["config", "user.email", "a@t"]);
+        std::fs::write(repo.join("a.txt"), "un\ndeux\ntrois\n").unwrap();
+        g(&["add", "."]);
+        g(&["commit", "-qm", "premier"]);
+        std::fs::write(repo.join("a.txt"), "un\nDEUX\ntrois\n").unwrap();
+        g(&["commit", "-qam", "deuxième ligne changée"]);
+        g(&["mv", "a.txt", "b.txt"]);
+        std::fs::write(repo.join("b.txt"), "un\nDEUX\ntrois\nquatre\n").unwrap();
+        g(&["add", "."]);
+        g(&["commit", "-qm", "renommé"]);
+        g(&["branch", "feature"]);
+        // a remote whose name has a slash, and its branch
+        g(&["update-ref", "refs/remotes/my/fork/feature", "HEAD"]);
+        let list = branch_list(&repo);
+        assert!(list.contains(&Branch { name: "feature".into(), remote: false, upstream: String::new() }));
+        assert!(list.iter().any(|b| b.name == "my/fork/feature" && b.remote));
+        let names = vec!["my".to_string(), "my/fork".to_string()];
+        assert_eq!(split_remote(&names, "my/fork/feature"), Some(("my/fork".into(), "feature".into())));
+        assert_eq!(split_remote(&names, "other/x"), None);
+        // search: message, author, content, file through its rename
+        let subjects = |k, q: &str| search(&repo, k, q, 50).unwrap().into_iter().map(|c| c.subject).collect::<Vec<_>>();
+        assert_eq!(subjects(SearchKind::Message, "LIGNE"), ["deuxième ligne changée"]);
+        assert_eq!(subjects(SearchKind::Author, "ana").len(), 3);
+        assert_eq!(subjects(SearchKind::Content, "DEUX"), ["deuxième ligne changée"]);
+        assert_eq!(subjects(SearchKind::Regex, "^qua"), ["renommé"]);
+        assert_eq!(subjects(SearchKind::File, "b.txt"), ["renommé", "deuxième ligne changée", "premier"]);
+        let found = search(&repo, SearchKind::Content, "DEUX", 50).unwrap();
+        assert!(found[0].diff.contains("+DEUX"));
+        // the history of lines 2-3 (in HEAD)
+        let lines = line_history(&repo.join("b.txt"), 2, 2).unwrap();
+        assert_eq!(lines.iter().map(|c| c.subject.as_str()).collect::<Vec<_>>(), ["deuxième ligne changée", "premier"]);
+        // the reflog keeps a commit lost by a reset
+        let lost = g(&["rev-parse", "HEAD"]);
+        g(&["reset", "-q", "--hard", "HEAD~1"]);
+        let log = reflog(&repo, 10).unwrap();
+        assert!(log[0].subject.starts_with("reset:") && log.iter().any(|c| c.hash == lost.trim()));
+        // bisect in progress
+        assert!(!status(&repo).unwrap().bisecting);
+        g(&["bisect", "start"]);
+        assert!(status(&repo).unwrap().bisecting);
+        g(&["bisect", "reset"]);
         let _ = std::fs::remove_dir_all(&repo);
     }
 }
