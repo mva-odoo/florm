@@ -394,6 +394,7 @@ impl App {
                     self.set_status(t!("Barre de menus masquée : les menus restent dans ☰ en bas à gauche", "Menu bar hidden: the menus are still under ☰ at the bottom left"));
                 }
             }
+            ListTodos => self.list_todos(),
             RevealInTree => {
                 if let Some(p) = self.docs.get(self.active).and_then(|d| d.path.clone()) {
                     self.reveal_in_tree(&p);

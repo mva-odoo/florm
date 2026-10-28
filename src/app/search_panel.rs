@@ -2,7 +2,27 @@
 
 use super::*;
 
+/// What marks work left in the code.
+pub(super) const TODO_PATTERN: &str = r"\b(TODO|FIXME|XXX|HACK)\b";
+
+/// The search of the TODO / FIXME of the project (the filters of files kept).
+pub(super) fn set_todo_query(q: &mut search::Query) {
+    q.pattern = TODO_PATTERN.into();
+    (q.regex, q.case, q.whole) = (true, true, false);
+}
+
 impl App {
+    /// The TODO / FIXME of the project, in the search (panel or tab, as it is set).
+    pub(super) fn list_todos(&mut self) {
+        if self.settings.search_in_tab {
+            self.open_search_tab();
+        } else {
+            self.bottom = Some(BottomTab::Search);
+        }
+        set_todo_query(&mut self.search.q);
+        self.start_search();
+    }
+
     pub(super) fn start_search(&mut self) {
         let Some(root) = self.root.clone() else {
             self.set_status(t!("Ouvre d'abord un dossier", "Open a folder first"));
@@ -167,6 +187,10 @@ impl App {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if let Some(crate::view_bar::BarAct::Move(b)) = crate::view_bar::controls(ui, in_tab, None, None) {
                     act = Some(SearchAct::Move(b));
+                }
+                if ui.button("TODO / FIXME").on_hover_text(t!("Les TODO, FIXME, XXX et HACK du projet, par fichier", "The TODO, FIXME, XXX and HACK of the project, by file")).clicked() {
+                    set_todo_query(&mut s.q);
+                    go = true;
                 }
             });
         });

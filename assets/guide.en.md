@@ -95,6 +95,9 @@ The `.gitignore` is respected.
   find `\\n`, replace with `\n`. Also in Ctrl+H.
 - **Keep case**: cat → dog, Cat → Dog, CAT → DOG.
 - **×** on a result (or a file) drops it: it will not be replaced.
+- **TODO / FIXME** (on the right of the bar, or Tools → TODO / FIXME of the project): all the
+  `TODO`, `FIXME`, `XXX` and `HACK` of the project, by file.
+
 
 ## Git
 

@@ -96,6 +96,9 @@ Le `.gitignore` est respecté.
   vrais retours à la ligne : regex, chercher `\\n`, remplacer par `\n`. Aussi dans Ctrl+H.
 - **Garder la casse** : chat → chien, Chat → Chien, CHAT → CHIEN.
 - **×** sur un résultat (ou un fichier) l'écarte : il ne sera pas remplacé.
+- **TODO / FIXME** (à droite de la barre, ou Outils → TODO / FIXME du projet) : tous les
+  `TODO`, `FIXME`, `XXX` et `HACK` du projet, rangés par fichier.
+
 
 ## Git
 
