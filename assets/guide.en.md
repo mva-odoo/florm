@@ -280,6 +280,21 @@ palette).
 - **Commits**: a click shows the changes of that commit alone; **Files**: the whole diff of the
   PR, the conversations **under the commented lines** like on GitHub (reply, resolve, apply a
   suggestion), and **double-click a line** to comment on it.
+- A box before each file marks it **viewed**: it folds and GitHub remembers it for your review
+  (“3/10 viewed” on top).
+- On top of the conversation: the **checks** (the failing ones always shown, a click for all;
+  **Logs** opens the log of a GitHub Actions job in a tab, **↻ Rerun the failed ones**), then
+  whether the PR can be merged (conflicts, behind, missing approvals or checks) and the
+  buttons: **Merge** (merge commit, squash or rebase, delete the branch), **⟳ Update the
+  branch** (merge or rebase of the base), **Ready for review** / **Back to draft**, **Close** /
+  **Reopen**. Merge, close and rebase ask first.
+- Under the message: **✔ Approve** or **✖ Request changes** (the message says what).
+- On the right: reviewers, assignees (`me` for you), labels and milestone, to add or remove.
+- **✏** next to the title: change the title, the description or the base branch.
+- Under each message, its **reactions** (a click gives or takes back yours, 🙂 to add one);
+  your comments have **✏** (edit) and **🗑** (delete).
+- Right-click a PR of the list (or **⋯** in the header): open, open on GitHub, checkout, copy
+  the link or the number.
 
 ## Claude
 

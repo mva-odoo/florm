@@ -3,6 +3,7 @@
 
 use serde::Deserialize;
 use serde_json::Value;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::process::Stdio;
 
@@ -71,7 +72,12 @@ pub struct PrSummary {
     pub updated_at: String,
     #[serde(default)]
     pub review_decision: Option<String>,
+    #[serde(default)]
+    pub url: String,
 }
+
+/// Fields of `PrSummary` for `gh pr list --json`.
+const SUMMARY: &str = "number,title,author,headRefName,baseRefName,isDraft,state,updatedAt,reviewDecision,url";
 
 /// Which pull requests: all, mine, those where my review is asked, those I reviewed.
 pub const WHO: [(&str, &str, &str); 4] = [
@@ -92,7 +98,7 @@ pub fn list(dir: &Path, state: &str, search: &str) -> Result<Vec<PrSummary>, Str
         "--limit",
         "100",
         "--json",
-        "number,title,author,headRefName,baseRefName,isDraft,state,updatedAt,reviewDecision",
+        SUMMARY,
     ];
     if !search.is_empty() {
         args.extend(["--search", search]);
@@ -126,9 +132,12 @@ impl Commit {
 }
 
 /// A general comment, or the text of a review (approved, changes requested…).
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Comment {
+    /// GraphQL id: "IC_…" for a comment, "PRR_…" for a review.
+    #[serde(default)]
+    pub id: String,
     #[serde(default)]
     pub author: Author,
     #[serde(default)]
@@ -138,6 +147,120 @@ pub struct Comment {
     /// Reviews only: APPROVED, CHANGES_REQUESTED, COMMENTED…
     #[serde(default)]
     pub state: String,
+    /// Written by me (to change or delete it).
+    #[serde(skip)]
+    pub mine: bool,
+    #[serde(skip)]
+    pub reactions: Vec<Reaction>,
+}
+
+impl Comment {
+    /// A review (its text can be changed, not deleted).
+    pub fn is_review(&self) -> bool {
+        self.id.starts_with("PRR_")
+    }
+}
+
+/// A reaction to a comment: its kind ("THUMBS_UP"…), how many gave it, and whether I did.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Reaction {
+    pub content: String,
+    pub count: u64,
+    pub mine: bool,
+}
+
+/// The reactions of GitHub and their emoji.
+pub const REACTIONS: [(&str, &str); 8] =
+    [("THUMBS_UP", "👍"), ("THUMBS_DOWN", "👎"), ("LAUGH", "😄"), ("HOORAY", "🎉"), ("CONFUSED", "😕"), ("HEART", "❤"), ("ROCKET", "🚀"), ("EYES", "👀")];
+
+pub fn emoji(content: &str) -> &'static str {
+    REACTIONS.iter().find(|(c, _)| *c == content).map_or("?", |(_, e)| e)
+}
+
+/// My reaction `content` added (or taken back) in `list`, before GitHub answers.
+pub fn toggle_reaction(list: &mut Vec<Reaction>, content: &str, add: bool) {
+    match list.iter_mut().find(|r| r.content == content) {
+        Some(r) if r.mine != add => {
+            r.mine = add;
+            r.count = if add { r.count + 1 } else { r.count.saturating_sub(1) };
+        }
+        Some(_) => {}
+        None if add => list.push(Reaction { content: content.into(), count: 1, mine: true }),
+        None => {}
+    }
+    list.retain(|r| r.count > 0);
+}
+
+/// A check of the last commit: a GitHub Actions job or a status sent by another service.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Check {
+    pub name: String,
+    /// The workflow of a GitHub Actions job.
+    pub workflow: String,
+    pub state: CheckState,
+    pub url: String,
+    pub description: String,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CheckState {
+    Fail,
+    #[default]
+    Pending,
+    Pass,
+    Skip,
+}
+
+impl Check {
+    /// (run, job) of a GitHub Actions job, from its address (".../actions/runs/1/job/2").
+    pub fn job(&self) -> Option<(u64, u64)> {
+        let (_, rest) = self.url.split_once("/actions/runs/")?;
+        let mut it = rest.split('/');
+        let run = it.next()?.parse().ok()?;
+        (it.next()? == "job").then_some(())?;
+        Some((run, it.next()?.split(['?', '#']).next()?.parse().ok()?))
+    }
+}
+
+/// The checks of `statusCheckRollup` (`gh pr view --json`), failed ones first.
+fn parse_checks(rollup: &[Value]) -> Vec<Check> {
+    let s = |v: &Value| v.as_str().unwrap_or("").to_string();
+    let mut out: Vec<Check> = rollup
+        .iter()
+        .map(|c| {
+            if c["__typename"] == "CheckRun" {
+                let state = match (c["status"].as_str(), c["conclusion"].as_str()) {
+                    (Some("COMPLETED"), Some("SUCCESS")) => CheckState::Pass,
+                    (Some("COMPLETED"), Some("NEUTRAL" | "SKIPPED")) => CheckState::Skip,
+                    (Some("COMPLETED"), _) => CheckState::Fail,
+                    _ => CheckState::Pending,
+                };
+                Check { name: s(&c["name"]), workflow: s(&c["workflowName"]), state, url: s(&c["detailsUrl"]), description: String::new() }
+            } else {
+                let state = match c["state"].as_str() {
+                    Some("SUCCESS") => CheckState::Pass,
+                    Some("FAILURE" | "ERROR") => CheckState::Fail,
+                    _ => CheckState::Pending,
+                };
+                Check { name: s(&c["context"]), workflow: String::new(), state, url: s(&c["targetUrl"]), description: s(&c["description"]) }
+            }
+        })
+        .collect();
+    out.sort_by(|a, b| a.state.cmp(&b.state).then_with(|| a.name.cmp(&b.name)));
+    out
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+pub struct Label {
+    pub name: String,
+    #[serde(default)]
+    pub color: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+struct Milestone {
+    #[serde(default)]
+    title: String,
 }
 
 /// A conversation on lines of a file.
@@ -166,10 +289,15 @@ pub struct LineComment {
     pub body: String,
     pub created_at: String,
     pub diff_hunk: String,
+    pub mine: bool,
+    pub reactions: Vec<Reaction>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct PrDetail {
+    /// GraphQL id (files viewed, reactions).
+    pub id: String,
+    pub url: String,
     pub number: u64,
     pub title: String,
     pub body: String,
@@ -188,11 +316,47 @@ pub struct PrDetail {
     pub threads: Vec<Thread>,
     /// Unified diff of the whole pull request.
     pub diff: String,
+    /// APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED or empty.
+    pub review_decision: String,
+    /// MERGEABLE, CONFLICTING or UNKNOWN (still computed by GitHub).
+    pub mergeable: String,
+    /// CLEAN, BEHIND, BLOCKED, DIRTY, DRAFT, UNSTABLE, HAS_HOOKS or UNKNOWN.
+    pub merge_state: String,
+    /// Reviewers asked: logins, "org/team" for a team.
+    pub reviewers: Vec<String>,
+    pub assignees: Vec<String>,
+    pub labels: Vec<Label>,
+    /// Title of the milestone, empty when none.
+    pub milestone: String,
+    pub checks: Vec<Check>,
+    /// My login.
+    pub viewer: String,
+    /// Reactions to the description.
+    pub reactions: Vec<Reaction>,
+    /// Files marked as viewed by me, by path.
+    pub viewed: HashSet<String>,
+}
+
+impl PrDetail {
+    /// Reactions of the description (`id` of the pull request) or of a comment.
+    pub fn reactions_mut(&mut self, id: &str) -> Option<&mut Vec<Reaction>> {
+        if id == self.id {
+            return Some(&mut self.reactions);
+        }
+        if let Some(c) = self.comments.iter_mut().find(|c| c.id == id) {
+            return Some(&mut c.reactions);
+        }
+        self.threads.iter_mut().flat_map(|t| t.comments.iter_mut()).find(|c| c.id == id).map(|c| &mut c.reactions)
+    }
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct View {
+    #[serde(default)]
+    id: String,
+    #[serde(default)]
+    url: String,
     number: u64,
     title: String,
     #[serde(default)]
@@ -214,27 +378,95 @@ struct View {
     comments: Vec<Comment>,
     #[serde(default)]
     reviews: Vec<Comment>,
+    #[serde(default)]
+    review_decision: Option<String>,
+    #[serde(default)]
+    mergeable: String,
+    #[serde(default)]
+    merge_state_status: String,
+    #[serde(default)]
+    review_requests: Vec<Value>,
+    #[serde(default)]
+    assignees: Vec<Author>,
+    #[serde(default)]
+    labels: Vec<Label>,
+    #[serde(default)]
+    milestone: Option<Milestone>,
+    #[serde(default)]
+    status_check_rollup: Vec<Value>,
 }
 
-const THREADS: &str = "query($owner:String!,$repo:String!,$n:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$n){\
+/// What `gh pr view` does not give: who I am, the conversations on lines, reactions, files viewed.
+const EXTRA: &str = "query($owner:String!,$repo:String!,$n:Int!){viewer{login} repository(owner:$owner,name:$repo){pullRequest(number:$n){\
+reactionGroups{...R} \
+comments(last:100){nodes{id viewerDidAuthor reactionGroups{...R}}} \
+reviews(last:100){nodes{id viewerDidAuthor reactionGroups{...R}}} \
+files(first:100){nodes{path viewerViewedState}} \
 reviewThreads(first:100){nodes{id isResolved isOutdated path line startLine originalLine diffSide \
-comments(first:100){nodes{id databaseId author{login} body createdAt diffHunk}}}}}}}";
+comments(first:100){nodes{id databaseId author{login} body createdAt diffHunk viewerDidAuthor reactionGroups{...R}}}}}}}} \
+fragment R on ReactionGroup{content viewerHasReacted reactors{totalCount}}";
 
 /// Everything shown for pull request `n`: description, commits, comments, threads on lines, diff.
 pub fn detail(dir: &Path, n: u64) -> Result<PrDetail, String> {
     let ns = n.to_string();
     let v: View = serde_json::from_str(&gh(
         dir,
-        &["pr", "view", &ns, "--json", "number,title,body,author,createdAt,state,isDraft,headRefName,headRefOid,baseRefName,commits,comments,reviews"],
+        &[
+            "pr",
+            "view",
+            &ns,
+            "--json",
+            "id,url,number,title,body,author,createdAt,state,isDraft,headRefName,headRefOid,baseRefName,commits,comments,reviews,\
+reviewDecision,mergeable,mergeStateStatus,reviewRequests,assignees,labels,milestone,statusCheckRollup",
+        ],
     )?)
     .map_err(|e| e.to_string())?;
-    let threads = gh(dir, &["api", "graphql", "-F", "owner={owner}", "-F", "repo={repo}", "-F", &format!("n={n}"), "-f", &format!("query={THREADS}")])
-        .map(|out| parse_threads(&out))
-        .unwrap_or_default();
+    let extra: Value = gh(dir, &["api", "graphql", "-F", "owner={owner}", "-F", "repo={repo}", "-F", &format!("n={n}"), "-f", &format!("query={EXTRA}")])
+        .ok()
+        .and_then(|out| serde_json::from_str(&out).ok())
+        .unwrap_or(Value::Null);
+    let threads = parse_threads(&extra);
     let diff = gh(dir, &["pr", "diff", &ns, "--color", "never"]).unwrap_or_else(|e| e);
     let mut comments: Vec<Comment> = v.comments.into_iter().chain(v.reviews.into_iter().filter(|r| !r.body.trim().is_empty() || r.state == "APPROVED" || r.state == "CHANGES_REQUESTED")).collect();
     comments.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+    let pr = &extra["data"]["repository"]["pullRequest"];
+    // mine and reactions, by id
+    let mut extra_of: HashMap<&str, (bool, Vec<Reaction>)> = HashMap::new();
+    for c in ["comments", "reviews"].iter().filter_map(|k| pr[k]["nodes"].as_array()).flatten() {
+        extra_of.insert(c["id"].as_str().unwrap_or(""), (c["viewerDidAuthor"].as_bool().unwrap_or(false), parse_reactions(&c["reactionGroups"])));
+    }
+    for c in comments.iter_mut() {
+        if let Some((mine, r)) = extra_of.remove(c.id.as_str()) {
+            (c.mine, c.reactions) = (mine, r);
+        }
+    }
+    let owner = v.url.split('/').nth(3).unwrap_or("").to_string();
+    let reviewers = v
+        .review_requests
+        .iter()
+        .filter_map(|r| match r["slug"].as_str() {
+            Some(team) => Some(format!("{owner}/{team}")),
+            None => r["login"].as_str().map(String::from),
+        })
+        .collect();
+    let viewed = pr["files"]["nodes"]
+        .as_array()
+        .map(|a| a.iter().filter(|f| f["viewerViewedState"] == "VIEWED").filter_map(|f| f["path"].as_str().map(String::from)).collect())
+        .unwrap_or_default();
     Ok(PrDetail {
+        id: v.id,
+        url: v.url,
+        review_decision: v.review_decision.unwrap_or_default(),
+        mergeable: v.mergeable,
+        merge_state: v.merge_state_status,
+        reviewers,
+        assignees: v.assignees.into_iter().map(|a| a.login).collect(),
+        labels: v.labels,
+        milestone: v.milestone.map(|m| m.title).unwrap_or_default(),
+        checks: parse_checks(&v.status_check_rollup),
+        viewer: extra["data"]["viewer"]["login"].as_str().unwrap_or("").to_string(),
+        reactions: parse_reactions(&pr["reactionGroups"]),
+        viewed,
         number: v.number,
         title: v.title,
         body: v.body,
@@ -252,8 +484,24 @@ pub fn detail(dir: &Path, n: u64) -> Result<PrDetail, String> {
     })
 }
 
-fn parse_threads(out: &str) -> Vec<Thread> {
-    let v: Value = serde_json::from_str(out).unwrap_or(Value::Null);
+/// `reactionGroups` of GraphQL: those given at least once.
+fn parse_reactions(groups: &Value) -> Vec<Reaction> {
+    groups
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .map(|g| Reaction {
+                    content: g["content"].as_str().unwrap_or("").to_string(),
+                    count: g["reactors"]["totalCount"].as_u64().unwrap_or(0),
+                    mine: g["viewerHasReacted"].as_bool().unwrap_or(false),
+                })
+                .filter(|r| r.count > 0)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn parse_threads(v: &Value) -> Vec<Thread> {
     let nodes = v["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"].as_array().cloned().unwrap_or_default();
     let line = |x: &Value| x.as_u64().map(|n| n as usize);
     nodes
@@ -278,6 +526,8 @@ fn parse_threads(out: &str) -> Vec<Thread> {
                             body: c["body"].as_str().unwrap_or("").to_string(),
                             created_at: c["createdAt"].as_str().unwrap_or("").to_string(),
                             diff_hunk: c["diffHunk"].as_str().unwrap_or("").to_string(),
+                            mine: c["viewerDidAuthor"].as_bool().unwrap_or(false),
+                            reactions: parse_reactions(&c["reactionGroups"]),
                         })
                         .collect()
                 })
@@ -306,7 +556,7 @@ pub fn open_web(dir: &Path, n: u64) -> Result<String, String> {
 pub fn for_branch(dir: &Path, branch: &str) -> Result<Vec<PrSummary>, String> {
     let out = gh(
         dir,
-        &["pr", "list", "--head", branch, "--state", "all", "--limit", "10", "--json", "number,title,author,headRefName,baseRefName,isDraft,state,updatedAt,reviewDecision"],
+        &["pr", "list", "--head", branch, "--state", "all", "--limit", "10", "--json", SUMMARY],
     )?;
     serde_json::from_str(&out).map_err(|e| e.to_string())
 }
@@ -442,6 +692,104 @@ pub fn resolve(dir: &Path, thread_id: &str, resolved: bool) -> Result<String, St
     let m = if resolved { "resolveReviewThread" } else { "unresolveReviewThread" };
     let q = format!("mutation($id:ID!){{{m}(input:{{threadId:$id}}){{thread{{isResolved}}}}}}");
     gh(dir, &["api", "graphql", "-f", &format!("id={thread_id}"), "-f", &format!("query={q}")])
+}
+
+/// Any `gh` command (merge, close, edit… built by the view).
+pub fn run(dir: &Path, args: &[String]) -> Result<String, String> {
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    gh(dir, &args).map(|o| o.trim().to_string())
+}
+
+/// Commands one after the other, until one fails.
+pub fn run_all(dir: &Path, cmds: &[Vec<String>]) -> Result<String, String> {
+    let mut out = Vec::new();
+    for c in cmds {
+        out.push(run(dir, c)?);
+    }
+    Ok(out.join("\n").trim().to_string())
+}
+
+fn args(a: &[&str]) -> Vec<String> {
+    a.iter().map(|s| s.to_string()).collect()
+}
+
+/// `gh pr merge`: "merge", "squash" or "rebase", and the branch deleted after or not.
+pub fn merge_args(n: u64, method: &str, delete_branch: bool) -> Vec<String> {
+    let mut a = args(&["pr", "merge", &n.to_string(), &format!("--{method}")]);
+    if delete_branch {
+        a.push("--delete-branch".into());
+    }
+    a
+}
+
+/// `gh pr <verb> n` and its options: close, reopen, ready, update-branch…
+pub fn pr_args(verb: &str, n: u64, more: &[&str]) -> Vec<String> {
+    let mut a = args(&["pr", verb, &n.to_string()]);
+    a.extend(more.iter().map(|s| s.to_string()));
+    a
+}
+
+/// A review: "approve", "request-changes" or "comment", with its message (needed but to approve).
+pub fn review_args(n: u64, event: &str, body: &str) -> Vec<String> {
+    let mut a = pr_args("review", n, &[&format!("--{event}")]);
+    if !body.is_empty() {
+        a.extend(["--body".into(), body.into()]);
+    }
+    a
+}
+
+fn graphql(dir: &Path, query: &str, vars: &[(&str, &str)]) -> Result<String, String> {
+    let mut a = args(&["api", "graphql", "-f", &format!("query={query}")]);
+    for (k, v) in vars {
+        a.extend(["-f".into(), format!("{k}={v}")]);
+    }
+    run(dir, &a).map(|_| String::new())
+}
+
+/// My reaction to a comment (or to the pull request) added or taken back.
+pub fn react(dir: &Path, subject: &str, content: &str, add: bool) -> Result<String, String> {
+    let m = if add { "addReaction" } else { "removeReaction" };
+    graphql(dir, &format!("mutation($id:ID!,$c:ReactionContent!){{{m}(input:{{subjectId:$id,content:$c}}){{clientMutationId}}}}"), &[("id", subject), ("c", content)])
+}
+
+/// The text of one of my comments ("IC_…"), comments on lines ("PRRC_…") or reviews ("PRR_…") changed.
+pub fn edit_comment(dir: &Path, id: &str, body: &str) -> Result<String, String> {
+    let (m, field) = if id.starts_with("PRRC_") {
+        ("updatePullRequestReviewComment", "pullRequestReviewCommentId")
+    } else if id.starts_with("PRR_") {
+        ("updatePullRequestReview", "pullRequestReviewId")
+    } else {
+        ("updateIssueComment", "id")
+    };
+    graphql(dir, &format!("mutation($id:ID!,$b:String!){{{m}(input:{{{field}:$id,body:$b}}){{clientMutationId}}}}"), &[("id", id), ("b", body)])
+}
+
+/// The command deleting one of my comments (on the pull request or on a line), asked first.
+pub fn delete_comment_args(id: &str) -> Vec<String> {
+    let m = if id.starts_with("PRRC_") { "deletePullRequestReviewComment" } else { "deleteIssueComment" };
+    args(&["api", "graphql", "-f", &format!("query=mutation($id:ID!){{{m}(input:{{id:$id}}){{clientMutationId}}}}"), "-f", &format!("id={id}")])
+}
+
+/// A file of the pull request marked as viewed (or not any more), like the box of GitHub.
+pub fn set_viewed(dir: &Path, pr_id: &str, path: &str, viewed: bool) -> Result<String, String> {
+    let m = if viewed { "markFileAsViewed" } else { "unmarkFileAsViewed" };
+    graphql(dir, &format!("mutation($id:ID!,$p:String!){{{m}(input:{{pullRequestId:$id,path:$p}}){{clientMutationId}}}}"), &[("id", pr_id), ("p", path)])
+}
+
+/// Labels of the repository and titles of its open milestones, to choose from.
+pub fn choices(dir: &Path) -> Result<(Vec<Label>, Vec<String>), String> {
+    let labels = serde_json::from_str(&gh(dir, &["label", "list", "--limit", "300", "--json", "name,color"])?).map_err(|e| e.to_string())?;
+    let milestones = gh(dir, &["api", "repos/{owner}/{repo}/milestones", "--jq", ".[].title"]).unwrap_or_default();
+    Ok((labels, milestones.lines().map(String::from).filter(|l| !l.is_empty()).collect()))
+}
+
+/// The log of a GitHub Actions job: its failed steps only, or all when none failed.
+pub fn job_log(dir: &Path, job: u64) -> Result<String, String> {
+    let j = job.to_string();
+    match gh(dir, &["run", "view", "--job", &j, "--log-failed"]) {
+        Ok(out) if !out.trim().is_empty() => Ok(out),
+        _ => gh(dir, &["run", "view", "--job", &j, "--log"]),
+    }
 }
 
 /// A part of a comment: text (Markdown) or a suggested replacement of the commented lines.
@@ -587,8 +935,47 @@ mod tests {
             {"isResolved":false,"isOutdated":false,"path":"a.py","line":12,"startLine":10,"originalLine":12,
              "comments":{"nodes":[{"id":"C1","author":{"login":"bob"},"body":"hm","createdAt":"2026","diffHunk":"@@","url":"u"}]}},
             {"isResolved":true,"isOutdated":true,"path":"b.py","line":null,"startLine":null,"originalLine":3,"comments":{"nodes":[]}}]}}}}}"#;
-        let t = parse_threads(out);
+        let t = parse_threads(&serde_json::from_str(out).unwrap());
         assert_eq!(t.len(), 1);
         assert_eq!((t[0].line, t[0].start_line, t[0].comments[0].author.as_str()), (Some(12), Some(10), "bob"));
+    }
+
+    #[test]
+    fn reactions() {
+        let g: Value = serde_json::from_str(r#"[{"content":"THUMBS_UP","viewerHasReacted":true,"reactors":{"totalCount":2}},{"content":"EYES","viewerHasReacted":false,"reactors":{"totalCount":0}}]"#).unwrap();
+        let mut r = parse_reactions(&g);
+        assert_eq!(r, vec![Reaction { content: "THUMBS_UP".into(), count: 2, mine: true }]);
+        toggle_reaction(&mut r, "THUMBS_UP", true);
+        assert_eq!(r[0].count, 2);
+        toggle_reaction(&mut r, "HEART", true);
+        toggle_reaction(&mut r, "THUMBS_UP", false);
+        assert_eq!(r.iter().map(|r| (r.content.as_str(), r.count, r.mine)).collect::<Vec<_>>(), [("THUMBS_UP", 1, false), ("HEART", 1, true)]);
+        toggle_reaction(&mut r, "HEART", false);
+        assert_eq!(r.len(), 1);
+        assert_eq!(emoji("ROCKET"), "🚀");
+    }
+
+    #[test]
+    fn checks() {
+        let rollup: Vec<Value> = serde_json::from_str(
+            r#"[{"__typename":"CheckRun","name":"lint","workflowName":"CI","status":"COMPLETED","conclusion":"SUCCESS","detailsUrl":"https://github.com/o/r/actions/runs/11/job/22"},
+                {"__typename":"CheckRun","name":"tests","workflowName":"CI","status":"COMPLETED","conclusion":"FAILURE","detailsUrl":"https://github.com/o/r/actions/runs/11/job/33?pr=1"},
+                {"__typename":"CheckRun","name":"build","status":"IN_PROGRESS","conclusion":""},
+                {"__typename":"StatusContext","context":"ci/runbot","state":"SUCCESS","targetUrl":"https://runbot.odoo.com/x","description":"ok"}]"#,
+        )
+        .unwrap();
+        let c = parse_checks(&rollup);
+        assert_eq!(c.iter().map(|c| (c.name.as_str(), c.state)).collect::<Vec<_>>(), [("tests", CheckState::Fail), ("build", CheckState::Pending), ("ci/runbot", CheckState::Pass), ("lint", CheckState::Pass)]);
+        assert_eq!(c[0].job(), Some((11, 33)));
+        assert_eq!(c[2].job(), None);
+        assert_eq!(c[2].description, "ok");
+    }
+
+    #[test]
+    fn command_args() {
+        assert_eq!(merge_args(5, "squash", true), ["pr", "merge", "5", "--squash", "--delete-branch"]);
+        assert_eq!(review_args(5, "approve", ""), ["pr", "review", "5", "--approve"]);
+        assert_eq!(review_args(5, "request-changes", "non"), ["pr", "review", "5", "--request-changes", "--body", "non"]);
+        assert_eq!(pr_args("ready", 5, &["--undo"]), ["pr", "ready", "5", "--undo"]);
     }
 }

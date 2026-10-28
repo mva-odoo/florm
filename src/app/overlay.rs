@@ -804,7 +804,7 @@ impl App {
                 )
             }
             Confirm::DropStash(_, what) => (t!("Supprimer le stash", "Delete the stash"), tf!("Supprimer définitivement « {what} » ?\nSes changements seront perdus.", "Delete “{what}” for good?\nIts changes will be lost.")),
-            Confirm::Git { title, msg, .. } => (title.as_str(), msg.clone()),
+            Confirm::Git { title, msg, .. } | Confirm::Gh { title, msg, .. } => (title.as_str(), msg.clone()),
             Confirm::ReplaceInFiles => {
                 let n = self.search.hit_count();
                 (
@@ -826,7 +826,7 @@ impl App {
                 ui.painter().rect_filled(screen, 0.0, Color32::from_black_alpha(90));
             });
         // what loses something (or cannot be undone) is not chosen by Entrée alone
-        let careful = matches!(c, Confirm::Delete(_) | Confirm::DropStash(..) | Confirm::DiffOp { .. } | Confirm::ReplaceInFiles | Confirm::Overwrite(_) | Confirm::Git { .. });
+        let careful = matches!(c, Confirm::Delete(_) | Confirm::DropStash(..) | Confirm::DiffOp { .. } | Confirm::ReplaceInFiles | Confirm::Overwrite(_) | Confirm::Git { .. } | Confirm::Gh { .. });
         egui::Window::new(title)
             .collapsible(false)
             .resizable(false)
@@ -848,6 +848,7 @@ impl App {
                         Confirm::DiffOp { .. } => (t!("Oui, annuler le changement", "Yes, undo the change"), None),
                         Confirm::DropStash(..) => (t!("Supprimer", "Delete"), None),
                         Confirm::Git { yes, alt, .. } => (yes.as_str(), alt.as_ref().map(|(l, _)| l.as_str())),
+                        Confirm::Gh { yes, .. } => (yes.as_str(), None),
                         Confirm::Overwrite(_) => (t!("Écraser avec ma version", "Overwrite with mine"), Some(t!("Recharger la version du disque", "Reload the version on disk"))),
                     };
                     let r = ui.button(yes);
@@ -891,6 +892,7 @@ impl App {
                     self.git_seq_at(repo, &label, cmds);
                 }
             }
+            (Confirm::Gh { label, repo, cmds, n, .. }, 1) => self.pr_job(label, Some(n), None, move || crate::github::run_all(&repo, &cmds)),
             (Confirm::CloseTab(uid), 1 | 2) => {
                 if let Some(i) = self.docs.iter().position(|d| d.uid == uid) {
                     if choice == 2 || self.save(i) {

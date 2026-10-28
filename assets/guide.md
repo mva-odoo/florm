@@ -284,6 +284,22 @@ avec `gh auth login` (connexion par le navigateur). Sans `gh`, la vue explique c
 - **Commits** : un clic montre les changements de ce commit seul ; **Fichiers** : tout le
   diff de la PR, les conversations **sous les lignes commentées** comme sur GitHub (répondre,
   résoudre, appliquer une suggestion), et **double-clic sur une ligne** pour la commenter.
+- Une case avant chaque fichier le marque **vu** : il se replie et GitHub s'en souvient pour
+  ta revue (« 3/10 vu(s) » en haut).
+- En haut de la conversation : les **checks** (ceux en échec toujours visibles, un clic pour
+  tous ; **Logs** ouvre le log d'un job GitHub Actions dans un onglet, **↻ Relancer les
+  échecs**), puis si la PR peut être fusionnée (conflits, en retard, approbations ou checks
+  manquants) et les boutons : **Fusionner** (commit de fusion, squash ou rebase, supprimer la
+  branche), **⟳ Mettre à jour la branche** (merge ou rebase de la base), **Prête pour la
+  revue** / **Repasser en brouillon**, **Fermer** / **Rouvrir**. Fusionner, fermer et rebaser
+  demandent confirmation.
+- Sous le message : **✔ Approuver** ou **✖ Demander des changements** (le message dit quoi).
+- À droite : relecteurs, assignés (`me` pour toi), étiquettes et jalon, à ajouter ou retirer.
+- **✏** à côté du titre : changer le titre, la description ou la branche de base.
+- Sous chaque message, ses **réactions** (un clic donne ou retire la tienne, 🙂 pour en
+  ajouter) ; tes commentaires ont **✏** (modifier) et **🗑** (supprimer).
+- Clic droit sur une PR de la liste (ou **⋯** dans l'en-tête) : ouvrir, ouvrir sur GitHub,
+  checkout, copier le lien ou le numéro.
 
 ## Claude
 

@@ -1,6 +1,7 @@
 //! Pull requests of GitHub (through `gh`): list, description and conversation, commits, diff,
 //! comments on lines (read, answered, resolved, written from the diff) with their suggestions
-//! applied in the files, and shown in the editor.
+//! applied in the files, and shown in the editor; checks, reviews, merge, reviewers and labels,
+//! reactions, files viewed.
 
 use super::*;
 use crate::github::{self, Part};
@@ -14,6 +15,12 @@ const DRAFT_PR: &str = "pr";
 const DRAFT_LINE: &str = "line";
 /// Key of the kept remarks of the AI review, published together.
 const DRAFT_AI: &str = "ai";
+/// Keys of the title / description being changed, and of the comment being changed.
+const DRAFT_HEAD: &str = "head";
+const DRAFT_EDIT: &str = "edit";
+
+/// `gh pr merge` methods and their labels.
+const MERGE_METHODS: [(&str, &str, &str); 3] = [("merge", "Commit de fusion", "Merge commit"), ("squash", "Squash", "Squash"), ("rebase", "Rebase", "Rebase")];
 
 #[derive(Default, Clone, Copy, PartialEq)]
 pub(super) enum PrSection {
@@ -79,6 +86,21 @@ pub(super) struct PrUi {
     busy: bool,
     /// AI review of the selected pull request: remarks proposed, published only when asked.
     pub(super) ai: ai_review::AiReview,
+    /// Title, description and base being changed (✏ of the header).
+    head_edit: Option<(String, String, String)>,
+    /// Comment being changed: its id and its new text.
+    editing: Option<(String, String)>,
+    /// Labels and milestones of the repository, read once.
+    choices: Option<(Vec<github::Label>, Vec<String>)>,
+    choices_asked: bool,
+    /// Logins being typed to add a reviewer, an assignee.
+    new_reviewer: String,
+    new_assignee: String,
+    /// Index in `MERGE_METHODS`, and the branch deleted once merged.
+    merge_method: usize,
+    delete_branch: bool,
+    /// All the checks shown (else only those that fail).
+    all_checks: bool,
 }
 
 impl PrUi {
@@ -109,6 +131,21 @@ enum PrAct {
     /// Publish the kept remarks of the AI review.
     AiPublish,
     Ai(ai_review::NoteAct),
+    /// `gh` commands on the pull request, then read again; `draft`: the draft they send.
+    Gh { label: String, cmds: Vec<Vec<String>>, draft: Option<String> },
+    /// Same, asked first: it cannot be undone.
+    Ask { title: String, msg: String, yes: String, label: String, cmds: Vec<Vec<String>> },
+    React { id: String, content: String, add: bool },
+    /// Save the text of the comment being changed.
+    SaveComment,
+    DeleteComment(String),
+    /// Save the title, description and base being changed.
+    SaveHead,
+    Viewed(String, bool),
+    /// The log of a GitHub Actions job (name of the check, job).
+    Log(String, u64),
+    /// Something copied, said in the status bar.
+    Copied(String),
 }
 
 impl App {
@@ -152,6 +189,8 @@ impl App {
             self.pr.notes.clear();
             self.pr.branch = None;
             self.pr.ai = Default::default();
+            self.pr.choices = None;
+            self.pr.choices_asked = false;
             // its branch comes with the status of the repositories
             self.git_refresh();
         }
@@ -171,10 +210,36 @@ impl App {
             self.pr.applied.clear();
             self.pr.shifts.clear();
             self.pr.ai = Default::default();
+            self.pr.head_edit = None;
+            self.pr.editing = None;
         }
         self.pr.selected = Some(n);
         self.pr.detail_loading = true;
+        if !self.pr.choices_asked {
+            self.pr.choices_asked = true;
+            let repo = repo.clone();
+            self.jobs.spawn(move || JobResult::PrChoices(repo.clone(), github::choices(&repo)));
+        }
         self.jobs.spawn(move || JobResult::PrDetail(repo.clone(), n, github::detail(&repo, n)));
+    }
+
+    pub(super) fn pr_choices_loaded(&mut self, repo: PathBuf, r: Result<(Vec<github::Label>, Vec<String>), String>) {
+        if self.pr.repo.as_ref() == Some(&repo) {
+            self.pr.choices = Some(r.unwrap_or_else(|e| {
+                self.log(e);
+                Default::default()
+            }));
+        }
+    }
+
+    pub(super) fn pr_log_loaded(&mut self, name: String, r: Result<String, String>) {
+        match r {
+            Ok(text) => self.new_scratch(tf!("Log : {name}", "Log: {name}"), text, "Plain Text", true),
+            Err(e) => {
+                self.log(e.clone());
+                self.set_error(tf!("Log de {name} : échec — {}", "Log of {name}: failed — {}", e.lines().next().unwrap_or("")));
+            }
+        }
     }
 
     pub(super) fn pr_list_loaded(&mut self, repo: PathBuf, r: Result<Vec<github::PrSummary>, String>) {
@@ -190,7 +255,19 @@ impl App {
         }
         self.pr.detail_loading = false;
         if let Ok(d) = &r {
+            let fresh = self.pr.files.diff.is_none();
             self.pr.files.set(d.diff.clone());
+            // the files viewed folded, like on GitHub
+            if let (true, Some(diff)) = (fresh, &self.pr.files.diff) {
+                self.pr.files.collapsed.extend(diff.files.iter().filter(|f| d.viewed.contains(&f.path)).map(|f| f.start));
+            }
+            // the list follows what changed (merged, closed, ready, approved…)
+            if let Some(Ok(list)) = &mut self.pr.list {
+                if let Some(s) = list.iter_mut().find(|s| s.number == d.number) {
+                    (s.state, s.is_draft, s.title) = (d.state.clone(), d.is_draft, d.title.clone());
+                    s.review_decision = Some(d.review_decision.clone()).filter(|x| !x.is_empty());
+                }
+            }
         }
         self.pr.detail = Some(r);
         self.pr_update_notes();
@@ -219,6 +296,12 @@ impl App {
                     }
                     if k == DRAFT_AI {
                         self.pr.ai.notes.retain(|n| !n.keep);
+                    }
+                    if k == DRAFT_HEAD {
+                        self.pr.head_edit = None;
+                    }
+                    if k == DRAFT_EDIT {
+                        self.pr.editing = None;
                     }
                 }
                 if let Some(n) = reload.filter(|n| self.pr.selected == Some(*n)) {
@@ -363,9 +446,11 @@ impl App {
             egui::ScrollArea::vertical().id_salt("pr_list_scroll").auto_shrink([false, false]).show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 for pr in shown {
-                    if pr_row(ui, pr, p.selected == Some(pr.number), accent).clicked() {
+                    let r = pr_row(ui, pr, p.selected == Some(pr.number), accent);
+                    if r.clicked() {
                         act = Some(PrAct::Select(pr.number));
                     }
+                    r.context_menu(|ui| quick_menu(ui, pr.number, &pr.url, true, &mut act));
                 }
             });
         };
@@ -407,13 +492,36 @@ impl App {
                     Some(Ok(d)) => d,
                 };
                 // header
-                ui.horizontal(|ui| {
-                    ui.add(egui::Label::new(RichText::new(&d.title).size(17.0).strong()).truncate());
-                    ui.label(RichText::new(format!("#{}", d.number)).size(17.0).weak());
-                    if p.detail_loading {
-                        spinner(ui);
-                    }
-                });
+                let mut cancel_edit = false;
+                if let Some((title, body, base)) = &mut p.head_edit {
+                    ui.add(egui::TextEdit::singleline(title).font(egui::FontId::proportional(16.0)).desired_width(f32::INFINITY));
+                    ui.horizontal(|ui| {
+                        ui.label(t!("Branche de base :", "Base branch:"));
+                        ui.add(egui::TextEdit::singleline(base).desired_width(180.0));
+                    });
+                    ui.add(egui::TextEdit::multiline(body).hint_text(t!("Description (Markdown)", "Description (Markdown)")).desired_rows(6).desired_width(f32::INFINITY));
+                    ui.horizontal(|ui| {
+                        if ui.add_enabled(!p.busy && !title.trim().is_empty(), filled_button(t!("Enregistrer", "Save"), accent)).clicked() {
+                            act = Some(PrAct::SaveHead);
+                        }
+                        cancel_edit = ui.button(t!("Annuler", "Cancel")).clicked();
+                    });
+                    ui.add_space(4.0);
+                } else {
+                    ui.horizontal(|ui| {
+                        ui.add(egui::Label::new(RichText::new(&d.title).size(17.0).strong()).truncate());
+                        ui.label(RichText::new(format!("#{}", d.number)).size(17.0).weak());
+                        if ui.small_button("✏").on_hover_text(t!("Modifier le titre, la description ou la branche de base", "Edit the title, the description or the base branch")).clicked() {
+                            p.head_edit = Some((d.title.clone(), d.body.clone(), d.base.clone()));
+                        }
+                        if p.detail_loading {
+                            spinner(ui);
+                        }
+                    });
+                }
+                if cancel_edit {
+                    p.head_edit = None;
+                }
                 ui.horizontal(|ui| {
                     let (label, color) = state_badge(&d.state, d.is_draft);
                     badge(ui, label, color);
@@ -424,6 +532,7 @@ impl App {
                     ui.label(RichText::new(&d.base).monospace().color(accent));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         maximize::button(ui, view, "detail");
+                        ui.menu_button("⋯", |ui| quick_menu(ui, d.number, &d.url, false, &mut act));
                         if ui.button("⟳").on_hover_text(t!("Recharger la pull request", "Reload the pull request")).clicked() {
                             act = Some(PrAct::Select(d.number));
                         }
@@ -461,13 +570,42 @@ impl App {
                 ui.separator();
                 match p.section {
                     PrSection::Conversation => {
+                        // reviewers, assignees, labels, milestone on the right, like on GitHub
+                        egui::SidePanel::right("pr_side").resizable(true).default_width(230.0).width_range(170.0..=420.0).show_inside(ui, |ui| {
+                            egui::ScrollArea::vertical().id_salt("pr_side_scroll").auto_shrink([false, false]).show(ui, |ui| {
+                                side_info(ui, d, &mut p.new_reviewer, &mut p.new_assignee, p.choices.as_ref(), p.busy, &mut act);
+                            });
+                        });
                         // like the chatter of Odoo: write on top, then everything that happened, newest first
                         egui::ScrollArea::vertical().id_salt("pr_conv").auto_shrink([false, false]).show(ui, |ui| {
                             ui.set_max_width(ui.available_width().min(1000.0));
                             ui.add_space(4.0);
+                            merge_box(ui, d, &mut p.merge_method, &mut p.delete_branch, &mut p.all_checks, p.busy, accent, &mut act);
                             let draft = p.drafts.entry(DRAFT_PR.into()).or_default();
                             if composer(ui, draft, t!("Envoyer un message sur la pull request…", "Send a message on the pull request…"), t!("Envoyer", "Send"), p.busy, accent) {
                                 act = Some(PrAct::Send(DRAFT_PR.into()));
+                            }
+                            // a review: GitHub does not let one approve their own pull request
+                            if d.state == "OPEN" && !d.viewer.is_empty() && d.viewer != d.author {
+                                ui.horizontal(|ui| {
+                                    let text = draft.trim().to_string();
+                                    let review = |event: &str, label: &str| PrAct::Gh { label: label.into(), cmds: vec![github::review_args(d.number, event, &text)], draft: Some(DRAFT_PR.into()) };
+                                    if ui
+                                        .add_enabled(!p.busy, egui::Button::new(RichText::new(t!("✔ Approuver", "✔ Approve")).color(ok())))
+                                        .on_hover_text(t!("Approuver la PR, avec le message écrit au-dessus s'il y en a un", "Approve the PR, with the message written above if there is one"))
+                                        .clicked()
+                                    {
+                                        act = Some(review("approve", t!("Approbation", "Approval")));
+                                    }
+                                    if ui
+                                        .add_enabled(!p.busy && !text.is_empty(), egui::Button::new(RichText::new(t!("✖ Demander des changements", "✖ Request changes")).color(err())))
+                                        .on_hover_text(t!("Le message écrit au-dessus dit ce qu'il faut changer", "The message written above says what to change"))
+                                        .on_disabled_hover_text(t!("Écris d'abord au-dessus ce qu'il faut changer", "First write above what to change"))
+                                        .clicked()
+                                    {
+                                        act = Some(review("request-changes", t!("Changements demandés", "Changes requested")));
+                                    }
+                                });
                             }
                             let resolved = d.threads.len() - open_threads;
                             if resolved > 0 {
@@ -487,6 +625,7 @@ impl App {
                                             } else {
                                                 egui_commonmark::CommonMarkViewer::new().show(ui, cache, &d.body);
                                             }
+                                            ui.horizontal_wrapped(|ui| reactions_row(ui, &d.id, &d.reactions, p.busy, &mut act));
                                         });
                                     }
                                     Event::Comment(k) => {
@@ -501,7 +640,10 @@ impl App {
                                             tracking(ui, &c.author.login, &date, t, color);
                                         } else {
                                             comment_block(ui, &c.author.login, &date, review, |ui| {
-                                                egui_commonmark::CommonMarkViewer::new().show(ui, cache, &c.body);
+                                                let tools = CommentTools { id: &c.id, body: &c.body, mine: c.mine, deletable: !c.is_review(), reactions: &c.reactions, busy: p.busy, accent };
+                                                comment_body(ui, cache, tools, &mut p.editing, &mut act, |ui, cache, _| {
+                                                    egui_commonmark::CommonMarkViewer::new().show(ui, cache, &c.body);
+                                                });
                                             });
                                         }
                                     }
@@ -513,7 +655,7 @@ impl App {
                                             ui.add_space(34.0);
                                             ui.vertical(|ui| {
                                                 let draft = p.drafts.entry(t.id.clone()).or_default();
-                                                thread_ui(ui, t, cache, &p.applied, &p.shifts, checked_out, p.busy, draft, accent, false, &mut act);
+                                                thread_ui(ui, t, cache, &p.applied, &p.shifts, checked_out, p.busy, draft, &mut p.editing, accent, false, &mut act);
                                             });
                                         });
                                     }
@@ -565,7 +707,7 @@ impl App {
                                 ui.label(RichText::new(&sha[..sha.len().min(8)]).monospace().color(accent));
                                 ui.label(RichText::new(headline).strong());
                             });
-                            if let Some(DiffClick::File(i, _) | DiffClick::Line(i) | DiffClick::Hunk(i, _)) = diff_area(ui, "pr_commit", &mut p.commit_diff, &d.threads, None) {
+                            if let Some(DiffClick::File(i, _) | DiffClick::Line(i) | DiffClick::Hunk(i, _)) = diff_area(ui, "pr_commit", &mut p.commit_diff, &d.threads, None, None, &mut act) {
                                 if let Some(diff) = &p.commit_diff.diff {
                                     if let Some(path) = history::file_at(&diff.text, i) {
                                         act = Some(PrAct::Open(path, history::target_line(&diff.lines, i)));
@@ -577,6 +719,11 @@ impl App {
                     PrSection::Files => {
                         ui.horizontal(|ui| {
                             ui.label(RichText::new(t!("Double-clic sur une ligne pour la commenter", "Double-click a line to comment on it")).small().weak());
+                            if let Some(diff) = &p.files.diff {
+                                let seen = diff.files.iter().filter(|f| d.viewed.contains(&f.path)).count();
+                                ui.label(RichText::new(tf!("· {seen}/{} vu(s)", "· {seen}/{} viewed", diff.files.len())).small().weak())
+                                    .on_hover_text(t!("Coche un fichier à gauche quand tu l'as relu : il se replie et GitHub s'en souvient", "Tick a file on the left once you read it: it folds and GitHub remembers it"));
+                            }
                             let resolved = d.threads.iter().filter(|t| t.resolved).count();
                             if resolved > 0 {
                                 ui.checkbox(&mut p.show_resolved, RichText::new(tf!("afficher les {resolved} conversation(s) résolue(s)", "show the {resolved} resolved conversation(s)")).small());
@@ -608,22 +755,27 @@ impl App {
                         }
                         let new_at = p.new_line.as_ref().map(|n| n.3);
                         let lines: HashSet<usize> = at.keys().chain(ai_at.keys()).copied().chain(new_at).collect();
-                        let (drafts, applied, shifts, new_line, ai_notes) = (&mut p.drafts, &p.applied, &p.shifts, &mut p.new_line, &mut p.ai.notes);
+                        let (drafts, applied, shifts, new_line, ai_notes, editing) = (&mut p.drafts, &p.applied, &p.shifts, &mut p.new_line, &mut p.ai.notes, &mut p.editing);
+                        let mut line_act = None;
                         let mut show = |ui: &mut egui::Ui, i: usize| {
                             for &k in at.get(&i).map_or(&[][..], |v| &v[..]) {
                                 let t = &d.threads[k];
                                 let draft = drafts.entry(t.id.clone()).or_default();
-                                thread_ui(ui, t, cache, applied, shifts, checked_out, busy, draft, accent, true, &mut act);
+                                thread_ui(ui, t, cache, applied, shifts, checked_out, busy, draft, editing, accent, true, &mut line_act);
                             }
                             for &k in ai_at.get(&i).map_or(&[][..], |v| &v[..]) {
                                 ai_review::note_card(ui, cache, k, &mut ai_notes[k], true, accent, &mut ai_act);
                             }
                             if new_at == Some(i) {
-                                line_composer(ui, drafts.entry(DRAFT_LINE.into()).or_default(), new_line, busy, accent, &mut act);
+                                line_composer(ui, drafts.entry(DRAFT_LINE.into()).or_default(), new_line, busy, accent, &mut line_act);
                             }
                         };
                         let notes = history::Notes { at: &lines, show: &mut show };
-                        match diff_area(ui, "pr_files", &mut p.files, &d.threads, Some(notes)) {
+                        let clicked = diff_area(ui, "pr_files", &mut p.files, &d.threads, Some(notes), Some(&d.viewed), &mut act);
+                        if line_act.is_some() {
+                            act = line_act;
+                        }
+                        match clicked {
                             Some(DiffClick::Line(i)) => {
                                 if let Some(diff) = &p.files.diff {
                                     if let (Some(path), Some(l)) = (history::file_at(&diff.text, i), diff.lines.get(i)) {
@@ -745,11 +897,72 @@ impl App {
                     self.pr_open_file(&path, line);
                 }
             }
+            Some(PrAct::Gh { label, cmds, draft }) => self.pr_job(label, Some(n), draft, move || github::run_all(&repo, &cmds)),
+            Some(PrAct::Ask { title, msg, yes, label, cmds }) => self.confirm = Some(Confirm::Gh { title, msg, yes, label, repo, cmds, n }),
+            Some(PrAct::React { id, content, add }) => {
+                // shown at once, GitHub follows
+                if let Some(Ok(d)) = &mut self.pr.detail {
+                    if let Some(r) = d.reactions_mut(&id) {
+                        github::toggle_reaction(r, &content, add);
+                    }
+                }
+                self.pr_job(t!("Réaction", "Reaction").into(), None, None, move || github::react(&repo, &id, &content, add));
+            }
+            Some(PrAct::SaveComment) => {
+                let Some((id, body)) = self.pr.editing.clone() else { return };
+                self.pr_job(t!("Commentaire modifié", "Comment edited").into(), Some(n), Some(DRAFT_EDIT.into()), move || github::edit_comment(&repo, &id, body.trim()));
+            }
+            Some(PrAct::DeleteComment(id)) => {
+                self.confirm = Some(Confirm::Gh {
+                    title: t!("Supprimer le commentaire", "Delete the comment").into(),
+                    msg: t!("Supprimer ce commentaire sur GitHub ? Il ne pourra pas être récupéré.", "Delete this comment on GitHub? It cannot be brought back.").into(),
+                    yes: t!("Supprimer", "Delete").into(),
+                    label: t!("Commentaire supprimé", "Comment deleted").into(),
+                    repo,
+                    cmds: vec![github::delete_comment_args(&id)],
+                    n,
+                });
+            }
+            Some(PrAct::SaveHead) => {
+                let (Some(Ok(d)), Some((title, body, base))) = (&self.pr.detail, &self.pr.head_edit) else { return };
+                let mut more: Vec<&str> = Vec::new();
+                let (title, base) = (title.trim(), base.trim());
+                if title != d.title {
+                    more.extend(["--title", title]);
+                }
+                if *body != d.body {
+                    more.extend(["--body", body]);
+                }
+                if !base.is_empty() && base != d.base {
+                    more.extend(["--base", base]);
+                }
+                if more.is_empty() {
+                    self.pr.head_edit = None;
+                    return;
+                }
+                let cmds = vec![github::pr_args("edit", n, &more)];
+                self.pr_job(t!("Pull request modifiée", "Pull request edited").into(), Some(n), Some(DRAFT_HEAD.into()), move || github::run_all(&repo, &cmds));
+            }
+            Some(PrAct::Viewed(path, yes)) => {
+                let Some(Ok(d)) = &mut self.pr.detail else { return };
+                if yes {
+                    d.viewed.insert(path.clone());
+                } else {
+                    d.viewed.remove(&path);
+                }
+                let id = d.id.clone();
+                self.pr_job(t!("Fichier vu", "File viewed").into(), None, None, move || github::set_viewed(&repo, &id, &path, yes));
+            }
+            Some(PrAct::Log(name, job)) => {
+                self.set_status(tf!("Log de {name}…", "Log of {name}…"));
+                self.jobs.spawn(move || JobResult::PrLog(name, github::job_log(&repo, job)));
+            }
+            Some(PrAct::Copied(what)) => self.set_status(tf!("Copié : {what}", "Copied: {what}")),
             None => {}
         }
     }
 
-    fn pr_job(&mut self, label: String, reload: Option<u64>, draft: Option<String>, f: impl FnOnce() -> Result<String, String> + Send + 'static) {
+    pub(super) fn pr_job(&mut self, label: String, reload: Option<u64>, draft: Option<String>, f: impl FnOnce() -> Result<String, String> + Send + 'static) {
         self.pr.busy = true;
         self.jobs.spawn(move || JobResult::PrOp { label, result: f(), reload, draft });
     }
@@ -841,7 +1054,8 @@ fn line_composer(ui: &mut egui::Ui, draft: &mut String, new_line: &mut Option<(S
 }
 
 /// Files on the left (with their comments to deal with), every diff one under the other on the right.
-fn diff_area(ui: &mut egui::Ui, id: &str, pd: &mut PrDiff, threads: &[github::Thread], notes: Option<history::Notes>) -> Option<DiffClick> {
+/// `viewed`: the files I marked as viewed, with a box to tick before each (whole pull request only).
+fn diff_area(ui: &mut egui::Ui, id: &str, pd: &mut PrDiff, threads: &[github::Thread], notes: Option<history::Notes>, viewed: Option<&HashSet<String>>, act: &mut Option<PrAct>) -> Option<DiffClick> {
     let Some(diff) = &pd.diff else {
         if pd.loading {
             spinner(ui);
@@ -854,7 +1068,26 @@ fn diff_area(ui: &mut egui::Ui, id: &str, pd: &mut PrDiff, threads: &[github::Th
             for (k, f) in diff.files.iter().enumerate() {
                 let n = threads.iter().filter(|t| !t.resolved && t.path == f.path).count();
                 let label = if n > 0 { format!("{}  💬{n}", f.path) } else { f.path.clone() };
-                if super::git_view::file_row(ui, f.status, &label, Some((Some(f.adds as u32), Some(f.dels as u32)))).clicked() {
+                let row = |ui: &mut egui::Ui| super::git_view::file_row(ui, f.status, &label, Some((Some(f.adds as u32), Some(f.dels as u32))));
+                let clicked = match viewed {
+                    Some(v) => {
+                        ui.horizontal(|ui| {
+                            let mut seen = v.contains(&f.path);
+                            if ui.checkbox(&mut seen, "").on_hover_text(t!("Vu : le fichier se replie et GitHub s'en souvient pour ta revue", "Viewed: the file folds and GitHub remembers it for your review")).changed() {
+                                *act = Some(PrAct::Viewed(f.path.clone(), seen));
+                                if seen {
+                                    pd.collapsed.insert(f.start);
+                                } else {
+                                    pd.collapsed.remove(&f.start);
+                                }
+                            }
+                            row(ui).clicked()
+                        })
+                        .inner
+                    }
+                    None => row(ui).clicked(),
+                };
+                if clicked {
                     pd.collapsed.remove(&f.start);
                     pd.jump = Some(history::FileJump::To(k));
                 }
@@ -869,6 +1102,378 @@ fn diff_area(ui: &mut egui::Ui, id: &str, pd: &mut PrDiff, threads: &[github::Th
             history::stacked_diff_view(ui, &diff.lines, &diff.files, &mut pd.collapsed, id, &[], file_buttons, jump, notes)
         })
         .inner
+}
+
+/// Open, open on GitHub, checkout, copy the address or the number: menu of a pull request.
+fn quick_menu(ui: &mut egui::Ui, n: u64, url: &str, in_list: bool, act: &mut Option<PrAct>) {
+    let mut pick = |a: PrAct, ui: &mut egui::Ui| {
+        *act = Some(a);
+        ui.close_menu();
+    };
+    if in_list && ui.button(t!("Ouvrir", "Open")).clicked() {
+        pick(PrAct::Select(n), ui);
+    }
+    if ui.button(t!("Ouvrir sur GitHub", "Open on GitHub")).clicked() {
+        pick(PrAct::Web(n), ui);
+    }
+    if ui.button("⤵ Checkout").clicked() {
+        pick(PrAct::Checkout(n), ui);
+    }
+    ui.separator();
+    if !url.is_empty() && ui.button(t!("Copier le lien", "Copy the link")).clicked() {
+        ui.ctx().copy_text(url.to_string());
+        pick(PrAct::Copied(url.to_string()), ui);
+    }
+    if ui.button(tf!("Copier le numéro (#{n})", "Copy the number (#{n})")).clicked() {
+        ui.ctx().copy_text(format!("#{n}"));
+        pick(PrAct::Copied(format!("#{n}")), ui);
+    }
+}
+
+/// On top of the conversation: the checks, whether it can be merged, and the buttons to merge,
+/// update the branch, close, reopen, or move between draft and ready.
+#[allow(clippy::too_many_arguments)]
+fn merge_box(ui: &mut egui::Ui, d: &github::PrDetail, method: &mut usize, delete_branch: &mut bool, all_checks: &mut bool, busy: bool, accent: Color32, act: &mut Option<PrAct>) {
+    use github::CheckState;
+    let v = ui.visuals().clone();
+    let n = d.number;
+    let gh = |label: &str, more: &[&str], verb: &str| PrAct::Gh { label: label.into(), cmds: vec![github::pr_args(verb, n, more)], draft: None };
+    egui::Frame::none()
+        .stroke(egui::Stroke::new(1.0_f32, v.widgets.noninteractive.bg_stroke.color))
+        .rounding(8.0)
+        .inner_margin(egui::Margin::same(10.0))
+        .outer_margin(egui::Margin { bottom: 8.0, ..Default::default() })
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            // the checks of the last commit
+            if !d.checks.is_empty() {
+                let count = |s: CheckState| d.checks.iter().filter(|c| c.state == s).count();
+                let (fail, pending, pass) = (count(CheckState::Fail), count(CheckState::Pending), count(CheckState::Pass));
+                let (icon, color) = if fail > 0 { ("✖", err()) } else if pending > 0 { ("◌", warn()) } else { ("✔", ok()) };
+                let mut parts = Vec::new();
+                if fail > 0 {
+                    parts.push(tf!("{fail} en échec", "{fail} failing"));
+                }
+                if pending > 0 {
+                    parts.push(tf!("{pending} en cours", "{pending} running"));
+                }
+                if pass > 0 {
+                    parts.push(tf!("{pass} réussi(s)", "{pass} passed"));
+                }
+                ui.horizontal(|ui| {
+                    let arrow = if *all_checks { "⏷" } else { "⏵" };
+                    if ui.add(egui::Label::new(RichText::new(format!("{arrow} {icon} Checks · {}", parts.join(" · "))).strong().color(color)).sense(Sense::click())).on_hover_text(t!("Voir tous les checks", "Show all the checks")).clicked() {
+                        *all_checks = !*all_checks;
+                    }
+                    // the GitHub Actions runs with a failed job
+                    let mut runs: Vec<u64> = d.checks.iter().filter(|c| c.state == CheckState::Fail).filter_map(|c| c.job()).map(|(r, _)| r).collect();
+                    runs.sort();
+                    runs.dedup();
+                    if !runs.is_empty()
+                        && ui
+                            .add_enabled(!busy, egui::Button::new(t!("↻ Relancer les échecs", "↻ Rerun the failed ones")).small())
+                            .on_hover_text(t!("gh run rerun --failed : relance les jobs GitHub Actions en échec", "gh run rerun --failed: runs the failed GitHub Actions jobs again"))
+                            .clicked()
+                    {
+                        let cmds = runs.iter().map(|r| ["run", "rerun", &r.to_string(), "--failed"].iter().map(|s| s.to_string()).collect()).collect();
+                        *act = Some(PrAct::Gh { label: t!("Checks relancés", "Checks rerun").into(), cmds, draft: None });
+                    }
+                });
+                for c in d.checks.iter().filter(|c| *all_checks || c.state == CheckState::Fail) {
+                    ui.horizontal(|ui| {
+                        ui.add_space(14.0);
+                        let (icon, color) = match c.state {
+                            CheckState::Fail => ("✖", err()),
+                            CheckState::Pending => ("◌", warn()),
+                            CheckState::Pass => ("✔", ok()),
+                            CheckState::Skip => ("–", Color32::GRAY),
+                        };
+                        ui.label(RichText::new(icon).color(color));
+                        let name = if c.workflow.is_empty() { c.name.clone() } else { format!("{} / {}", c.workflow, c.name) };
+                        ui.label(RichText::new(&name).small());
+                        if !c.description.is_empty() {
+                            ui.label(RichText::new(&c.description).small().weak());
+                        }
+                        if let Some((_, job)) = c.job() {
+                            if ui.small_button("Logs").on_hover_text(t!("Ouvrir le log dans un onglet (les étapes en échec seulement s'il y en a)", "Open the log in a tab (only the failed steps if any)")).clicked() {
+                                *act = Some(PrAct::Log(name.clone(), job));
+                            }
+                        }
+                        if !c.url.is_empty() && ui.small_button("↗").on_hover_text(t!("Ouvrir les détails dans le navigateur", "Open the details in the browser")).clicked() {
+                            ui.ctx().open_url(egui::OpenUrl::new_tab(&c.url));
+                        }
+                    });
+                }
+                ui.add_space(4.0);
+            }
+            // can it be merged
+            let base = &d.base;
+            let purple = Color32::from_rgb(0x8a, 0x5c, 0xd8);
+            let (state, color) = match (d.state.as_str(), d.merge_state.as_str(), d.mergeable.as_str()) {
+                ("MERGED", ..) => (t!("Fusionnée", "Merged").to_string(), purple),
+                ("CLOSED", ..) => (t!("Fermée sans être fusionnée", "Closed without being merged").to_string(), err()),
+                (_, _, "CONFLICTING") | (_, "DIRTY", _) => (tf!("✖ Conflits avec {base} : à résoudre avant de fusionner", "✖ Conflicts with {base}: to resolve before merging"), err()),
+                (_, "DRAFT", _) => (t!("Brouillon : pas encore prête pour la revue", "Draft: not ready for review yet").to_string(), Color32::GRAY),
+                (_, "BEHIND", _) => (tf!("En retard sur {base} : mets la branche à jour", "Behind {base}: update the branch"), warn()),
+                (_, "BLOCKED", _) => (t!("Bloquée : il manque des approbations ou des checks requis", "Blocked: approvals or required checks are missing").to_string(), warn()),
+                (_, "UNSTABLE", _) => (t!("Fusionnable, mais des checks ne passent pas", "Can be merged, but some checks fail").to_string(), warn()),
+                (_, "CLEAN" | "HAS_HOOKS", _) => (t!("✔ Prête à fusionner", "✔ Ready to merge").to_string(), ok()),
+                _ => (t!("GitHub vérifie encore si elle peut être fusionnée… (⟳ pour relire)", "GitHub is still checking whether it can be merged… (⟳ to read again)").to_string(), v.weak_text_color()),
+            };
+            ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new(state).strong().color(color));
+                let review = match d.review_decision.as_str() {
+                    "APPROVED" => Some((t!("· ✔ approuvée", "· ✔ approved"), ok())),
+                    "CHANGES_REQUESTED" => Some((t!("· ✖ changements demandés", "· ✖ changes requested"), err())),
+                    "REVIEW_REQUIRED" => Some((t!("· revue requise", "· review required"), warn())),
+                    _ => None,
+                };
+                if let (Some((t, c)), "OPEN") = (review, d.state.as_str()) {
+                    ui.label(RichText::new(t).color(c));
+                }
+            });
+            match d.state.as_str() {
+                "OPEN" => {
+                    ui.add_space(4.0);
+                    ui.horizontal_wrapped(|ui| {
+                        if d.is_draft {
+                            if ui.add_enabled(!busy, filled_button(t!("Prête pour la revue", "Ready for review"), accent)).on_hover_text("gh pr ready").clicked() {
+                                *act = Some(gh(t!("Prête pour la revue", "Ready for review"), &[], "ready"));
+                            }
+                        } else {
+                            let (m, fr, en) = MERGE_METHODS[*method];
+                            let conflicts = d.mergeable == "CONFLICTING";
+                            if ui.add_enabled(!busy && !conflicts, filled_button(t!("Fusionner", "Merge"), accent)).on_hover_text(format!("gh pr merge --{m}")).clicked() {
+                                let gone = if *delete_branch { tf!("\nLa branche {} sera supprimée.", "\nThe branch {} will be deleted.", d.head) } else { String::new() };
+                                *act = Some(PrAct::Ask {
+                                    title: t!("Fusionner la pull request", "Merge the pull request").into(),
+                                    msg: tf!("Fusionner #{n} « {} » dans {base} ({}) ?{gone}", "Merge #{n} “{}” into {base} ({})?{gone}", d.title, t!(fr, en)),
+                                    yes: t!("Fusionner", "Merge").into(),
+                                    label: tf!("Fusion de la PR #{n}", "Merge of PR #{n}"),
+                                    cmds: vec![github::merge_args(n, m, *delete_branch)],
+                                });
+                            }
+                            egui::ComboBox::from_id_salt("pr_merge_method").selected_text(t!(fr, en)).show_ui(ui, |ui| {
+                                for (k, (_, fr, en)) in MERGE_METHODS.iter().enumerate() {
+                                    ui.selectable_value(method, k, t!(*fr, *en));
+                                }
+                            });
+                            ui.checkbox(delete_branch, t!("supprimer la branche", "delete the branch"));
+                        }
+                        ui.menu_button(t!("⟳ Mettre à jour la branche", "⟳ Update the branch"), |ui| {
+                            if ui.button(tf!("Fusionner {base} dedans", "Merge {base} into it")).on_hover_text("gh pr update-branch").clicked() {
+                                *act = Some(gh(t!("Branche mise à jour", "Branch updated"), &[], "update-branch"));
+                                ui.close_menu();
+                            }
+                            if ui.button(tf!("Rebaser sur {base}", "Rebase onto {base}")).on_hover_text("gh pr update-branch --rebase").clicked() {
+                                *act = Some(PrAct::Ask {
+                                    title: t!("Rebaser la branche", "Rebase the branch").into(),
+                                    msg: tf!("Rejouer les commits de {} par-dessus {base} sur GitHub ?\nLa branche est réécrite : fais un pull --rebase (ou un nouveau checkout) ensuite.", "Replay the commits of {} on top of {base} on GitHub?\nThe branch is rewritten: pull --rebase (or checkout again) afterwards.", d.head),
+                                    yes: t!("Rebaser", "Rebase").into(),
+                                    label: t!("Branche rebasée", "Branch rebased").into(),
+                                    cmds: vec![github::pr_args("update-branch", n, &["--rebase"])],
+                                });
+                                ui.close_menu();
+                            }
+                        });
+                        if !d.is_draft && ui.add_enabled(!busy, egui::Button::new(t!("Repasser en brouillon", "Back to draft"))).on_hover_text("gh pr ready --undo").clicked() {
+                            *act = Some(gh(t!("Repassée en brouillon", "Back to draft"), &["--undo"], "ready"));
+                        }
+                        if ui.add_enabled(!busy, egui::Button::new(RichText::new(t!("Fermer", "Close")).color(err()))).clicked() {
+                            *act = Some(PrAct::Ask {
+                                title: t!("Fermer la pull request", "Close the pull request").into(),
+                                msg: tf!("Fermer #{n} « {} » sans la fusionner ? Elle pourra être rouverte.", "Close #{n} “{}” without merging it? It can be reopened.", d.title),
+                                yes: t!("Fermer", "Close").into(),
+                                label: tf!("PR #{n} fermée", "PR #{n} closed"),
+                                cmds: vec![github::pr_args("close", n, &[])],
+                            });
+                        }
+                    });
+                }
+                "CLOSED" => {
+                    if ui.add_enabled(!busy, egui::Button::new(t!("Rouvrir", "Reopen"))).clicked() {
+                        *act = Some(gh(t!("PR rouverte", "PR reopened"), &[], "reopen"));
+                    }
+                }
+                _ => {}
+            }
+        });
+}
+
+/// Reviewers, assignees, labels and milestone, each with what changes them.
+#[allow(clippy::too_many_arguments)]
+fn side_info(ui: &mut egui::Ui, d: &github::PrDetail, new_reviewer: &mut String, new_assignee: &mut String, choices: Option<&(Vec<github::Label>, Vec<String>)>, busy: bool, act: &mut Option<PrAct>) {
+    let n = d.number;
+    let edit = |label: String, more: &[&str]| PrAct::Gh { label, cmds: vec![github::pr_args("edit", n, more)], draft: None };
+    let title = |ui: &mut egui::Ui, text: &str| {
+        ui.add_space(8.0);
+        ui.label(RichText::new(text).small().strong().weak());
+    };
+    // a list of logins, ✖ to take one off, a field to add one
+    let mut people = |ui: &mut egui::Ui, list: &[String], new: &mut String, add: &str, remove: &str, hint: &str| {
+        if list.is_empty() {
+            ui.label(RichText::new(t!("Personne", "Nobody")).weak());
+        }
+        for who in list {
+            ui.horizontal(|ui| {
+                avatar(ui, who.rsplit('/').next().unwrap_or(who), 18.0);
+                ui.label(who);
+                if ui.add_enabled(!busy, egui::Button::new("✖").small().frame(false)).on_hover_text(t!("Retirer", "Remove")).clicked() {
+                    *act = Some(edit(tf!("{who} retiré(e)", "{who} removed"), &[remove, who]));
+                }
+            });
+        }
+        ui.horizontal(|ui| {
+            let r = ui.add(egui::TextEdit::singleline(new).hint_text(hint).desired_width(ui.available_width() - 30.0));
+            let enter = r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+            if (ui.add_enabled(!busy && !new.trim().is_empty(), egui::Button::new("+")).clicked() || enter) && !new.trim().is_empty() {
+                let who = new.trim().trim_start_matches('@').to_string();
+                let who = if who == "me" { "@me".to_string() } else { who };
+                *act = Some(edit(tf!("{who} ajouté(e)", "{who} added"), &[add, &who]));
+                new.clear();
+            }
+        });
+    };
+    title(ui, t!("RELECTEURS", "REVIEWERS"));
+    people(ui, &d.reviewers, new_reviewer, "--add-reviewer", "--remove-reviewer", t!("login ou org/équipe", "login or org/team"));
+    title(ui, t!("ASSIGNÉS", "ASSIGNEES"));
+    people(ui, &d.assignees, new_assignee, "--add-assignee", "--remove-assignee", t!("login (me : toi)", "login (me: you)"));
+
+    title(ui, t!("ÉTIQUETTES", "LABELS"));
+    ui.horizontal_wrapped(|ui| {
+        for l in &d.labels {
+            let c = hex_color(&l.color);
+            let bg = icons::mix(ui.visuals().panel_fill, c, 0.25);
+            let r = ui.add_enabled(!busy, egui::Button::new(RichText::new(format!("{} ✖", l.name)).small().color(ui.visuals().strong_text_color())).fill(bg).rounding(10.0));
+            if r.on_hover_text(t!("Retirer l'étiquette", "Remove the label")).clicked() {
+                *act = Some(edit(tf!("Étiquette « {} » retirée", "Label “{}” removed", l.name), &["--remove-label", &l.name]));
+            }
+        }
+        ui.menu_button("+", |ui| {
+            let Some((labels, _)) = choices else {
+                spinner(ui);
+                return;
+            };
+            egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
+                for l in labels.iter().filter(|l| !d.labels.iter().any(|x| x.name == l.name)) {
+                    if ui.button(RichText::new(format!("● {}", l.name)).color(hex_color(&l.color))).clicked() {
+                        *act = Some(edit(tf!("Étiquette « {} » ajoutée", "Label “{}” added", l.name), &["--add-label", &l.name]));
+                        ui.close_menu();
+                    }
+                }
+            });
+        });
+    });
+
+    title(ui, t!("JALON", "MILESTONE"));
+    ui.horizontal(|ui| {
+        let now = if d.milestone.is_empty() { RichText::new(t!("Aucun", "None")).weak() } else { RichText::new(&d.milestone) };
+        ui.menu_button(now, |ui| {
+            let Some((_, milestones)) = choices else {
+                spinner(ui);
+                return;
+            };
+            if !d.milestone.is_empty() && ui.button(t!("Aucun", "None")).clicked() {
+                *act = Some(edit(t!("Jalon retiré", "Milestone removed").into(), &["--remove-milestone"]));
+                ui.close_menu();
+            }
+            if milestones.is_empty() {
+                ui.label(RichText::new(t!("Pas de jalon ouvert dans ce dépôt", "No open milestone in this repository")).weak());
+            }
+            for m in milestones.iter().filter(|m| **m != d.milestone) {
+                if ui.button(m).clicked() {
+                    *act = Some(edit(tf!("Jalon : {m}", "Milestone: {m}"), &["--milestone", m]));
+                    ui.close_menu();
+                }
+            }
+        });
+    });
+}
+
+/// "d73a4a" → its color.
+fn hex_color(hex: &str) -> Color32 {
+    let c = |i: usize| hex.get(i..i + 2).and_then(|h| u8::from_str_radix(h, 16).ok()).unwrap_or(128);
+    Color32::from_rgb(c(0), c(2), c(4))
+}
+
+/// The reactions given (a click gives or takes back mine), then 🙂 to add one.
+fn reactions_row(ui: &mut egui::Ui, id: &str, reactions: &[github::Reaction], busy: bool, act: &mut Option<PrAct>) {
+    if id.is_empty() {
+        return;
+    }
+    for r in reactions {
+        let tip = if r.mine { t!("Retirer ta réaction", "Take back your reaction") } else { t!("Réagir pareil", "React the same") };
+        if ui.add_enabled(!busy, egui::Button::new(RichText::new(format!("{} {}", github::emoji(&r.content), r.count)).small()).selected(r.mine).rounding(10.0)).on_hover_text(tip).clicked() {
+            *act = Some(PrAct::React { id: id.into(), content: r.content.clone(), add: !r.mine });
+        }
+    }
+    ui.add_enabled_ui(!busy, |ui| {
+        ui.menu_button(RichText::new("🙂").small(), |ui| {
+            ui.horizontal(|ui| {
+                for (content, e) in github::REACTIONS {
+                    let mine = reactions.iter().any(|r| r.content == content && r.mine);
+                    if ui.add(egui::Button::new(e).selected(mine)).clicked() {
+                        *act = Some(PrAct::React { id: id.into(), content: content.into(), add: !mine });
+                        ui.close_menu();
+                    }
+                }
+            });
+        })
+        .response
+        .on_hover_text(t!("Ajouter une réaction", "Add a reaction"));
+    });
+}
+
+/// What a comment needs for its reactions and, when mine, to be changed or deleted.
+struct CommentTools<'a> {
+    id: &'a str,
+    body: &'a str,
+    mine: bool,
+    /// Reviews cannot be deleted, only changed.
+    deletable: bool,
+    reactions: &'a [github::Reaction],
+    busy: bool,
+    accent: Color32,
+}
+
+/// The body of a comment (`show`), or its editor while it is being changed; then its reactions
+/// and, for mine, ✏ / 🗑.
+fn comment_body(
+    ui: &mut egui::Ui,
+    cache: &mut egui_commonmark::CommonMarkCache,
+    c: CommentTools,
+    editing: &mut Option<(String, String)>,
+    act: &mut Option<PrAct>,
+    show: impl FnOnce(&mut egui::Ui, &mut egui_commonmark::CommonMarkCache, &mut Option<PrAct>),
+) {
+    if let Some((_, text)) = editing.as_mut().filter(|(id, _)| id == c.id) {
+        ui.add(egui::TextEdit::multiline(text).desired_rows(3).desired_width(f32::INFINITY));
+        let (save, cancel) = ui
+            .horizontal(|ui| {
+                let save = ui.add_enabled(!c.busy && !text.trim().is_empty(), filled_button(t!("Enregistrer", "Save"), c.accent)).clicked();
+                (save, ui.button(t!("Annuler", "Cancel")).clicked())
+            })
+            .inner;
+        if save {
+            *act = Some(PrAct::SaveComment);
+        }
+        if cancel {
+            *editing = None;
+        }
+        return;
+    }
+    show(ui, cache, act);
+    ui.horizontal_wrapped(|ui| {
+        reactions_row(ui, c.id, c.reactions, c.busy, act);
+        if c.mine && !c.id.is_empty() {
+            if ui.add_enabled(!c.busy, egui::Button::new("✏").small().frame(false)).on_hover_text(t!("Modifier ton commentaire", "Edit your comment")).clicked() {
+                *editing = Some((c.id.to_string(), c.body.to_string()));
+            }
+            if c.deletable && ui.add_enabled(!c.busy, egui::Button::new("🗑").small().frame(false)).on_hover_text(t!("Supprimer ton commentaire", "Delete your comment")).clicked() {
+                *act = Some(PrAct::DeleteComment(c.id.to_string()));
+            }
+        }
+    });
 }
 
 /// A pull request in the list: number and title, then author, branch, date and review state.
@@ -1112,6 +1717,7 @@ fn thread_ui(
     checked_out: bool,
     busy: bool,
     draft: &mut String,
+    editing: &mut Option<(String, String)>,
     accent: Color32,
     in_diff: bool,
     act: &mut Option<PrAct>,
@@ -1160,14 +1766,17 @@ fn thread_ui(
                 }
                 for c in &t.comments {
                     comment_block(ui, &c.author, &c.created_at, None, |ui| {
-                        for part in github::parts(&c.body) {
-                            match part {
-                                Part::Text(text) => {
-                                    egui_commonmark::CommonMarkViewer::new().show(ui, cache, &text);
+                        let tools = CommentTools { id: &c.id, body: &c.body, mine: c.mine, deletable: true, reactions: &c.reactions, busy, accent };
+                        comment_body(ui, cache, tools, editing, act, |ui, cache, act| {
+                            for part in github::parts(&c.body) {
+                                match part {
+                                    Part::Text(text) => {
+                                        egui_commonmark::CommonMarkViewer::new().show(ui, cache, &text);
+                                    }
+                                    Part::Suggestion(text) => suggestion_ui(ui, t, c, &text, start, line, applied, shifts, checked_out, accent, act),
                                 }
-                                Part::Suggestion(text) => suggestion_ui(ui, t, c, &text, start, line, applied, shifts, checked_out, accent, act),
                             }
-                        }
+                        });
                     });
                 }
                 ui.add_space(6.0);
@@ -1287,9 +1896,8 @@ mod tests {
             head_oid: String::new(),
             base: String::new(),
             commits: vec![commit("a", "2026-01-01T09:00:00Z", "me"), commit("b", "2026-01-01T09:30:00Z", "me"), commit("c", "2026-01-03T09:00:00Z", "me")],
-            comments: vec![github::Comment { author: github::Author { login: "bob".into() }, body: "ok".into(), created_at: "2026-01-02T08:00:00Z".into(), state: String::new() }],
-            threads: Vec::new(),
-            diff: String::new(),
+            comments: vec![github::Comment { author: github::Author { login: "bob".into() }, body: "ok".into(), created_at: "2026-01-02T08:00:00Z".into(), ..Default::default() }],
+            ..Default::default()
         };
         let t: Vec<Event> = timeline(&d, false).into_iter().map(|(_, e)| e).collect();
         assert_eq!(
@@ -1354,6 +1962,49 @@ mod render_check {
         }
         let t = texts(&shapes);
         assert!(t.contains("Deuxième"), "{t}");
+    }
+
+    #[test]
+    fn merge_box_and_side() {
+        let d = github::PrDetail {
+            id: "PR_1".into(),
+            number: 7,
+            title: "Fix".into(),
+            author: "bob".into(),
+            viewer: "me".into(),
+            state: "OPEN".into(),
+            base: "17.0".into(),
+            head: "17.0-fix".into(),
+            merge_state: "BEHIND".into(),
+            review_decision: "APPROVED".into(),
+            reviewers: vec!["alice".into()],
+            labels: vec![github::Label { name: "bug".into(), color: "d73a4a".into() }],
+            checks: vec![github::Check { name: "tests".into(), workflow: "CI".into(), state: github::CheckState::Fail, url: "https://github.com/o/r/actions/runs/1/job/2".into(), description: String::new() }],
+            ..Default::default()
+        };
+        let ctx = egui::Context::default();
+        let mut cache = egui_commonmark::CommonMarkCache::default();
+        let (mut method, mut delete, mut all, mut rev, mut asg, mut editing) = (0, false, false, String::new(), String::new(), None);
+        let mut shapes = Vec::new();
+        for _ in 0..3 {
+            let out = ctx.run(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 800.0))), ..Default::default() }, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    let mut act = None;
+                    merge_box(ui, &d, &mut method, &mut delete, &mut all, false, Color32::BLUE, &mut act);
+                    side_info(ui, &d, &mut rev, &mut asg, None, false, &mut act);
+                    let reactions = [github::Reaction { content: "HEART".into(), count: 3, mine: true }];
+                    let tools = CommentTools { id: "IC_1", body: "salut", mine: true, deletable: true, reactions: &reactions, busy: false, accent: Color32::BLUE };
+                    comment_body(ui, &mut cache, tools, &mut editing, &mut act, |ui, _, _| {
+                        ui.label("salut");
+                    });
+                });
+            });
+            shapes = out.shapes;
+        }
+        let t = texts(&shapes);
+        for want in ["Checks", "CI / tests", "Logs", "17.0", "alice", "bug ✖", "❤ 3", "🗑"] {
+            assert!(t.contains(want), "{want}: {t}");
+        }
     }
 
     #[test]

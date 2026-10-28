@@ -54,6 +54,10 @@ pub enum JobResult {
     PrCommitDiff(String, Result<String, String>),
     /// `gh pr checkout`, a comment sent…: the pull request to read again, the draft sent.
     PrOp { label: String, result: Result<String, String>, reload: Option<u64>, draft: Option<String> },
+    /// Labels and milestones of the repository of the pull requests.
+    PrChoices(PathBuf, Result<(Vec<crate::github::Label>, Vec<String>), String>),
+    /// Log of a check (its name).
+    PrLog(String, Result<String, String>),
     Analyzed {
         uid: u64,
         version: u64,

@@ -201,6 +201,8 @@ impl App {
                 JobResult::PrDetail(repo, n, r) => self.pr_detail_loaded(repo, n, r),
                 JobResult::PrCommitDiff(sha, r) => self.pr_commit_diff_loaded(sha, r),
                 JobResult::PrOp { label, result, reload, draft } => self.pr_op_done(label, result, reload, draft),
+                JobResult::PrChoices(repo, r) => self.pr_choices_loaded(repo, r),
+                JobResult::PrLog(name, r) => self.pr_log_loaded(name, r),
                 JobResult::History(repo, gen, r) => {
                     if self.history.repo.as_ref() == Some(&repo) && gen == self.history.gen {
                         self.history.loading = false;

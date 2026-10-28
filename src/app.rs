@@ -413,6 +413,8 @@ enum Confirm {
     /// git commands that lose something or rewrite what was pushed: run one after the other
     /// when confirmed; `alt`: a second choice (its button and its commands).
     Git { title: String, msg: String, yes: String, label: String, cmds: Vec<Vec<String>>, alt: Option<(String, Vec<Vec<String>>)> },
+    /// `gh` commands on pull request `n` that cannot be undone (merge, close, delete a comment).
+    Gh { title: String, msg: String, yes: String, label: String, repo: PathBuf, cmds: Vec<Vec<String>>, n: u64 },
 }
 
 /// Change to the files or the index requested from a diff.
