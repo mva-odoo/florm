@@ -43,6 +43,7 @@ mod claude_ui;
 mod claude_queue;
 mod claude_model;
 mod claude_turns;
+mod claude_tools;
 mod md_toolbar;
 mod claude_ask;
 mod theme_edit;
@@ -1894,6 +1895,7 @@ mod font_tests {
             include_str!("app/claude_ask.rs"),
             include_str!("app/claude_ui.rs"),
             include_str!("app/claude_turns.rs"),
+            include_str!("app/claude_tools.rs"),
             include_str!("app/theme_edit.rs"),
             include_str!("app/template_edit.rs"),
             include_str!("app/quick_fix.rs"),

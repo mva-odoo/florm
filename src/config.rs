@@ -45,6 +45,10 @@ pub struct Settings {
     pub claude_perms: Vec<String>,
     /// Most dollars a conversation may spend (0: no limit).
     pub claude_budget: f64,
+    /// Rules of Claude Code's permissions, allowed / refused besides `claude_perms`:
+    /// "Bash(git *)", "Edit(src/**)", "Read(./.env)", "WebFetch(domain:github.com)", "mcp__github"…
+    pub claude_allow: Vec<String>,
+    pub claude_deny: Vec<String>,
     /// Branch and upstream of git repositories on their folder in the tree.
     /// The toolbar of formatting buttons above a Markdown source (the source stays editable).
     pub markdown_toolbar: bool,
@@ -162,6 +166,8 @@ impl Default for Settings {
             claude_done_sound: "chime".into(),
             claude_perms: ["edit", "agents", "sandbox"].map(String::from).to_vec(),
             claude_budget: 0.0,
+            claude_allow: Vec::new(),
+            claude_deny: Vec::new(),
             markdown_toolbar: true,
             tree_git_info: true,
             inline_diff: false,
@@ -246,6 +252,10 @@ claude_review = true
 claude_perms = ["edit", "agents", "sandbox"]
 # dépense maximale d'une conversation en dollars (0 = sans limite)
 claude_budget = 0.0
+# règles de permission en plus des cases : autorisées et interdites, par ex. "Bash(git *)", "Edit(src/**)",
+# "Read(./.env)", "WebFetch(domain:github.com)", "mcp__github" (les outils d'un serveur MCP)
+claude_allow = []
+claude_deny = []
 # les icônes des vues (Préférences, Recherche, Terminal, Claude, Git…) dans la barre d'état plutôt que dans la barre latérale
 tools_in_status_bar = true
 # barre de mise en forme au-dessus du Markdown (le texte reste modifiable à la main)

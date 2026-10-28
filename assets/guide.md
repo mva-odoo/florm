@@ -272,6 +272,23 @@ panneau du bas (⇱ pour lui donner tout un onglet de l'éditeur, ⇲ pour l'y r
   réponse s'affiche au-dessus du champ et n'entre pas dans la conversation. **/status** : version,
   modèle, session, dossier. Celles de l'interface terminal seulement (`/doctor`…) s'ouvrent dans
   un terminal en bas.
+- **🔒 Permissions → Règles** : en plus des cases, des règles précises autorisées ou interdites,
+  comme dans `/permissions` de Claude Code : `Bash(git *)`, `Edit(src/**)`, `Read(./.env)`,
+  `WebFetch(domain:github.com)`, `mcp__github` (les outils d'un serveur MCP). Une règle qui
+  autorise une partie d'un outil non coché (`Bash(git *)` sans « Lancer des commandes ») autorise
+  cette partie. Un changement s'applique au prochain message, la conversation gardée.
+- **⋯** dans la barre : les **serveurs MCP** (état, ajouter une URL ou une commande, pour ce
+  projet, partagé dans `.mcp.json` ou pour tous tes projets, retirer), les **sous-agents**
+  (ouvrir, en créer un), les **hooks** des fichiers de réglages, la **mémoire** (CLAUDE.md) et
+  les **dossiers en plus** que Claude peut utiliser (`--add-dir`). Aussi en commandes :
+  **/mcp**, **/agents**, **/permissions**, **/memory**, **/add-dir chemin**.
+- **# au début d'un message** : la ligne n'est pas envoyée, elle est retenue dans le CLAUDE.md du
+  projet ou dans ta mémoire perso (`~/.claude/CLAUDE.md`), au choix.
+- **@ dans le champ** : les fichiers du projet qui correspondent à ce qui est tapé ; ↑ ↓ pour
+  choisir, **Tab** ou **Entrée** complète, et le fichier part avec le message.
+- **🌿** (worktree) : une nouvelle conversation sur une branche à elle, dans son propre dossier (un
+  worktree git), pour faire travailler plusieurs Claude en même temps sans qu'ils se gênent.
+  Chaque conversation a son onglet et continue de travailler même quand elle n'est pas affichée.
 - **Options ▾**, à côté de « + Contexte », regroupe ce qui part avec chaque message :
 - **Fichier ouvert et sélection** : Claude sait quel fichier tu édites et ce que tu as
   sélectionné.

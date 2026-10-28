@@ -268,6 +268,23 @@ command and your login: no key to set up.
   context. **/btw question** asks a question on the side, even while Claude is working: the
   answer shows above the field and does not enter the conversation. **/status**: version, model,
   session, folder. Those of the terminal interface only (`/doctor`…) open in a terminal below.
+- **🔒 Permissions → Rules**: besides the boxes, precise rules allowed or refused, as in Claude
+  Code's `/permissions`: `Bash(git *)`, `Edit(src/**)`, `Read(./.env)`,
+  `WebFetch(domain:github.com)`, `mcp__github` (the tools of an MCP server). A rule allowing a
+  part of a tool not checked (`Bash(git *)` without “Run commands”) allows that part. A change
+  applies from the next message, the conversation kept.
+- **⋯** in the bar: the **MCP servers** (state, add a URL or a command, for this project, shared
+  in `.mcp.json` or for all your projects, remove), the **subagents** (open, create one), the
+  **hooks** of the settings files, the **memory** (CLAUDE.md) and the **extra folders** Claude may
+  use (`--add-dir`). Also as commands: **/mcp**, **/agents**, **/permissions**, **/memory**,
+  **/add-dir path**.
+- **# at the start of a message**: the line is not sent, it is remembered in the CLAUDE.md of the
+  project or in your personal memory (`~/.claude/CLAUDE.md`), as you choose.
+- **@ in the field**: the files of the project matching what is typed; ↑ ↓ to choose, **Tab** or
+  **Enter** completes, and the file goes with the message.
+- **🌿** (worktree): a new conversation on a branch of its own, in its own folder (a git worktree),
+  to have several Claudes work at once without getting in each other's way. Each conversation has
+  its tab and keeps working even when it is not shown.
 - **Options ▾**, next to “+ Context”, groups what goes with each message:
 - **Open file and selection**: Claude knows which file you are editing and what you selected.
 - **Pasting**: a long pasted text (more than 6 lines or 500 characters) becomes a “Pasted text (N

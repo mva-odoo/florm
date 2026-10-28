@@ -96,23 +96,30 @@ pub fn mode_value(mode: usize) -> &'static str {
     }
 }
 
-/// Arguments of `claude` for mode `mode` (index in `MODES`), the permissions checked and the
-/// budget (0: none). Nothing is ever asked: what is not allowed is refused.
-pub fn permission_args(mode: usize, perms: &[String], budget: f64) -> Vec<String> {
+/// Arguments of `claude` for mode `mode` (index in `MODES`), the permissions checked, the rules
+/// of `/permissions` (`allow`, `deny`: `Bash(git *)`, `Edit(src/**)`, `mcp__github`…) and the
+/// budget (0: none). Nothing is ever asked: what is not allowed is refused. A rule allowing a
+/// part of a tool not checked (`Bash(git *)` without « Lancer des commandes ») allows that part.
+pub fn permission_args(mode: usize, perms: &[String], allow: &[String], deny: &[String], budget: f64) -> Vec<String> {
     let has = |p: &str| perms.iter().any(|x| x == p);
+    let ruled = |tool: &str| allow.iter().any(|r| r.starts_with(&format!("{tool}(")));
     let mut a: Vec<String> = vec!["--permission-prompts".into(), "none".into()];
+    let rules = |list: &mut Vec<String>, extra: &[String]| list.extend(extra.iter().map(|r| r.trim().to_string()).filter(|r| !r.is_empty()));
     match MODES.get(mode).map_or("custom", |m| m.0) {
         "custom" => {
-            let (mut allowed, mut denied, mut tools) = (vec!["Read", "Grep", "Glob"], Vec::<&str>::new(), vec!["Read", "Grep", "Glob"]);
+            let (mut allowed, mut denied, mut tools): (Vec<String>, Vec<String>, Vec<String>) = (vec!["Read".into(), "Grep".into(), "Glob".into()], Vec::new(), vec!["Read".into(), "Grep".into(), "Glob".into()]);
             for p in ["edit", "bash", "web", "agents"] {
                 let (names, current) = perm_tools(p);
                 if has(p) {
-                    allowed.extend(names);
-                    tools.extend(current);
+                    allowed.extend(names.iter().map(|n| n.to_string()));
+                    tools.extend(current.iter().map(|n| n.to_string()));
                 } else {
-                    denied.extend(names);
+                    denied.extend(names.iter().filter(|n| !ruled(n)).map(|n| n.to_string()));
+                    tools.extend(current.iter().filter(|n| ruled(n)).map(|n| n.to_string()));
                 }
             }
+            rules(&mut allowed, allow);
+            rules(&mut denied, deny);
             a.extend(["--permission-mode".into(), "dontAsk".into(), "--allowedTools".into(), allowed.join(",")]);
             if !denied.is_empty() {
                 a.extend(["--disallowedTools".into(), denied.join(",")]);
@@ -121,7 +128,18 @@ pub fn permission_args(mode: usize, perms: &[String], budget: f64) -> Vec<String
                 a.extend(["--restricted".into(), "--tools".into(), tools.join(",")]);
             }
         }
-        m => a.extend(["--permission-mode".into(), m.to_string()]),
+        m => {
+            a.extend(["--permission-mode".into(), m.to_string()]);
+            let (mut allowed, mut denied) = (Vec::new(), Vec::new());
+            rules(&mut allowed, allow);
+            rules(&mut denied, deny);
+            if !allowed.is_empty() {
+                a.extend(["--allowedTools".into(), allowed.join(",")]);
+            }
+            if !denied.is_empty() {
+                a.extend(["--disallowedTools".into(), denied.join(",")]);
+            }
+        }
     }
     if has("sandbox") {
         a.extend(["--settings".into(), r#"{"sandbox":{"enabled":true}}"#.into()]);
@@ -304,7 +322,8 @@ impl Session {
     /// `perms`: the arguments of `permission_args`.
     /// `resume`: the id of an earlier session to continue (its context is kept), and `at`: the
     /// message of it after which it goes on (a copy of it, what came after is left out).
-    pub fn start(dir: &Path, model: &str, perms: &[String], resume: Option<&str>, at: Option<&str>, repaint: impl Fn() + Send + 'static) -> Result<Session, String> {
+    /// `add_dirs`: folders Claude may use besides `dir`.
+    pub fn start(dir: &Path, model: &str, perms: &[String], resume: Option<&str>, at: Option<&str>, add_dirs: &[std::path::PathBuf], repaint: impl Fn() + Send + 'static) -> Result<Session, String> {
         let mut args = vec!["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages"];
         args.extend(perms.iter().map(String::as_str));
         if let Some(id) = resume {
@@ -312,6 +331,10 @@ impl Session {
             if let Some(at) = at {
                 args.extend(["--resume-session-at", at, "--fork-session"]);
             }
+        }
+        let dirs: Vec<String> = add_dirs.iter().map(|d| d.to_string_lossy().into_owned()).collect();
+        for d in &dirs {
+            args.extend(["--add-dir", d.as_str()]);
         }
         if !model.is_empty() {
             args.extend(["--model", model]);
@@ -395,6 +418,66 @@ impl Drop for Session {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
+    }
+}
+
+/// An MCP server known to Claude Code: its name, what it runs (command or URL), and its state
+/// (connected, failed, waiting for approval…).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Mcp {
+    pub name: String,
+    pub target: String,
+    pub status: String,
+}
+
+/// The MCP servers of `dir` (`claude mcp list`: it starts each one to check it, so it takes a
+/// few seconds).
+pub fn mcp_list(dir: &Path) -> Result<Vec<Mcp>, String> {
+    let out = crate::os::command("claude").args(["mcp", "list"]).current_dir(dir).output().map_err(|_| not_installed())?;
+    let text = String::from_utf8_lossy(&out.stdout).to_string();
+    if !out.status.success() && text.trim().is_empty() {
+        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+    }
+    Ok(parse_mcp_list(&text))
+}
+
+/// The lines `name: command or URL - status` of `claude mcp list`.
+fn parse_mcp_list(text: &str) -> Vec<Mcp> {
+    text.lines()
+        .filter_map(|l| {
+            let (name, rest) = l.split_once(": ")?;
+            let (target, status) = rest.rsplit_once(" - ")?;
+            let name = name.trim();
+            (!name.is_empty() && !name.contains(char::is_whitespace)).then(|| Mcp { name: name.into(), target: target.trim().into(), status: status.trim().into() })
+        })
+        .collect()
+}
+
+/// Adds the MCP server `name` to Claude Code: an URL (http) or a command with its arguments;
+/// `scope`: "local" (this project, for you), "project" (`.mcp.json`, shared) or "user" (all projects).
+pub fn mcp_add(dir: &Path, name: &str, target: &str, scope: &str) -> Result<(), String> {
+    let target = target.trim();
+    let mut args: Vec<&str> = vec!["mcp", "add", "--scope", scope];
+    if target.starts_with("http://") || target.starts_with("https://") {
+        args.extend(["--transport", "http", name, target]);
+    } else {
+        args.extend([name, "--"]);
+        args.extend(target.split_whitespace());
+    }
+    run_cli(dir, &args)
+}
+
+/// Removes the MCP server `name` from Claude Code.
+pub fn mcp_remove(dir: &Path, name: &str) -> Result<(), String> {
+    run_cli(dir, &["mcp", "remove", name])
+}
+
+fn run_cli(dir: &Path, args: &[&str]) -> Result<(), String> {
+    let out = crate::os::command("claude").args(args).current_dir(dir).output().map_err(|_| not_installed())?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(format!("{}{}", String::from_utf8_lossy(&out.stderr), String::from_utf8_lossy(&out.stdout)).trim().to_string())
     }
 }
 
@@ -834,18 +917,25 @@ mod tests {
     #[test]
     fn permissions() {
         let p = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        let a = permission_args(0, &p(&["edit", "sandbox"]), 0.0).join(" ");
+        let a = permission_args(0, &p(&["edit", "sandbox"]), &[], &[], 0.0).join(" ");
         assert!(a.contains("--permission-mode dontAsk"), "{a}");
         assert!(a.contains("--allowedTools Read,Grep,Glob,Edit,MultiEdit,Write,NotebookEdit"), "{a}");
         assert!(a.contains("--disallowedTools Bash,WebFetch,WebSearch,Agent,Task"), "{a}");
         assert!(a.contains(r#"--settings {"sandbox":{"enabled":true}}"#), "{a}");
         assert!(!a.contains("--restricted") && !a.contains("--max-budget-usd"), "{a}");
-        let a = permission_args(0, &p(&["edit", "bash", "web", "agents", "confine"]), 2.5).join(" ");
+        let a = permission_args(0, &p(&["edit", "bash", "web", "agents", "confine"]), &[], &[], 2.5).join(" ");
         assert!(!a.contains("--disallowedTools") && !a.contains("--settings"), "{a}");
         assert!(a.contains("--restricted --tools Read,Grep,Glob,Edit,Write,Bash,WebFetch,WebSearch,Agent"), "{a}");
         assert!(a.ends_with("--max-budget-usd 2.5"), "{a}");
-        assert_eq!(permission_args(1, &[], 0.0), p(&["--permission-prompts", "none", "--permission-mode", "plan"]));
-        assert!(permission_args(2, &p(&["sandbox"]), 0.0).join(" ").contains("bypassPermissions --settings"));
+        assert_eq!(permission_args(1, &[], &[], &[], 0.0), p(&["--permission-prompts", "none", "--permission-mode", "plan"]));
+        assert!(permission_args(2, &p(&["sandbox"]), &[], &[], 0.0).join(" ").contains("bypassPermissions --settings"));
+        // the rules: added to the lists; one allowing a part of a tool not checked lets that part in
+        let a = permission_args(0, &p(&["edit", "confine"]), &p(&["Bash(git *)", "mcp__github"]), &p(&["Read(./.env)"]), 0.0).join(" ");
+        assert!(a.contains("--allowedTools Read,Grep,Glob,Edit,MultiEdit,Write,NotebookEdit,Bash(git *),mcp__github"), "{a}");
+        assert!(a.contains("--disallowedTools WebFetch,WebSearch,Agent,Task,Read(./.env)"), "{a}");
+        assert!(a.contains("--tools Read,Grep,Glob,Edit,Write,Bash"), "{a}");
+        let a = permission_args(1, &[], &[], &p(&["Bash(rm *)"]), 0.0).join(" ");
+        assert!(a.ends_with("--permission-mode plan --disallowedTools Bash(rm *)"), "{a}");
         assert_eq!((mode_value(0), mode_value(1), mode_value(2)), ("dontAsk", "plan", "bypassPermissions"));
     }
 
@@ -882,6 +972,19 @@ mod tests {
         assert_eq!(parse_model_answer("MODELE: gpt", 2).unwrap(), None);
         // no MODELE line at all: an error with the answer
         assert!(parse_model_answer("désolé", 2).is_err());
+    }
+
+    #[test]
+    fn mcp_servers_are_listed() {
+        let text = "Checking MCP server health…\n\ngithub: npx -y @modelcontextprotocol/server-github - ✓ Connected\n\
+                    sentry: https://mcp.sentry.dev/mcp (HTTP) - ✗ Failed to connect\nNo MCP servers configured. Use `claude mcp add` to add a server.";
+        assert_eq!(
+            parse_mcp_list(text),
+            vec![
+                Mcp { name: "github".into(), target: "npx -y @modelcontextprotocol/server-github".into(), status: "✓ Connected".into() },
+                Mcp { name: "sentry".into(), target: "https://mcp.sentry.dev/mcp (HTTP)".into(), status: "✗ Failed to connect".into() },
+            ]
+        );
     }
 
     #[test]

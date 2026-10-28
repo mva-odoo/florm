@@ -20,6 +20,10 @@ pub enum JobResult {
     ClaudeModelCheck(u64, Result<Option<(usize, String)>, String>),
     /// The changes of one question of a Claude conversation (its message's index): a diff.
     ClaudeTurnDiff(u64, usize, Result<String, String>),
+    /// The MCP servers of a Claude conversation (true: asked by /mcp).
+    ClaudeMcp(u64, bool, Result<Vec<crate::claude::Mcp>, String>),
+    /// A worktree made for a new Claude conversation: its folder, its branch, the main repository.
+    ClaudeWorktree(Result<(std::path::PathBuf, String, std::path::PathBuf), String>),
     /// The changes not committed split by Claude into commits: the blocks, then each commit's
     /// message and blocks.
     CommitPlan(PathBuf, Result<(Vec<split::Block>, Vec<(String, Vec<usize>)>), String>),

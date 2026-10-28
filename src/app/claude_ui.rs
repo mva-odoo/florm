@@ -11,6 +11,7 @@ use history::{DiffAct, DiffClick};
 use super::claude_queue::{self, Queue, QueueAct, TaskState};
 use super::claude_model::{HoldAct, ModelHold};
 use super::claude_turns::{Checkpoint, Rewind, TurnDiff};
+use super::claude_tools::{ToolAct, ToolsUi, Worktree};
 
 /// Something given to Claude with the next message: lines of a file, a file / folder, or a text
 /// (the changes not committed, the problems of a file…).
@@ -175,6 +176,14 @@ pub(super) struct ClaudeUi {
     /// The model, the mode, the permissions… changed while Claude ran: the next message starts
     /// it again with them (`--resume`: the conversation goes on).
     pub(super) restart: bool,
+    /// Folders Claude may use besides its own (`--add-dir`).
+    pub(super) add_dirs: Vec<PathBuf>,
+    /// The worktree the conversation was started in (« 🌿 »).
+    pub(super) worktree: Option<Worktree>,
+    /// `#` at the start of a message: the note to remember, until where is chosen.
+    memory: Option<String>,
+    /// The fields and lists of the menus (⋯, rules, worktree, `@`).
+    pub(super) tools: ToolsUi,
 }
 
 /// What the height of a message depends on: its content, its place and the width.
@@ -216,6 +225,10 @@ pub(super) struct SavedConv {
     checkpoints: Vec<Checkpoint>,
     #[serde(default)]
     last_uuid: Option<String>,
+    #[serde(default)]
+    add_dirs: Vec<PathBuf>,
+    #[serde(default)]
+    worktree: Option<Worktree>,
 }
 
 /// The options of the messages: what goes with each one, and the questions and model checks.
@@ -300,6 +313,11 @@ fn command_hint(name: &str) -> &'static str {
         "review" | "code-review" => t!("Relire les changements", "Review the changes"),
         "security-review" => t!("Relire la sécurité des changements", "Review the security of the changes"),
         "rewind" => t!("Revenir avant le dernier message (fichiers et conversation) ; ↶ sur un message pour un autre", "Go back to before the last message (files and conversation); ↶ on a message for another one"),
+        "mcp" => t!("Les serveurs MCP et leur état (⋯ pour en ajouter)", "The MCP servers and their state (⋯ to add one)"),
+        "agents" => t!("Les sous-agents du projet et les tiens (⋯ pour en créer)", "The subagents of the project and yours (⋯ to create one)"),
+        "permissions" => t!("Les permissions et les règles (🔒 pour les changer)", "The permissions and the rules (🔒 to change them)"),
+        "memory" => t!("Ouvrir le CLAUDE.md du projet (# au début d'un message y ajoute une ligne)", "Open the CLAUDE.md of the project (# at the start of a message adds a line to it)"),
+        "add-dir" => t!("/add-dir chemin : Claude peut aussi utiliser ce dossier", "/add-dir path: Claude may also use this folder"),
         _ => "",
     }
 }
@@ -309,7 +327,7 @@ fn command_hint(name: &str) -> &'static str {
 fn command_list(known: &Commands) -> Vec<(String, String)> {
     let usual = ["clear", "compact", "context", "init", "model", "usage"].map(String::from);
     let message: &[String] = if known.message.is_empty() { &usual } else { &known.message };
-    let mut list: Vec<(String, String)> = ["btw", "status", "rewind"].iter().map(|n| (n.to_string(), command_hint(n).to_string())).collect();
+    let mut list: Vec<(String, String)> = ["btw", "status", "rewind", "mcp", "agents", "permissions", "memory", "add-dir"].iter().map(|n| (n.to_string(), command_hint(n).to_string())).collect();
     for n in message {
         if !list.iter().any(|(m, _)| m == n) {
             list.push((n.clone(), command_hint(n).to_string()));
@@ -579,6 +597,12 @@ impl App {
     /// being written, or, when `later`, waits in the queue until the answer is done.
     fn claude_send(&mut self, later: bool) {
         let text = self.claude.input.trim().to_string();
+        // « # note »: to remember (CLAUDE.md), not a message
+        if let Some(note) = text.strip_prefix('#').filter(|n| !n.starts_with('#') && !n.trim().is_empty()) {
+            self.claude.memory = Some(note.trim().to_string());
+            self.claude.input.clear();
+            return;
+        }
         if let Some(clear) = text.starts_with('/').then(|| self.claude_command(&text)).flatten() {
             if clear {
                 self.claude.input.clear();
@@ -662,6 +686,47 @@ impl App {
                 }
                 Some(true)
             }
+            "mcp" => {
+                let id = c.id;
+                self.claude.side = Some(("/mcp".into(), None));
+                self.claude.tools.mcp_busy = true;
+                self.jobs.spawn(move || JobResult::ClaudeMcp(id, true, claude::mcp_list(&dir)));
+                Some(true)
+            }
+            "agents" => {
+                self.claude_tool_act(ToolAct::ReadLists);
+                let list: String = self.claude.tools.agents.iter().map(|(n, d, p)| format!("- **{n}** — {d} — `{}`\n", p.display())).collect();
+                let text = if list.is_empty() { t!("Aucun sous-agent. Pour en créer un : ⋯ → Agents.", "No subagent. To create one: ⋯ → Agents.").to_string() } else { list };
+                self.claude.side = Some(("/agents".into(), Some(Ok(text))));
+                Some(true)
+            }
+            "permissions" => {
+                let line = |k: &str, v: &str| format!("- **{k}** : {v}\n");
+                let none = t!("aucune", "none");
+                let join = |l: &[String]| if l.is_empty() { none.to_string() } else { l.iter().map(|r| format!("`{r}`")).collect::<Vec<_>>().join(", ") };
+                let mut s = line(t!("Mode", "Mode"), claude::label(claude::MODES[c.mode].1));
+                s += &line(t!("Cases", "Boxes"), &self.settings.claude_perms.join(", "));
+                s += &line(t!("Règles autorisées", "Allowed rules"), &join(&self.settings.claude_allow));
+                s += &line(t!("Règles interdites", "Refused rules"), &join(&self.settings.claude_deny));
+                s += t!("\nPour les changer : 🔒 Permissions → Règles.", "\nTo change them: 🔒 Permissions → Rules.");
+                self.claude.side = Some(("/permissions".into(), Some(Ok(s))));
+                Some(true)
+            }
+            "memory" => {
+                self.claude_open_file(dir.join("CLAUDE.md"), "");
+                Some(true)
+            }
+            "add-dir" => {
+                let p = PathBuf::from(rest);
+                let p = if p.is_absolute() { p } else { dir.join(p) };
+                if rest.is_empty() || !p.is_dir() {
+                    self.set_status(t!("/add-dir suivi d'un dossier qui existe", "/add-dir followed by a folder that exists"));
+                    return Some(false);
+                }
+                self.claude_tool_act(ToolAct::AddDir(p.clone()));
+                self.set_status(tf!("Claude peut aussi utiliser {} (dès le prochain message)", "Claude may also use {} (from the next message on)", p.display()));
+                Some(true)
+            }
             _ if self.claude_commands.terminal.iter().any(|t| t == name) => {
                 let ctx = self.egui_ctx.clone();
                 match self.term.open_command_panel(&ctx, &["claude".to_string(), text.to_string()], Some(dir)) {
@@ -712,6 +777,14 @@ impl App {
             self.claude.session = None;
             self.claude.restart = false;
         }
+        // the files cited with @ go with the message
+        if !command {
+            for p in super::claude_tools::mentioned_paths(&text, &dir) {
+                if !self.claude.attach.iter().any(|a| a.path == p && a.lines.is_none() && a.note.is_none()) {
+                    self.claude.attach.push(Attach { path: p, lines: None, note: None, image: None });
+                }
+            }
+        }
         // the review starts with the first message: everything changed since is Claude's
         if self.claude.review_index.is_none() && !command {
             self.claude_start_review();
@@ -746,14 +819,15 @@ impl App {
         }
         if self.claude.session.is_none() {
             let model = claude::MODELS[self.claude.model].0;
-            let perms = claude::permission_args(self.claude.mode, &self.settings.claude_perms, self.settings.claude_budget);
+            let s = &self.settings;
+            let perms = claude::permission_args(self.claude.mode, &s.claude_perms, &s.claude_allow, &s.claude_deny, s.claude_budget);
             let ctx = self.egui_ctx.clone();
             // a conversation of before (restart of Florm, process stopped): continued with its
             // context; after going back, from the message gone back to
             let resume = self.claude.session_id.clone();
             let at = self.claude.resume_at.clone().filter(|_| resume.is_some());
             self.claude.started = false;
-            match claude::Session::start(&dir, model, &perms, resume.as_deref(), at.as_deref(), move || ctx.request_repaint()) {
+            match claude::Session::start(&dir, model, &perms, resume.as_deref(), at.as_deref(), &self.claude.add_dirs, move || ctx.request_repaint()) {
                 Ok(s) => {
                     self.claude.session = Some(s);
                     self.claude.resume_at = None;
@@ -1316,9 +1390,23 @@ impl App {
             model: c.model,
             mode: c.mode,
             with_context: c.with_context,
+            add_dirs: c.add_dirs.clone(),
             focus: true,
             ..Default::default()
         }
+    }
+
+    /// A new conversation in `dir` (a worktree), in a new tab; the current one goes on in its place.
+    pub(super) fn claude_new_in(&mut self, dir: PathBuf) {
+        let uid = self.new_claude_tab("Claude".into());
+        let mut fresh = self.claude_fresh(Some(uid));
+        fresh.dir = Some(dir);
+        let old = std::mem::replace(&mut self.claude, fresh);
+        self.claude_others.push(old);
+        if self.bottom == Some(BottomTab::Claude) && !self.claude_has_bottom() {
+            self.bottom = None;
+        }
+        self.claude_prepare();
     }
 
     /// « Nouvelle conversation »: in a new tab, the current one goes on in its place.
@@ -1411,6 +1499,8 @@ impl App {
             options: Options { with_context: c.with_context, ask_first: c.ask_first, model_first: c.model_first, no_defs: c.no_defs },
             checkpoints: c.checkpoints.clone(),
             last_uuid: c.last_uuid.clone(),
+            add_dirs: c.add_dirs.clone(),
+            worktree: c.worktree.clone(),
         };
         self.claude.saved_key = key;
         self.claude_saved.retain(|s| s.key != key);
@@ -1436,6 +1526,8 @@ impl App {
         c.queue.settle();
         c.checkpoints = s.checkpoints.clone();
         c.last_uuid = s.last_uuid.clone();
+        c.add_dirs = s.add_dirs.clone();
+        c.worktree = s.worktree.clone();
         (c.with_context, c.ask_first, c.model_first, c.no_defs) = (s.options.with_context, s.options.ask_first, s.options.model_first, s.options.no_defs);
         c.items.push(Item::Info(t!("— conversation reprise : le prochain message continue avec son contexte —", "— conversation resumed: the next message goes on with its context —").into()));
         c
@@ -1572,8 +1664,17 @@ impl App {
         let (mut chosen_dir, mut move_to, mut ctx_add) = (None, None, None);
         let (mut queue_act, mut queued, mut read_commits) = (None, None, false);
         let mut answer: Option<String> = None;
-        let mut mode_cycle = false;
+        let (mut tool_act, mut mem_act, mut mode_cycle) = (None, None, false);
         let (mut fold, mut fold_all, mut turn_req, mut rewind, mut close_turn, mut turn_click) = (None, None, None, None, false, None);
+        // `@` being typed in the field: the files of the project matching it
+        let field_id = egui::Id::new("claude_input").with(self.claude.id).with("field");
+        let cursor = egui::TextEdit::load_state(&self.egui_ctx, field_id).and_then(|s| s.cursor.char_range()).map(|r| r.primary.index);
+        let mention = cursor.and_then(|k| super::claude_tools::mention_at(&self.claude.input, k));
+        if let (Some((_, q)), Some(root), Some(dir)) = (&mention, self.root.as_deref(), self.claude.dir.as_deref()) {
+            if self.claude.tools.mention.0.as_ref() != Some(q) {
+                self.claude.tools.mention = (Some(q.clone()), super::claude_tools::mention_matches(&self.index.files, root, dir, q));
+            }
+        }
         // the kept conversations: (key, title, folder and date)
         let history: Vec<(u64, String, String)> = self
             .claude_saved
@@ -1585,13 +1686,15 @@ impl App {
             .collect();
         let (mut open_saved, mut forget_saved) = (None, None);
         let (perms, budget, mut perms_changed) = (&mut self.settings.claude_perms, &mut self.settings.claude_budget, false);
+        let (allow, deny) = (&self.settings.claude_allow, &self.settings.claude_deny);
         let (mut show_review, was_shown) = (self.settings.claude_review, self.settings.claude_review);
         let limits = &self.claude_limits;
         let commands = command_list(&self.claude_commands);
         let c = &mut self.claude;
         let cache = &mut self.md_cache;
         // ids of their own: two conversations can be shown at once (bottom panel and a tab)
-        let cid = |name: &str| egui::Id::new(name).with(c.id);
+        let conv_id = c.id;
+        let cid = |name: &str| egui::Id::new(name).with(conv_id);
         let (bar_id, review_id, input_id, chat_id) = (cid("claude_bar"), cid("claude_review"), cid("claude_input"), cid("claude_chat"));
         let queue_id = cid("claude_queue");
         let conv = c.id;
@@ -1607,7 +1710,11 @@ impl App {
                     ui.add_enabled_ui(!running, |ui| {
                         let labels: Vec<String> = dirs.iter().map(|(_, l)| l.clone()).collect();
                         let current = dirs.iter().position(|(d, _)| c.dir.as_ref() == Some(d));
-                        if let Some(k) = crate::view_bar::repo_chip(ui, ("claude_dir", conv), &dir_name, &labels, current) {
+                        let name = match &c.worktree {
+                            Some(w) => format!("🌿 {}", w.branch),
+                            None => dir_name.clone(),
+                        };
+                        if let Some(k) = crate::view_bar::repo_chip(ui, ("claude_dir", conv), &name, &labels, current) {
                             chosen_dir = Some(dirs[k].0.clone());
                         }
                     })
@@ -1631,7 +1738,7 @@ impl App {
                     ui.menu_button(format!("🔒 Permissions ({n_perms})"), |ui| {
                         ui.set_min_width(330.0);
                         if running {
-                            ui.label(RichText::new(t!("S'applique à la prochaine conversation", "Applies to the next conversation")).small().color(warn()));
+                            ui.label(RichText::new(t!("S'applique au prochain message : Claude redémarre en gardant la conversation", "Applies from the next message: Claude starts again, the conversation kept")).small().color(warn()));
                         }
                         if c.mode != 0 {
                             ui.label(RichText::new(tf!("Mode « {} » : seules les deux dernières cases comptent", "“{}” mode: only the last two boxes count", claude::label(claude::MODES[c.mode].1))).small().weak());
@@ -1662,11 +1769,19 @@ impl App {
                             }
                             r.on_hover_text(t!("La conversation s'arrête au-delà (0 : sans limite)", "The conversation stops beyond it (0: no limit)"));
                         });
+                        ui.separator();
+                        if let Some(a) = super::claude_tools::rules_ui(ui, &mut c.tools, allow, deny) {
+                            tool_act = Some(a);
+                        }
                     })
                     .response
                     .on_hover_text(t!("Ce que Claude a le droit de faire", "What Claude is allowed to do"));
                     if ui.button(t!("Nouvelle conversation", "New conversation")).on_hover_text(t!("Dans un nouvel onglet : celle-ci continue dans le sien (l'onglet devient vert quand Claude a fini)", "In a new tab: this one goes on in its own (the tab turns green when Claude is done)")).clicked() {
                         new_conv = true;
+                    }
+                    let in_git = c.dir.as_ref().is_some_and(|d| d.join(".git").exists());
+                    if let Some(a) = super::claude_tools::worktree_menu(ui, &mut c.tools, in_git) {
+                        tool_act = Some(a);
                     }
                     ui.menu_button(tf!("Historique ({})", "History ({})", history.len()), |ui| {
                         ui.set_min_width(420.0);
@@ -1692,6 +1807,10 @@ impl App {
                     })
                     .response
                     .on_hover_text(t!("Les conversations d'avant, gardées entre les sessions", "The earlier conversations, kept between sessions"));
+                    let agents_on = perms.iter().any(|p| p == "agents");
+                    if let Some(a) = super::claude_tools::tools_menu(ui, c, allow, agents_on, &dirs) {
+                        tool_act = Some(a);
+                    }
                     if c.cost > 0.0 {
                         ui.label(RichText::new(format!("{:.2} $", c.cost)).weak().small()).on_hover_text(t!("Coût estimé de la conversation", "Estimated cost of the conversation"));
                     }
@@ -1923,6 +2042,24 @@ impl App {
                             }
                         });
                     }
+                    // « # note »: where to remember it
+                    if let Some(note) = &c.memory {
+                        egui::Frame::none().fill(icons::mix(fill, accent, 0.08)).rounding(6.0).inner_margin(8.0).show(ui, |ui| {
+                            ui.label(RichText::new(tf!("Retenir : « {note} »", "Remember: “{note}”")).strong());
+                            ui.label(RichText::new(t!("Une ligne ajoutée au CLAUDE.md, que Claude lit au début de chaque conversation.", "A line added to the CLAUDE.md, which Claude reads at the start of every conversation.")).small().weak());
+                            ui.horizontal(|ui| {
+                                if ui.button(t!("CLAUDE.md du projet", "CLAUDE.md of the project")).on_hover_text(t!("Pour ce projet, partagé avec ceux qui l'ont", "For this project, shared with whoever has it")).clicked() {
+                                    mem_act = Some(Some(false));
+                                }
+                                if ui.button(t!("Ma mémoire perso", "My personal memory")).on_hover_text(t!("~/.claude/CLAUDE.md : pour tous tes projets", "~/.claude/CLAUDE.md: for all your projects")).clicked() {
+                                    mem_act = Some(Some(true));
+                                }
+                                if ui.small_button(t!("Annuler (le texte revient dans le champ)", "Cancel (the text goes back to the field)")).clicked() {
+                                    mem_act = Some(None);
+                                }
+                            });
+                        });
+                    }
                     // the context is over 60 %: compact it, or start again, until closed
                     let mut hide_context = false;
                     if c.context_high && !c.context_hidden && !c.busy {
@@ -1978,7 +2115,6 @@ impl App {
                         c.side = None;
                     }
                     // a slash command being typed: the matching ones; Tab or a click completes it
-                    let field_id = input_id.with("field");
                     // Shift+Tab: the next mode, as in Claude Code
                     if ui.memory(|m| m.has_focus(field_id)) && ui.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, Key::Tab)) {
                         mode_cycle = true;
@@ -2010,6 +2146,41 @@ impl App {
                         }
                     }
                     let mut to_end = false;
+                    let mut cursor_to = None;
+                    // `@` being typed: the matching files of the project; Tab, Enter or a click completes it
+                    if let Some((start, typed)) = mention.as_ref().filter(|_| !c.tools.mention.1.is_empty()) {
+                        let matching = &c.tools.mention.1;
+                        let mut pick = None;
+                        let choice_id = field_id.with(("mention_choice", typed.clone()));
+                        let mut choice = ui.data(|d| d.get_temp::<usize>(choice_id)).unwrap_or(0).min(matching.len() - 1);
+                        if ui.memory(|m| m.has_focus(field_id)) {
+                            if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::ArrowDown)) {
+                                choice = (choice + 1) % matching.len();
+                            }
+                            if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::ArrowUp)) {
+                                choice = (choice + matching.len() - 1) % matching.len();
+                            }
+                            if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Tab)) || ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Enter)) {
+                                pick = Some(matching[choice].clone());
+                            }
+                        }
+                        ui.data_mut(|d| d.insert_temp(choice_id, choice));
+                        egui::Frame::none().fill(icons::mix(fill, accent, 0.05)).rounding(6.0).inner_margin(4.0).show(ui, |ui| {
+                            for (k, rel) in matching.iter().enumerate() {
+                                if ui.selectable_label(k == choice, format!("@{rel}")).on_hover_text(t!("↑ ↓ pour choisir, Tab ou Entrée : compléter. Le fichier part avec le message", "↑ ↓ to choose, Tab or Enter: complete. The file goes with the message")).clicked() {
+                                    pick = Some(rel.clone());
+                                }
+                            }
+                        });
+                        if let Some(rel) = pick {
+                            let chars: Vec<char> = c.input.chars().collect();
+                            let end = cursor.unwrap_or(chars.len()).min(chars.len());
+                            let inserted = format!("@{rel} ");
+                            c.input = chars[..*start].iter().collect::<String>() + &inserted + &chars[end..].iter().collect::<String>();
+                            cursor_to = Some(start + inserted.chars().count());
+                            c.focus = true;
+                        }
+                    }
                     if let Some(typed) = c.input.strip_prefix('/').filter(|t| !t.contains(char::is_whitespace)) {
                         let typed = typed.to_lowercase();
                         let first = commands.iter().filter(|(n, _)| n.starts_with(&typed));
@@ -2055,14 +2226,17 @@ impl App {
                     let resp = ui.add(
                         egui::TextEdit::multiline(&mut c.input)
                             .id(field_id)
-                            .hint_text(t!("Demande à Claude… (Ctrl+Entrée pour envoyer, / les commandes, Maj+Tab le mode)", "Ask Claude… (Ctrl+Enter to send, / commands, Shift+Tab the mode)"))
+                            .hint_text(t!("Demande à Claude… (Ctrl+Entrée pour envoyer, / les commandes, @ un fichier, # retenir, Maj+Tab le mode)", "Ask Claude… (Ctrl+Enter to send, / commands, @ a file, # remember, Shift+Tab the mode)"))
                             .desired_rows(rows)
                             .desired_width(f32::INFINITY)
                             .layouter(&mut layout_cutting),
                     );
                     if to_end {
+                        cursor_to = Some(c.input.chars().count());
+                    }
+                    if let Some(at) = cursor_to {
                         if let Some(mut st) = egui::TextEdit::load_state(ui.ctx(), resp.id) {
-                            let end = egui::text::CCursor::new(c.input.chars().count());
+                            let end = egui::text::CCursor::new(at);
                             st.cursor.set_char_range(Some(egui::text::CCursorRange::one(end)));
                             st.store(ui.ctx(), resp.id);
                         }
@@ -2450,6 +2624,22 @@ impl App {
             Some((k, Some(how))) => self.claude_rewind(k, how),
             None => {}
         }
+        if let Some(a) = tool_act {
+            self.claude_tool_act(a);
+        }
+        match mem_act {
+            Some(Some(personal)) => {
+                if let Some(note) = self.claude.memory.take() {
+                    self.claude_remember(note, personal);
+                }
+            }
+            Some(None) => {
+                if let Some(note) = self.claude.memory.take() {
+                    self.claude.input = format!("# {note}");
+                }
+            }
+            None => {}
+        }
         if mode_cycle {
             self.claude.mode = (self.claude.mode + 1) % claude::MODES.len();
             self.set_status(tf!("Mode : {}", "Mode: {}", claude::label(claude::MODES[self.claude.mode].1)));
@@ -2486,6 +2676,7 @@ impl App {
             let (p, b) = (config::toml_str_array(&self.settings.claude_perms), format!("{:?}", self.settings.claude_budget));
             self.persist("claude_perms", p);
             self.persist("claude_budget", b);
+            self.claude_restart_all();
         }
         if let Some(d) = chosen_dir {
             self.claude.dir = Some(d);
@@ -2683,6 +2874,8 @@ mod tests {
             options: Options { ask_first: true, ..Options::default() },
             checkpoints: vec![Checkpoint { item: 0, tree: Some("abc".into()), session: None, after: None }],
             last_uuid: Some("u".into()),
+            add_dirs: Vec::new(),
+            worktree: None,
         };
         let back: Vec<SavedConv> = serde_json::from_str(&serde_json::to_string(&vec![s]).unwrap()).unwrap();
         assert_eq!((back[0].key, back[0].session_id.as_deref(), back[0].items.len()), (7, Some("abc"), 3));
