@@ -1813,7 +1813,8 @@ impl Document {
     pub fn head_line(&self, l: usize) -> Option<usize> {
         let mut delta: isize = 0;
         for h in &self.hunks {
-            if h.new_end <= l && !(h.new_start == h.new_end && h.new_start == l) {
+            // lines deleted just above `l` count too: in HEAD, they came before it
+            if h.new_end <= l {
                 delta += h.new_lines.len() as isize - h.old_lines.len() as isize;
             } else if l >= h.new_start && l < h.new_end {
                 if h.old_lines.is_empty() {
@@ -2604,6 +2605,12 @@ mod tests {
         assert_eq!(d.head_line(1), Some(1)); // modified line: same place in HEAD
         assert_eq!(d.head_line(3), None); // added line
         assert_eq!(d.head_line(4), Some(3)); // shifted by the added line
+        // lines deleted just above: the line after them in HEAD, not the first deleted one
+        let mut del = doc("a\nd");
+        del.git_base = Some(base.into());
+        del.refresh_diff();
+        assert_eq!(del.head_line(0), Some(0));
+        assert_eq!(del.head_line(1), Some(3));
         d.revert_hunk(1);
         assert_eq!(d.rope.to_string(), "a\nB\nc\nd");
         d.revert_hunk(0);
