@@ -420,7 +420,7 @@ impl App {
                 pref_row(ui, rc, t!("Serveurs de langage (LSP)", "Language servers (LSP)"), t!("Complétion (Ctrl+Espace), aller à la définition (F12), renommer (F2). Serveurs détectés : pyright / pylsp, typescript-language-server, rust-analyzer, gopls, clangd.", "Completion (Ctrl+Space), go to definition (F12), rename (F2). Servers detected: pyright / pylsp, typescript-language-server, rust-analyzer, gopls, clangd."), |ui| {
                     toggle_switch(ui, &mut s.lsp);
                 });
-                pref_row(ui, rc, t!("Recherche dans le dossier en onglet", "Find in folder in a tab"), t!("Ctrl+Shift+F ouvre la recherche dans un onglet de l'éditeur plutôt que dans le panneau du bas (boutons ⇱ / ⇲ pour changer).", "Ctrl+Shift+F opens the search in an editor tab rather than in the bottom panel (⇱ / ⇲ buttons to switch)."), |ui| {
+                pref_row(ui, rc, t!("Recherche dans le dossier en onglet", "Find in folder in a tab"), t!("Ctrl+Shift+F ouvre la recherche dans un onglet de l'éditeur plutôt que dans le panneau du bas (boutons « en onglet » / « en bas » de son en-tête pour changer).", "Ctrl+Shift+F opens the search in an editor tab rather than in the bottom panel (“in a tab” / “at the bottom” buttons of its header to switch)."), |ui| {
                     toggle_switch(ui, &mut s.search_in_tab);
                 });
                 pref_row(ui, rc, t!("Garder le travail non enregistré", "Keep unsaved work"), t!("À la fermeture (ou en changeant de projet), les modifications non enregistrées sont gardées et rouvertes ensuite, sans question.", "When closing (or switching project), unsaved changes are kept and reopened later, without asking."), |ui| {
@@ -533,7 +533,7 @@ impl App {
                 });
             }
             PrefSection::Claude => {
-                pref_row(ui, rc, t!("Claude en onglet", "Claude in a tab"), t!("Ctrl+Alt+C ouvre Claude dans un onglet de l'éditeur plutôt que dans le panneau du bas (boutons ⇱ / ⇲ pour changer).", "Ctrl+Alt+C opens Claude in an editor tab rather than in the bottom panel (⇱ / ⇲ buttons to switch)."), |ui| {
+                pref_row(ui, rc, t!("Claude en onglet", "Claude in a tab"), t!("Ctrl+Alt+C ouvre Claude dans un onglet de l'éditeur plutôt que dans le panneau du bas (boutons « en onglet » / « en bas » de son en-tête pour changer).", "Ctrl+Alt+C opens Claude in an editor tab rather than in the bottom panel (“in a tab” / “at the bottom” buttons of its header to switch)."), |ui| {
                     toggle_switch(ui, &mut s.claude_in_tab);
                 });
                 pref_row(ui, rc, t!("Claude a fini : clignoter", "Claude is done: blink"), t!("Quand Claude a fini de répondre et que sa conversation n'est pas affichée, son onglet clignote quelques secondes, puis reste vert jusqu'à ce que tu la regardes.", "When Claude is done answering and its conversation is not shown, its tab blinks a few seconds, then stays green until you look at it."), |ui| {

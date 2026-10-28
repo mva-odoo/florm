@@ -1,7 +1,7 @@
 //! A panel of the Git, pull requests, Docker or Claude view can take all the room of its view
 //! (the others are hidden) and give it back: the corner button in its header, or Escape.
 
-use eframe::egui::{self, Id, Rect, Sense, Stroke, Ui};
+use eframe::egui::{self, Id, Rect, Sense, Ui};
 use std::collections::HashMap;
 
 /// Per view: the panel taking all its room, and the last frame the view was shown (Escape only
@@ -75,19 +75,8 @@ pub(super) fn corner(ui: &mut Ui, view: Id, pane: &'static str) {
 pub(super) fn button_at(ui: &mut Ui, rect: Rect, view: Id, pane: &'static str) {
     let on = maxed(ui.ctx(), view) == Some(pane);
     let r = ui.interact(rect, view.with(("maximize", pane)), Sense::click());
-    let v = ui.visuals();
-    if r.hovered() {
-        ui.painter().rect_filled(rect, 4.0, v.widgets.hovered.weak_bg_fill);
-    }
-    let color = if r.hovered() { v.strong_text_color() } else { v.text_color() };
     // four corners: pointing out (take all the room) or in (give it back)
-    let (c, stroke) = (rect.center(), Stroke::new(1.4_f32, color));
-    for (sx, sy) in [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)] {
-        let (corner, arm) = if on { (egui::vec2(2.0 * sx, 2.0 * sy), 4.0) } else { (egui::vec2(6.0 * sx, 6.0 * sy), -4.0) };
-        let p = c + corner;
-        ui.painter().line_segment([p, p + egui::vec2(arm * sx, 0.0)], stroke);
-        ui.painter().line_segment([p, p + egui::vec2(0.0, arm * sy)], stroke);
-    }
+    crate::icons::paint_layout_button(ui, rect, &r, if on { crate::icons::Layout::Restore } else { crate::icons::Layout::Maximize });
     let tip = if on { t!("Revenir à la disposition normale (Échap)", "Back to the normal layout (Escape)") } else { t!("Agrandir ce panneau : il prend toute la place de la vue (Échap pour revenir)", "Maximize this panel: it takes the whole view (Escape to come back)") };
     if r.on_hover_text(tip).clicked() {
         toggle(ui.ctx(), view, pane);

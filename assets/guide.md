@@ -42,8 +42,8 @@ Docker, terminal…) n'en ont pas : elles gardent toute la hauteur.
 ## Rechercher dans le dossier (Ctrl+Shift+F)
 
 Entrée lance la recherche. Les résultats sont colorés comme dans l'éditeur ; **F4 / Maj+F4**
-passent au résultat suivant / précédent. **⇱** met la recherche dans un onglet de
-l'éditeur (plus de place), **⇲** la remet en bas
+passent au résultat suivant / précédent. Le bouton **en onglet** met la recherche dans
+un onglet de l'éditeur (plus de place), **en bas** la remet en bas
 (Préférences → Claude pour choisir où elle s'ouvre).
 
 ### Filtrer les fichiers
@@ -164,16 +164,19 @@ interactif** (clic droit → « Rebase interactif à partir d'ici… »), l'acti
 - **Ctrl+Shift+`** (ou clic sur l'icône Terminal en bas de la barre latérale) : un terminal **dans un onglet** de
   l'éditeur. Comme tout onglet, il se glisse sur le bord droit ou bas de l'éditeur pour être à
   côté d'un fichier (ou clic droit sur l'onglet → Diviser à droite / en bas).
-- **⇱** dans le panneau du bas y envoie le terminal courant, **⇲** le ramène.
+- **En onglet** dans le panneau du bas y envoie le terminal courant, **en bas** le ramène.
 - Toutes les vues (Recherche, Git, GitHub, Docker, Claude, Débogage, Terminal) ont à droite de
-  leur en-tête les mêmes boutons, dans le même ordre : **⟳** relire, **⇱ / ⇲** onglet ou panneau
-  du bas, **⋯** les autres actions et options. Git, les Préférences et le découpage d'un commit
+  leur en-tête les mêmes boutons, dans le même ordre : **⟳** relire, **en onglet / en bas**
+  (une petite fenêtre : avec un onglet en haut, ou une bande en bas), **⋯** les autres actions et
+  options. Les boutons de disposition se ressemblent tous : les quatre coins agrandissent un
+  panneau dans sa vue (Échap pour revenir), une fenêtre avec une colonne à droite affiche ou
+  masque un panneau latéral (la revue de Claude), pleine quand il est affiché. Git, les Préférences et le découpage d'un commit
   sont des onglets comme les autres : Échap revient à l'onglet d'avant, Ctrl+W les ferme.
 
 ## Docker
 
 **Docker** dans la palette (« docker ») ou **Outils → Docker (conteneurs et logs)** : la liste des conteneurs à
-gauche, leurs logs à droite. **⇱** la met en grand dans l'éditeur, **⇲** la ramène en bas. La liste
+gauche, leurs logs à droite. **En onglet** la met en grand dans l'éditeur, **en bas** la ramène en bas. La liste
 est relue toutes les quelques secondes.
 
 - **Liste** : les conteneurs sont groupés par projet `docker compose`. Le rond à côté du nom est
@@ -305,7 +308,7 @@ avec `gh auth login` (connexion par le navigateur). Sans `gh`, la vue explique c
 ## Claude
 
 **Ctrl+Alt+C** (ou Outils → ✳ Claude, la palette) : une conversation avec Claude Code, dans le
-panneau du bas (⇱ pour lui donner tout un onglet de l'éditeur, ⇲ pour l'y remettre). Florm utilise la commande `claude` et ta connexion : pas de clé à configurer.
+panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en bas** pour l'y remettre). Florm utilise la commande `claude` et ta connexion : pas de clé à configurer.
 
 - En haut : le dépôt, le modèle, et ce que Claude a le droit de faire (**Modifie les fichiers**,
   **Plan seulement**, **Tout autoriser** pour qu'il lance aussi des commandes).

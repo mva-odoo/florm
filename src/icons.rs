@@ -301,3 +301,67 @@ mod tests {
         assert_eq!(file_kind("Dockerfile").0, "DK");
     }
 }
+
+/// The buttons that change the layout, all drawn alike (a small window of 14×12).
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Layout {
+    /// Corners pointing out: the panel takes all the room of its view.
+    Maximize,
+    /// Corners pointing in: back to the normal layout.
+    Restore,
+    /// The view goes to an editor tab: a window with its tab on top.
+    ToTab,
+    /// The view goes to the bottom panel: a window with its bottom band filled.
+    ToBottom,
+    /// A panel on the right, shown (filled) or hidden (outlined).
+    SidePanel(bool),
+}
+
+/// A 20×20 button with a `Layout` icon.
+pub fn layout_button(ui: &mut eframe::egui::Ui, kind: Layout, tip: &str) -> eframe::egui::Response {
+    let (rect, r) = ui.allocate_exact_size(Vec2::splat(20.0), eframe::egui::Sense::click());
+    paint_layout_button(ui, rect, &r, kind);
+    r.on_hover_text(tip)
+}
+
+pub fn paint_layout_button(ui: &eframe::egui::Ui, rect: Rect, r: &eframe::egui::Response, kind: Layout) {
+    let v = ui.visuals();
+    if r.hovered() {
+        ui.painter().rect_filled(rect, 4.0, v.widgets.hovered.weak_bg_fill);
+    }
+    let color = if r.hovered() { v.strong_text_color() } else { v.text_color() };
+    paint_layout(ui.painter(), rect.center(), kind, color);
+}
+
+pub fn paint_layout(p: &Painter, c: Pos2, kind: Layout, color: Color32) {
+    let stroke = Stroke::new(1.4_f32, color);
+    let win = Rect::from_center_size(c, Vec2::new(14.0, 12.0));
+    let fill = color.gamma_multiply(0.55);
+    match kind {
+        Layout::Maximize | Layout::Restore => {
+            let on = kind == Layout::Restore;
+            for (sx, sy) in [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)] {
+                let (corner, arm) = if on { (Vec2::new(2.0 * sx, 2.0 * sy), 4.0) } else { (Vec2::new(6.0 * sx, 6.0 * sy), -4.0) };
+                let q = c + corner;
+                p.line_segment([q, q + Vec2::new(arm * sx, 0.0)], stroke);
+                p.line_segment([q, q + Vec2::new(0.0, arm * sy)], stroke);
+            }
+        }
+        Layout::ToTab => {
+            p.rect_stroke(win, 2.0, stroke);
+            p.rect_filled(Rect::from_min_max(win.min, Pos2::new(win.min.x + 6.0, win.min.y + 3.5)), 1.0, color);
+        }
+        Layout::ToBottom => {
+            p.rect_stroke(win, 2.0, stroke);
+            p.rect_filled(Rect::from_min_max(Pos2::new(win.min.x, win.max.y - 4.5), win.max), 1.0, fill);
+        }
+        Layout::SidePanel(shown) => {
+            p.rect_stroke(win, 2.0, stroke);
+            let x = win.max.x - 5.0;
+            if shown {
+                p.rect_filled(Rect::from_min_max(Pos2::new(x, win.min.y), win.max), 1.0, fill);
+            }
+            p.line_segment([Pos2::new(x, win.min.y), Pos2::new(x, win.max.y)], stroke);
+        }
+    }
+}

@@ -42,8 +42,8 @@ terminal…) have none: they keep the whole height.
 ## Find in folder (Ctrl+Shift+F)
 
 Enter runs the search. The results are colored like in the editor; **F4 / Shift+F4** go to the
-next / previous result. **⇱** puts the search in an editor tab (more room),
-**⇲** puts it back at the bottom
+next / previous result. the **in a tab** button puts the search in an editor
+tab (more room), **at the bottom** puts it back at the bottom
 (Preferences → Claude to choose where it opens).
 
 ### Filter the files
@@ -161,17 +161,20 @@ one of the commits.
 - **Ctrl+Shift+`** (or click the Terminal icon at the bottom of the sidebar): a terminal **in a
   tab** of the editor. Like any tab, it can be dragged to the right or bottom edge of the editor
   to be next to a file (or right click on the tab → Split right / down).
-- **⇱** in the bottom panel sends the current terminal there, **⇲** brings it back.
+- **In a tab** in the bottom panel sends the current terminal there, **at the bottom** brings it back.
 - All the views (Search, Git, GitHub, Docker, Claude, Debug, Terminal) have the same buttons at
-  the right of their header, in the same order: **⟳** read again, **⇱ / ⇲** tab or bottom
-  panel, **⋯** the other actions and options. Git, the Preferences and the split of a commit are
+  the right of their header, in the same order: **⟳** read again, **in a tab / at the
+  bottom** (a small window: with a tab on top, or a band at the bottom), **⋯** the other actions
+  and options. The layout buttons all look alike: the four corners maximize a panel in its view
+  (Escape to come back), a window with a column on the right shows or hides a side panel (the
+  review of Claude), filled when it is shown. Git, the Preferences and the split of a commit are
   tabs like the others: Escape goes back to the previous tab, Ctrl+W closes them.
 
 ## Docker
 
 **Docker** in the palette (“docker”) or **Tools → Docker (containers and logs)**: the list of
-containers on the left, their logs on the right. **⇱** shows it large in the editor, **⇲** brings
-it back to the bottom. The list is read again every few seconds.
+containers on the left, their logs on the right. **In a tab** shows it large in the editor, **at
+the bottom** brings it back to the bottom. The list is read again every few seconds.
 
 - **List**: the containers are grouped by `docker compose` project. The dot next to the name is
   green when it runs, yellow when it restarts, is paused or is not *healthy*, red when it is
@@ -300,7 +303,7 @@ palette).
 ## Claude
 
 **Ctrl+Alt+C** (or Tools → ✳ Claude, the palette): a conversation with Claude Code, in the
-bottom panel (⇱ to give it a whole editor tab, ⇲ to put it back). Florm uses the `claude`
+bottom panel (**in a tab** to give it a whole editor tab, **at the bottom** to put it back). Florm uses the `claude`
 command and your login: no key to set up.
 
 - At the top: the repository, the model, and what Claude is allowed to do (**Edit files**,

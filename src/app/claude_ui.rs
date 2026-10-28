@@ -1828,14 +1828,13 @@ impl App {
                         }
                         // the review of the changes on the right, or the whole width for the conversation
                         let n = c.review.as_ref().map_or(0, |d| d.files.len());
-                        let label = match (show_review, n) {
-                            (true, _) => t!("Revue ▶", "Review ▶").to_string(),
-                            (false, 0) => t!("◀ Revue", "◀ Review").to_string(),
-                            (false, n) => tf!("◀ Revue ({n})", "◀ Review ({n})"),
-                        };
+                        let label = if n > 0 { tf!("Revue ({n})", "Review ({n})") } else { t!("Revue", "Review").to_string() };
                         let text = if !show_review && n > 0 { RichText::new(label).color(accent).strong() } else { RichText::new(label) };
                         let tip = if show_review { t!("Masquer la revue des changements : la conversation prend toute la largeur", "Hide the review of the changes: the conversation takes the whole width") } else { t!("Afficher à droite la revue de ce que Claude a changé", "Show on the right the review of what Claude changed") };
-                        if ui.small_button(text).on_hover_text(tip).clicked() {
+                        // a panel on the right, filled when shown: like the other layout buttons
+                        let b = crate::icons::layout_button(ui, crate::icons::Layout::SidePanel(show_review), tip);
+                        let a = ui.add(egui::Label::new(text).sense(Sense::click())).on_hover_text(tip);
+                        if a.clicked() || b.clicked() {
                             show_review = !show_review;
                         }
                         ui.add_space(8.0);

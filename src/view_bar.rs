@@ -31,12 +31,12 @@ pub fn controls(ui: &mut egui::Ui, big: bool, refresh: Option<&str>, more: Optio
         .response
         .on_hover_text(t!("Autres actions et options", "Other actions and options"));
     }
-    let (label, tip) = if big {
-        ("⇲", t!("Dans le panneau du bas", "In the bottom panel"))
+    let (kind, tip) = if big {
+        (crate::icons::Layout::ToBottom, t!("Dans le panneau du bas", "In the bottom panel"))
     } else {
-        ("⇱", t!("En grand, dans un onglet de l'éditeur", "Large, in an editor tab"))
+        (crate::icons::Layout::ToTab, t!("En grand, dans un onglet de l'éditeur", "Large, in an editor tab"))
     };
-    if ui.small_button(label).on_hover_text(tip).clicked() {
+    if crate::icons::layout_button(ui, kind, tip).clicked() {
         act = Some(BarAct::Move(!big));
     }
     if let Some(tip) = refresh {
