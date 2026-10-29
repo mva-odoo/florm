@@ -211,7 +211,7 @@ impl App {
                 ui.add_space(4.0);
                 result_table(ui, t);
             }
-            Some(Ok(Outcome::Plan(plan, _))) => {
+            Some(Ok(Outcome::Plan(plan))) => {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(tf!("Exécution {}", "Execution {}", plan_ms(plan.execution_ms))).strong());
                     ui.label(RichText::new(tf!("· planification {} · annulée ensuite (ROLLBACK)", "· planning {} · rolled back (ROLLBACK)", plan_ms(plan.planning_ms))).weak());

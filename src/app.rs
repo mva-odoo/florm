@@ -324,13 +324,67 @@ struct Item {
     action: Action,
 }
 
+/// The entries of an overlay: a list made for it, or the files of the project (go to file reads
+/// them where they are kept, without one entry per file).
+#[derive(Clone)]
+enum Items {
+    List(Arc<[Item]>),
+    Files(Arc<crate::filelist::FileList>),
+}
+
+impl Items {
+    fn len(&self) -> usize {
+        match self {
+            Items::List(l) => l.len(),
+            Items::Files(f) => f.len(),
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    fn label(&self, i: usize) -> &str {
+        match self {
+            Items::List(l) => &l[i].label,
+            Items::Files(f) => f.get(i).unwrap_or(""),
+        }
+    }
+
+    fn detail(&self, i: usize) -> &str {
+        match self {
+            Items::List(l) => &l[i].detail,
+            Items::Files(_) => "",
+        }
+    }
+
+    fn action(&self, i: usize) -> Action {
+        match self {
+            Items::List(l) => l[i].action.clone(),
+            Items::Files(_) => Action::OpenIndexed(i),
+        }
+    }
+}
+
+impl From<Vec<Item>> for Items {
+    fn from(v: Vec<Item>) -> Self {
+        Items::List(v.into())
+    }
+}
+
+impl FromIterator<Item> for Items {
+    fn from_iter<I: IntoIterator<Item = Item>>(it: I) -> Self {
+        Items::List(it.into_iter().collect())
+    }
+}
+
 struct Overlay {
     mode: Mode,
     query: String,
     selected: usize,
     focus: bool,
     /// Shared: go to file reuses the list of the whole project (up to a million files).
-    items: Arc<[Item]>,
+    items: Items,
     filtered: Vec<usize>,
     last_query: Option<String>,
     /// Added to the score of some items (go to file: the recent files), empty for the other lists.
@@ -433,6 +487,8 @@ enum Confirm {
     /// git commands that lose something or rewrite what was pushed: run one after the other
     /// when confirmed; `alt`: a second choice (its button and its commands).
     Git { title: String, msg: String, yes: String, label: String, cmds: Vec<Vec<String>>, alt: Option<(String, Vec<Vec<String>>)> },
+    /// The folder has plugins (`.florm/plugins`), not loaded until it is trusted.
+    TrustPlugins(PathBuf),
     /// `gh` commands on pull request `n` that cannot be undone (merge, close, delete a comment).
     Gh { title: String, msg: String, yes: String, label: String, repo: PathBuf, cmds: Vec<Vec<String>>, n: u64 },
 }
@@ -768,9 +824,7 @@ struct NavState {
 struct Indexes {
     /// Files of the project, relative and sorted (recent files are found by binary search);
     /// shared with the job that lists them again, which compares without the interface.
-    files: Arc<Vec<PathBuf>>,
-    /// Go to file entries made from `files`, built once for each new list.
-    file_items: Option<Arc<[Item]>>,
+    files: Arc<crate::filelist::FileList>,
     /// When the file list was last asked for (Ctrl+P rebuilds it, at most every few seconds).
     files_at: Option<Instant>,
     /// Project symbols (go to definition / completion without a language server).
@@ -894,7 +948,9 @@ pub struct App {
     claude_others: Vec<claude_ui::ClaudeUi>,
     /// The conversations kept between sessions (newest first), and whether the last one was
     /// brought back at the first showing of Claude.
-    claude_saved: Vec<claude_ui::SavedConv>,
+    claude_saved: Vec<claude_ui::SavedMeta>,
+    /// Folders whose plugins were asked to be trusted, in this session (asked once).
+    trust_asked: HashSet<PathBuf>,
     claude_loaded: bool,
     /// Use of the plan's quotas (5 hours, 7 days), shared by the conversations and kept between
     /// sessions.
@@ -1136,6 +1192,7 @@ impl App {
             claude: Default::default(),
             claude_others: Vec::new(),
             claude_saved: claude_ui::load_saved(),
+            trust_asked: HashSet::new(),
             claude_loaded: false,
             claude_limits: claude_ui::load_limits(),
             claude_commands: claude_ui::load_commands(),
@@ -1340,7 +1397,6 @@ impl App {
             JobResult::Repos(r, repos)
         });
         self.index.files = Default::default();
-        self.index.file_items = None;
         self.refresh_index();
         // the symbol index starts once the file list is done (they would compete for the disk)
         self.index.symbols = None;
@@ -1376,6 +1432,8 @@ impl App {
 
 impl eframe::App for App {
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        // the Claude conversations being written are written before Florm stops
+        claude_ui::wait_saved();
         if let Some(exe) = self.restart.take() {
             if let Err(e) = crate::os::command(&exe).stdin(std::process::Stdio::null()).spawn() {
                 eprintln!("{}", tf!("Redémarrage de Florm impossible ({}) : {e}", "Cannot restart Florm ({}): {e}", exe.display()));

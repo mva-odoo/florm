@@ -122,12 +122,30 @@ pub fn install(u: &Update) -> Result<PathBuf, String> {
     if exe.components().any(|c| c.as_os_str() == "target") {
         return Err(t!("Florm est lancé depuis ses sources (dossier target) : mettez-le à jour avec git pull et cargo build", "Florm runs from its sources (target folder): update it with git pull and cargo build").into());
     }
-    let dir = std::env::temp_dir().join(format!("florm-update-{}", u.version));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let dir = download_dir(&u.version)?;
     let r = install_from(u, &exe, &dir);
     let _ = std::fs::remove_dir_all(&dir);
     r.map(|()| exe)
+}
+
+/// A new empty folder for the files of version `version`, only the user can write in: not in
+/// /tmp, where another user could create it first and change the package between its check and
+/// its installation as root.
+fn download_dir(version: &str) -> Result<PathBuf, String> {
+    let parent = crate::config::data_dir().join("update");
+    let dir = parent.join(version);
+    let err = |e: std::io::Error| format!("{}: {e}", dir.display());
+    std::fs::create_dir_all(&parent).map_err(err)?;
+    let _ = std::fs::remove_dir_all(&dir);
+    // create_dir (not create_dir_all): fails if something is there again
+    std::fs::create_dir(&dir).map_err(err)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o700)).map_err(err)?;
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).map_err(err)?;
+    }
+    Ok(dir)
 }
 
 /// Removes what a Windows update leaves (the old .exe, still running during the update).

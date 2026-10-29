@@ -95,6 +95,20 @@ fn cache_path() -> PathBuf {
 struct Cache {
     #[serde(default)]
     fonts: Vec<FontInfo>,
+    /// The Nerd Font found at the last start (finding it walks all the font folders).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    nerd: Option<PathBuf>,
+}
+
+fn read_cache() -> Cache {
+    std::fs::read_to_string(cache_path()).ok().and_then(|s| toml::from_str(&s).ok()).unwrap_or_default()
+}
+
+fn write_cache(cache: &Cache) {
+    if let Ok(text) = toml::to_string(cache) {
+        let _ = std::fs::create_dir_all(crate::config::config_dir());
+        let _ = std::fs::write(cache_path(), text);
+    }
 }
 
 /// Usual file of a few common fonts (avoids scanning the whole system at the first start).
@@ -114,17 +128,14 @@ pub fn find(family: &str) -> Option<FontInfo> {
     if let Some(p) = known_file(family) {
         return Some(FontInfo { family: family.to_string(), path: p, index: 0, mono: family != "Segoe UI" });
     }
-    let mut cache: Cache = std::fs::read_to_string(cache_path()).ok().and_then(|s| toml::from_str(&s).ok()).unwrap_or_default();
+    let mut cache = read_cache();
     if let Some(f) = cache.fonts.iter().find(|f| f.family == family && f.path.is_file()) {
         return Some(f.clone());
     }
     let f = scan().into_iter().find(|f| f.family.eq_ignore_ascii_case(family))?;
     cache.fonts.retain(|c| c.family != f.family);
     cache.fonts.push(f.clone());
-    if let Ok(text) = toml::to_string(&cache) {
-        let _ = std::fs::create_dir_all(crate::config::config_dir());
-        let _ = std::fs::write(cache_path(), text);
-    }
+    write_cache(&cache);
     Some(f)
 }
 
@@ -148,8 +159,22 @@ pub fn default_ui_font() -> &'static [&'static str] {
 /// A Nerd Font installed on the system, for the icons of shell prompts (starship, powerline
 /// arrows, logos…) that are in the private use area of Unicode: added after the other fonts,
 /// only the glyphs they lack come from it. Found by file name (no font is read): the symbols
-/// only font first, then a monospaced one.
+/// only font first, then a monospaced one. Kept in the cache while the file is there; none found:
+/// looked for again at the next start (one may have been installed).
 fn nerd_font_file() -> Option<PathBuf> {
+    let mut cache = read_cache();
+    if let Some(p) = cache.nerd.as_ref().filter(|p| p.is_file()) {
+        return Some(p.clone());
+    }
+    let found = scan_nerd_font();
+    if found.is_some() || cache.nerd.is_some() {
+        cache.nerd = found.clone();
+        write_cache(&cache);
+    }
+    found
+}
+
+fn scan_nerd_font() -> Option<PathBuf> {
     let mut files = Vec::new();
     for d in font_dirs() {
         font_files(&d, 4, &mut files);
@@ -208,7 +233,7 @@ mod tests {
     #[test]
     fn finds_a_nerd_font_by_its_file_name() {
         // only checks the choice when the system has one
-        if let Some(p) = nerd_font_file() {
+        if let Some(p) = scan_nerd_font() {
             let n = p.file_name().unwrap().to_string_lossy().to_lowercase();
             assert!(n.contains("nerdfont") && n.contains("-regular.") && !n.contains("propo"), "{n}");
         }

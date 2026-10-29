@@ -113,6 +113,33 @@ pub fn load_all(dirs: &[PathBuf]) -> (Vec<Plugin>, Vec<String>) {
     (plugins, errors)
 }
 
+/// Whether `dir` holds a plugin (a folder with a `plugin.toml`).
+pub fn has_plugins(dir: &Path) -> bool {
+    std::fs::read_dir(dir).is_ok_and(|rd| rd.flatten().any(|e| e.path().join("plugin.toml").is_file()))
+}
+
+/// The folders whose plugins (`.florm/plugins`) may run: a cloned repository could otherwise run
+/// its commands at the first file saved. Kept apart from the settings, which can be shared.
+fn trusted_path() -> PathBuf {
+    crate::config::config_dir().join("trusted_folders")
+}
+
+pub fn is_trusted(root: &Path) -> bool {
+    let root = crate::os::canon(root);
+    std::fs::read_to_string(trusted_path()).is_ok_and(|t| t.lines().any(|l| Path::new(l) == root))
+}
+
+pub fn trust(root: &Path) -> std::io::Result<()> {
+    let mut text = std::fs::read_to_string(trusted_path()).unwrap_or_default();
+    if !text.is_empty() && !text.ends_with('\n') {
+        text.push('\n');
+    }
+    text.push_str(&crate::os::canon(root).to_string_lossy());
+    text.push('\n');
+    std::fs::create_dir_all(crate::config::config_dir())?;
+    std::fs::write(trusted_path(), text)
+}
+
 /// Runs a plugin command (always through `sh -c` / `cmd /C`) inside the plugin folder.
 pub fn exec(dir: &Path, run: &str, input: &str, env: &[(String, String)]) -> Result<String, String> {
     let mut c = shell_command(run, None);
@@ -152,5 +179,28 @@ pub fn install_examples(plugins_dir: &Path) {
         let _ = std::fs::write(ex.join("plugin.toml"), EXAMPLE_TOML);
         let _ = std::fs::write(ex.join("reverse_lines.py"), EXAMPLE_REVERSE);
         let _ = std::fs::write(plugins_dir.join("README.md"), EXAMPLE_README);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn folder_plugins_need_trust() {
+        let _lock = crate::config::TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let base = std::env::temp_dir().join(format!("florm_trust_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let (conf, root) = (base.join("conf"), base.join("proj"));
+        std::fs::create_dir_all(root.join(".florm/plugins/p")).unwrap();
+        std::env::set_var("FLORM_CONFIG", &conf);
+        assert!(!has_plugins(&root.join(".florm/plugins")));
+        std::fs::write(root.join(".florm/plugins/p/plugin.toml"), "name = \"p\"\n").unwrap();
+        assert!(has_plugins(&root.join(".florm/plugins")));
+        assert!(!is_trusted(&root));
+        trust(&root).unwrap();
+        assert!(is_trusted(&root) && !is_trusted(&base));
+        std::env::remove_var("FLORM_CONFIG");
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

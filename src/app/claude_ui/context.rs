@@ -89,8 +89,13 @@ pub(super) fn rel_path(dir: Option<&Path>, path: &Path) -> Option<String> {
 
 /// Whether a message of a conversation gave the file `rel`, or a part of it (`rel:line`).
 pub(super) fn gives_file(items: &[Item], rel: &str) -> bool {
+    items.iter().any(|i| matches!(i, Item::User(_, given, ..) if gives(given, rel)))
+}
+
+/// Whether `given` (what messages gave) holds the file `rel`, or a part of it (`rel:line`).
+pub(super) fn gives(given: &[String], rel: &str) -> bool {
     let prefix = format!("{rel}:");
-    items.iter().any(|i| matches!(i, Item::User(_, given, ..) if given.iter().any(|g| g == rel || g.starts_with(&prefix))))
+    given.iter().any(|g| g == rel || g.starts_with(&prefix))
 }
 
 pub(super) fn cited_names(text: &str) -> Vec<String> {

@@ -114,8 +114,16 @@ impl App {
     pub(super) fn reload_plugins(&mut self) {
         let mut dirs = vec![config::plugins_dir()];
         dirs.extend(crate::shared::sub("plugins"));
-        if let Some(r) = &self.root {
-            dirs.push(r.join(".florm").join("plugins"));
+        // the plugins of the folder run commands: only once it is trusted
+        if let Some(r) = self.root.clone() {
+            let local = r.join(".florm").join("plugins");
+            if plugins::has_plugins(&local) {
+                if plugins::is_trusted(&r) {
+                    dirs.push(local);
+                } else if self.confirm.is_none() && self.trust_asked.insert(r.clone()) {
+                    self.confirm = Some(Confirm::TrustPlugins(r));
+                }
+            }
         }
         let (p, errs) = plugins::load_all(&dirs);
         for e in errs {

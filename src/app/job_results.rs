@@ -84,11 +84,8 @@ impl App {
                             JobResult::SymbolIndex(r, idx, false)
                         });
                     }
-                    if let Some((files, labels)) = list.filter(|_| self.root.as_ref() == Some(&root)) {
+                    if let Some(files) = list.filter(|_| self.root.as_ref() == Some(&root)) {
                         self.index.files = Arc::new(files);
-                        let items: Arc<[Item]> =
-                            labels.into_iter().enumerate().map(|(i, label)| Item { label, detail: String::new(), action: Action::OpenIndexed(i) }).collect();
-                        self.index.file_items = Some(items);
                         // "go to file" opened while the list was being made: show the new list
                         if self.overlay.as_ref().is_some_and(|o| matches!(o.mode, Mode::Files)) {
                             let (items, boost) = (self.file_items(), self.recent_boost());

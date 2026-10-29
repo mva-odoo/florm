@@ -1,8 +1,9 @@
 //! Index of the project's symbols (like Sublime Text's): built in the background, updated when a
 //! file is saved; used by "go to definition" and the completion when no language server answers.
 //!
-//! Millions of symbols in a big project (Odoo: 1.7 million): each name and detail is kept once
-//! (`Strings`) and a symbol is 16 bytes.
+//! Millions of symbols in a big project (Odoo: 1.7 million), kept in a few big arrays rather than
+//! millions of small allocations: every path in one text, every distinct name or detail once in
+//! another, every symbol (16 bytes) in one list; found by binary search, not hash tables.
 
 use crate::symbols::{self, Kind};
 use crate::walk::{self, Exclusions};
@@ -10,23 +11,26 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{mpsc, Arc};
+use std::sync::mpsc;
 
 const MAX_FILE: u64 = 1_500_000;
 /// First bytes of the file of the index kept between two runs (and its version: change it when the
 /// layout or the symbols change).
 const MAGIC: &[u8; 8] = b"FLIDX\0\0\x01";
 
-/// Size and modification time of a file: when both are the same, its symbols are the same.
+/// Size and modification time (ns) of a file: when both are the same, its symbols are the same.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Stamp {
     len: u64,
-    mtime: u128,
+    mtime: u64,
 }
+
+/// No stamp (the time of the file could not be read): it is read again at each walk.
+const NO_STAMP: Stamp = Stamp { len: u64::MAX, mtime: u64::MAX };
 
 fn stamp_of(m: &std::fs::Metadata) -> Option<Stamp> {
     let mtime = m.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos();
-    Some(Stamp { len: m.len(), mtime })
+    Some(Stamp { len: m.len(), mtime: u64::try_from(mtime).ok()? })
 }
 
 #[derive(Clone, Debug)]
@@ -47,46 +51,101 @@ struct Sym {
     kind: Kind,
 }
 
-/// Each distinct string once, by number (0: the empty string).
+/// Each distinct string once, by number (0: the empty string), all in one text.
 #[derive(Clone)]
 struct Strings {
-    all: Vec<Arc<str>>,
-    ids: HashMap<Arc<str>, u32>,
+    text: String,
+    /// Where each string starts in `text` (it ends where the next one starts).
+    starts: Vec<u32>,
+    /// The numbers sorted by text: a string is found by binary search.
+    sorted: Vec<u32>,
+    /// While the index is built (strings added by the hundred thousand): a hash table instead,
+    /// dropped by `finish`.
+    building: Option<HashMap<Box<str>, u32>>,
 }
 
 impl Default for Strings {
     fn default() -> Self {
-        let empty: Arc<str> = Arc::from("");
-        Strings { all: vec![empty.clone()], ids: HashMap::from([(empty, 0)]) }
+        Strings { text: String::new(), starts: vec![0], sorted: vec![0], building: Some(HashMap::from([(Box::from(""), 0)])) }
     }
 }
 
 impl Strings {
+    fn get(&self, id: u32) -> &str {
+        let i = id as usize;
+        let end = self.starts.get(i + 1).map_or(self.text.len(), |&e| e as usize);
+        &self.text[self.starts[i] as usize..end]
+    }
+
+    /// Where `s` is or would go in `sorted`.
+    fn search(&self, s: &str) -> Result<usize, usize> {
+        self.sorted.binary_search_by(|&id| self.get(id).cmp(s))
+    }
+
+    fn find(&self, s: &str) -> Option<u32> {
+        match &self.building {
+            Some(map) => map.get(s).copied(),
+            None => self.search(s).ok().map(|k| self.sorted[k]),
+        }
+    }
+
     fn id(&mut self, s: &str) -> u32 {
-        if let Some(&id) = self.ids.get(s) {
+        if let Some(id) = self.find(s) {
             return id;
         }
-        let a: Arc<str> = Arc::from(s);
-        let id = self.all.len() as u32;
-        self.all.push(a.clone());
-        self.ids.insert(a, id);
+        let id = self.starts.len() as u32;
+        self.starts.push(self.text.len() as u32);
+        self.text.push_str(s);
+        match &mut self.building {
+            Some(map) => {
+                map.insert(Box::from(s), id);
+            }
+            None => {
+                let at = self.search(s).unwrap_or_else(|k| k);
+                self.sorted.insert(at, id);
+            }
+        }
         id
     }
 
-    fn get(&self, id: u32) -> &str {
-        &self.all[id as usize]
+    /// The building is over: the strings sorted, the hash table dropped.
+    fn finish(&mut self) {
+        if self.building.take().is_some() {
+            let mut sorted: Vec<u32> = (0..self.starts.len() as u32).collect();
+            sorted.sort_unstable_by(|&a, &b| self.get(a).cmp(self.get(b)));
+            self.sorted = sorted;
+        }
+        self.text.shrink_to_fit();
+        self.starts.shrink_to_fit();
     }
+}
+
+/// A file of the index: its path (in `Index::paths`), its stamp, and its symbols (in `Index::syms`).
+#[derive(Clone, Copy)]
+struct File {
+    path: u32,
+    path_len: u32,
+    stamp: Stamp,
+    syms: u32,
+    count: u32,
 }
 
 #[derive(Default, Clone)]
 pub struct Index {
-    files: HashMap<PathBuf, Box<[Sym]>>,
-    /// Every indexable file of the last walk (the ones without symbols too), with its stamp: what
-    /// `save` writes and what a later build reuses when the file did not change.
-    stamps: HashMap<PathBuf, Stamp>,
+    /// Every indexable file of the last walk (the ones without symbols too), sorted by path once
+    /// built: what `save` writes and what a later build reuses when the file did not change.
+    files: Vec<File>,
+    /// The paths of the files, one after the other (a path that is not text is not indexed).
+    paths: String,
+    syms: Vec<Sym>,
+    /// Symbols left in `syms` by files read again (saved): `syms` is compacted when they grow.
+    stale: usize,
     strings: Strings,
     /// Distinct names (string numbers), sorted by text (completion by prefix).
     names: Vec<u32>,
+    /// For each string, the number of symbols named so: a saved file adds and removes names
+    /// without sorting them all again.
+    uses: Vec<u32>,
 }
 
 fn entries(text: &str, syntax: &str) -> Vec<symbols::Symbol> {
@@ -126,7 +185,7 @@ impl Index {
             if dir.as_path() == root && !outer.is_empty() {
                 if let Some(f) = first_done.take() {
                     let mut part = idx.clone();
-                    part.rebuild_names();
+                    part.finish();
                     f(part);
                 }
             }
@@ -156,7 +215,7 @@ impl Index {
                             let stamp = stamp_of(&meta);
                             // the same size and date as in the last run: its symbols are kept, not read again
                             if let (Some(old), Some(s)) = (cache, stamp) {
-                                if old.stamps.get(p) == Some(&s) {
+                                if old.file(p).is_some_and(|f| f.stamp == s) {
                                     return if tx.send((p.to_path_buf(), stamp, None)).is_err() { ignore::WalkState::Quit } else { ignore::WalkState::Continue };
                                 }
                             }
@@ -170,34 +229,81 @@ impl Index {
                     });
                 });
                 for (p, stamp, v) in rx {
+                    let Some(path) = p.to_str() else { continue };
+                    let stamp = stamp.unwrap_or(NO_STAMP);
                     match v {
-                        Some(v) if !v.is_empty() => idx.insert(p.clone(), v),
-                        Some(_) => {}
-                        None => {
-                            if let Some(old) = cache {
-                                idx.adopt(old, &p);
-                            }
-                        }
-                    }
-                    if let Some(s) = stamp {
-                        idx.stamps.insert(p, s);
+                        Some(v) => idx.push(path, stamp, &v),
+                        // not changed since the last run: its symbols taken from it
+                        None => match cache.and_then(|old| old.file(&p).map(|f| (old, f))) {
+                            Some((old, f)) => idx.adopt(path, stamp, old, f),
+                            None => idx.push(path, stamp, &[]),
+                        },
                     }
                 }
             });
         }
-        idx.files.shrink_to_fit();
-        idx.rebuild_names();
+        idx.finish();
         idx
     }
 
-    /// Takes the symbols of `path` from `from` (the index of the last run), numbers renumbered.
-    fn adopt(&mut self, from: &Index, path: &Path) {
-        let Some(syms) = from.files.get(path) else { return };
-        let syms: Box<[Sym]> = syms
-            .iter()
-            .map(|s| Sym { name: self.strings.id(from.strings.get(s.name)), detail: self.strings.id(from.strings.get(s.detail)), line: s.line, kind: s.kind })
-            .collect();
-        self.files.insert(path.to_path_buf(), syms);
+    /// A file added while building (`finish` sorts them).
+    fn push(&mut self, path: &str, stamp: Stamp, v: &[symbols::Symbol]) {
+        let syms = self.syms.len() as u32;
+        for s in v {
+            let sym = Sym { name: self.strings.id(&s.name), detail: self.strings.id(&s.detail), line: s.line.min(u32::MAX as usize) as u32, kind: s.kind };
+            self.syms.push(sym);
+        }
+        let file = File { path: self.paths.len() as u32, path_len: path.len() as u32, stamp, syms, count: v.len() as u32 };
+        self.paths.push_str(path);
+        self.files.push(file);
+    }
+
+    /// The file `f` of `from` (the index of the last run) added, its symbols renumbered.
+    fn adopt(&mut self, path: &str, stamp: Stamp, from: &Index, f: File) {
+        let syms = self.syms.len() as u32;
+        for s in from.file_syms(&f) {
+            let sym = Sym { name: self.strings.id(from.strings.get(s.name)), detail: self.strings.id(from.strings.get(s.detail)), line: s.line, kind: s.kind };
+            self.syms.push(sym);
+        }
+        self.files.push(File { path: self.paths.len() as u32, path_len: path.len() as u32, stamp, syms, count: f.count });
+        self.paths.push_str(path);
+    }
+
+    /// The building is over: the files sorted by path, the strings too, the room left freed.
+    fn finish(&mut self) {
+        let mut files = std::mem::take(&mut self.files);
+        files.sort_unstable_by(|a, b| self.path_of(a).cmp(self.path_of(b)));
+        // a file walked twice: the last one kept
+        files.dedup_by(|b, a| {
+            let same = self.path_of(a) == self.path_of(b);
+            if same {
+                *a = *b;
+            }
+            same
+        });
+        self.files = files;
+        self.files.shrink_to_fit();
+        self.paths.shrink_to_fit();
+        self.syms.shrink_to_fit();
+        self.strings.finish();
+        self.rebuild_names();
+    }
+
+    fn path_of(&self, f: &File) -> &str {
+        &self.paths[f.path as usize..(f.path + f.path_len) as usize]
+    }
+
+    fn file_syms(&self, f: &File) -> &[Sym] {
+        &self.syms[f.syms as usize..(f.syms + f.count) as usize]
+    }
+
+    /// Where `path` is or would go in `files` (sorted).
+    fn search(&self, path: &str) -> Result<usize, usize> {
+        self.files.binary_search_by(|f| self.path_of(f).cmp(path))
+    }
+
+    fn file(&self, path: &Path) -> Option<File> {
+        self.search(path.to_str()?).ok().map(|k| self.files[k])
     }
 
     /// Writes the index to `path` (through a temporary file: a stop in the middle leaves the old one).
@@ -208,14 +314,14 @@ impl Index {
         let tmp = path.with_extension("tmp");
         let mut w = std::io::BufWriter::new(std::fs::File::create(&tmp)?);
         w.write_all(MAGIC)?;
-        // a path that is not text cannot be kept: its file is read again next time
-        let files: Vec<(&str, &PathBuf, &Stamp)> = self.stamps.iter().filter_map(|(p, s)| Some((p.to_str()?, p, s))).collect();
+        // a file without stamp is read again next time
+        let files: Vec<&File> = self.files.iter().filter(|f| f.stamp != NO_STAMP).collect();
         w.write_all(&(files.len() as u64).to_le_bytes())?;
-        for (name, p, s) in files {
-            put_str(&mut w, name)?;
-            w.write_all(&s.len.to_le_bytes())?;
-            w.write_all(&s.mtime.to_le_bytes())?;
-            let syms: &[Sym] = self.files.get(p).map_or(&[], |v| &v[..]);
+        for f in files {
+            put_str(&mut w, self.path_of(f))?;
+            w.write_all(&f.stamp.len.to_le_bytes())?;
+            w.write_all(&(f.stamp.mtime as u128).to_le_bytes())?;
+            let syms = self.file_syms(f);
             w.write_all(&(syms.len() as u32).to_le_bytes())?;
             for sym in syms {
                 put_str(&mut w, self.strings.get(sym.name))?;
@@ -239,52 +345,104 @@ impl Index {
         }
         let mut idx = Index::default();
         for _ in 0..r.u64()? {
-            let p = PathBuf::from(r.str()?);
-            let stamp = Stamp { len: r.u64()?, mtime: r.u128()? };
-            let mut syms = Vec::new();
-            for _ in 0..r.u32()? {
+            let p = r.str()?;
+            let stamp = Stamp { len: r.u64()?, mtime: u64::try_from(r.u128()?).unwrap_or(u64::MAX) };
+            let syms = idx.syms.len() as u32;
+            let count = r.u32()?;
+            for _ in 0..count {
                 let name = idx.strings.id(r.str()?);
                 let detail = idx.strings.id(r.str()?);
                 let line = r.u32()?;
-                syms.push(Sym { name, detail, line, kind: kind_of(r.u8()?)? });
+                idx.syms.push(Sym { name, detail, line, kind: kind_of(r.u8()?)? });
             }
-            if !syms.is_empty() {
-                idx.files.insert(p.clone(), syms.into_boxed_slice());
-            }
-            idx.stamps.insert(p, stamp);
+            idx.files.push(File { path: idx.paths.len() as u32, path_len: p.len() as u32, stamp, syms, count });
+            idx.paths.push_str(p);
         }
-        idx.rebuild_names();
+        idx.finish();
         Some(idx)
     }
 
-    fn insert(&mut self, path: PathBuf, v: Vec<symbols::Symbol>) {
-        let syms: Box<[Sym]> = v
-            .iter()
-            .map(|s| Sym { name: self.strings.id(&s.name), detail: self.strings.id(&s.detail), line: s.line.min(u32::MAX as usize) as u32, kind: s.kind })
-            .collect();
-        self.files.insert(path, syms);
-    }
-
     fn rebuild_names(&mut self) {
-        let mut used = vec![false; self.strings.all.len()];
-        for s in self.files.values().flat_map(|v| v.iter()) {
-            used[s.name as usize] = true;
+        let mut uses = vec![0u32; self.strings.starts.len()];
+        for f in &self.files {
+            for s in self.file_syms(f) {
+                uses[s.name as usize] += 1;
+            }
         }
-        let mut n: Vec<u32> = (0..used.len() as u32).filter(|&i| used[i as usize]).collect();
+        let mut n: Vec<u32> = (0..uses.len() as u32).filter(|&i| uses[i as usize] > 0).collect();
         n.sort_unstable_by(|&a, &b| self.strings.get(a).cmp(self.strings.get(b)));
         self.names = n;
+        self.uses = uses;
+    }
+
+    /// One more (`add`) or one less symbol named `name`: in or out of `names` when it is the first
+    /// or the last one.
+    fn count_name(&mut self, name: u32, add: bool) {
+        if self.uses.len() <= name as usize {
+            self.uses.resize(name as usize + 1, 0);
+        }
+        let n = &mut self.uses[name as usize];
+        let was = *n;
+        *n = if add { was + 1 } else { was.saturating_sub(1) };
+        let now = *n;
+        if (was == 0) != (now == 0) {
+            let text = self.strings.get(name);
+            let at = self.names.binary_search_by(|&x| self.strings.get(x).cmp(text));
+            match (at, now > 0) {
+                (Err(k), true) => self.names.insert(k, name),
+                (Ok(k), false) => {
+                    self.names.remove(k);
+                }
+                _ => {}
+            }
+        }
     }
 
     /// A file changed (saved): its symbols are extracted again.
     pub fn update(&mut self, path: &Path, text: &str) {
-        let Some(syntax) = symbols::syntax_for(path) else { return };
+        let (Some(syntax), Some(p)) = (symbols::syntax_for(path), path.to_str()) else { return };
         let v = entries(text, syntax);
-        if v.is_empty() {
-            self.files.remove(path);
-        } else {
-            self.insert(path.to_path_buf(), v);
+        let k = match self.search(p) {
+            Ok(k) => {
+                let f = self.files[k];
+                self.stale += f.count as usize;
+                let old: Vec<u32> = self.file_syms(&f).iter().map(|s| s.name).collect();
+                for name in old {
+                    self.count_name(name, false);
+                }
+                k
+            }
+            Err(k) => {
+                let file = File { path: self.paths.len() as u32, path_len: p.len() as u32, stamp: NO_STAMP, syms: 0, count: 0 };
+                self.paths.push_str(p);
+                self.files.insert(k, file);
+                k
+            }
+        };
+        // its new symbols at the end; the old ones stay until there are many of them
+        let start = self.syms.len() as u32;
+        for s in &v {
+            let sym = Sym { name: self.strings.id(&s.name), detail: self.strings.id(&s.detail), line: s.line.min(u32::MAX as usize) as u32, kind: s.kind };
+            self.syms.push(sym);
+            self.count_name(sym.name, true);
         }
-        self.rebuild_names();
+        self.files[k].syms = start;
+        self.files[k].count = v.len() as u32;
+        if self.stale > self.syms.len() / 4 {
+            self.compact();
+        }
+    }
+
+    /// The symbols of the files read again dropped from `syms`.
+    fn compact(&mut self) {
+        let mut syms = Vec::with_capacity(self.syms.len() - self.stale);
+        for f in &mut self.files {
+            let start = syms.len() as u32;
+            syms.extend_from_slice(&self.syms[f.syms as usize..(f.syms + f.count) as usize]);
+            f.syms = start;
+        }
+        self.syms = syms;
+        self.stale = 0;
     }
 
     fn entry(&self, s: &Sym) -> Entry {
@@ -295,17 +453,17 @@ impl Index {
     /// model declared with `_name = 'sale.order'`.
     pub fn lookup(&self, name: &str) -> Vec<(PathBuf, Entry)> {
         let short = name.rsplit('.').next().unwrap_or(name);
-        let id = self.strings.ids.get(name).copied();
-        let short_id = if short != name { self.strings.ids.get(short).copied() } else { None };
+        let id = self.strings.find(name);
+        let short_id = if short != name { self.strings.find(short) } else { None };
         if id.is_none() && short_id.is_none() {
             return Vec::new();
         }
         let mut out: Vec<(PathBuf, Entry)> = self
             .files
             .iter()
-            .flat_map(|(p, v)| v.iter().map(move |e| (p, e)))
+            .flat_map(|f| self.file_syms(f).iter().map(move |e| (f, e)))
             .filter(|(_, e)| Some(e.name) == id || (e.kind == Kind::Record && Some(e.name) == short_id))
-            .map(|(p, e)| (p.clone(), self.entry(e)))
+            .map(|(f, e)| (PathBuf::from(self.path_of(f)), self.entry(e)))
             .collect();
         // classes and functions before the rest (fields…), then by file
         let rank = |k: Kind| match k {
@@ -324,11 +482,12 @@ impl Index {
     }
 
     pub fn len(&self) -> usize {
-        self.files.values().map(|v| v.len()).sum()
+        self.files.iter().map(|f| f.count as usize).sum()
     }
 
+    /// The files with symbols.
     pub fn file_count(&self) -> usize {
-        self.files.len()
+        self.files.iter().filter(|f| f.count > 0).count()
     }
 }
 

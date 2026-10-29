@@ -5,6 +5,12 @@ Un plugin est un dossier contenant un `plugin.toml`, placé dans :
 - `~/.config/florm/plugins/<nom>/` (Linux/macOS) ou `%APPDATA%\florm\plugins\<nom>\` (Windows)
 - `<projet>/.florm/plugins/<nom>/` (plugins propres à un projet)
 
+Les plugins d'un projet peuvent lancer n'importe quelle commande, par exemple à chaque
+enregistrement : à l'ouverture d'un dossier qui en contient, Florm demande s'il faut lui faire
+confiance, et ne les charge qu'après. Les dossiers de confiance sont listés dans
+`~/.config/florm/trusted_folders` (un chemin par ligne ; en retirer un pour ne plus lui faire
+confiance).
+
 Les commandes sont n'importe quel programme (Python, Node, Bash, Rust…), lancé avec
 `sh -c` (ou `cmd /C` sous Windows) **depuis le dossier du plugin**.
 

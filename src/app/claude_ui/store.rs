@@ -45,24 +45,120 @@ pub(in crate::app) struct Options {
 /// Most conversations kept.
 pub(super) const SAVED_MAX: usize = 50;
 
-pub(super) fn saved_path() -> PathBuf {
-    config::data_dir().join("claude_conversations.json")
+/// A conversation of the history, without what was said: the list read at the start (the
+/// conversations themselves are read when opened).
+#[derive(Clone, Serialize, Deserialize)]
+pub(in crate::app) struct SavedMeta {
+    pub(super) key: u64,
+    pub(super) title: String,
+    pub(super) dir: Option<PathBuf>,
+    /// Last change, in unix seconds.
+    pub(super) updated: i64,
+    /// What its messages gave (files, lines…): « Reprendre la conversation de ce fichier ».
+    #[serde(default)]
+    pub(super) given: Vec<String>,
 }
 
-/// The saved conversations, newest first.
-pub(in crate::app) fn load_saved() -> Vec<SavedConv> {
-    std::fs::read_to_string(saved_path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
-}
-
-pub(super) fn write_saved(list: &[SavedConv]) -> Result<(), String> {
-    let p = saved_path();
-    if let Some(d) = p.parent() {
-        let _ = std::fs::create_dir_all(d);
+impl SavedMeta {
+    pub(super) fn of(s: &SavedConv) -> SavedMeta {
+        let mut given: Vec<String> = Vec::new();
+        for i in &s.items {
+            if let Item::User(_, g, ..) = i {
+                for x in g {
+                    if !given.contains(x) {
+                        given.push(x.clone());
+                    }
+                }
+            }
+        }
+        SavedMeta { key: s.key, title: s.title.clone(), dir: s.dir.clone(), updated: s.updated, given }
     }
-    let text = serde_json::to_string(list).map_err(|e| e.to_string())?;
-    // written aside then renamed: a crash never leaves half a file
-    let tmp = p.with_extension("json.tmp");
-    std::fs::write(&tmp, text).and_then(|_| std::fs::rename(&tmp, &p)).map_err(|e| e.to_string())
+}
+
+/// The folder of the conversations: `list.json` and one `<key>.json` per conversation.
+fn saved_dir() -> PathBuf {
+    config::data_dir().join("claude")
+}
+
+fn conv_path(key: u64) -> PathBuf {
+    saved_dir().join(format!("{key}.json"))
+}
+
+/// The conversations kept, newest first. The first time, those of the single file of before.
+pub(in crate::app) fn load_saved() -> Vec<SavedMeta> {
+    let list = saved_dir().join("list.json");
+    if let Some(l) = std::fs::read_to_string(&list).ok().and_then(|t| serde_json::from_str(&t).ok()) {
+        return l;
+    }
+    let old = config::data_dir().join("claude_conversations.json");
+    let Some(convs) = std::fs::read_to_string(&old).ok().and_then(|t| serde_json::from_str::<Vec<SavedConv>>(&t).ok()) else { return Vec::new() };
+    let metas: Vec<SavedMeta> = convs.iter().map(SavedMeta::of).collect();
+    let written = convs.iter().all(|c| write_json(&conv_path(c.key), c).is_ok()) && write_json(&list, &metas).is_ok();
+    // kept aside rather than removed, in case
+    if written {
+        let _ = std::fs::rename(&old, old.with_extension("json.old"));
+    }
+    metas
+}
+
+/// The conversation `key` of the history.
+pub(super) fn load_conv(key: u64) -> Option<SavedConv> {
+    std::fs::read_to_string(conv_path(key)).ok().and_then(|t| serde_json::from_str(&t).ok())
+}
+
+/// Written aside then renamed: a crash never leaves half a file.
+fn write_json(path: &Path, v: &impl Serialize) -> Result<(), String> {
+    if let Some(d) = path.parent() {
+        std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
+    }
+    let text = serde_json::to_string(v).map_err(|e| e.to_string())?;
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, text).and_then(|_| std::fs::rename(&tmp, path)).map_err(|e| e.to_string())
+}
+
+/// What the writing thread does, in the order asked.
+enum Write {
+    Conv(Box<SavedConv>),
+    List(Vec<SavedMeta>),
+    Remove(u64),
+    /// Told back once what was asked before is written.
+    Done(std::sync::mpsc::Sender<()>),
+}
+
+/// Waits (2 s at most) for the conversations being written: before Florm stops.
+pub(in crate::app) fn wait_saved() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    write_later(Write::Done(tx));
+    let _ = rx.recv_timeout(std::time::Duration::from_secs(2));
+}
+
+/// Writes the conversations out of the interface's thread, one after the other: a conversation
+/// of tens of messages takes a moment to write, and an older state never comes after a newer one.
+fn write_later(w: Write) {
+    static WRITER: std::sync::OnceLock<std::sync::Mutex<std::sync::mpsc::Sender<Write>>> = std::sync::OnceLock::new();
+    let tx = WRITER.get_or_init(|| {
+        let (tx, rx) = std::sync::mpsc::channel::<Write>();
+        std::thread::spawn(move || {
+            for w in rx {
+                let r = match w {
+                    Write::Conv(c) => write_json(&conv_path(c.key), &*c),
+                    Write::List(l) => write_json(&saved_dir().join("list.json"), &l),
+                    Write::Remove(key) => std::fs::remove_file(conv_path(key)).or(Ok(())),
+                    Write::Done(tx) => {
+                        let _ = tx.send(());
+                        Ok(())
+                    }
+                };
+                if let Err(e) = r {
+                    eprintln!("florm: conversation Claude non enregistrée : {e}");
+                }
+            }
+        });
+        std::sync::Mutex::new(tx)
+    });
+    if let Ok(tx) = tx.lock() {
+        let _ = tx.send(w);
+    }
 }
 
 /// Slash commands of Claude Code, as its last session listed them.
@@ -192,11 +288,12 @@ impl App {
         };
         self.claude.saved_key = key;
         self.claude_saved.retain(|s| s.key != key);
-        self.claude_saved.insert(0, saved);
-        self.claude_saved.truncate(SAVED_MAX);
-        if let Err(e) = write_saved(&self.claude_saved) {
-            self.log(tf!("Conversations Claude non enregistrées : {e}", "Claude conversations not saved: {e}"));
+        self.claude_saved.insert(0, SavedMeta::of(&saved));
+        for old in self.claude_saved.split_off(self.claude_saved.len().min(SAVED_MAX)) {
+            write_later(Write::Remove(old.key));
         }
+        write_later(Write::Conv(Box::new(saved)));
+        write_later(Write::List(self.claude_saved.clone()));
     }
 
     /// A saved conversation, ready to go on (shown in `tab`).
@@ -227,7 +324,7 @@ impl App {
             return;
         }
         if self.claude.items.is_empty() && self.claude.session.is_none() {
-            if let Some(s) = self.claude_saved.first().cloned() {
+            if let Some(s) = self.claude_saved.first().and_then(|m| load_conv(m.key)) {
                 let tab = self.claude.tab;
                 self.claude = self.claude_from_saved(&s, tab);
             }
@@ -241,7 +338,7 @@ impl App {
 
     /// The tab of the conversation `key` at the start (0: a new conversation).
     pub(in crate::app) fn claude_restore_tab(&mut self, key: u64) {
-        let saved = self.claude_saved.iter().find(|s| s.key == key).cloned();
+        let saved = self.claude_saved.iter().any(|s| s.key == key).then(|| load_conv(key)).flatten();
         let taken = key != 0 && (self.claude.saved_key == key || self.claude_others.iter().any(|o| o.saved_key == key));
         if taken {
             return;
@@ -275,7 +372,10 @@ impl App {
             }
             return;
         }
-        let Some(s) = self.claude_saved.iter().find(|s| s.key == key).cloned() else { return };
+        let Some(s) = self.claude_saved.iter().any(|s| s.key == key).then(|| load_conv(key)).flatten() else {
+            self.set_error(t!("Cette conversation n'a pas pu être relue", "This conversation could not be read again"));
+            return;
+        };
         let uid = self.new_claude_tab(s.title.clone());
         let conv = self.claude_from_saved(&s, Some(uid));
         let old = std::mem::replace(&mut self.claude, conv);
@@ -294,7 +394,7 @@ impl App {
             self.open_claude();
             return;
         }
-        let found = self.claude_saved.iter().find(|s| rel_path(s.dir.as_deref(), &path).is_some_and(|rel| gives_file(&s.items, &rel))).map(|s| s.key);
+        let found = self.claude_saved.iter().find(|s| rel_path(s.dir.as_deref(), &path).is_some_and(|rel| gives(&s.given, &rel))).map(|s| s.key);
         match found {
             Some(key) => self.claude_open_saved(key),
             None => self.set_status(tf!("Aucune conversation Claude ne concerne {name}", "No Claude conversation is about {name}")),
@@ -304,8 +404,7 @@ impl App {
     /// A conversation taken out of the history (not the open ones).
     pub(super) fn claude_forget_saved(&mut self, key: u64) {
         self.claude_saved.retain(|s| s.key != key);
-        if let Err(e) = write_saved(&self.claude_saved) {
-            self.log(tf!("Conversations Claude non enregistrées : {e}", "Claude conversations not saved: {e}"));
-        }
+        write_later(Write::Remove(key));
+        write_later(Write::List(self.claude_saved.clone()));
     }
 }

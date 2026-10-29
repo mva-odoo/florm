@@ -1807,6 +1807,10 @@ mod tests {
         assert!(back[0].options.ask_first && !back[0].options.model_first);
         assert_eq!((back[0].checkpoints[0].tree.as_deref(), back[0].last_uuid.as_deref()), (Some("abc"), Some("u")));
         assert!(matches!(&back[0].items[1], Item::Tool { result: Some((r, false)), .. } if r == "ok"));
+        // the list of the history: what the messages gave, for « Reprendre la conversation de ce fichier »
+        let meta = SavedMeta::of(&back[0]);
+        assert_eq!((meta.key, meta.title.as_str(), meta.given.clone()), (7, "Corrige le bug", vec!["a.py".to_string()]));
+        assert!(gives(&meta.given, "a.py") && !gives(&meta.given, "b.py"));
         // the tasks are kept, not the run (it is started again by hand)
         assert_eq!((back[0].queue.tasks.len(), back[0].queue.running), (2, false));
         // a conversation saved before the queue existed

@@ -149,7 +149,7 @@ pub(super) fn mention_at(input: &str, cursor: usize) -> Option<(usize, String)> 
 
 /// The files of the project (`files`, relative to `root`) inside `dir` matching `query`, relative
 /// to `dir`, best first.
-pub(super) fn mention_matches(files: &[PathBuf], root: &Path, dir: &Path, query: &str) -> Vec<String> {
+pub(super) fn mention_matches(files: &crate::filelist::FileList, root: &Path, dir: &Path, query: &str) -> Vec<String> {
     let mut scored: Vec<(i32, String)> = files
         .iter()
         .filter_map(|f| {
@@ -659,7 +659,7 @@ mod tests {
         assert_eq!(mention_at("@", 1), Some((0, String::new())));
         assert_eq!(mention_at("mail a@b.fr ok", 11), None);
         assert_eq!(mention_at("regarde @src fini", 17), None);
-        let files: Vec<PathBuf> = ["src/main.rs", "src/app/claude_ui.rs", "README.md", "other/x.rs"].iter().map(PathBuf::from).collect();
+        let files = crate::filelist::FileList::new(["src/main.rs", "src/app/claude_ui.rs", "README.md", "other/x.rs"].map(String::from).to_vec());
         let m = mention_matches(&files, Path::new("/p"), Path::new("/p"), "main");
         assert_eq!(m.first().map(String::as_str), Some("src/main.rs"));
         // only the files of the folder of the conversation, relative to it

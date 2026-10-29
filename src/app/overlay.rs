@@ -5,7 +5,7 @@ use crate::os::Pick;
 
 impl App {
     pub(super) fn open_overlay(&mut self, mode: Mode) {
-        let items: Arc<[Item]> = match &mode {
+        let items: Items = match &mode {
             Mode::Commands => {
                 let mut v: Vec<Item> = commands::ALL
                     .iter()
@@ -106,17 +106,11 @@ impl App {
         }
     }
 
-    pub(super) fn file_items(&mut self) -> Arc<[Item]> {
+    pub(super) fn file_items(&mut self) -> Items {
         if self.root.is_none() {
             return Vec::new().into();
         }
-        let files = &self.index.files;
-        self.index
-            .file_items
-            .get_or_insert_with(|| {
-                files.iter().enumerate().map(|(i, p)| Item { label: p.to_string_lossy().into_owned(), detail: String::new(), action: Action::OpenIndexed(i) }).collect()
-            })
-            .clone()
+        Items::Files(self.index.files.clone())
     }
 
     /// Go to file: bonus of each entry of the file list, for the files opened lately (the more
@@ -130,17 +124,15 @@ impl App {
             .filter(|p| Some(*p) != current)
             .filter_map(|p| p.strip_prefix(root).ok())
             .enumerate()
-            .filter_map(|(k, p)| self.index.files.binary_search_by(|f| f.as_path().cmp(p)).ok().map(|i| (i, 60 - k as i32)))
+            .filter_map(|(k, p)| self.index.files.position(p).map(|i| (i, 60 - k as i32)))
             .collect()
     }
 
     /// Command palette: bonus of the commands run from it lately (the more recent, the higher).
-    fn recent_cmd_boost(&self, items: &[Item]) -> HashMap<usize, i32> {
-        items
-            .iter()
-            .enumerate()
-            .filter_map(|(i, it)| {
-                let Action::Cmd(c) = it.action else { return None };
+    fn recent_cmd_boost(&self, items: &Items) -> HashMap<usize, i32> {
+        (0..items.len())
+            .filter_map(|i| {
+                let Action::Cmd(c) = items.action(i) else { return None };
                 let id = commands::ALL.iter().find(|(_, _, x)| *x == c)?.0;
                 let k = self.recent_cmds.iter().position(|r| *r == id)?;
                 Some((i, 40 - k as i32))
@@ -158,7 +150,7 @@ impl App {
         let _ = std::fs::write(super::recent_cmds_path(), self.recent_cmds.join("\n"));
     }
 
-    pub(super) fn open_overlay_with(&mut self, mode: Mode, items: impl Into<Arc<[Item]>>, query: String) {
+    pub(super) fn open_overlay_with(&mut self, mode: Mode, items: impl Into<Items>, query: String) {
         let items = items.into();
         self.overlay = Some(Overlay { mode, query, selected: 0, focus: true, items, filtered: Vec::new(), last_query: None, boost: HashMap::new(), matched: None, paths: None, gen: Default::default(), pending: false });
     }
@@ -425,7 +417,7 @@ impl App {
                         .auto_shrink([false, !fixed])
                         .show(ui, |ui| {
                         for (row, &i) in ov.filtered.iter().enumerate() {
-                            let it = &ov.items[i];
+                            let (label, detail) = (ov.items.label(i), ov.items.detail(i));
                             // full-width row: label on the left, shortcut / detail on the right
                             let (rect, r) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 30.0), Sense::click());
                             let v = ui.visuals();
@@ -435,10 +427,10 @@ impl App {
                                 ui.painter().rect_filled(rect, 7.0, v.widgets.hovered.weak_bg_fill);
                             }
                             let text_color = if row == ov.selected { v.strong_text_color() } else { v.text_color() };
-                            let detail_w = if it.detail.is_empty() {
+                            let detail_w = if detail.is_empty() {
                                 0.0
                             } else {
-                                let g = ui.painter().layout_no_wrap(it.detail.clone(), egui::FontId::proportional(12.0), v.weak_text_color());
+                                let g = ui.painter().layout_no_wrap(detail.to_string(), egui::FontId::proportional(12.0), v.weak_text_color());
                                 let w = g.size().x;
                                 ui.painter().galley(egui::pos2(rect.right() - w - 12.0, rect.center().y - g.size().y / 2.0), g, v.weak_text_color());
                                 w + 24.0
@@ -446,7 +438,7 @@ impl App {
                             let clip = egui::Rect::from_min_max(rect.min, egui::pos2(rect.right() - detail_w, rect.bottom()));
                             let mut text_x = rect.left() + 12.0;
                             if files_mode {
-                                let name = it.label.rsplit(['/', '\\']).next().unwrap_or(&it.label);
+                                let name = label.rsplit(['/', '\\']).next().unwrap_or(label);
                                 let bg = if row == ov.selected { v.selection.bg_fill } else { v.window_fill };
                                 let light = bg.r() as u32 + bg.g() as u32 + bg.b() as u32 > 384;
                                 let r = egui::Rect::from_center_size(egui::pos2(rect.left() + 20.0, rect.center().y), egui::vec2(16.0, 16.0));
@@ -456,7 +448,7 @@ impl App {
                             ui.painter().with_clip_rect(clip).text(
                                 egui::pos2(text_x, rect.center().y),
                                 Align2::LEFT_CENTER,
-                                &it.label,
+                                label,
                                 egui::FontId::proportional(14.0),
                                 text_color,
                             );
@@ -464,7 +456,7 @@ impl App {
                                 r.scroll_to_me(None);
                             }
                             if r.clicked() {
-                                chosen = Some(it.action.clone());
+                                chosen = Some(ov.items.action(i));
                             }
                         }
                         if n == 0 && indexing {
@@ -480,7 +472,7 @@ impl App {
                     });
                     if enter {
                         if let Some(&i) = ov.filtered.get(ov.selected) {
-                            chosen = Some(ov.items[i].action.clone());
+                            chosen = Some(ov.items.action(i));
                         } else if matches!(ov.mode, Mode::Remotes) && !ov.query.trim().is_empty() {
                             // a host that is not in ~/.ssh/config
                             chosen = Some(Action::Remote(crate::remote::Target::Ssh(ov.query.trim().to_string())));
@@ -558,7 +550,8 @@ impl App {
             Action::Cmd(c) => self.exec(ctx, c),
             Action::OpenIndexed(i) => {
                 if let (Some(root), Some(p)) = (self.root.clone(), self.index.files.get(i)) {
-                    self.open_path(root.join(p));
+                    let p = root.join(p);
+                    self.open_path(p);
                 }
             }
             Action::Location(p, l) => self.open_at(p, l),
@@ -808,6 +801,16 @@ impl App {
                     tf!("« {name} » a été modifié par un autre programme depuis son ouverture.\nEnregistrer remplace cette version par la tienne.", "“{name}” was changed by another program since it was opened.\nSaving replaces that version with yours."),
                 )
             }
+            Confirm::TrustPlugins(root) => {
+                let name = root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                (
+                    t!("Plugins du dossier", "Plugins of the folder"),
+                    tf!(
+                        "« {name} » contient des plugins (.florm/plugins). Ils peuvent lancer n'importe quelle commande sur ta machine, par exemple à chaque enregistrement d'un fichier.\nFais-leur confiance seulement si tu sais d'où vient ce dossier. Sans confiance, ils ne sont pas chargés.",
+                        "“{name}” holds plugins (.florm/plugins). They can run any command on your machine, for instance each time a file is saved.\nTrust them only if you know where this folder comes from. Without trust, they are not loaded."
+                    ),
+                )
+            }
             Confirm::DropStash(_, what) => (t!("Supprimer le stash", "Delete the stash"), tf!("Supprimer définitivement « {what} » ?\nSes changements seront perdus.", "Delete “{what}” for good?\nIts changes will be lost.")),
             Confirm::Git { title, msg, .. } | Confirm::Gh { title, msg, .. } => (title.as_str(), msg.clone()),
             Confirm::ReplaceInFiles => {
@@ -831,7 +834,7 @@ impl App {
                 ui.painter().rect_filled(screen, 0.0, Color32::from_black_alpha(90));
             });
         // what loses something (or cannot be undone) is not chosen by Entrée alone
-        let careful = matches!(c, Confirm::Delete(_) | Confirm::DropStash(..) | Confirm::DiffOp { .. } | Confirm::ReplaceInFiles | Confirm::Overwrite(_) | Confirm::Git { .. } | Confirm::Gh { .. });
+        let careful = matches!(c, Confirm::TrustPlugins(_) | Confirm::Delete(_) | Confirm::DropStash(..) | Confirm::DiffOp { .. } | Confirm::ReplaceInFiles | Confirm::Overwrite(_) | Confirm::Git { .. } | Confirm::Gh { .. });
         egui::Window::new(title)
             .collapsible(false)
             .resizable(false)
@@ -852,6 +855,7 @@ impl App {
                         Confirm::ReplaceInFiles => (t!("Remplacer", "Replace"), None),
                         Confirm::DiffOp { .. } => (t!("Oui, annuler le changement", "Yes, undo the change"), None),
                         Confirm::DropStash(..) => (t!("Supprimer", "Delete"), None),
+                        Confirm::TrustPlugins(_) => (t!("Faire confiance à ce dossier", "Trust this folder"), None),
                         Confirm::Git { yes, alt, .. } => (yes.as_str(), alt.as_ref().map(|(l, _)| l.as_str())),
                         Confirm::Gh { yes, .. } => (yes.as_str(), None),
                         Confirm::Overwrite(_) => (t!("Écraser avec ma version", "Overwrite with mine"), Some(t!("Recharger la version du disque", "Reload the version on disk"))),
@@ -891,6 +895,13 @@ impl App {
         match (c, choice) {
             (Confirm::DiffOp { label, op, .. }, 1) => self.run_diff_op(label, op),
             (Confirm::DropStash(hash, _), 1) => self.stash_act(super::git_actions::StashAct::Drop(hash)),
+            (Confirm::TrustPlugins(root), 1) => match crate::plugins::trust(&root) {
+                Ok(()) => {
+                    self.reload_plugins();
+                    self.set_status(t!("Plugins du dossier chargés", "Plugins of the folder loaded"));
+                }
+                Err(e) => self.set_error(tf!("Confiance non enregistrée : {e}", "Trust not saved: {e}")),
+            },
             (Confirm::Git { label, cmds, alt, .. }, 1 | 2) => {
                 let cmds = if choice == 2 { alt.map(|(_, c)| c).unwrap_or_default() } else { cmds };
                 if let (Some(repo), false) = (self.repo.clone(), cmds.is_empty()) {
@@ -1024,7 +1035,7 @@ impl App {
 /// Fuzzy score of the items at `pool` (with their boost), the matching ones in `pool` order.
 /// Go to file scores up to a million paths: big lists are split over the processor cores.
 /// `cancel`: (query number, number of this one): `None` once a newer query is typed.
-fn score_items(q: &str, items: &[Item], pool: Vec<usize>, boost: &HashMap<usize, i32>, cancel: Option<(&AtomicU64, u64)>) -> Option<Vec<(i32, usize)>> {
+fn score_items(q: &str, items: &Items, pool: Vec<usize>, boost: &HashMap<usize, i32>, cancel: Option<(&AtomicU64, u64)>) -> Option<Vec<(i32, usize)>> {
     let stale = || cancel.is_some_and(|(c, gen)| c.load(Ordering::Relaxed) != gen);
     let score = |chunk: &[usize]| -> Option<Vec<(i32, usize)>> {
         let mut out = Vec::new();
@@ -1032,7 +1043,7 @@ fn score_items(q: &str, items: &[Item], pool: Vec<usize>, boost: &HashMap<usize,
             if stale() {
                 return None;
             }
-            out.extend(part.iter().filter_map(|&i| fuzzy::score(q, &items[i].label).map(|s| (s + boost.get(&i).copied().unwrap_or(0), i))));
+            out.extend(part.iter().filter_map(|&i| fuzzy::score(q, items.label(i)).map(|s| (s + boost.get(&i).copied().unwrap_or(0), i))));
         }
         Some(out)
     };

@@ -73,7 +73,6 @@ impl App {
         self.history = HistoryUi::default();
         self.tree = None;
         self.index.files = Default::default();
-        self.index.file_items = None;
         self.git = GitUi::default();
         self.search.gen.store(u64::MAX, Ordering::SeqCst);
         self.search = self.fresh_search();
@@ -420,24 +419,24 @@ impl App {
             let walker = crate::walk::walker(&root, &ex, Vec::new()).build();
             for e in walker.flatten() {
                 if e.file_type().is_some_and(|t| t.is_file()) {
-                    if let Ok(rel) = e.path().strip_prefix(&root) {
-                        v.push(rel.to_path_buf());
+                    // a name that is not text could not be opened from the list
+                    if let Some(rel) = e.path().strip_prefix(&root).ok().and_then(|r| r.to_str()) {
+                        v.push(rel.to_string());
                     }
                     if v.len() >= 1_500_000 {
                         break;
                     }
                 }
             }
-            // sorted here: the same list compares equal (nothing to redo), and recent files are
-            // found by binary search
-            v.sort_unstable();
-            // a big project has close to a million files: compared, written for go to file and
-            // freed here rather than in the interface
-            if *current == v {
+            // sorted: the same list compares equal (nothing to redo), and recent files are found
+            // by binary search
+            let list = crate::filelist::FileList::new(v);
+            // a big project has close to a million files: compared and freed here rather than in
+            // the interface
+            if *current == list {
                 return JobResult::FileIndex(root, None);
             }
-            let labels = v.iter().map(|p| p.to_string_lossy().into_owned()).collect();
-            JobResult::FileIndex(root, Some((v, labels)))
+            JobResult::FileIndex(root, Some(list))
         });
     }
 }

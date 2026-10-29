@@ -355,6 +355,19 @@ pub fn config_dir() -> PathBuf {
     home().join(".config").join("florm")
 }
 
+/// The folders of Florm only readable by the user: they hold the Claude conversations (code,
+/// pasted texts), the sessions (the SQL connection), the copies of the local history. On Windows,
+/// the folders of the user profile already are.
+pub fn make_private() {
+    #[cfg(unix)]
+    for d in [config_dir(), data_dir()] {
+        use std::os::unix::fs::PermissionsExt;
+        if std::fs::create_dir_all(&d).is_ok() {
+            let _ = std::fs::set_permissions(&d, std::fs::Permissions::from_mode(0o700));
+        }
+    }
+}
+
 /// Data folder (tools installed by Florm, X11 libraries on WSL…).
 pub fn data_dir() -> PathBuf {
     #[cfg(windows)]

@@ -14,6 +14,7 @@ mod docker;
 mod document;
 mod editor_view;
 mod features;
+mod filelist;
 mod fuzzy;
 mod fonts;
 mod git;
@@ -114,6 +115,7 @@ fn main() -> eframe::Result<()> {
     prefer_x11_on_wsl();
     #[cfg(target_os = "macos")]
     os::macos_path();
+    config::make_private();
     let arg = std::env::args().nth(1).map(PathBuf::from);
     // Florm's own title bar (menus and ─ □ ✕ in the window), see app/title_bar.rs
     let settings = config::load().0;

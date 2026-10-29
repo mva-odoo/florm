@@ -78,7 +78,7 @@ pub enum JobResult {
     /// the next letter) and the best ones, in order.
     FileMatches { gen: u64, query: String, matched: Vec<usize>, top: Vec<usize> },
     /// The files of the project (sorted) and their go to file labels; `None`: unchanged.
-    FileIndex(PathBuf, Option<(Vec<PathBuf>, Vec<String>)>),
+    FileIndex(PathBuf, Option<crate::filelist::FileList>),
     /// Live lint of the buffer while typing.
     Lint { uid: u64, version: u64, diags: Vec<Diagnostic>, linter: String },
     ToolInstalled(Result<String, String>),

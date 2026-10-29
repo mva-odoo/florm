@@ -23,8 +23,8 @@ pub struct Table {
 #[derive(Clone, Debug)]
 pub enum Outcome {
     Table(Table, Duration),
-    /// The plan of EXPLAIN ANALYZE.
-    Plan(Plan, Duration),
+    /// The plan of EXPLAIN ANALYZE (its times are in it).
+    Plan(Plan),
     /// A statement without rows (UPDATE, CREATE…): psql's message, often empty.
     Done(String, Duration),
 }
@@ -95,7 +95,7 @@ pub fn query(conn: &str, query: &str, explain: bool, running: &Running) -> Resul
         let cmds = ["BEGIN".to_string(), format!("EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) {q}"), "ROLLBACK".to_string()];
         let out = run(conn, &cmds, running)?;
         let json = parse_csv(&out, usize::MAX).rows.into_iter().next().and_then(|r| r.into_iter().next().flatten()).unwrap_or_default();
-        return Ok(Outcome::Plan(parse_plan(&json)?, t0.elapsed()));
+        return Ok(Outcome::Plan(parse_plan(&json)?));
     }
     let out = run(conn, &[q], running)?;
     let took = t0.elapsed();
