@@ -1,4 +1,4 @@
-//! Programs Florm drives but does not ship (gh, claude, docker): whether they are installed, and
+//! Programs Florm drives but does not ship (gh, claude, docker, python): whether they are installed, and
 //! how to install them on this system, shown by the view that needs them instead of an error.
 
 use std::collections::HashMap;
@@ -13,6 +13,7 @@ pub enum Tool {
     Claude,
     Docker,
     Psql,
+    Python,
 }
 
 /// A step of an installation: what it does, and the command to type (None: only a note).
@@ -60,6 +61,7 @@ impl Tool {
             Tool::Claude => "claude",
             Tool::Docker => "docker",
             Tool::Psql => "psql",
+            Tool::Python => if cfg!(windows) { "python" } else { "python3" },
         }
     }
 
@@ -70,6 +72,7 @@ impl Tool {
             Tool::Claude => "Claude Code (claude)",
             Tool::Docker => "Docker",
             Tool::Psql => "PostgreSQL (psql)",
+            Tool::Python => "Python",
         }
     }
 
@@ -96,6 +99,10 @@ impl Tool {
                 "Florm envoie les requêtes SQL à PostgreSQL avec la commande psql (le client seul suffit, le serveur peut être ailleurs).",
                 "Florm sends the SQL queries to PostgreSQL with the psql command (the client alone is enough, the server can be elsewhere)."
             ),
+            Tool::Python => t!(
+                "Le débogueur lance et suit les programmes Python avec debugpy, un module de Python.",
+                "The debugger runs and follows the Python programs with debugpy, a module of Python."
+            ),
         }
     }
 
@@ -106,6 +113,7 @@ impl Tool {
             Tool::Claude => "https://docs.claude.com/en/docs/claude-code/setup",
             Tool::Docker => "https://docs.docker.com/engine/install/",
             Tool::Psql => "https://www.postgresql.org/download/",
+            Tool::Python => "https://www.python.org/downloads/",
         }
     }
 
@@ -200,6 +208,19 @@ impl Tool {
                 v.push(step(t!("Installer avec winget", "Install with winget"), "winget install --id PostgreSQL.PostgreSQL.17 -e"));
                 v.push(note(t!("Ajoute le dossier bin de PostgreSQL au PATH, puis relance Florm.", "Add the bin folder of PostgreSQL to the PATH, then restart Florm.")));
             }
+            (Tool::Python, System::Arch) => v.push(step(t!("Installer le paquet", "Install the package"), "sudo pacman -S --needed python")),
+            (Tool::Python, System::Debian) => v.push(step(t!("Installer le paquet", "Install the package"), "sudo apt update && sudo apt install -y python3")),
+            (Tool::Python, System::Fedora) => v.push(step(t!("Installer le paquet", "Install the package"), "sudo dnf install -y python3")),
+            (Tool::Python, System::Suse) => v.push(step(t!("Installer le paquet", "Install the package"), "sudo zypper install -y python3")),
+            (Tool::Python, System::OtherLinux) => v.push(note(t!(
+                "Installe le paquet « python3 » de ta distribution : voir la documentation.",
+                "Install the “python3” package of your distribution: see the documentation."
+            ))),
+            (Tool::Python, System::Mac) => v.push(step(t!("Installer avec Homebrew", "Install with Homebrew"), "brew install python")),
+            (Tool::Python, System::Windows) => {
+                v.push(step(t!("Installer avec winget", "Install with winget"), "winget install --id Python.Python.3.12 -e"));
+                v.push(note(t!("Relance Florm après l'installation pour que python soit trouvé.", "Restart Florm after the installation so that python is found.")));
+            }
             (Tool::Docker, System::Windows) => {
                 v.push(step(t!("Installer Docker Desktop avec winget", "Install Docker Desktop with winget"), "winget install --id Docker.DockerDesktop -e"));
                 v.push(note(t!("Lance une fois Docker Desktop (il démarre le moteur).", "Start Docker Desktop once (it starts the engine).")));
@@ -220,7 +241,7 @@ impl Tool {
                     "Log out and back in (or restart) for the docker group to count, then start Florm again."
                 )));
             }
-            Tool::Docker | Tool::Psql => {}
+            Tool::Docker | Tool::Psql | Tool::Python => {}
         }
         v
     }
@@ -304,7 +325,7 @@ mod tests {
     #[test]
     fn every_tool_has_steps_everywhere() {
         let all = [System::Arch, System::Debian, System::Fedora, System::Suse, System::OtherLinux, System::Mac, System::Windows];
-        for tool in [Tool::Git, Tool::Gh, Tool::Claude, Tool::Docker, Tool::Psql] {
+        for tool in [Tool::Git, Tool::Gh, Tool::Claude, Tool::Docker, Tool::Psql, Tool::Python] {
             for sys in all {
                 assert!(!tool.steps(sys).is_empty(), "{tool:?} {sys:?}");
             }

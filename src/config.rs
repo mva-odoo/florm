@@ -249,10 +249,11 @@ breadcrumbs = true
 show_menu_bar = true
 # recherche dans le dossier (Ctrl+Shift+F) dans un onglet plutôt que dans le panneau du bas
 search_in_tab = false
-# Fonctions à activer ou désactiver (false : leurs vues, commandes, menus et boutons disparaissent)
-github = true
-debugger = true
-claude = true
+# Fonctions à activer ou désactiver (false : leurs vues, commandes, menus et boutons disparaissent).
+# Désactivées à l'installation : Préférences → leur section dit ce qu'il faut installer pour les activer.
+github = false
+debugger = false
+claude = false
 # Claude (Ctrl+Alt+C) dans un onglet plutôt que dans le panneau du bas
 claude_in_tab = false
 # revue des changements de Claude à droite de la conversation (bouton « Revue »)

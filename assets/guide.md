@@ -487,4 +487,7 @@ thème** l'écrit dans le dossier `themes` de la configuration ; **Modifier ce t
 préférences (Pull requests, Claude, Débogueur). Désactivés, leurs vues, commandes, menus, icônes,
 raccourcis et boutons disparaissent (✨ et ✂ de Git, revue IA, colonne ✳ et points d'arrêt de la
 marge, PR liées dans la vue Git…), et `gh` n'est plus appelé. Le même interrupteur les ramène,
-sans redémarrer.
+sans redémarrer. **À l'installation, les trois sont désactivés** : leur section dit alors ce qu'il
+leur faut (`gh` ; `claude` ; Python et debugpy), coché ✔ si c'est installé, sinon avec les commandes
+d'installation pour ton système (« Dans le terminal », « Copier », « Installer debugpy ») et
+« Vérifier à nouveau ».

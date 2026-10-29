@@ -824,6 +824,15 @@ impl App {
                 });
             }
         }
+        let needs = match sec {
+            PrefSection::PullRequests if !self.settings.github => Some(crate::features::Feature::GitHub),
+            PrefSection::Claude if !self.settings.claude => Some(crate::features::Feature::Claude),
+            PrefSection::Debug if !self.settings.debugger => Some(crate::features::Feature::Debugger),
+            _ => None,
+        };
+        if let Some(f) = needs.filter(|_| rc.filter.is_empty()) {
+            self.feature_needs(ui, f);
+        }
         if let Some(n) = note {
             self.log(n);
         }

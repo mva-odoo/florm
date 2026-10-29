@@ -310,7 +310,13 @@ fn check(argv: &[&str], install: impl FnOnce() -> Vec<String>, place: &str) -> R
     }
 }
 
-fn local_install(python: &str) -> Vec<String> {
+/// Whether `python` can import debugpy (a program run: not at every frame).
+pub fn has_debugpy(python: &str) -> bool {
+    crate::os::command(python).args(["-c", "import debugpy"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|s| s.success())
+}
+
+/// The command that installs debugpy for `python` (the one of this computer).
+pub fn local_install(python: &str) -> Vec<String> {
     if cfg!(windows) {
         return [python, "-m", "pip", "install", "--user", "debugpy"].map(String::from).to_vec();
     }
