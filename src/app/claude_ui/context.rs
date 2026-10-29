@@ -12,7 +12,7 @@ pub(in crate::app) struct Attach {
     pub(super) lines: Option<(usize, usize, String)>,
     /// A text and what it is (instead of a file).
     pub(super) note: Option<(String, String)>,
-    /// An image sent with the message (a pasted image, a screenshot, a file): what it is, and
+    /// An image sent with the message (a pasted image, a file): what it is, and
     /// its PNG, saved to be shown again in the message.
     pub(super) image: Option<(String, PathBuf)>,
 }
@@ -78,7 +78,6 @@ pub(super) enum CtxAdd {
     Problems,
     /// An image file, chosen in the file chooser.
     Image,
-    Screenshot,
 }
 
 /// The names of a message that look like code: in backquotes, followed by "(", CamelCase, or
@@ -183,7 +182,7 @@ impl App {
         if self.claude.attach.iter().any(|a| a.image.as_ref().is_some_and(|(_, p)| *p == saved)) {
             return;
         }
-        // « Capture d'écran », « Capture d'écran 2 »…: each its own name in the message
+        // « Image collée », « Image collée 2 »…: each its own name in the message
         let same = self.claude.attach.iter().filter(|a| a.image.as_ref().is_some_and(|(l, _)| l.starts_with(&label))).count();
         let label = if same == 0 { label } else { format!("{label} {}", same + 1) };
         let path = self.claude.dir.clone().unwrap_or_default();
@@ -197,17 +196,8 @@ impl App {
         let label = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let path = path.to_path_buf();
         self.jobs.spawn(move || {
-            let png = std::fs::read(&path).map_err(|e| e.to_string()).and_then(|b| claude::png_of_file_bytes(&b)).map(Some);
+            let png = std::fs::read(&path).map_err(|e| e.to_string()).and_then(|b| claude::png_of_file_bytes(&b));
             JobResult::ClaudeImage { label, png }
-        });
-    }
-
-    /// A screenshot for Claude: the part of the screen is chosen with the mouse.
-    pub(super) fn claude_screenshot(&mut self) {
-        self.set_status(t!("Capture d'écran : choisis la zone à la souris (Échap pour annuler)", "Screenshot: choose the area with the mouse (Escape to cancel)"));
-        self.jobs.spawn(|| {
-            let png = crate::os::screenshot().and_then(|b| b.map(|b| claude::png_of_file_bytes(&b)).transpose());
-            JobResult::ClaudeImage { label: t!("Capture d'écran", "Screenshot").into(), png }
         });
     }
 
@@ -276,7 +266,6 @@ impl App {
                 }
             }
             CtxAdd::Image => self.file_dialog(crate::os::Pick::Image),
-            CtxAdd::Screenshot => self.claude_screenshot(),
             CtxAdd::Problems => {
                 let Some(i) = doc else {
                     self.set_status(t!("Aucun fichier ouvert", "No file open"));

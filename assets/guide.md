@@ -202,17 +202,22 @@ interactif** (clic droit → « Rebase interactif à partir d'ici… »), l'acti
 **Outils → SQL** (ou « sql » dans la palette) : un onglet pour interroger une base PostgreSQL
 avec la commande `psql` (le client seul suffit).
 
-- En haut, la **connexion** : le nom d'une base (`odoo17`), `host=… user=… dbname=…` ou
-  `postgresql://…`. **Bases ▾** liste celles du serveur. Le mot de passe va dans `~/.pgpass` (ou
-  la variable `PGPASSWORD`) plutôt que dans le champ.
-- La requête, colorée ; **▶ Exécuter** ou **Ctrl+Entrée**. Le résultat s'affiche en tableau
-  (colonnes redimensionnables, `NULL` en gris, clic sur une valeur pour la copier, **Copier
-  (tableur)** pour tout coller dans un tableur), avec le nombre de lignes et le temps. **■ Arrêter**
-  interrompt une requête trop longue.
-- **⏱ EXPLAIN ANALYZE** : le plan de la requête avec ses vrais temps. Elle est exécutée dans une
-  transaction annulée ensuite : un `UPDATE` ou un `DELETE` ne change rien. Les étapes les plus
-  lentes sont en rouge (orange pour les suivantes).
-- La connexion et la requête sont gardées avec le projet.
+- En haut, **Base** : la liste des bases du serveur ; tape quelques lettres pour trouver la
+  bonne, ↑ ↓ et Entrée pour la choisir. ⟳ relit la liste. **Serveur** reste vide pour le
+  PostgreSQL de cette machine ; sinon `host=… port=… user=…` ou `postgresql://user@host:port`.
+  Le mot de passe va dans `~/.pgpass` (ou la variable `PGPASSWORD`) plutôt que dans le champ.
+- La requête, colorée ; **▶ Exécuter** ou **Ctrl+Entrée**. Sa zone est petite : tire son bord du
+  bas pour l'agrandir. Le résultat s'affiche en tableau (colonnes redimensionnables, `NULL` en
+  gris, clic sur une valeur pour la copier, **Copier (tableur)** pour tout coller dans un
+  tableur), avec le nombre de lignes et le temps. **■ Arrêter** interrompt une requête trop longue.
+- **⏱ EXPLAIN ANALYZE** : le plan de la requête en arbre d'étapes, comme sur explain.dalibo.com.
+  Pour chaque étape : sa part du temps d'exécution (une barre, rouge à partir de la moitié,
+  orange à partir d'un cinquième), son temps propre, les lignes données et celles prévues (⚠ quand
+  l'estimation se trompe d'un facteur 10 : statistiques à revoir), la table et l'index lus, et ses
+  conditions (filtre, jointure, tri, buffers). La requête est exécutée dans une transaction
+  annulée ensuite : un `UPDATE` ou un `DELETE` ne change rien. **Copier le plan (JSON)** le donne
+  tel quel, à coller dans explain.dalibo.com pour encore plus de détails.
+- La base, le serveur et la requête sont gardés avec le projet.
 
 ## Docker
 
@@ -394,11 +399,10 @@ panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en
   Une puce se retire avec son ×.
 - **Images** : une image part avec le message, réduite à 1568 pixels pour coûter moins de tokens.
   Trois façons de la donner : la coller avec Ctrl+V (une image copiée), la glisser depuis le
-  gestionnaire de fichiers sur la conversation, ou **+ Contexte → Image…**. **+ Contexte →
-  Capture d'écran** te fait choisir à la souris la zone de l'écran (Échap pour annuler) ; sous
-  Linux, avec `slurp` et `grim` (Hyprland, Sway…) ou la capture du bureau (GNOME, KDE…), sous
-  macOS celle du système, sous Windows l'outil Capture d'écran. L'image apparaît en miniature au-dessus du champ, puis dans le
-  message envoyé ; un clic l'ouvre en grand.
+  gestionnaire de fichiers sur la conversation, ou **+ Contexte → Image…**. Pour une capture
+  d'écran : prends-la avec l'outil du système (elle va dans le presse-papiers), puis Ctrl+V.
+  L'image apparaît en miniature au-dessus du champ, puis dans le message envoyé ; un clic l'ouvre
+  en grand.
 - **Questions d'abord** : si la demande laisse des choix ouverts, Claude ne code rien et pose
   1 à 3 questions avec des options (la conseillée cochée d'avance, **Autre** pour écrire la
   tienne) ; **Répondre** les envoie et il continue. Dans la file de tâches, la tâche attend tes

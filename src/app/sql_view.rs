@@ -1,20 +1,36 @@
-//! The SQL view: a PostgreSQL connection (through `psql`), a query, its result as a table, and
-//! EXPLAIN ANALYZE with its slowest steps marked.
+//! The SQL view: a database of a PostgreSQL server (through `psql`), a query, its result as a
+//! table, and EXPLAIN ANALYZE as a tree of steps with their time, the slowest marked.
 
 use super::*;
 use crate::sql::{self, Outcome};
 
 #[derive(Default)]
 pub(super) struct SqlUi {
-    /// A database name, "host=… user=… dbname=…" or "postgresql://…"; empty: psql's default.
-    pub(super) conn: String,
+    /// The server: "host=… user=…" or "postgresql://…" without database; empty: the local one.
+    pub(super) server: String,
+    pub(super) db: String,
     pub(super) query: String,
+    /// The databases of the server (None: not read yet), and whether they are being read.
     dbs: Option<Result<Vec<String>, String>>,
+    dbs_loading: bool,
     result: Option<Result<Outcome, String>>,
     running: sql::Running,
     busy: bool,
     /// Number of the last query sent (an older answer is dropped).
     gen: u64,
+}
+
+impl SqlUi {
+    /// The connection given to psql: the server and the database.
+    pub(super) fn conn(&self) -> String {
+        if self.db.is_empty() { self.server.clone() } else { sql::with_database(&self.server, &self.db) }
+    }
+
+    /// Back to the connection `conn` (kept with the project).
+    pub(super) fn set_conn(&mut self, conn: &str) {
+        (self.server, self.db) = sql::split_conn(conn);
+        self.dbs = None;
+    }
 }
 
 impl App {
@@ -27,9 +43,13 @@ impl App {
         if s.busy || s.query.trim().is_empty() {
             return;
         }
+        if s.db.is_empty() {
+            s.result = Some(Err(t!("Choisis d'abord une base, en haut.", "Choose a database first, at the top.").into()));
+            return;
+        }
         s.busy = true;
         s.gen += 1;
-        let (gen, conn, query, running) = (s.gen, s.conn.clone(), s.query.clone(), s.running.clone());
+        let (gen, conn, query, running) = (s.gen, s.conn(), s.query.clone(), s.running.clone());
         self.jobs.spawn(move || JobResult::SqlDone(gen, sql::query(&conn, &query, explain, &running)));
     }
 
@@ -41,6 +61,7 @@ impl App {
     }
 
     pub(super) fn sql_dbs_loaded(&mut self, r: Result<Vec<String>, String>) {
+        self.sql.dbs_loading = false;
         self.sql.dbs = Some(r);
     }
 
@@ -50,55 +71,60 @@ impl App {
         }
         let accent = self.hl.colors.accent;
         let fill = ui.visuals().panel_fill;
-        let (mut run, mut stop, mut load_dbs) = (None, false, false);
+        let (mut run, mut stop) = (None, false);
         let hl = &self.hl;
         let s = &mut self.sql;
+        // the databases of the server, read when the view first shows
+        let mut load_dbs = s.dbs.is_none() && !s.dbs_loading;
 
-        // ------------------------------------------------ connection
+        // ------------------------------------------------ the database and the server
         egui::TopBottomPanel::top("sql_bar")
             .frame(egui::Frame::none().fill(fill).inner_margin(egui::Margin { left: 10.0, right: 10.0, top: 8.0, bottom: 6.0 }))
             .show_inside(ui, |ui| {
                 ui.horizontal(|ui| {
                     crate::view_bar::title(ui, "SQL");
-                    crate::input::add(ui,
-                        egui::TextEdit::singleline(&mut s.conn)
-                            .hint_text(t!("base (odoo17), host=… user=… dbname=…, ou postgresql://…", "database (odoo17), host=… user=… dbname=…, or postgresql://…"))
-                            .desired_width(340.0),
-                    )
-                    .on_hover_text(t!("Passé à psql -d. Le mot de passe : ~/.pgpass ou PGPASSWORD (évite de l'écrire ici).", "Given to psql -d. The password: ~/.pgpass or PGPASSWORD (better than writing it here)."));
-                    let menu = ui.menu_button(t!("Bases ▾", "Databases ▾"), |ui| {
-                        ui.set_min_width(200.0);
-                        match &s.dbs {
-                            None => {
-                                spinner(ui);
-                            }
-                            Some(Err(e)) => {
-                                ui.label(RichText::new(e).color(err()));
-                            }
-                            Some(Ok(list)) => {
-                                egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
-                                    for db in list {
-                                        if ui.button(db).clicked() {
-                                            s.conn = sql::with_database(&s.conn, db);
-                                            ui.close_menu();
-                                        }
-                                    }
-                                });
-                            }
-                        }
-                    });
-                    if menu.response.clicked() {
+                    ui.label(RichText::new(t!("Base", "Database")).weak());
+                    let list: &[String] = match &s.dbs {
+                        Some(Ok(l)) => l,
+                        _ => &[],
+                    };
+                    let current = list.iter().position(|d| *d == s.db);
+                    let shown = if s.db.is_empty() { RichText::new(t!("choisir une base…", "choose a database…")).weak() } else { RichText::new(&s.db).strong() };
+                    if let Some(k) = crate::pick::combo(ui, "sql_db", shown, list, current) {
+                        s.db = list[k].clone();
+                    }
+                    if s.dbs_loading {
+                        spinner(ui);
+                    } else if ui.small_button("⟳").on_hover_text(t!("Relire la liste des bases", "Read the list of databases again")).clicked() {
+                        load_dbs = true;
+                    }
+                    if let Some(Err(e)) = &s.dbs {
+                        ui.label(RichText::new(format!("⚠ {}", e.lines().next().unwrap_or(""))).color(err())).on_hover_text(e.as_str());
+                    }
+                    ui.add_space(12.0);
+                    ui.label(RichText::new(t!("Serveur", "Server")).weak());
+                    let r = crate::input::add(ui, egui::TextEdit::singleline(&mut s.server).hint_text(t!("local (par défaut)", "local (default)")).desired_width(240.0)).on_hover_text(t!(
+                        "Vide : le PostgreSQL de cette machine. Sinon « host=… port=… user=… » ou « postgresql://user@host:port ». Le mot de passe : ~/.pgpass ou PGPASSWORD (évite de l'écrire ici).",
+                        "Empty: the PostgreSQL of this machine. Else “host=… port=… user=…” or “postgresql://user@host:port”. The password: ~/.pgpass or PGPASSWORD (better than writing it here)."
+                    ));
+                    // another server: its databases
+                    let changed_id = r.id.with("changed");
+                    if r.changed() {
+                        ui.data_mut(|d| d.insert_temp(changed_id, true));
+                    }
+                    if r.lost_focus() && ui.data_mut(|d| d.remove_temp::<bool>(changed_id)).unwrap_or(false) {
                         load_dbs = true;
                     }
                 });
             });
 
         // ------------------------------------------------ the query
+        // a few lines by default; its lower edge is dragged to make it taller
         let avail = ui.available_height();
         egui::TopBottomPanel::top("sql_query")
             .resizable(true)
-            .default_height((avail * 0.35).max(120.0))
-            .height_range(80.0..=(avail - 100.0).max(100.0))
+            .default_height(150.0_f32.min(avail * 0.5))
+            .height_range(70.0..=(avail - 100.0).max(100.0))
             .frame(egui::Frame::none().fill(fill).inner_margin(egui::Margin::symmetric(10.0, 4.0)))
             .show_inside(ui, |ui| {
                 ui.horizontal(|ui| {
@@ -109,8 +135,8 @@ impl App {
                     if ui
                         .add_enabled(!s.busy, egui::Button::new("⏱ EXPLAIN ANALYZE"))
                         .on_hover_text(t!(
-                            "Le plan de la requête avec ses vrais temps : elle est exécutée dans une transaction annulée ensuite (ROLLBACK), les données ne changent pas. Les étapes les plus lentes sont en couleur.",
-                            "The plan of the query with its real times: it runs in a transaction rolled back afterwards (ROLLBACK), the data does not change. The slowest steps are colored."
+                            "Le plan de la requête avec ses vrais temps, étape par étape : elle est exécutée dans une transaction annulée ensuite (ROLLBACK), les données ne changent pas. Les étapes les plus lentes sont en couleur.",
+                            "The plan of the query with its real times, step by step: it runs in a transaction rolled back afterwards (ROLLBACK), the data does not change. The slowest steps are colored."
                         ))
                         .clicked()
                     {
@@ -151,7 +177,7 @@ impl App {
                             .hint_text("SELECT id, name FROM res_partner WHERE active ORDER BY id DESC LIMIT 50")
                             .code_editor()
                             .desired_width(f32::INFINITY)
-                            .desired_rows(6)
+                            .desired_rows(4)
                             .layouter(&mut layouter),
                     );
                     if r.has_focus() && ui.input(|i| i.modifiers.command && i.key_pressed(Key::Enter)) {
@@ -161,7 +187,7 @@ impl App {
             });
 
         // ------------------------------------------------ the result
-        egui::CentralPanel::default().frame(egui::Frame::none().inner_margin(egui::Margin::symmetric(10.0, 6.0))).show_inside(ui, |ui| match &s.result {
+        egui::CentralPanel::default().frame(egui::Frame::none().fill(fill).inner_margin(egui::Margin::symmetric(10.0, 6.0))).show_inside(ui, |ui| match &s.result {
             None => {
                 ui.label(RichText::new(t!("Écris une requête puis ▶ Exécuter (Ctrl+Entrée). Les résultats s'affichent ici.", "Write a query then ▶ Run (Ctrl+Enter). The results show here.")).weak());
             }
@@ -185,17 +211,24 @@ impl App {
                 ui.add_space(4.0);
                 result_table(ui, t);
             }
-            Some(Ok(Outcome::Plan(lines, took))) => {
-                ui.label(RichText::new(tf!("Plan (EXPLAIN ANALYZE, annulé ensuite) · {}", "Plan (EXPLAIN ANALYZE, rolled back) · {}", ms(*took))).strong());
+            Some(Ok(Outcome::Plan(plan, _))) => {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(tf!("Exécution {}", "Execution {}", plan_ms(plan.execution_ms))).strong());
+                    ui.label(RichText::new(tf!("· planification {} · annulée ensuite (ROLLBACK)", "· planning {} · rolled back (ROLLBACK)", plan_ms(plan.planning_ms))).weak());
+                    let tip = t!("Le plan en JSON, tel que PostgreSQL le donne : à coller dans explain.dalibo.com par exemple", "The plan as JSON, as PostgreSQL gives it: to paste in explain.dalibo.com for instance");
+                    if ui.small_button(t!("Copier le plan (JSON)", "Copy the plan (JSON)")).on_hover_text(tip).clicked() {
+                        ui.ctx().copy_text(plan.json.clone());
+                    }
+                });
                 ui.add_space(4.0);
-                plan_view(ui, lines);
+                plan_view(ui, plan, accent);
             }
         });
 
         if load_dbs {
-            self.sql.dbs = None;
-            let conn = self.sql.conn.clone();
-            self.jobs.spawn(move || JobResult::SqlDbs(sql::databases(&conn)));
+            self.sql.dbs_loading = true;
+            let server = self.sql.server.clone();
+            self.jobs.spawn(move || JobResult::SqlDbs(sql::databases(&server)));
         }
         if stop {
             sql::stop(&self.sql.running);
@@ -258,20 +291,86 @@ fn result_table(ui: &mut egui::Ui, t: &sql::Table) {
     });
 }
 
-/// The plan, its slowest steps colored (red: half of the slowest or more, orange: a fifth).
-fn plan_view(ui: &mut egui::Ui, lines: &[String]) {
-    let times = sql::node_times(lines);
-    let max = times.iter().flatten().cloned().fold(0.0, f64::max);
+fn plan_ms(ms: f64) -> String {
+    if ms < 1.0 { format!("{ms:.3} ms") } else if ms < 1000.0 { format!("{ms:.1} ms") } else { format!("{:.2} s", ms / 1000.0) }
+}
+
+/// Widths of the columns of the plan: share of the time, own time, rows.
+const PLAN_COLS: [f32; 3] = [110.0, 84.0, 150.0];
+
+/// The steps of the plan as a tree, in the manner of explain.dalibo.com: for each, its own time
+/// and its share of the execution (red: half of it or more, orange: a fifth), the rows given
+/// against those expected (⚠ when ten times off), what it reads, and its conditions.
+fn plan_view(ui: &mut egui::Ui, plan: &sql::Plan, accent: egui::Color32) {
+    let total = plan.execution_ms.max(plan.root.total_ms).max(1e-9);
+    let mono = egui::FontId::monospace(12.0);
+    let cell = |ui: &mut egui::Ui, w: f32, add: &mut dyn FnMut(&mut egui::Ui)| {
+        ui.allocate_ui_with_layout(egui::vec2(w, 18.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+            ui.set_min_width(w);
+            add(ui);
+        });
+    };
     egui::ScrollArea::both().id_salt("sql_plan").auto_shrink([false, false]).show(ui, |ui| {
-        for (l, time) in lines.iter().zip(&times) {
-            let mut text = RichText::new(l).monospace();
-            match time {
-                Some(t) if max > 0.0 && *t >= max * 0.5 => text = text.color(err()).strong(),
-                Some(t) if max > 0.0 && *t >= max * 0.2 => text = text.color(warn()),
-                _ if l.starts_with("Planning Time") || l.starts_with("Execution Time") => text = text.strong(),
-                _ => {}
+        ui.horizontal(|ui| {
+            for (w, h) in PLAN_COLS.iter().zip([t!("Part du temps", "Share of time"), t!("Temps propre", "Own time"), t!("Lignes (estimées)", "Rows (estimated)")]) {
+                cell(ui, *w, &mut |ui| {
+                    ui.label(RichText::new(h).small().weak());
+                });
             }
-            ui.label(text);
+            ui.label(RichText::new(t!("Étape", "Step")).small().weak());
+        });
+        ui.separator();
+        for (depth, n) in plan.root.walk() {
+            let share = (n.self_ms / total) as f32;
+            let color = if share >= 0.5 { err() } else if share >= 0.2 { warn() } else { accent };
+            let indent = depth as f32 * 18.0;
+            ui.horizontal(|ui| {
+                // the share of the execution: a bar and its percentage
+                cell(ui, PLAN_COLS[0], &mut |ui| {
+                    let (r, _) = ui.allocate_exact_size(egui::vec2(60.0, 10.0), Sense::hover());
+                    ui.painter().rect_filled(r, 2.0, ui.visuals().faint_bg_color);
+                    ui.painter().rect_filled(egui::Rect::from_min_size(r.min, egui::vec2(60.0 * share.clamp(0.0, 1.0), 10.0)), 2.0, color);
+                    ui.label(RichText::new(format!("{:.0} %", share * 100.0)).small());
+                });
+                cell(ui, PLAN_COLS[1], &mut |ui| {
+                    let t = RichText::new(if n.never { t!("jamais", "never").to_string() } else { plan_ms(n.self_ms) }).font(mono.clone());
+                    ui.label(if share >= 0.2 { t.color(color).strong() } else { t }).on_hover_text(tf!("Avec les étapes en dessous : {}", "With the steps below: {}", plan_ms(n.total_ms)));
+                });
+                cell(ui, PLAN_COLS[2], &mut |ui| {
+                    let loops = if n.loops > 1.0 { format!(" ×{}", n.loops as u64) } else { String::new() };
+                    let text = format!("{} ({}){loops}", n.rows as u64, n.plan_rows as u64);
+                    match n.misestimate() {
+                        Some((f, under)) if f >= 10.0 => {
+                            let tip = if under {
+                                tf!("{f:.0} fois plus de lignes que prévu : les statistiques sont-elles à jour ? (ANALYZE la table)", "{f:.0} times more rows than expected: are the statistics up to date? (ANALYZE the table)")
+                            } else {
+                                tf!("{f:.0} fois moins de lignes que prévu", "{f:.0} times fewer rows than expected")
+                            };
+                            ui.label(RichText::new(format!("{text} ⚠")).font(mono.clone()).color(warn())).on_hover_text(tip);
+                        }
+                        _ => {
+                            ui.label(RichText::new(text).font(mono.clone())).on_hover_text(t!("Lignes données par boucle (estimées par le planificateur) × boucles", "Rows given per loop (estimated by the planner) × loops"));
+                        }
+                    }
+                });
+                ui.add_space(indent);
+                if depth > 0 {
+                    ui.label(RichText::new("↳").weak());
+                }
+                let kind = RichText::new(&n.kind).strong();
+                ui.label(if n.never { kind.weak() } else if share >= 0.2 { kind.color(color) } else { kind });
+                if !n.on.is_empty() {
+                    ui.label(RichText::new(&n.on).weak());
+                }
+            });
+            // its conditions, under its name
+            let left = PLAN_COLS.iter().sum::<f32>() + 3.0 * ui.spacing().item_spacing.x + indent + if depth > 0 { 18.0 } else { 0.0 };
+            for d in &n.details {
+                ui.horizontal(|ui| {
+                    ui.add_space(left);
+                    ui.label(RichText::new(d).font(egui::FontId::monospace(11.5)).weak());
+                });
+            }
         }
     });
 }
@@ -299,20 +398,20 @@ mod tests {
     #[test]
     fn table_and_plan_are_drawn() {
         let t = sql::parse_csv("id,name\n1,Azure\n2,\n", 10);
-        let plan: Vec<String> = ["Seq Scan on res_partner  (actual time=0.010..9.000 rows=2 loops=1)", "Execution Time: 9.1 ms"].map(String::from).to_vec();
+        let plan = sql::parse_plan(r#"[{"Plan": {"Node Type": "Seq Scan", "Relation Name": "res_partner", "Actual Total Time": 9.0, "Actual Loops": 1, "Actual Rows": 2, "Plan Rows": 900, "Filter": "active"}, "Planning Time": 0.1, "Execution Time": 9.1}]"#).unwrap();
         let ctx = egui::Context::default();
         let mut shapes = Vec::new();
         for _ in 0..3 {
             let out = ctx.run(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 700.0))), ..Default::default() }, |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
                     result_table(ui, &t);
-                    plan_view(ui, &plan);
+                    plan_view(ui, &plan, egui::Color32::BLUE);
                 });
             });
             shapes = out.shapes;
         }
         let s = texts(&shapes);
-        for want in ["id", "name", "Azure", "NULL", "Seq Scan", "Execution Time"] {
+        for want in ["id", "name", "Azure", "NULL", "Seq Scan", "res_partner", "Filter: active", "2 (900) ⚠"] {
             assert!(s.contains(want), "{want}: {s}");
         }
         assert_eq!(to_tsv(&t), "id\tname\n1\tAzure\n2\t");

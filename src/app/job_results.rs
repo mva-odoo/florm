@@ -458,8 +458,7 @@ impl App {
                     }
                 }
                 JobResult::ClaudeImage { label, png } => match png {
-                    Ok(Some(png)) => self.claude_attach_image(png, label),
-                    Ok(None) => self.set_status(t!("Capture d'écran annulée", "Screenshot cancelled")),
+                    Ok(png) => self.claude_attach_image(png, label),
                     Err(e) => self.set_error(tf!("{label} : {e}", "{label}: {e}")),
                 },
                 JobResult::Repos(root, repos) => self.apply_repos(root, repos),

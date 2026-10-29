@@ -198,16 +198,22 @@ one of the commits.
 **Tools → SQL** (or “sql” in the palette): a tab to query a PostgreSQL database with the `psql`
 command (the client alone is enough).
 
-- On top, the **connection**: the name of a database (`odoo17`), `host=… user=… dbname=…` or
-  `postgresql://…`. **Databases ▾** lists those of the server. The password goes in `~/.pgpass`
-  (or the `PGPASSWORD` variable) rather than in the field.
-- The query, colored; **▶ Run** or **Ctrl+Enter**. The result shows as a table (resizable
-  columns, `NULL` in grey, click a value to copy it, **Copy (spreadsheet)** to paste it all in a
-  spreadsheet), with the number of rows and the time. **■ Stop** interrupts a query too long.
-- **⏱ EXPLAIN ANALYZE**: the plan of the query with its real times. It runs in a transaction
-  rolled back afterwards: an `UPDATE` or a `DELETE` changes nothing. The slowest steps are in red
-  (orange for the next ones).
-- The connection and the query are kept with the project.
+- On top, **Database**: the list of the databases of the server; type a few letters to find the
+  right one, ↑ ↓ and Enter to choose it. ⟳ reads the list again. **Server** stays empty for the
+  PostgreSQL of this machine; else `host=… port=… user=…` or `postgresql://user@host:port`. The
+  password goes in `~/.pgpass` (or the `PGPASSWORD` variable) rather than in the field.
+- The query, colored; **▶ Run** or **Ctrl+Enter**. Its area is small: drag its lower edge to make
+  it taller. The result shows as a table (resizable columns, `NULL` in grey, click a value to copy
+  it, **Copy (spreadsheet)** to paste it all in a spreadsheet), with the number of rows and the
+  time. **■ Stop** interrupts a query too long.
+- **⏱ EXPLAIN ANALYZE**: the plan of the query as a tree of steps, as on explain.dalibo.com. For
+  each step: its share of the execution time (a bar, red from half of it, orange from a fifth),
+  its own time, the rows given and those expected (⚠ when the estimate is off by a factor of 10:
+  statistics to check), the table and index read, and its conditions (filter, join, sort,
+  buffers). The query runs in a transaction rolled back afterwards: an `UPDATE` or a `DELETE`
+  changes nothing. **Copy the plan (JSON)** gives it as is, to paste in explain.dalibo.com for
+  even more detail.
+- The database, the server and the query are kept with the project.
 
 ## Docker
 
@@ -384,10 +390,9 @@ command and your login: no key to set up.
   alone: **Send** works even when the field is empty. A chip is removed with its ×.
 - **Images**: an image goes with the message, scaled down to 1568 pixels to cost fewer tokens.
   Three ways to give it: paste it with Ctrl+V (a copied image), drop it from the file manager on
-  the conversation, or **+ Context → Image…**. **+ Context → Screenshot** lets you choose the area
-  of the screen with the mouse (Escape to cancel); on Linux, with `slurp` and `grim` (Hyprland,
-  Sway…) or the desktop's screenshot (GNOME, KDE…), on macOS the system's, on Windows the Snipping Tool. The image shows
-  as a thumbnail above the field, then in the message sent; a click opens it full size.
+  the conversation, or **+ Context → Image…**. For a screenshot: take it with the system's tool (it
+  goes to the clipboard), then Ctrl+V. The image shows as a thumbnail above the field, then in the
+  message sent; a click opens it full size.
 - **Questions first**: if the request leaves choices open, Claude codes nothing and asks 1 to 3
   questions with options (the recommended one ticked already, **Other** to write yours);
   **Answer** sends them and it goes on. In the task queue, the task waits for your answers

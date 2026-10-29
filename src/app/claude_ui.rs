@@ -1252,7 +1252,6 @@ impl App {
                                 (t!("Changements non commités", "Uncommitted changes"), t!("Le diff de ce qui n'est pas commité (git diff HEAD, nouveaux fichiers compris)", "The diff of what is not committed (git diff HEAD, new files included)"), CtxAdd::Diff),
                                 (t!("Problèmes du fichier", "Problems of the file"), t!("Les erreurs et avertissements du linter dans le fichier ouvert", "The linter errors and warnings in the open file"), CtxAdd::Problems),
                                 (t!("Image…", "Image…"), t!("Une image choisie sur le disque (aussi : glisse-la sur la conversation, ou colle-la avec Ctrl+V)", "An image chosen on the disk (also: drop it on the conversation, or paste it with Ctrl+V)"), CtxAdd::Image),
-                                (t!("Capture d'écran", "Screenshot"), t!("Choisis à la souris la zone de l'écran à envoyer (Échap pour annuler)", "Choose with the mouse the area of the screen to send (Escape to cancel)"), CtxAdd::Screenshot),
                             ] {
                                 if ui.button(label).on_hover_text(tip).clicked() {
                                     ctx_add = Some(what);
@@ -1281,7 +1280,7 @@ impl App {
                         if ctx_menu.response.clicked() {
                             read_commits = true;
                         }
-                        ctx_menu.response.on_hover_text(t!("Donner à Claude un fichier, la sélection, le diff, un commit, les problèmes, une image, une capture d'écran…", "Give Claude a file, the selection, the diff, a commit, the problems, an image, a screenshot…"));
+                        ctx_menu.response.on_hover_text(t!("Donner à Claude un fichier, la sélection, le diff, un commit, les problèmes, une image…", "Give Claude a file, the selection, the diff, a commit, the problems, an image…"));
                         // what goes with each message: in a menu, the options stay one click away
                         let on = [c.with_context, c.ask_first, c.model_first, !c.no_defs].iter().filter(|b| **b).count();
                         ui.menu_button(tf!("Options ({on}/4) ▾", "Options ({on}/4) ▾"), |ui| {

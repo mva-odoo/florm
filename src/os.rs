@@ -316,76 +316,10 @@ fn portal_request(interface: &str, method: &str, title: Option<&str>, mut opts: 
     if code != 0 {
         return Ok(None);
     }
-    // the file chooser gives a list of uris, the screenshot one uri
-    Ok(match (results.get("uris"), results.get("uri")) {
-        (Some(Value::Array(a)), _) => a.iter().find_map(|v| if let Value::Str(s) = v { Some(s.to_string()) } else { None }),
-        (_, Some(Value::Str(s))) => Some(s.to_string()),
+    Ok(match results.get("uris") {
+        Some(Value::Array(a)) => a.iter().find_map(|v| if let Value::Str(s) = v { Some(s.to_string()) } else { None }),
         _ => None,
     })
-}
-
-/// A screenshot, the part of the screen to take chosen with the mouse where the system allows it:
-/// the image file's bytes, None when cancelled. Blocks until it is taken.
-pub fn screenshot() -> Result<Option<Vec<u8>>, String> {
-    #[cfg(target_os = "linux")]
-    {
-        // wlroots desktops (Hyprland, Sway…): slurp to choose the part, grim to take it
-        if std::env::var_os("WAYLAND_DISPLAY").is_some() {
-            match command("slurp").stdin(Stdio::null()).stderr(Stdio::null()).output() {
-                // Escape in slurp: nothing taken
-                Ok(o) if !o.status.success() => return Ok(None),
-                Ok(o) => {
-                    let area = String::from_utf8_lossy(&o.stdout).trim().to_string();
-                    if let Ok(g) = command("grim").args(["-g", &area, "-"]).stdin(Stdio::null()).stderr(Stdio::null()).output() {
-                        if g.status.success() && !g.stdout.is_empty() {
-                            return Ok(Some(g.stdout));
-                        }
-                    }
-                }
-                Err(_) => {}
-            }
-        }
-        // the others (GNOME, KDE…): the desktop's screenshot through the xdg portal
-        let mut opts = std::collections::HashMap::new();
-        opts.insert("interactive", zbus::zvariant::Value::from(true));
-        let uri = portal_request("org.freedesktop.portal.Screenshot", "Screenshot", None, opts)
-            .map_err(|e| tf!("Capture d'écran du bureau indisponible : {e}", "Desktop screenshot unavailable: {e}"))?;
-        let Some(path) = uri.and_then(|u| file_uri_path(&u)) else { return Ok(None) };
-        let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
-        // the portal saves it in the pictures folder: Florm keeps its own copy
-        let _ = std::fs::remove_file(&path);
-        Ok(Some(bytes))
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let file = std::env::temp_dir().join(format!("florm-shot-{}.png", std::process::id()));
-        let _ = std::fs::remove_file(&file);
-        // -i: the part chosen with the mouse (Space: a window), -x: no sound
-        command("screencapture").arg("-i").arg("-x").arg(&file).status().map_err(|e| e.to_string())?;
-        let bytes = std::fs::read(&file).ok();
-        let _ = std::fs::remove_file(&file);
-        Ok(bytes)
-    }
-    #[cfg(windows)]
-    {
-        // the snipping tool puts the capture in the clipboard: waited for there (at most 2 minutes)
-        let mut cb = arboard::Clipboard::new().map_err(|e| e.to_string())?;
-        let before = cb.get_image().ok().map(|i| i.bytes.into_owned());
-        command("explorer.exe").arg("ms-screenclip:").spawn().map_err(|e| e.to_string())?;
-        let start = std::time::Instant::now();
-        while start.elapsed() < std::time::Duration::from_secs(120) {
-            std::thread::sleep(std::time::Duration::from_millis(300));
-            if let Ok(img) = cb.get_image() {
-                if before.as_deref() != Some(&*img.bytes) {
-                    let png = crate::claude::png_of(img.width, img.height, img.bytes.into_owned())?;
-                    return Ok(Some(png));
-                }
-            }
-        }
-        Ok(None)
-    }
-    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
-    Err("screenshot".into())
 }
 
 /// `file:///home/a%20b` → `/home/a b`.

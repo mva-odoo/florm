@@ -1,5 +1,6 @@
 //! PostgreSQL through `psql`: queries, their results as a table (CSV output), the databases of
-//! the server, and EXPLAIN ANALYZE run in a transaction rolled back (the data is not changed).
+//! the server, and EXPLAIN ANALYZE run in a transaction rolled back (the data is not changed),
+//! its plan read as a tree of steps.
 
 use std::io::Read;
 use std::process::{Child, Stdio};
@@ -22,8 +23,8 @@ pub struct Table {
 #[derive(Clone, Debug)]
 pub enum Outcome {
     Table(Table, Duration),
-    /// The plan of EXPLAIN ANALYZE, a line per node.
-    Plan(Vec<String>, Duration),
+    /// The plan of EXPLAIN ANALYZE.
+    Plan(Plan, Duration),
     /// A statement without rows (UPDATE, CREATE…): psql's message, often empty.
     Done(String, Duration),
 }
@@ -91,10 +92,10 @@ pub fn query(conn: &str, query: &str, explain: bool, running: &Running) -> Resul
     let q = query.trim().trim_end_matches(';').trim().to_string();
     let t0 = Instant::now();
     if explain {
-        let cmds = ["BEGIN".to_string(), format!("EXPLAIN (ANALYZE, BUFFERS) {q}"), "ROLLBACK".to_string()];
+        let cmds = ["BEGIN".to_string(), format!("EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) {q}"), "ROLLBACK".to_string()];
         let out = run(conn, &cmds, running)?;
-        let t = parse_csv(&out, usize::MAX);
-        return Ok(Outcome::Plan(t.rows.into_iter().filter_map(|r| r.into_iter().next().flatten()).collect(), t0.elapsed()));
+        let json = parse_csv(&out, usize::MAX).rows.into_iter().next().and_then(|r| r.into_iter().next().flatten()).unwrap_or_default();
+        return Ok(Outcome::Plan(parse_plan(&json)?, t0.elapsed()));
     }
     let out = run(conn, &[q], running)?;
     let took = t0.elapsed();
@@ -104,10 +105,11 @@ pub fn query(conn: &str, query: &str, explain: bool, running: &Running) -> Resul
     Ok(Outcome::Table(parse_csv(&out, MAX_ROWS), took))
 }
 
-/// The databases of the server (connected through `conn`, else the default one).
-pub fn databases(conn: &str) -> Result<Vec<String>, String> {
+/// The databases of the server `server` (a connection without its database; empty: the local one).
+pub fn databases(server: &str) -> Result<Vec<String>, String> {
     let running = Running::default();
-    let out = run(conn, &["SELECT datname FROM pg_database WHERE NOT datistemplate ORDER BY 1".into()], &running)?;
+    // through the « postgres » database, always there: psql's default (the user's name) may not be
+    let out = run(&with_database(server, "postgres"), &["SELECT datname FROM pg_database WHERE NOT datistemplate ORDER BY 1".into()], &running)?;
     Ok(parse_csv(&out, usize::MAX).rows.into_iter().filter_map(|r| r.into_iter().next().flatten()).collect())
 }
 
@@ -132,6 +134,29 @@ pub fn with_database(conn: &str, db: &str) -> String {
         return parts.join(" ");
     }
     db.to_string()
+}
+
+/// A connection split in its server and its database: a name alone → ("", name); "key=value …"
+/// → the rest and its dbname; an URI → the URI without its path, and its path.
+pub fn split_conn(conn: &str) -> (String, String) {
+    let c = conn.trim();
+    if c.starts_with("postgres://") || c.starts_with("postgresql://") {
+        let (base, query) = c.split_once('?').map_or((c, None), |(b, q)| (b, Some(q)));
+        let scheme_end = base.find("://").map_or(0, |i| i + 3);
+        let (host, db) = base[scheme_end..].split_once('/').unwrap_or((&base[scheme_end..], ""));
+        let mut server = format!("{}{host}", &base[..scheme_end]);
+        if let Some(q) = query {
+            server.push('?');
+            server.push_str(q);
+        }
+        return (server, db.to_string());
+    }
+    if c.contains('=') {
+        let db = c.split_whitespace().find_map(|p| p.strip_prefix("dbname=")).unwrap_or("").to_string();
+        let rest: Vec<&str> = c.split_whitespace().filter(|p| !p.starts_with("dbname=")).collect();
+        return (rest.join(" "), db);
+    }
+    (String::new(), c.to_string())
 }
 
 /// psql's CSV: the first line names the columns; an empty field not quoted is NULL.
@@ -181,16 +206,142 @@ pub fn parse_csv(text: &str, max_rows: usize) -> Table {
     Table { columns, rows: it.collect(), total: total.saturating_sub(1) }
 }
 
-/// For each line of a plan, its time (ms, all loops) when it says "actual time=a..b … loops=n".
-pub fn node_times(plan: &[String]) -> Vec<Option<f64>> {
-    plan.iter()
-        .map(|l| {
-            let (_, rest) = l.split_once("actual time=")?;
-            let end: f64 = rest.split_once("..")?.1.split_whitespace().next()?.parse().ok()?;
-            let loops: f64 = rest.split_once("loops=").and_then(|(_, x)| x.trim_end_matches(')').split(|c: char| !c.is_ascii_digit()).next()?.parse().ok()).unwrap_or(1.0);
-            Some(end * loops)
-        })
-        .collect()
+/// A plan of EXPLAIN (ANALYZE, FORMAT JSON).
+#[derive(Clone, Debug, Default)]
+pub struct Plan {
+    pub root: PlanNode,
+    pub planning_ms: f64,
+    pub execution_ms: f64,
+    /// The plan as PostgreSQL gave it (to paste in explain.dalibo.com…).
+    pub json: String,
+}
+
+/// A step of a plan.
+#[derive(Clone, Debug, Default)]
+pub struct PlanNode {
+    /// "Seq Scan", "Hash Join (Left)"…
+    pub kind: String,
+    /// What it reads: "on res_partner p using res_partner_pkey".
+    pub on: String,
+    /// Its conditions, filters, sort keys, buffers…
+    pub details: Vec<String>,
+    /// Time of the step with its children, and of the step alone (ms, all loops).
+    pub total_ms: f64,
+    pub self_ms: f64,
+    /// Rows given by each loop, and those the planner expected.
+    pub rows: f64,
+    pub plan_rows: f64,
+    pub loops: f64,
+    /// "never executed": the step was not needed.
+    pub never: bool,
+    pub children: Vec<PlanNode>,
+}
+
+impl PlanNode {
+    /// How far the planner's estimate was from the rows given: (factor ≥ 1, too few expected).
+    pub fn misestimate(&self) -> Option<(f64, bool)> {
+        if self.never {
+            return None;
+        }
+        let (r, p) = (self.rows.max(1.0), self.plan_rows.max(1.0));
+        Some(if r >= p { (r / p, true) } else { (p / r, false) })
+    }
+
+    /// The steps of the plan, depth first, with their depth.
+    pub fn walk(&self) -> Vec<(usize, &PlanNode)> {
+        fn go<'a>(n: &'a PlanNode, depth: usize, out: &mut Vec<(usize, &'a PlanNode)>) {
+            out.push((depth, n));
+            for c in &n.children {
+                go(c, depth + 1, out);
+            }
+        }
+        let mut out = Vec::new();
+        go(self, 0, &mut out);
+        out
+    }
+}
+
+/// The plan of `EXPLAIN (ANALYZE, FORMAT JSON)`.
+pub fn parse_plan(json: &str) -> Result<Plan, String> {
+    let v: serde_json::Value = serde_json::from_str(json).map_err(|e| tf!("Plan illisible : {e}", "Unreadable plan: {e}"))?;
+    let top = v.get(0).ok_or_else(|| t!("Plan vide", "Empty plan").to_string())?;
+    let root = top.get("Plan").map(plan_node).ok_or_else(|| t!("Plan vide", "Empty plan").to_string())?;
+    let f = |k: &str| top.get(k).and_then(|x| x.as_f64()).unwrap_or(0.0);
+    Ok(Plan { root, planning_ms: f("Planning Time"), execution_ms: f("Execution Time"), json: serde_json::to_string_pretty(&v).unwrap_or_else(|_| json.into()) })
+}
+
+fn plan_node(v: &serde_json::Value) -> PlanNode {
+    let s = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
+    let f = |k: &str| v.get(k).and_then(|x| x.as_f64()).unwrap_or(0.0);
+    let mut kind = s("Node Type");
+    let join = s("Join Type");
+    if !join.is_empty() && join != "Inner" {
+        kind = format!("{kind} ({join})");
+    }
+    if let Some(strategy) = v.get("Strategy").and_then(|x| x.as_str()).filter(|_| kind == "Aggregate") {
+        kind = format!("{kind} ({strategy})");
+    }
+    let mut on = Vec::new();
+    let rel = s("Relation Name");
+    if !rel.is_empty() {
+        let alias = s("Alias");
+        on.push(if alias.is_empty() || alias == rel { tf!("sur {rel}", "on {rel}") } else { tf!("sur {rel} {alias}", "on {rel} {alias}") });
+    }
+    let cte = s("CTE Name");
+    if !cte.is_empty() {
+        on.push(format!("CTE {cte}"));
+    }
+    let index = s("Index Name");
+    if !index.is_empty() {
+        on.push(tf!("avec {index}", "using {index}"));
+    }
+    let mut details = Vec::new();
+    for (key, label) in [("Index Cond", "Index Cond"), ("Recheck Cond", "Recheck Cond"), ("Hash Cond", "Hash Cond"), ("Merge Cond", "Merge Cond"), ("Join Filter", "Join Filter"), ("Filter", "Filter")] {
+        let c = s(key);
+        if !c.is_empty() {
+            details.push(format!("{label}: {c}"));
+        }
+    }
+    for (key, label) in [("Rows Removed by Filter", t!("lignes écartées par le filtre", "rows removed by the filter")), ("Rows Removed by Join Filter", t!("lignes écartées par la jointure", "rows removed by the join")), ("Rows Removed by Index Recheck", t!("lignes écartées à la revérification", "rows removed by the recheck"))] {
+        let n = f(key);
+        if n > 0.0 {
+            details.push(format!("{} {label}", n as u64));
+        }
+    }
+    if let Some(keys) = v.get("Sort Key").and_then(|x| x.as_array()) {
+        let keys: Vec<&str> = keys.iter().filter_map(|k| k.as_str()).collect();
+        let method = s("Sort Method");
+        let space = v.get("Sort Space Used").and_then(|x| x.as_f64()).map(|kb| format!(", {} kB {}", kb as u64, s("Sort Space Type"))).unwrap_or_default();
+        details.push(format!("Sort: {}{}", keys.join(", "), if method.is_empty() { String::new() } else { format!(" ({method}{space})") }));
+    }
+    if let Some(keys) = v.get("Group Key").and_then(|x| x.as_array()) {
+        details.push(format!("Group: {}", keys.iter().filter_map(|k| k.as_str()).collect::<Vec<_>>().join(", ")));
+    }
+    let (hit, read) = (f("Shared Hit Blocks"), f("Shared Read Blocks"));
+    if hit + read > 0.0 {
+        details.push(tf!("Buffers : {} en mémoire, {} lus sur le disque", "Buffers: {} in memory, {} read from disk", hit as u64, read as u64));
+    }
+    let workers = f("Workers Launched");
+    if workers > 0.0 {
+        details.push(tf!("{} processus parallèles", "{} parallel workers", workers as u64));
+    }
+    let loops = f("Actual Loops");
+    let total_ms = f("Actual Total Time") * loops;
+    let children: Vec<PlanNode> = v.get("Plans").and_then(|x| x.as_array()).map(|a| a.iter().map(plan_node).collect()).unwrap_or_default();
+    // its own time: without that of the steps under it (an InitPlan can be counted twice: never below 0)
+    let below: f64 = children.iter().map(|c| c.total_ms).sum();
+    PlanNode {
+        kind,
+        on: on.join(" "),
+        details,
+        total_ms,
+        self_ms: (total_ms - below).max(0.0),
+        rows: f("Actual Rows"),
+        plan_rows: f("Plan Rows"),
+        loops,
+        never: loops == 0.0,
+        children,
+    }
 }
 
 #[cfg(test)]
@@ -221,14 +372,39 @@ mod tests {
     }
 
     #[test]
-    fn plan_times() {
-        let plan: Vec<String> = [
-            "Hash Join  (cost=1.0..2.0 rows=10 width=4) (actual time=0.050..12.500 rows=10 loops=1)",
-            "  ->  Index Scan on a  (cost=0.1..1.0 rows=1 width=4) (actual time=0.010..0.200 rows=1 loops=40)",
-            "Planning Time: 0.1 ms",
-        ]
-        .map(String::from)
-        .to_vec();
-        assert_eq!(node_times(&plan), [Some(12.5), Some(8.0), None]);
+    fn connections_split() {
+        assert_eq!(split_conn(""), (String::new(), String::new()));
+        assert_eq!(split_conn("odoo17"), (String::new(), "odoo17".into()));
+        assert_eq!(split_conn("host=localhost user=odoo dbname=a"), ("host=localhost user=odoo".into(), "a".into()));
+        assert_eq!(split_conn("postgresql://odoo:pw@db:5432/a?sslmode=disable"), ("postgresql://odoo:pw@db:5432?sslmode=disable".into(), "a".into()));
+        assert_eq!(split_conn("postgres://localhost"), ("postgres://localhost".into(), String::new()));
+        // split then joined again: the same connection
+        let (server, db) = split_conn("host=localhost dbname=a");
+        assert_eq!(with_database(&server, &db), "host=localhost dbname=a");
+    }
+
+    #[test]
+    fn json_plan() {
+        let json = r#"[{"Plan": {"Node Type": "Hash Join", "Join Type": "Left", "Actual Total Time": 12.5, "Actual Loops": 1, "Actual Rows": 10, "Plan Rows": 1000,
+            "Hash Cond": "(a.id = b.a_id)",
+            "Plans": [
+                {"Node Type": "Seq Scan", "Relation Name": "res_partner", "Alias": "a", "Actual Total Time": 2.0, "Actual Loops": 1, "Actual Rows": 50, "Plan Rows": 50, "Filter": "active", "Rows Removed by Filter": 7, "Shared Hit Blocks": 3, "Shared Read Blocks": 1},
+                {"Node Type": "Index Scan", "Relation Name": "b", "Alias": "b", "Index Name": "b_pkey", "Actual Total Time": 0.2, "Actual Loops": 40, "Actual Rows": 1, "Plan Rows": 1},
+                {"Node Type": "Seq Scan", "Relation Name": "c", "Alias": "c", "Actual Total Time": 0.0, "Actual Loops": 0, "Actual Rows": 0, "Plan Rows": 5}
+            ]},
+            "Planning Time": 0.3, "Execution Time": 12.9}]"#;
+        let p = parse_plan(json).unwrap();
+        assert_eq!((p.planning_ms, p.execution_ms), (0.3, 12.9));
+        assert_eq!(p.root.kind, "Hash Join (Left)");
+        // 12.5 - 2.0 - 0.2 × 40
+        assert!((p.root.self_ms - 2.5).abs() < 1e-9);
+        assert_eq!(p.root.misestimate(), Some((100.0, false)));
+        let scan = &p.root.children[0];
+        assert!(scan.on.contains("res_partner") && scan.details.iter().any(|d| d == "Filter: active"));
+        assert!((p.root.children[1].total_ms - 8.0).abs() < 1e-9);
+        assert!(p.root.children[1].on.contains("b_pkey"));
+        assert!(p.root.children[2].never && p.root.children[2].misestimate().is_none());
+        assert_eq!(p.root.walk().iter().map(|(d, _)| *d).collect::<Vec<_>>(), [0, 1, 1, 1]);
+        assert!(parse_plan("not json").is_err());
     }
 }

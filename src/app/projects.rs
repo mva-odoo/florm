@@ -130,7 +130,7 @@ impl App {
             split: self.is_split().then(|| if self.split_dir == SplitDir::Down { "down" } else { "right" }.to_string()),
             bottom: self.bottom.map(|b| b.key()),
             sidebar_hidden: !self.show_sidebar,
-            sql_conn: self.sql.conn.clone(),
+            sql_conn: self.sql.conn(),
             sql_query: self.sql.query.clone(),
         };
         (session, backups)
@@ -150,7 +150,8 @@ impl App {
         self.debug_set_breakpoints(Vec::new());
         let Some(root) = self.root.clone() else { return };
         let Some(s) = project::load_session(&root) else {
-            (self.sql.conn, self.sql.query) = Default::default();
+            self.sql.set_conn("");
+            self.sql.query.clear();
             return;
         };
         self.debug_set_breakpoints(s.breakpoints.clone());
@@ -226,7 +227,8 @@ impl App {
             self.focused_pane = self.docs.get(*i).map_or(0, |d| d.pane);
         }
         self.show_sidebar = !s.sidebar_hidden;
-        (self.sql.conn, self.sql.query) = (s.sql_conn.clone(), s.sql_query.clone());
+        self.sql.set_conn(&s.sql_conn);
+        self.sql.query = s.sql_query.clone();
         if let Some(b) = s.bottom.as_deref().and_then(BottomTab::from_key).filter(|b| b.feature_on()) {
             self.show_bottom(b, false);
             // back where it was, without taking the keyboard from the editor
