@@ -74,7 +74,7 @@ impl App {
         }
         self.resolve_tab_drag(ctx);
         if welcome {
-            egui::CentralPanel::default().frame(egui::Frame::none()).show(ctx, |ui| self.welcome_ui(ui));
+            egui::CentralPanel::default().frame(egui::Frame::none().fill(self.hl.colors.bg)).show(ctx, |ui| self.welcome_ui(ui));
         }
     }
 

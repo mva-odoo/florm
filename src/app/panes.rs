@@ -124,7 +124,7 @@ impl App {
                 None
             }
             document::View::Welcome => {
-                egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.welcome_ui(ui));
+                egui::CentralPanel::default().frame(egui::Frame::none().fill(self.hl.colors.bg)).show_inside(ui, |ui| self.welcome_ui(ui));
                 None
             }
             document::View::Claude => {
