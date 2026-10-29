@@ -1906,81 +1906,36 @@ fn commit_menu(ui: &mut egui::Ui, c: &history::Commit, m: &MenuCtx, selected: Op
     item(ui, t!("Copier le message", "Copy the message"), HistAct::Copy(c.subject.clone()), act);
 }
 
-/// Colors of the welcome page, on the navy (dark theme) or paper (light theme) backdrop.
-#[derive(Clone, Copy)]
-struct WelcomeColors {
-    text: Color32,
-    dim: Color32,
-    strong: Color32,
-    card: Color32,
-    card_stroke: Color32,
-    hover: Color32,
-    key: Color32,
-    key_stroke: Color32,
-}
-
-fn welcome_colors(light: bool) -> WelcomeColors {
-    if light {
-        WelcomeColors {
-            text: Color32::from_rgb(0x1f, 0x2a, 0x3e),
-            dim: Color32::from_rgb(0x5f, 0x6e, 0x88),
-            strong: Color32::from_rgb(0x0d, 0x16, 0x26),
-            card: Color32::from_rgb(0xff, 0xff, 0xff),
-            card_stroke: Color32::from_rgb(0xd5, 0xde, 0xec),
-            hover: Color32::from_rgb(0xe8, 0xef, 0xfb),
-            key: Color32::from_rgb(0xf1, 0xf4, 0xf9),
-            key_stroke: Color32::from_rgb(0xc8, 0xd3, 0xe4),
-        }
-    } else {
-        WelcomeColors {
-            text: Color32::from_rgb(0xe8, 0xee, 0xf8),
-            dim: Color32::from_rgb(0xa3, 0xb3, 0xcc),
-            strong: Color32::WHITE,
-            card: Color32::from_rgb(0x16, 0x22, 0x38),
-            card_stroke: Color32::from_rgb(0x26, 0x36, 0x52),
-            hover: Color32::from_rgb(0x22, 0x33, 0x52),
-            key: Color32::from_rgb(0x0f, 0x19, 0x2b),
-            key_stroke: Color32::from_rgb(0x34, 0x47, 0x68),
-        }
+/// Section title of the welcome page: dimmed label followed by a thin rule.
+fn welcome_section(ui: &mut egui::Ui, title: &str) {
+    let dim = ui.visuals().weak_text_color();
+    let line = ui.visuals().widgets.noninteractive.bg_stroke.color;
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 22.0), Sense::hover());
+    let p = ui.painter();
+    let r = p.text(egui::pos2(rect.left() + 8.0, rect.center().y), Align2::LEFT_CENTER, title, egui::FontId::proportional(12.0), dim);
+    if r.right() + 10.0 < rect.right() {
+        p.hline(r.right() + 10.0..=rect.right() - 8.0, rect.center().y, egui::Stroke::new(1.0_f32, line));
     }
+    ui.add_space(2.0);
 }
 
-/// Rounded panel on the welcome backdrop, with a colored title.
-fn welcome_card(ui: &mut egui::Ui, title: &str, color: Color32, wc: &WelcomeColors, add: impl FnOnce(&mut egui::Ui)) {
-    egui::Frame::none()
-        .fill(wc.card)
-        .stroke(egui::Stroke::new(1.0_f32, wc.card_stroke))
-        .rounding(10.0)
-        .inner_margin(egui::Margin::same(12.0))
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.label(RichText::new(title).size(12.0).strong().color(color));
-            ui.add_space(6.0);
-            add(ui);
-        });
-}
-
-/// Clickable line of the welcome page: label, then a shortcut (keycap) or a dimmed detail.
-fn welcome_row(ui: &mut egui::Ui, label: &str, detail: &str, keycap: bool, color: Color32, wc: &WelcomeColors) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 28.0), Sense::click());
+/// Clickable line of the welcome page: label, then a shortcut (right-aligned) or a dimmed detail.
+fn welcome_row(ui: &mut egui::Ui, label: &str, detail: &str, shortcut: bool) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 26.0), Sense::click());
     let hovered = resp.hovered();
+    let v = ui.visuals();
+    let (text, dim) = (if hovered { v.strong_text_color() } else { v.text_color() }, v.weak_text_color());
     let p = ui.painter().with_clip_rect(rect);
     if hovered {
-        p.rect_filled(rect, 6.0, wc.hover);
-        p.rect_filled(egui::Rect::from_min_size(rect.min + egui::vec2(0.0, 6.0), egui::vec2(3.0, 16.0)), 1.5, color);
+        p.rect_filled(rect, 4.0, v.widgets.hovered.weak_bg_fill);
     }
     let cy = rect.center().y;
-    let text = if hovered { wc.strong } else { wc.text };
-    let lr = p.text(egui::pos2(rect.left() + 10.0, cy), Align2::LEFT_CENTER, label, egui::FontId::proportional(14.0), text);
+    let lr = p.text(egui::pos2(rect.left() + 8.0, cy), Align2::LEFT_CENTER, label, egui::FontId::proportional(13.5), text);
     if !detail.is_empty() {
-        let font = egui::FontId::proportional(if keycap { 11.5 } else { 12.0 });
-        let galley = p.layout_no_wrap(detail.to_string(), font, wc.dim);
+        let galley = p.layout_no_wrap(detail.to_string(), egui::FontId::proportional(12.0), dim);
         let w = galley.size().x;
-        if keycap {
-            let key = egui::Rect::from_min_size(egui::pos2(rect.right() - w - 18.0, cy - 10.0), egui::vec2(w + 12.0, 20.0));
-            p.rect_filled(key, 4.0, wc.key);
-            p.rect_stroke(key, 4.0, egui::Stroke::new(1.0_f32, wc.key_stroke));
-            p.galley(key.center() - galley.size() / 2.0, galley, wc.dim);
+        if shortcut {
+            p.galley(egui::pos2(rect.right() - 8.0 - w, cy - galley.size().y / 2.0), galley, dim);
         } else {
             // path after the name, cut on the left when too long
             let x = lr.right() + 10.0;
@@ -1990,9 +1945,9 @@ fn welcome_row(ui: &mut egui::Ui, label: &str, detail: &str, keycap: bool, color
                 let mut g = galley;
                 while g.size().x > room && d.chars().count() > 2 {
                     d = format!("…{}", d.chars().skip(4).collect::<String>());
-                    g = p.layout_no_wrap(d.clone(), egui::FontId::proportional(12.0), wc.dim);
+                    g = p.layout_no_wrap(d.clone(), egui::FontId::proportional(12.0), dim);
                 }
-                p.galley(egui::pos2(x, cy - g.size().y / 2.0), g, wc.dim);
+                p.galley(egui::pos2(x, cy - g.size().y / 2.0), g, dim);
             }
         }
     }

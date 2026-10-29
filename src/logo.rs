@@ -2,13 +2,12 @@
 //! sharp at any size, plus a tiny rasterizer for the window icon.
 
 use eframe::egui::{
-    self, epaint::Mesh, text::LayoutJob, Color32, FontId, Painter, Pos2, Rect, Shape, Stroke, TextFormat, Vec2,
+    self, epaint::Mesh, Color32, Painter, Pos2, Rect, Shape, Stroke, Vec2,
 };
 
 pub const CYAN: Color32 = Color32::from_rgb(0x3b, 0xd5, 0xf5);
 pub const BLUE: Color32 = Color32::from_rgb(0x5b, 0x8c, 0xf8);
 pub const PURPLE: Color32 = Color32::from_rgb(0x9b, 0x5c, 0xf6);
-pub const NAVY: Color32 = Color32::from_rgb(0x0d, 0x16, 0x26);
 
 fn lerp(a: Color32, b: Color32, t: f32) -> Color32 {
     let f = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
@@ -128,80 +127,6 @@ pub fn paint(painter: &Painter, rect: Rect, detail: bool) {
     painter.add(Shape::line(brace.iter().map(|p| at(*p)).collect(), Stroke::new(w, CYAN)));
     let chevron = [Vec2::new(0.86, 0.47), Vec2::new(0.92, 0.545), Vec2::new(0.86, 0.62)];
     painter.add(Shape::line(chevron.iter().map(|p| at(*p)).collect(), Stroke::new(w, PURPLE)));
-}
-
-/// "FLORM" + "TEXT EDITOR" under the logo, letter-spaced like the artwork (dark ink on the
-/// `light` backdrop).
-pub fn paint_title(painter: &Painter, center_top: Pos2, size: f32, light: bool) {
-    let mut job = LayoutJob::default();
-    let fmt = TextFormat {
-        font_id: FontId::proportional(size),
-        color: if light { Color32::from_rgb(0x1a, 0x24, 0x38) } else { Color32::from_rgb(0xe6, 0xec, 0xf5) },
-        extra_letter_spacing: size * 0.12,
-        ..Default::default()
-    };
-    job.append("FLORM", 0.0, fmt);
-    let galley = painter.layout_job(job);
-    let pos = center_top - Vec2::new(galley.size().x / 2.0, 0.0);
-    // subtle shadow then the silver title
-    let shadow = if light { Color32::from_rgba_unmultiplied(0x5b, 0x8c, 0xf8, 40) } else { Color32::BLACK };
-    painter.galley(pos + Vec2::new(0.0, 2.0), galley.clone(), shadow);
-    painter.galley(pos, galley.clone(), Color32::WHITE);
-    let mut sub = LayoutJob::default();
-    sub.append(
-        "TEXT EDITOR",
-        0.0,
-        TextFormat {
-            font_id: FontId::proportional(size * 0.32),
-            color: if light { Color32::from_rgb(0x5a, 0x6a, 0x85) } else { Color32::from_rgb(0x9a, 0xa8, 0xc0) },
-            extra_letter_spacing: size * 0.09,
-            ..Default::default()
-        },
-    );
-    let sg = painter.layout_job(sub);
-    let y = center_top.y + galley.size().y + size * 0.15;
-    painter.galley(Pos2::new(center_top.x - sg.size().x / 2.0, y), sg, Color32::WHITE);
-}
-
-/// Navy background with a faint blueprint grid, as in the artwork; paper white with a light
-/// theme.
-pub fn paint_backdrop(painter: &Painter, rect: Rect, light: bool) {
-    // the blue ink of the grid, glow and outlines, darker on the light backdrop
-    let ink = |a: u8| if light { Color32::from_rgba_unmultiplied(0x3a, 0x5a, 0x9a, a + a / 2) } else { Color32::from_rgba_unmultiplied(0x6a, 0x8a, 0xc0, a) };
-    painter.rect_filled(rect, 0.0, if light { Color32::from_rgb(0xf4, 0xf7, 0xfc) } else { NAVY });
-    let glow = Rect::from_center_size(rect.center() - Vec2::new(0.0, rect.height() * 0.12), Vec2::splat(rect.height() * 0.9));
-    for i in 0..12 {
-        let k = 1.0 - i as f32 / 12.0 * 0.8;
-        let glow_c = if light { Color32::from_rgba_unmultiplied(0x9b, 0xb8, 0xf5, 3) } else { Color32::from_rgba_unmultiplied(0x2a, 0x4a, 0x8a, 2) };
-        painter.circle_filled(glow.center(), glow.width() / 2.0 * k, glow_c);
-    }
-    let step = 48.0;
-    let line = ink(10);
-    let mut x = rect.left() + (rect.width() % step) / 2.0;
-    while x < rect.right() {
-        painter.line_segment([Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())], Stroke::new(1.0_f32, line));
-        x += step;
-    }
-    let mut y = rect.top() + (rect.height() % step) / 2.0;
-    while y < rect.bottom() {
-        painter.line_segment([Pos2::new(rect.left(), y), Pos2::new(rect.right(), y)], Stroke::new(1.0_f32, line));
-        y += step;
-    }
-    // corner "circuit" outlines
-    let c = ink(28);
-    for i in 0..3 {
-        let d = 40.0 + i as f32 * 26.0;
-        let bl = rect.left_bottom();
-        painter.add(Shape::line(
-            vec![Pos2::new(bl.x, bl.y - d * 1.6), Pos2::new(bl.x + d * 0.9, bl.y - d * 1.6), Pos2::new(bl.x + d * 1.6, bl.y - d * 0.9), Pos2::new(bl.x + d * 1.6, bl.y)],
-            Stroke::new(1.0_f32, c),
-        ));
-        let tr = rect.right_top();
-        painter.add(Shape::line(
-            vec![Pos2::new(tr.x - d * 1.6, tr.y), Pos2::new(tr.x - d * 1.6, tr.y + d * 0.9), Pos2::new(tr.x - d * 0.9, tr.y + d * 1.6), Pos2::new(tr.x, tr.y + d * 1.6)],
-            Stroke::new(1.0_f32, c),
-        ));
-    }
 }
 
 /// Empty margin around the icon, as a fraction of its side: macOS draws icons as given (Apple's

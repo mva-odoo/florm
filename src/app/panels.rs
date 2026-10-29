@@ -207,59 +207,53 @@ impl App {
         self.set_status(tf!("Lien copié : {link}", "Link copied: {link}"));
     }
 
-    /// Start screen in the style of the Florm artwork: logo, title, shortcuts, recent projects.
+    /// Start screen in the manner of Zed: one narrow centered column, in the colors of the
+    /// editor theme — small logo and title, then the start actions and the recent projects.
     pub(super) fn welcome_ui(&mut self, ui: &mut egui::Ui) {
         let rect = ui.max_rect();
-        let light = self.hl.is_light();
-        let wc = welcome_colors(light);
-        // the cyan of the logo is too pale for titles on paper
-        let start_c = if light { Color32::from_rgb(0x0b, 0x86, 0xab) } else { logo::CYAN };
-        logo::paint_backdrop(ui.painter(), rect, light);
-        let size = (rect.height() * 0.28).clamp(80.0, 220.0);
-        let top = rect.top() + (rect.height() * 0.10).max(16.0);
-        let logo_rect = egui::Rect::from_center_size(egui::pos2(rect.center().x, top + size / 2.0), egui::Vec2::splat(size));
-        logo::paint(ui.painter(), logo_rect, true);
-        let title_size = size * 0.30;
-        let title_y = logo_rect.bottom() + size * 0.10;
-        logo::paint_title(ui.painter(), egui::pos2(rect.center().x, title_y), title_size, light);
-
-        let y = title_y + title_size * 2.2;
-        let width = 560.0_f32.min(rect.width() - 32.0);
-        let inner = egui::Rect::from_min_max(egui::pos2(rect.center().x - width / 2.0, y), egui::pos2(rect.center().x + width / 2.0, rect.bottom() - 8.0));
+        let width = 440.0_f32.min(rect.width() - 32.0);
+        let top = rect.top() + (rect.height() * 0.16).max(16.0);
+        let inner = egui::Rect::from_min_max(egui::pos2(rect.center().x - width / 2.0, top), egui::pos2(rect.center().x + width / 2.0, rect.bottom() - 8.0));
         let mut cmd = None;
         let mut open = None;
         ui.allocate_new_ui(egui::UiBuilder::new().max_rect(inner), |ui| {
-            // colors of the backdrop (navy or paper), not of the editor theme
-            ui.visuals_mut().override_text_color = Some(wc.text);
-            ui.columns(2, |cols| {
-                welcome_card(&mut cols[0], t!("DÉMARRER", "START"), start_c, &wc, |ui| {
-                    for (label, c) in [
-                        (t!("Nouveau fichier", "New file"), Cmd::NewFile),
-                        (t!("Ouvrir un dossier…", "Open a folder…"), Cmd::OpenFolder),
-                        (t!("Aller au fichier…", "Go to file…"), Cmd::QuickOpen),
-                        (t!("Palette de commandes", "Command palette"), Cmd::CommandPalette),
-                        (t!("Rechercher dans le dossier", "Find in folder"), Cmd::FindInFiles),
-                        (t!("Graphe git", "Git graph"), Cmd::GitHistory),
-                    ] {
-                        if welcome_row(ui, label, &self.keymap.label(c), true, start_c, &wc).clicked() {
-                            cmd = Some(c);
-                        }
-                    }
-                });
-                welcome_card(&mut cols[1], t!("RÉCENTS", "RECENT"), logo::PURPLE, &wc, |ui| {
-                    for p in self.projects.iter().filter(|p| p.path.is_dir()).take(6) {
-                        let parent = p.path.parent().map(|d| d.display().to_string()).unwrap_or_default();
-                        let r = welcome_row(ui, &p.name, &parent, false, logo::PURPLE, &wc)
-                            .on_hover_text(p.path.display().to_string());
-                        if r.clicked() {
-                            open = Some(p.path.clone());
-                        }
-                    }
-                    if self.projects.is_empty() {
-                        ui.label(RichText::new(t!("Aucun projet récent", "No recent project")).color(wc.dim));
-                    }
+            let dim = ui.visuals().weak_text_color();
+            ui.horizontal(|ui| {
+                let (r, _) = ui.allocate_exact_size(egui::Vec2::splat(44.0), Sense::hover());
+                logo::paint(ui.painter(), r, false);
+                ui.add_space(8.0);
+                ui.vertical(|ui| {
+                    ui.add_space(2.0);
+                    ui.label(RichText::new(t!("Bienvenue dans Florm", "Welcome to Florm")).size(19.0).strong());
+                    ui.label(RichText::new(t!("L'éditeur de texte", "The text editor")).size(13.0).color(dim));
                 });
             });
+            ui.add_space(28.0);
+            welcome_section(ui, t!("Démarrer", "Get started"));
+            for (label, c) in [
+                (t!("Nouveau fichier", "New file"), Cmd::NewFile),
+                (t!("Ouvrir un dossier…", "Open a folder…"), Cmd::OpenFolder),
+                (t!("Aller au fichier…", "Go to file…"), Cmd::QuickOpen),
+                (t!("Palette de commandes", "Command palette"), Cmd::CommandPalette),
+                (t!("Rechercher dans le dossier", "Find in folder"), Cmd::FindInFiles),
+                (t!("Graphe git", "Git graph"), Cmd::GitHistory),
+            ] {
+                if welcome_row(ui, label, &self.keymap.label(c), true).clicked() {
+                    cmd = Some(c);
+                }
+            }
+            ui.add_space(20.0);
+            welcome_section(ui, t!("Projets récents", "Recent projects"));
+            for p in self.projects.iter().filter(|p| p.path.is_dir()).take(6) {
+                let parent = p.path.parent().map(|d| d.display().to_string()).unwrap_or_default();
+                let r = welcome_row(ui, &p.name, &parent, false).on_hover_text(p.path.display().to_string());
+                if r.clicked() {
+                    open = Some(p.path.clone());
+                }
+            }
+            if self.projects.is_empty() {
+                ui.label(RichText::new(t!("Aucun projet récent", "No recent project")).color(dim));
+            }
         });
         if let Some(c) = cmd {
             self.pending.push(c);
