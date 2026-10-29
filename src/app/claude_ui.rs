@@ -24,8 +24,9 @@ pub(in crate::app) use store::*;
 /// A line of the conversation.
 #[derive(Clone, Serialize, Deserialize)]
 pub(super) enum Item {
-    /// A message, with what was given with it.
-    User(String, Vec<String>),
+    /// A message, with what was given with it, and the texts given (a pasted text…: what it is,
+    /// the text), shown folded under the message.
+    User(String, Vec<String>, #[serde(default)] Vec<(String, String)>),
     /// The answer, being written (pieces) or whole.
     Text(String),
     Streaming(String),
@@ -136,7 +137,7 @@ fn item_key(it: &Item, claude_said: bool, busy: bool, last_turn: bool, extra: u8
     let mut h = std::collections::hash_map::DefaultHasher::new();
     std::mem::discriminant(it).hash(&mut h);
     match it {
-        Item::User(t, given) => (t, given).hash(&mut h),
+        Item::User(t, given, notes) => (t, given, notes).hash(&mut h),
         Item::Text(t) | Item::Streaming(t) | Item::Info(t) | Item::Error(t) => t.hash(&mut h),
         Item::Tool { name, summary, result, .. } => (name, summary, result).hash(&mut h),
         Item::Usage { input, cached, output, cost } => (input, cached, output, cost.to_bits()).hash(&mut h),
@@ -747,7 +748,7 @@ impl App {
             ui.add_space(4.0);
             // the changes of one question (± on a message), instead of the review
             let turn_title = c.turn_diff.as_ref().and_then(|t| match c.items.get(t.item) {
-                Some(Item::User(text, _)) => Some(text.lines().find(|l| !l.trim().is_empty()).unwrap_or("").chars().take(60).collect::<String>()),
+                Some(Item::User(text, ..)) => Some(text.lines().find(|l| !l.trim().is_empty()).unwrap_or("").chars().take(60).collect::<String>()),
                 _ => None,
             });
             if let Some(td) = c.turn_diff.as_mut() {
@@ -1297,7 +1298,7 @@ impl App {
                             continue;
                         }
                         ui.push_id(k, |ui| match it {
-                            Item::User(t, given) => {
+                            Item::User(t, given, notes) => {
                                 claude_said = false;
                                 ui.add_space(6.0);
                                 let folded = c.folded.contains(&k);
@@ -1340,9 +1341,23 @@ impl App {
                                                 }
                                             });
                                         });
-                                        ui.add(egui::Label::new(t.as_str()).wrap());
-                                        if !given.is_empty() {
-                                            ui.label(RichText::new(format!("✳ {}", given.join(", "))).small().weak());
+                                        if !t.is_empty() {
+                                            ui.add(egui::Label::new(t.as_str()).wrap());
+                                        }
+                                        // the texts given are below, folded: not named twice
+                                        let others: Vec<&str> = given.iter().map(String::as_str).filter(|g| !notes.iter().any(|(l, _)| l == g)).collect();
+                                        if !others.is_empty() {
+                                            ui.label(RichText::new(format!("✳ {}", others.join(", "))).small().weak());
+                                        }
+                                        for (n, (label, text)) in notes.iter().enumerate() {
+                                            egui::CollapsingHeader::new(RichText::new(format!("✳ {label}")).small().color(accent)).id_salt(("note", n)).show(ui, |ui| {
+                                                ui.horizontal(|ui| {
+                                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| super::md::copy_button(ui, text, t!("Copier", "Copy")));
+                                                });
+                                                egui::ScrollArea::vertical().id_salt(("note_text", n)).max_height(240.0).show(ui, |ui| {
+                                                    ui.add(egui::Label::new(RichText::new(text.as_str()).monospace()).wrap());
+                                                });
+                                            });
                                         }
                                         if c.confirm_rewind == Some(k) {
                                             ui.separator();
@@ -1700,7 +1715,7 @@ mod tests {
             cost: 0.5,
             updated: 1,
             items: vec![
-                Item::User("Corrige".into(), vec!["a.py".into()]),
+                Item::User("Corrige".into(), vec!["a.py".into()], vec![]),
                 Item::Tool { id: "t".into(), name: "Bash".into(), summary: "ls".into(), result: Some(("ok".into(), false)) },
                 Item::Text("Fait.".into()),
             ],
@@ -1727,6 +1742,12 @@ mod tests {
         let old = r#"[{"key":1,"title":"t","dir":null,"model":0,"mode":0,"session_id":null,"wish":null,"cost":0.0,"updated":1,"items":[]}]"#;
         let old: Vec<SavedConv> = serde_json::from_str(old).unwrap();
         assert!(old[0].queue.tasks.is_empty());
+        // a message saved before the texts given were kept with it, and one with a pasted text
+        let items: Vec<Item> = serde_json::from_str(r#"[{"User":["a",["b"]]}]"#).unwrap();
+        assert!(matches!(&items[0], Item::User(t, _, notes) if t == "a" && notes.is_empty()));
+        let pasted = Item::User(String::new(), vec!["Texte collé (2 lignes)".into()], vec![("Texte collé (2 lignes)".into(), "x\ny".into())]);
+        let back: Item = serde_json::from_str(&serde_json::to_string(&pasted).unwrap()).unwrap();
+        assert!(matches!(back, Item::User(_, _, notes) if notes[0].1 == "x\ny"));
     }
 
     #[test]

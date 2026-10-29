@@ -204,6 +204,8 @@ impl App {
         // a command leaves the files given for the next message
         let attach = if command { Vec::new() } else { std::mem::take(&mut self.claude.attach) };
         let mut given: Vec<String> = attach.iter().map(|a| a.label(Some(&dir))).collect();
+        // the texts given (a pasted text…) stay readable in the message sent
+        let notes: Vec<(String, String)> = attach.iter().filter_map(|a| a.note.clone()).collect();
         if !attach.is_empty() {
             let parts: Vec<String> = attach.iter().map(|a| a.prompt(Some(&dir))).collect();
             message = format!("{}\n\n{message}", parts.join("\n\n"));
@@ -265,7 +267,7 @@ impl App {
                 }
                 let items = &mut self.claude.items;
                 // the text being written stays last: what follows of it is added to it
-                items.insert(at, Item::User(text.clone(), given));
+                items.insert(at, Item::User(text.clone(), given, notes));
                 if let Some(cp) = checkpoint {
                     self.claude.checkpoints.push(cp);
                 }

@@ -17,6 +17,11 @@ pub(in crate::app) struct Attach {
 }
 
 impl Attach {
+    /// A text (`note`: what it is, the text) given with a message of the conversation in `dir`.
+    pub(in crate::app) fn note(dir: PathBuf, note: (String, String)) -> Self {
+        Attach { path: dir, lines: None, note: Some(note), image: None }
+    }
+
     pub(super) fn label(&self, dir: Option<&Path>) -> String {
         if self.image.is_some() {
             return t!("Image collée", "Pasted image").into();
@@ -77,7 +82,7 @@ pub(super) fn rel_path(dir: Option<&Path>, path: &Path) -> Option<String> {
 /// Whether a message of a conversation gave the file `rel`, or a part of it (`rel:line`).
 pub(super) fn gives_file(items: &[Item], rel: &str) -> bool {
     let prefix = format!("{rel}:");
-    items.iter().any(|i| matches!(i, Item::User(_, given) if given.iter().any(|g| g == rel || g.starts_with(&prefix))))
+    items.iter().any(|i| matches!(i, Item::User(_, given, _) if given.iter().any(|g| g == rel || g.starts_with(&prefix))))
 }
 
 pub(super) fn cited_names(text: &str) -> Vec<String> {
