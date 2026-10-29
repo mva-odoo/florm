@@ -1403,9 +1403,15 @@ impl eframe::App for App {
             self.restart_for_update(ctx);
         }
         self.sync_decorations(ctx);
-        let dropped: Vec<PathBuf> = ctx.input(|i| i.raw.dropped_files.iter().filter_map(|f| f.path.clone()).collect());
+        let (dropped, pos): (Vec<PathBuf>, _) = ctx.input(|i| (i.raw.dropped_files.iter().filter_map(|f| f.path.clone()).collect(), i.pointer.latest_pos()));
+        // images dropped on the Claude conversation go with its next message
+        let on_claude = self.claude.drop_area.is_some_and(|(f, r)| f + 2 >= ctx.cumulative_pass_nr() && pos.is_none_or(|p| r.contains(p)));
         for p in dropped {
-            self.open_path(p);
+            if on_claude && claude_ui::is_image_file(&p) {
+                self.claude_attach_image_file(&p);
+            } else {
+                self.open_path(p);
+            }
         }
         // The git panel follows the repository of the active file.
         let cur = self.docs.get(self.active).and_then(|d| d.path.clone());

@@ -24,9 +24,9 @@ pub(in crate::app) use store::*;
 /// A line of the conversation.
 #[derive(Clone, Serialize, Deserialize)]
 pub(super) enum Item {
-    /// A message, with what was given with it, and the texts given (a pasted text…: what it is,
-    /// the text), shown folded under the message.
-    User(String, Vec<String>, #[serde(default)] Vec<(String, String)>),
+    /// A message, with what was given with it, the texts given (a pasted text…: what it is,
+    /// the text), shown folded under the message, and the images given (what it is, its PNG).
+    User(String, Vec<String>, #[serde(default)] Vec<(String, String)>, #[serde(default)] Vec<(String, PathBuf)>),
     /// The answer, being written (pieces) or whole.
     Text(String),
     Streaming(String),
@@ -129,6 +129,8 @@ pub(super) struct ClaudeUi {
     memory: Option<String>,
     /// The fields and lists of the menus (⋯, rules, worktree, `@`).
     pub(super) tools: ToolsUi,
+    /// Where it was drawn, and at which frame: an image dropped there is given to it.
+    pub(super) drop_area: Option<(u64, egui::Rect)>,
 }
 
 /// What the height of a message depends on: its content, its place and the width.
@@ -137,7 +139,7 @@ fn item_key(it: &Item, claude_said: bool, busy: bool, last_turn: bool, extra: u8
     let mut h = std::collections::hash_map::DefaultHasher::new();
     std::mem::discriminant(it).hash(&mut h);
     match it {
-        Item::User(t, given, notes) => (t, given, notes).hash(&mut h),
+        Item::User(t, given, notes, images) => (t, given, notes, images).hash(&mut h),
         Item::Text(t) | Item::Streaming(t) | Item::Info(t) | Item::Error(t) => t.hash(&mut h),
         Item::Tool { name, summary, result, .. } => (name, summary, result).hash(&mut h),
         Item::Usage { input, cached, output, cost } => (input, cached, output, cost.to_bits()).hash(&mut h),
@@ -148,8 +150,33 @@ fn item_key(it: &Item, claude_said: bool, busy: bool, last_turn: bool, extra: u8
 
 /// The image in the clipboard as PNG, if there is one.
 fn clipboard_image() -> Option<Vec<u8>> {
-    let img = arboard::Clipboard::new().ok()?.get_image().ok()?;
-    claude::png_of(img.width, img.height, img.bytes.into_owned()).ok()
+    if let Some(img) = arboard::Clipboard::new().ok().and_then(|mut c| c.get_image().ok()) {
+        return claude::png_of(img.width, img.height, img.bytes.into_owned()).ok();
+    }
+    // Wayland: the clipboard of the X11 side may not have it, wl-paste reads the Wayland one
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+        let types = crate::os::command("wl-paste").arg("--list-types").stderr(std::process::Stdio::null()).output().ok()?;
+        let types = String::from_utf8_lossy(&types.stdout).into_owned();
+        let kind = types.lines().find(|t| t.starts_with("image/"))?;
+        let o = crate::os::command("wl-paste").args(["--no-newline", "--type", kind]).stderr(std::process::Stdio::null()).output().ok()?;
+        return o.status.success().then(|| claude::png_of_file_bytes(&o.stdout).ok()).flatten();
+    }
+    None
+}
+
+/// Whether `path` is an image file Claude can be given.
+pub(super) fn is_image_file(path: &Path) -> bool {
+    path.extension().and_then(|e| e.to_str()).is_some_and(|e| ["png", "jpg", "jpeg", "gif", "webp", "bmp"].contains(&e.to_lowercase().as_str()))
+}
+
+/// The thumbnail of an image given to Claude (`max`: its tallest), its file opened by a click.
+fn image_thumb(ui: &mut egui::Ui, path: &Path, max: f32) -> egui::Response {
+    let uri = format!("file://{}", path.display());
+    ui.add(egui::Image::new(uri.clone()).max_height(max).max_width(max * 3.0).rounding(4.0).sense(Sense::click())).on_hover_ui(|ui| {
+        ui.add(egui::Image::new(uri).max_width(520.0).max_height(520.0));
+        ui.label(RichText::new(t!("Clic : ouvrir l'image", "Click: open the image")).small().weak());
+    })
 }
 
 impl App {
@@ -530,6 +557,9 @@ impl App {
         let (mut later, mut hold_act, mut compact) = (false, None, false);
         let (mut chosen_dir, mut move_to, mut ctx_add) = (None, None, None);
         let (mut queue_act, mut queued, mut read_commits) = (None, None, false);
+        let (mut image_add, mut open_image): (Option<(Vec<u8>, String)>, Option<PathBuf>) = (None, None);
+        // an image file dropped on it goes with the next message (seen at the next frame)
+        self.claude.drop_area = Some((ui.ctx().cumulative_pass_nr(), ui.max_rect()));
         let mut answer: Option<String> = None;
         let (mut tool_act, mut mem_act, mut mode_cycle) = (None, None, false);
         let (mut fold, mut fold_all, mut turn_req, mut rewind, mut close_turn, mut turn_click) = (None, None, None, None, false, None);
@@ -865,11 +895,17 @@ impl App {
                                     (true, true) => " ▴",
                                     (true, false) => " ▾",
                                 };
+                                if let Some((_, p)) = &a.image {
+                                    if image_thumb(ui, p, 28.0).clicked() {
+                                        open_image = Some(p.clone());
+                                    }
+                                }
                                 let chip = egui::Button::new(RichText::new(format!("✳ {}{arrow}", a.label(c.dir.as_deref()))).small().color(accent))
                                     .fill(icons::mix(fill, accent, if open == Some(k) { 0.25 } else { 0.12 }))
                                     .rounding(10.0);
                                 let tip = match (&a.note, &a.lines) {
                                     (Some((_, t)), _) | (None, Some((_, _, t))) => tf!("{}\n\nClic : voir et modifier tout le texte", "{}\n\nClick: see and edit the whole text", t.lines().take(12).collect::<Vec<_>>().join("\n")),
+                                    (None, None) if a.image.is_some() => t!("Image envoyée avec le message", "Image sent with the message").into(),
                                     (None, None) => a.path.display().to_string(),
                                 };
                                 if ui.add(chip).on_hover_text(tip).clicked() && has_text {
@@ -1029,28 +1065,44 @@ impl App {
                     }
                     // a long text pasted goes in as a chip (« Texte collé »), a copied image too
                     if ui.memory(|m| m.has_focus(field_id)) {
-                        let (mut long, mut paste_key) = (None, false);
+                        let (mut long, mut text_pasted, mut paste_key) = (None, false, false);
                         ui.input_mut(|i| {
                             i.events.retain(|e| match e {
                                 egui::Event::Paste(t) if t.lines().count() > 6 || t.chars().count() > 500 => {
                                     long = Some(t.clone());
+                                    text_pasted = true;
                                     false
                                 }
-                                egui::Event::Key { key: Key::V, pressed: true, modifiers, .. } if modifiers.command => {
+                                egui::Event::Paste(_) => {
+                                    text_pasted = true;
+                                    true
+                                }
+                                // egui keeps Ctrl+V pressed for itself (a Paste of the text only, none
+                                // for an image): its release says it was pressed
+                                egui::Event::Key { key: Key::V, pressed: false, modifiers, .. } if modifiers.command => {
+                                    paste_key = true;
+                                    true
+                                }
+                                egui::Event::Key { key: Key::Paste, pressed: false, .. } => {
                                     paste_key = true;
                                     true
                                 }
                                 _ => true,
                             })
                         });
+                        // a text was just pasted: the clipboard held text, not an image
+                        let text_id = field_id.with("text_pasted");
+                        let now = ui.input(|i| i.time);
+                        if text_pasted {
+                            ui.data_mut(|d| d.insert_temp(text_id, now));
+                        }
+                        let recent_text = ui.data(|d| d.get_temp::<f64>(text_id)).is_some_and(|t| now - t < 2.0);
                         if let Some(t) = long {
                             let lines = t.lines().count();
                             c.attach.push(Attach { path: PathBuf::new(), lines: None, note: Some((tf!("Texte collé ({} lignes)", "Pasted text ({} lines)", lines), t)), image: None });
                         }
-                        if paste_key {
-                            if let Some(png) = clipboard_image() {
-                                c.attach.push(Attach { path: PathBuf::new(), lines: None, note: None, image: Some(png) });
-                            }
+                        if paste_key && !recent_text {
+                            image_add = clipboard_image().map(|png| (png, t!("Image collée", "Pasted image").to_string()));
                         }
                     }
                     let mut to_end = false;
@@ -1199,6 +1251,8 @@ impl App {
                                 (t!("Tous les onglets ouverts", "All open tabs"), t!("Chaque fichier ouvert dans l'éditeur", "Each file open in the editor"), CtxAdd::Tabs),
                                 (t!("Changements non commités", "Uncommitted changes"), t!("Le diff de ce qui n'est pas commité (git diff HEAD, nouveaux fichiers compris)", "The diff of what is not committed (git diff HEAD, new files included)"), CtxAdd::Diff),
                                 (t!("Problèmes du fichier", "Problems of the file"), t!("Les erreurs et avertissements du linter dans le fichier ouvert", "The linter errors and warnings in the open file"), CtxAdd::Problems),
+                                (t!("Image…", "Image…"), t!("Une image choisie sur le disque (aussi : glisse-la sur la conversation, ou colle-la avec Ctrl+V)", "An image chosen on the disk (also: drop it on the conversation, or paste it with Ctrl+V)"), CtxAdd::Image),
+                                (t!("Capture d'écran", "Screenshot"), t!("Choisis à la souris la zone de l'écran à envoyer (Échap pour annuler)", "Choose with the mouse the area of the screen to send (Escape to cancel)"), CtxAdd::Screenshot),
                             ] {
                                 if ui.button(label).on_hover_text(tip).clicked() {
                                     ctx_add = Some(what);
@@ -1227,7 +1281,7 @@ impl App {
                         if ctx_menu.response.clicked() {
                             read_commits = true;
                         }
-                        ctx_menu.response.on_hover_text(t!("Donner à Claude un fichier, la sélection, le diff, un commit, les problèmes…", "Give Claude a file, the selection, the diff, a commit, the problems…"));
+                        ctx_menu.response.on_hover_text(t!("Donner à Claude un fichier, la sélection, le diff, un commit, les problèmes, une image, une capture d'écran…", "Give Claude a file, the selection, the diff, a commit, the problems, an image, a screenshot…"));
                         // what goes with each message: in a menu, the options stay one click away
                         let on = [c.with_context, c.ask_first, c.model_first, !c.no_defs].iter().filter(|b| **b).count();
                         ui.menu_button(tf!("Options ({on}/4) ▾", "Options ({on}/4) ▾"), |ui| {
@@ -1298,7 +1352,7 @@ impl App {
                             continue;
                         }
                         ui.push_id(k, |ui| match it {
-                            Item::User(t, given, notes) => {
+                            Item::User(t, given, notes, images) => {
                                 claude_said = false;
                                 ui.add_space(6.0);
                                 let folded = c.folded.contains(&k);
@@ -1344,10 +1398,22 @@ impl App {
                                         if !t.is_empty() {
                                             ui.add(egui::Label::new(t.as_str()).wrap());
                                         }
-                                        // the texts given are below, folded: not named twice
-                                        let others: Vec<&str> = given.iter().map(String::as_str).filter(|g| !notes.iter().any(|(l, _)| l == g)).collect();
+                                        // the texts and images given are below: not named twice
+                                        let shown = |g: &str| notes.iter().any(|(l, _)| l == g) || images.iter().any(|(l, _)| l == g);
+                                        let others: Vec<&str> = given.iter().map(String::as_str).filter(|g| !shown(g)).collect();
                                         if !others.is_empty() {
                                             ui.label(RichText::new(format!("✳ {}", others.join(", "))).small().weak());
+                                        }
+                                        if !images.is_empty() {
+                                            ui.horizontal_wrapped(|ui| {
+                                                for (label, p) in images {
+                                                    if !p.exists() {
+                                                        ui.label(RichText::new(tf!("✳ {label} (plus disponible)", "✳ {label} (no longer available)")).small().weak());
+                                                    } else if image_thumb(ui, p, 120.0).clicked() {
+                                                        open_image = Some(p.clone());
+                                                    }
+                                                }
+                                            });
                                         }
                                         for (n, (label, text)) in notes.iter().enumerate() {
                                             egui::CollapsingHeader::new(RichText::new(format!("✳ {label}")).small().color(accent)).id_salt(("note", n)).show(ui, |ui| {
@@ -1586,6 +1652,12 @@ impl App {
         if let Some(w) = ctx_add {
             self.claude_add_context(w);
         }
+        if let Some((png, label)) = image_add {
+            self.claude_attach_image(png, label);
+        }
+        if let Some(p) = open_image {
+            self.open_path(p);
+        }
         if let Some(k) = open_saved {
             self.claude_open_saved(k);
         }
@@ -1715,7 +1787,7 @@ mod tests {
             cost: 0.5,
             updated: 1,
             items: vec![
-                Item::User("Corrige".into(), vec!["a.py".into()], vec![]),
+                Item::User("Corrige".into(), vec!["a.py".into()], vec![], vec![]),
                 Item::Tool { id: "t".into(), name: "Bash".into(), summary: "ls".into(), result: Some(("ok".into(), false)) },
                 Item::Text("Fait.".into()),
             ],
@@ -1744,10 +1816,10 @@ mod tests {
         assert!(old[0].queue.tasks.is_empty());
         // a message saved before the texts given were kept with it, and one with a pasted text
         let items: Vec<Item> = serde_json::from_str(r#"[{"User":["a",["b"]]}]"#).unwrap();
-        assert!(matches!(&items[0], Item::User(t, _, notes) if t == "a" && notes.is_empty()));
-        let pasted = Item::User(String::new(), vec!["Texte collé (2 lignes)".into()], vec![("Texte collé (2 lignes)".into(), "x\ny".into())]);
+        assert!(matches!(&items[0], Item::User(t, _, notes, images) if t == "a" && notes.is_empty() && images.is_empty()));
+        let pasted = Item::User(String::new(), vec!["Texte collé (2 lignes)".into()], vec![("Texte collé (2 lignes)".into(), "x\ny".into())], vec![]);
         let back: Item = serde_json::from_str(&serde_json::to_string(&pasted).unwrap()).unwrap();
-        assert!(matches!(back, Item::User(_, _, notes) if notes[0].1 == "x\ny"));
+        assert!(matches!(back, Item::User(_, _, notes, _) if notes[0].1 == "x\ny"));
     }
 
     #[test]

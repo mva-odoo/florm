@@ -381,9 +381,13 @@ command and your login: no key to set up.
 - **Pasting**: a long pasted text (more than 6 lines or 500 characters) becomes a “Pasted text (N
   lines)” chip above the field, sent whole with the message; the field stays short. A click on the
   chip shows the whole text below it, editable; another click folds it. The pasted text can go
-  alone: **Send** works even when the field is empty. A copied image
-  (a screenshot) pastes with Ctrl+V and goes with the message, scaled down to 1568 pixels to cost
-  fewer tokens. A chip is removed with its ×.
+  alone: **Send** works even when the field is empty. A chip is removed with its ×.
+- **Images**: an image goes with the message, scaled down to 1568 pixels to cost fewer tokens.
+  Three ways to give it: paste it with Ctrl+V (a copied image), drop it from the file manager on
+  the conversation, or **+ Context → Image…**. **+ Context → Screenshot** lets you choose the area
+  of the screen with the mouse (Escape to cancel); on Linux, with `slurp` and `grim` (Hyprland,
+  Sway…) or the desktop's screenshot (GNOME, KDE…), on macOS the system's, on Windows the Snipping Tool. The image shows
+  as a thumbnail above the field, then in the message sent; a click opens it full size.
 - **Questions first**: if the request leaves choices open, Claude codes nothing and asks 1 to 3
   questions with options (the recommended one ticked already, **Other** to write yours);
   **Answer** sends them and it goes on. In the task queue, the task waits for your answers

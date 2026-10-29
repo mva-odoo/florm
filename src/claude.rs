@@ -702,6 +702,27 @@ pub fn png_of(width: usize, height: usize, rgba: Vec<u8>) -> Result<Vec<u8>, Str
     Ok(out.into_inner())
 }
 
+/// An image file's bytes (PNG, JPEG, GIF, WebP, BMP…) as a PNG ready to send.
+pub fn png_of_file_bytes(bytes: &[u8]) -> Result<Vec<u8>, String> {
+    let img = image::load_from_memory(bytes).map_err(|e| e.to_string())?.into_rgba8();
+    let (w, h) = img.dimensions();
+    png_of(w as usize, h as usize, img.into_raw())
+}
+
+/// Saves an image given to Claude (PNG) where its messages can show it again, also after a restart.
+pub fn save_image(png: &[u8]) -> Result<std::path::PathBuf, String> {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    png.hash(&mut h);
+    let dir = crate::config::data_dir().join("claude_images");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join(format!("{:016x}.png", h.finish()));
+    if !path.exists() {
+        std::fs::write(&path, png).map_err(|e| e.to_string())?;
+    }
+    Ok(path)
+}
+
 /// Standard base64 of `bytes` (with the padding).
 pub fn base64_encode(bytes: &[u8]) -> String {
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -1052,6 +1073,16 @@ mod tests {
         assert_eq!(base64_encode(b"fo"), "Zm8=");
         assert_eq!(base64_encode(b"hello"), "aGVsbG8=");
         assert_eq!(base64_encode(b"hel"), "aGVs");
+    }
+
+    #[test]
+    fn image_files_become_smaller_pngs() {
+        let mut jpeg = std::io::Cursor::new(Vec::new());
+        image::RgbImage::new(2000, 100).write_to(&mut jpeg, image::ImageFormat::Jpeg).unwrap();
+        let png = png_of_file_bytes(jpeg.get_ref()).unwrap();
+        let back = image::load_from_memory_with_format(&png, image::ImageFormat::Png).unwrap();
+        assert_eq!((back.width(), back.height()), (1568, 78));
+        assert!(png_of_file_bytes(b"not an image").is_err());
     }
 
     #[test]

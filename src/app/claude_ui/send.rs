@@ -206,6 +206,7 @@ impl App {
         let mut given: Vec<String> = attach.iter().map(|a| a.label(Some(&dir))).collect();
         // the texts given (a pasted text…) stay readable in the message sent
         let notes: Vec<(String, String)> = attach.iter().filter_map(|a| a.note.clone()).collect();
+        let image_files: Vec<(String, PathBuf)> = attach.iter().filter_map(|a| a.image.clone()).collect();
         if !attach.is_empty() {
             let parts: Vec<String> = attach.iter().map(|a| a.prompt(Some(&dir))).collect();
             message = format!("{}\n\n{message}", parts.join("\n\n"));
@@ -256,7 +257,14 @@ impl App {
         let at = self.claude.items.len() - usize::from(matches!(self.claude.items.last(), Some(Item::Streaming(_))));
         let checkpoint = (!during && !command).then(|| self.claude_checkpoint(at));
         let Some(s) = self.claude.session.as_mut() else { return false };
-        let images: Vec<Vec<u8>> = attach.iter().filter_map(|a| a.image.clone()).collect();
+        let images: Vec<Vec<u8>> = match image_files.iter().map(|(_, p)| std::fs::read(p)).collect() {
+            Ok(images) => images,
+            Err(e) => {
+                self.set_error(tf!("Image jointe illisible : {e}", "Attached image unreadable: {e}"));
+                self.claude.attach = attach;
+                return false;
+            }
+        };
         let sent = if images.is_empty() { s.send(&message) } else { s.send_with_images(&message, &images) };
         match sent {
             Ok(()) => {
@@ -267,7 +275,7 @@ impl App {
                 }
                 let items = &mut self.claude.items;
                 // the text being written stays last: what follows of it is added to it
-                items.insert(at, Item::User(text.clone(), given, notes));
+                items.insert(at, Item::User(text.clone(), given, notes, image_files));
                 if let Some(cp) = checkpoint {
                     self.claude.checkpoints.push(cp);
                 }

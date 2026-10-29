@@ -248,6 +248,8 @@ fn utc_date(secs: u64) -> String {
 pub enum Pick {
     Folder,
     File,
+    /// An image to give to Claude.
+    Image,
     SaveAs,
 }
 
@@ -257,44 +259,133 @@ pub enum Pick {
 pub fn portal_pick(kind: Pick, dir: &Path, name: Option<&str>) -> Result<Option<PathBuf>, String> {
     use std::collections::HashMap;
     use std::os::unix::ffi::OsStrExt;
-    use zbus::zvariant::{OwnedObjectPath, Value};
-    let e = |e: zbus::Error| tf!("Sélecteur de fichiers du bureau indisponible : {e}", "Desktop file chooser unavailable: {e}");
-    let conn = zbus::blocking::Connection::session().map_err(e)?;
-    // the request object path is known in advance: listen to its answer before asking
-    let token = format!("florm{}", std::process::id());
-    let sender = conn.unique_name().map(|n| n.trim_start_matches(':').replace('.', "_")).unwrap_or_default();
-    let handle = format!("/org/freedesktop/portal/desktop/request/{sender}/{token}");
-    let request = zbus::blocking::Proxy::new(&conn, "org.freedesktop.portal.Desktop", handle.as_str(), "org.freedesktop.portal.Request").map_err(e)?;
-    let mut answers = request.receive_signal("Response").map_err(e)?;
+    use zbus::zvariant::Value;
     let mut folder = dir.as_os_str().as_bytes().to_vec();
     folder.push(0);
     let mut opts: HashMap<&str, Value> = HashMap::new();
-    opts.insert("handle_token", Value::from(token.as_str()));
     opts.insert("current_folder", Value::from(folder));
     let (method, title) = match kind {
         Pick::Folder => ("OpenFile", t!("Ouvrir un dossier", "Open a folder")),
         Pick::File => ("OpenFile", t!("Ouvrir un fichier", "Open a file")),
+        Pick::Image => ("OpenFile", t!("Une image pour Claude", "An image for Claude")),
         Pick::SaveAs => ("SaveFile", t!("Enregistrer sous", "Save as")),
     };
     if kind == Pick::Folder {
         opts.insert("directory", Value::from(true));
     }
+    if kind == Pick::Image {
+        // a filter: (name, [(0: glob pattern, pattern)])
+        let globs: Vec<(u32, &str)> = IMAGE_EXTS.iter().map(|e| (0, *e)).collect();
+        opts.insert("filters", Value::from(vec![(t!("Images", "Images"), globs.clone())]));
+        opts.insert("current_filter", Value::from((t!("Images", "Images"), globs)));
+    }
     if let Some(n) = name {
         opts.insert("current_name", Value::from(n));
     }
-    let chooser = zbus::blocking::Proxy::new(&conn, "org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop", "org.freedesktop.portal.FileChooser").map_err(e)?;
-    let _: OwnedObjectPath = chooser.call(method, &("", title, opts)).map_err(e)?;
+    let uri = portal_request("org.freedesktop.portal.FileChooser", method, Some(title), opts)
+        .map_err(|e| tf!("Sélecteur de fichiers du bureau indisponible : {e}", "Desktop file chooser unavailable: {e}"))?;
+    Ok(uri.and_then(|u| file_uri_path(&u)))
+}
+
+/// The patterns of the image files Claude can be given.
+#[cfg(target_os = "linux")]
+const IMAGE_EXTS: [&str; 10] = ["*.png", "*.jpg", "*.jpeg", "*.gif", "*.webp", "*.bmp", "*.PNG", "*.JPG", "*.JPEG", "*.WEBP"];
+
+/// Asks the xdg portal (`interface`, `method`) and waits for its answer: the file it gives (its
+/// uri), None when cancelled. `title`: the dialog's, for the methods that take one.
+#[cfg(target_os = "linux")]
+fn portal_request(interface: &str, method: &str, title: Option<&str>, mut opts: std::collections::HashMap<&str, zbus::zvariant::Value>) -> Result<Option<String>, zbus::Error> {
+    use std::collections::HashMap;
+    use zbus::zvariant::{OwnedObjectPath, Value};
+    let conn = zbus::blocking::Connection::session()?;
+    // the request object path is known in advance: listen to its answer before asking
+    let token = format!("florm{}", std::process::id());
+    let sender = conn.unique_name().map(|n| n.trim_start_matches(':').replace('.', "_")).unwrap_or_default();
+    let handle = format!("/org/freedesktop/portal/desktop/request/{sender}/{token}");
+    let request = zbus::blocking::Proxy::new(&conn, "org.freedesktop.portal.Desktop", handle.as_str(), "org.freedesktop.portal.Request")?;
+    let mut answers = request.receive_signal("Response")?;
+    opts.insert("handle_token", Value::from(token.clone()));
+    let portal = zbus::blocking::Proxy::new(&conn, "org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop", interface)?;
+    let _: OwnedObjectPath = match title {
+        Some(t) => portal.call(method, &("", t, opts))?,
+        None => portal.call(method, &("", opts))?,
+    };
     let Some(msg) = answers.next() else { return Ok(None) };
     let body = msg.body();
-    let (code, results): (u32, HashMap<String, Value>) = body.deserialize().map_err(e)?;
+    let (code, results): (u32, HashMap<String, Value>) = body.deserialize()?;
     if code != 0 {
         return Ok(None);
     }
-    let first = match results.get("uris") {
-        Some(Value::Array(a)) => a.iter().find_map(|v| if let Value::Str(s) = v { Some(s.to_string()) } else { None }),
+    // the file chooser gives a list of uris, the screenshot one uri
+    Ok(match (results.get("uris"), results.get("uri")) {
+        (Some(Value::Array(a)), _) => a.iter().find_map(|v| if let Value::Str(s) = v { Some(s.to_string()) } else { None }),
+        (_, Some(Value::Str(s))) => Some(s.to_string()),
         _ => None,
-    };
-    Ok(first.and_then(|u| file_uri_path(&u)))
+    })
+}
+
+/// A screenshot, the part of the screen to take chosen with the mouse where the system allows it:
+/// the image file's bytes, None when cancelled. Blocks until it is taken.
+pub fn screenshot() -> Result<Option<Vec<u8>>, String> {
+    #[cfg(target_os = "linux")]
+    {
+        // wlroots desktops (Hyprland, Sway…): slurp to choose the part, grim to take it
+        if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+            match command("slurp").stdin(Stdio::null()).stderr(Stdio::null()).output() {
+                // Escape in slurp: nothing taken
+                Ok(o) if !o.status.success() => return Ok(None),
+                Ok(o) => {
+                    let area = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                    if let Ok(g) = command("grim").args(["-g", &area, "-"]).stdin(Stdio::null()).stderr(Stdio::null()).output() {
+                        if g.status.success() && !g.stdout.is_empty() {
+                            return Ok(Some(g.stdout));
+                        }
+                    }
+                }
+                Err(_) => {}
+            }
+        }
+        // the others (GNOME, KDE…): the desktop's screenshot through the xdg portal
+        let mut opts = std::collections::HashMap::new();
+        opts.insert("interactive", zbus::zvariant::Value::from(true));
+        let uri = portal_request("org.freedesktop.portal.Screenshot", "Screenshot", None, opts)
+            .map_err(|e| tf!("Capture d'écran du bureau indisponible : {e}", "Desktop screenshot unavailable: {e}"))?;
+        let Some(path) = uri.and_then(|u| file_uri_path(&u)) else { return Ok(None) };
+        let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+        // the portal saves it in the pictures folder: Florm keeps its own copy
+        let _ = std::fs::remove_file(&path);
+        Ok(Some(bytes))
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let file = std::env::temp_dir().join(format!("florm-shot-{}.png", std::process::id()));
+        let _ = std::fs::remove_file(&file);
+        // -i: the part chosen with the mouse (Space: a window), -x: no sound
+        command("screencapture").arg("-i").arg("-x").arg(&file).status().map_err(|e| e.to_string())?;
+        let bytes = std::fs::read(&file).ok();
+        let _ = std::fs::remove_file(&file);
+        Ok(bytes)
+    }
+    #[cfg(windows)]
+    {
+        // the snipping tool puts the capture in the clipboard: waited for there (at most 2 minutes)
+        let mut cb = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+        let before = cb.get_image().ok().map(|i| i.bytes.into_owned());
+        command("explorer.exe").arg("ms-screenclip:").spawn().map_err(|e| e.to_string())?;
+        let start = std::time::Instant::now();
+        while start.elapsed() < std::time::Duration::from_secs(120) {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            if let Ok(img) = cb.get_image() {
+                if before.as_deref() != Some(&*img.bytes) {
+                    let png = crate::claude::png_of(img.width, img.height, img.bytes.into_owned())?;
+                    return Ok(Some(png));
+                }
+            }
+        }
+        Ok(None)
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+    Err("screenshot".into())
 }
 
 /// `file:///home/a%20b` → `/home/a b`.

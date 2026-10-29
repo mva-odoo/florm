@@ -446,13 +446,22 @@ impl App {
                     }
                     if let Ok(Some(p)) = path {
                         let prompt = match kind {
-                            crate::os::Pick::Folder => Prompt::OpenFolder,
-                            crate::os::Pick::File => Prompt::OpenFile,
-                            crate::os::Pick::SaveAs => Prompt::SaveAs,
+                            crate::os::Pick::Folder => Some(Prompt::OpenFolder),
+                            crate::os::Pick::File => Some(Prompt::OpenFile),
+                            crate::os::Pick::SaveAs => Some(Prompt::SaveAs),
+                            crate::os::Pick::Image => None,
                         };
-                        self.submit_prompt(prompt, p.display().to_string());
+                        match prompt {
+                            Some(prompt) => self.submit_prompt(prompt, p.display().to_string()),
+                            None => self.claude_attach_image_file(&p),
+                        }
                     }
                 }
+                JobResult::ClaudeImage { label, png } => match png {
+                    Ok(Some(png)) => self.claude_attach_image(png, label),
+                    Ok(None) => self.set_status(t!("Capture d'écran annulée", "Screenshot cancelled")),
+                    Err(e) => self.set_error(tf!("{label} : {e}", "{label}: {e}")),
+                },
                 JobResult::Repos(root, repos) => self.apply_repos(root, repos),
                 JobResult::RepoInit { root, dir, result, repos } => {
                     match result {

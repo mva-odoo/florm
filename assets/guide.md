@@ -391,8 +391,14 @@ panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en
   collé (N lignes) » au-dessus du champ, envoyée en entier avec le message ; le champ reste court.
   Un clic sur la puce montre tout le texte en dessous, modifiable ; un autre clic le replie.
   Le texte collé peut partir seul : **Envoyer** marche même si le champ est vide.
-  Une image copiée (capture d'écran) se colle avec Ctrl+V et part avec le message, réduite à
-  1568 pixels pour coûter moins de tokens. Une puce se retire avec son ×.
+  Une puce se retire avec son ×.
+- **Images** : une image part avec le message, réduite à 1568 pixels pour coûter moins de tokens.
+  Trois façons de la donner : la coller avec Ctrl+V (une image copiée), la glisser depuis le
+  gestionnaire de fichiers sur la conversation, ou **+ Contexte → Image…**. **+ Contexte →
+  Capture d'écran** te fait choisir à la souris la zone de l'écran (Échap pour annuler) ; sous
+  Linux, avec `slurp` et `grim` (Hyprland, Sway…) ou la capture du bureau (GNOME, KDE…), sous
+  macOS celle du système, sous Windows l'outil Capture d'écran. L'image apparaît en miniature au-dessus du champ, puis dans le
+  message envoyé ; un clic l'ouvre en grand.
 - **Questions d'abord** : si la demande laisse des choix ouverts, Claude ne code rien et pose
   1 à 3 questions avec des options (la conseillée cochée d'avance, **Autre** pour écrire la
   tienne) ; **Répondre** les envoie et il continue. Dans la file de tâches, la tâche attend tes

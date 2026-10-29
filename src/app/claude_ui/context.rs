@@ -12,8 +12,9 @@ pub(in crate::app) struct Attach {
     pub(super) lines: Option<(usize, usize, String)>,
     /// A text and what it is (instead of a file).
     pub(super) note: Option<(String, String)>,
-    /// An image (PNG), sent with the message: a copied image.
-    pub(super) image: Option<Vec<u8>>,
+    /// An image sent with the message (a pasted image, a screenshot, a file): what it is, and
+    /// its PNG, saved to be shown again in the message.
+    pub(super) image: Option<(String, PathBuf)>,
 }
 
 impl Attach {
@@ -22,9 +23,14 @@ impl Attach {
         Attach { path: dir, lines: None, note: Some(note), image: None }
     }
 
+    /// An image (`image`: what it is, its PNG) given with a message of the conversation in `dir`.
+    pub(in crate::app) fn image(dir: PathBuf, image: (String, PathBuf)) -> Self {
+        Attach { path: dir, lines: None, note: None, image: Some(image) }
+    }
+
     pub(super) fn label(&self, dir: Option<&Path>) -> String {
-        if self.image.is_some() {
-            return t!("Image collée", "Pasted image").into();
+        if let Some((label, _)) = &self.image {
+            return label.clone();
         }
         if let Some((label, _)) = &self.note {
             return label.clone();
@@ -70,6 +76,9 @@ pub(super) enum CtxAdd {
     Tabs,
     Diff,
     Problems,
+    /// An image file, chosen in the file chooser.
+    Image,
+    Screenshot,
 }
 
 /// The names of a message that look like code: in backquotes, followed by "(", CamelCase, or
@@ -82,7 +91,7 @@ pub(super) fn rel_path(dir: Option<&Path>, path: &Path) -> Option<String> {
 /// Whether a message of a conversation gave the file `rel`, or a part of it (`rel:line`).
 pub(super) fn gives_file(items: &[Item], rel: &str) -> bool {
     let prefix = format!("{rel}:");
-    items.iter().any(|i| matches!(i, Item::User(_, given, _) if given.iter().any(|g| g == rel || g.starts_with(&prefix))))
+    items.iter().any(|i| matches!(i, Item::User(_, given, ..) if given.iter().any(|g| g == rel || g.starts_with(&prefix))))
 }
 
 pub(super) fn cited_names(text: &str) -> Vec<String> {
@@ -165,6 +174,43 @@ impl App {
         self.claude_attach(Attach { path, lines: None, note: Some((label, text)), image: None });
     }
 
+    /// An image (PNG) given to Claude with the next message; `label`: what it is.
+    pub(in crate::app) fn claude_attach_image(&mut self, png: Vec<u8>, label: String) {
+        let saved = match claude::save_image(&png) {
+            Ok(p) => p,
+            Err(e) => return self.set_error(tf!("Image non enregistrée : {e}", "Image not saved: {e}")),
+        };
+        if self.claude.attach.iter().any(|a| a.image.as_ref().is_some_and(|(_, p)| *p == saved)) {
+            return;
+        }
+        // « Capture d'écran », « Capture d'écran 2 »…: each its own name in the message
+        let same = self.claude.attach.iter().filter(|a| a.image.as_ref().is_some_and(|(l, _)| l.starts_with(&label))).count();
+        let label = if same == 0 { label } else { format!("{label} {}", same + 1) };
+        let path = self.claude.dir.clone().unwrap_or_default();
+        self.claude.attach.push(Attach { path, lines: None, note: None, image: Some((label.clone(), saved)) });
+        self.claude.focus = true;
+        self.set_status(tf!("✳ {label} ajoutée au contexte de Claude, envoyée avec le prochain message", "✳ {label} added to Claude's context, sent with the next message"));
+    }
+
+    /// An image file given to Claude (read and made smaller in the background).
+    pub(in crate::app) fn claude_attach_image_file(&mut self, path: &Path) {
+        let label = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let path = path.to_path_buf();
+        self.jobs.spawn(move || {
+            let png = std::fs::read(&path).map_err(|e| e.to_string()).and_then(|b| claude::png_of_file_bytes(&b)).map(Some);
+            JobResult::ClaudeImage { label, png }
+        });
+    }
+
+    /// A screenshot for Claude: the part of the screen is chosen with the mouse.
+    pub(super) fn claude_screenshot(&mut self) {
+        self.set_status(t!("Capture d'écran : choisis la zone à la souris (Échap pour annuler)", "Screenshot: choose the area with the mouse (Escape to cancel)"));
+        self.jobs.spawn(|| {
+            let png = crate::os::screenshot().and_then(|b| b.map(|b| claude::png_of_file_bytes(&b)).transpose());
+            JobResult::ClaudeImage { label: t!("Capture d'écran", "Screenshot").into(), png }
+        });
+    }
+
     /// The text document Claude's context is about: the active one, else the last one opened.
     pub(super) fn claude_editor_doc(&self) -> Option<usize> {
         let ok = |d: &Document| d.view == document::View::Text && d.path.is_some();
@@ -229,6 +275,8 @@ impl App {
                     Err(e) => self.set_error(format!("git diff : {}", e.lines().next().unwrap_or(""))),
                 }
             }
+            CtxAdd::Image => self.file_dialog(crate::os::Pick::Image),
+            CtxAdd::Screenshot => self.claude_screenshot(),
             CtxAdd::Problems => {
                 let Some(i) = doc else {
                     self.set_status(t!("Aucun fichier ouvert", "No file open"));

@@ -169,8 +169,8 @@ impl App {
         }
         let c = &mut self.claude;
         if how != Rewind::Files {
-            let (text, notes) = match c.items.get(k) {
-                Some(Item::User(t, _, notes)) => (t.clone(), notes.clone()),
+            let (text, notes, images) = match c.items.get(k) {
+                Some(Item::User(t, _, notes, images)) => (t.clone(), notes.clone(), images.clone()),
                 _ => Default::default(),
             };
             c.items.truncate(k);
@@ -189,6 +189,7 @@ impl App {
             if c.attach.is_empty() {
                 let dir = c.dir.clone().unwrap_or_default();
                 c.attach = notes.into_iter().map(|n| super::claude_ui::Attach::note(dir.clone(), n)).collect();
+                c.attach.extend(images.into_iter().filter(|(_, p)| p.exists()).map(|i| super::claude_ui::Attach::image(dir.clone(), i)));
             }
             // the process stops; the next message goes on from a copy of the session cut there
             c.session = None;
@@ -247,14 +248,14 @@ mod tests {
     fn a_folded_turn_is_summed_up() {
         let tool = |name: &str, file: &str| Item::Tool { id: String::new(), name: name.into(), summary: file.into(), result: None };
         let items = vec![
-            Item::User("a".into(), vec![], vec![]),
+            Item::User("a".into(), vec![], vec![], vec![]),
             Item::Text("je regarde".into()),
             tool("Read", "x.rs"),
             tool("Edit", "x.rs"),
             tool("Edit", "x.rs"),
             tool("Write", "y.rs"),
             Item::Usage { input: 1, cached: 0, output: 1, cost: 0.0 },
-            Item::User("b".into(), vec![], vec![]),
+            Item::User("b".into(), vec![], vec![], vec![]),
             Item::Text("ok".into()),
         ];
         assert_eq!(turn_summary(&items, 0), (5, 2));
