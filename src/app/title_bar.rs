@@ -139,7 +139,7 @@ pub(super) fn strip_buttons(ui: &mut egui::Ui, bar: Rect, controls: Controls, ma
     match controls {
         Controls::Side => {
             let r = Rect::from_min_max(Pos2::new(bar.right() - WINDOW_BUTTONS_W, bar.top()), bar.right_bottom());
-            ui.allocate_ui_at_rect(r, |ui| {
+            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(r), |ui| {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
                     window_buttons(ui, maximized);
@@ -149,7 +149,7 @@ pub(super) fn strip_buttons(ui: &mut egui::Ui, bar: Rect, controls: Controls, ma
         Controls::Mac => {
             let r = Rect::from_min_max(Pos2::new(bar.left() + 10.0, bar.top()), Pos2::new(bar.left() + MAC_BUTTONS_W, bar.bottom()));
             let ctx = ui.ctx().clone();
-            ui.allocate_ui_at_rect(r, |ui| {
+            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(r), |ui| {
                 ui.horizontal_centered(|ui| mac_buttons(ui, &ctx, maximized));
             });
         }

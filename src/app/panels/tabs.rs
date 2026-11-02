@@ -54,7 +54,7 @@ impl App {
                 }
             }
             if let Some(r) = arrows {
-                ui.allocate_ui_at_rect(r, |ui| {
+                ui.allocate_new_ui(egui::UiBuilder::new().max_rect(r), |ui| {
                     ui.horizontal_centered(|ui| {
                         ui.spacing_mut().item_spacing.x = 2.0;
                         let page = (width * 0.75).max(120.0);
@@ -87,7 +87,7 @@ impl App {
                     });
                 });
             }
-            ui.allocate_ui_at_rect(scroll, |ui| {
+            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(scroll), |ui| {
             let mut area = egui::ScrollArea::horizontal()
                 .id_salt(panel_id.with("scroll"))
                 .drag_to_scroll(false)

@@ -459,7 +459,9 @@ mod tests {
         assert!(errs.is_empty(), "{errs:?}");
         let d = Combo::parse("ctrl+d").unwrap();
         assert_eq!(km.lookup(d, false), None);
-        assert_eq!(km.label(Cmd::SelectNext), "Ctrl+Alt+Shift+D");
+        // ctrl is Cmd on macOS
+        let label = if cfg!(target_os = "macos") { "Cmd+Alt+Shift+D" } else { "Ctrl+Alt+Shift+D" };
+        assert_eq!(km.label(Cmd::SelectNext), label);
         assert_eq!(km.label(Cmd::ToggleSidebar), "");
         assert_eq!(Keymap::default_seqs(Cmd::SelectNext), vec![vec![d]]);
     }
