@@ -17,8 +17,11 @@ impl App {
         let mut scrolled = None;
         let mut strip = (egui::Rect::NOTHING, Vec::new());
         let panel_id = egui::Id::new("tabs").with(pane);
+        // the strip a bit darker than the editor, a border at its bottom that the active tab covers
         egui::TopBottomPanel::top(panel_id).exact_height(TAB_STRIP_H).frame(egui::Frame::none().fill(tc.bar)).show_inside(ui, |ui| {
             let bar = ui.max_rect();
+            let hair = tc.text_inactive.gamma_multiply(0.22);
+            ui.painter().hline(bar.x_range(), bar.bottom() - 0.5, egui::Stroke::new(1.0_f32, hair));
             strip.0 = bar;
             let controls = self.strip_controls(pane);
             let maximized = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
@@ -95,8 +98,9 @@ impl App {
             let out = area
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 2.0;
-                        ui.add_space(6.0);
+                        // a small gap between the tabs, as between the cards
+                        ui.spacing_mut().item_spacing.x = 3.0;
+                        ui.add_space(4.0);
                         let mut groups: Vec<String> = Vec::new();
                         for g in self.docs.iter().filter_map(|d| d.group.clone()) {
                             if !groups.contains(&g) {
@@ -136,15 +140,14 @@ impl App {
                             let tint = if error { Some(err()) } else { self.claude_tab_tint(d.uid) };
                             let (icon, title) = doc_tab(d);
                             let flash = if error { None } else { self.claude_tab_flash(d.uid) };
-                            let (body, closed) = tab_widget(ui, &title, icon, d.is_dirty(), active, tint, flash, &tc);
+                            let band = d.group.as_deref().map(group_color);
+                            let errors = d.diagnostics.iter().filter(|g| g.severity == Severity::Error).count();
+                            // two open files of the same name: their folder after the title
+                            let hint = d.path.as_deref().filter(|p| same_name(&self.docs, p)).and_then(|p| p.parent()?.file_name()).map(|f| format!("…/{}", f.to_string_lossy()));
+                            let (body, closed) = tab_widget(ui, &title, icon, d.is_dirty(), active, tint, flash, band, hint.as_deref(), errors, &tc);
                             if tint.is_some() && !error {
                                 let tip = if self.claude_tab_tint(d.uid) == Some(ok()) { t!("Claude a fini", "Claude is done") } else { t!("Claude travaille…", "Claude is working…") };
                                 let _ = body.clone().on_hover_text(tip);
-                            }
-                            // the tabs of a group: a band of its color on top
-                            if let Some(g) = &d.group {
-                                let r = body.rect;
-                                ui.painter().rect_filled(egui::Rect::from_min_max(egui::pos2(r.left() + 4.0, r.top() + 4.0), egui::pos2(r.right() - 4.0, r.top() + 6.5)), 1.5, group_color(g));
                             }
                             strip.1.push((body.rect, i));
                             if body.drag_started() {
@@ -288,4 +291,10 @@ impl App {
             None => {}
         }
     }
+}
+
+/// Another open tab shows a file of the same name as `path`.
+fn same_name(docs: &[Document], path: &Path) -> bool {
+    let name = path.file_name();
+    docs.iter().filter_map(|d| d.path.as_deref()).any(|p| p != path && p.file_name() == name)
 }

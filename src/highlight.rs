@@ -26,13 +26,11 @@ pub struct Colors {
 #[derive(Clone, Copy)]
 pub struct TabColors {
     pub bar: Color32,
-    pub hover: Color32,
     pub active: Color32,
     pub text_active: Color32,
     pub text_inactive: Color32,
     pub close_hover: Color32,
     pub accent: Color32,
-    pub accent2: Color32,
 }
 
 pub struct Highlighting {
@@ -274,13 +272,11 @@ impl Highlighting {
         let bar = adj(self.visuals().panel_fill, if light { -14 } else { -10 });
         TabColors {
             bar,
-            hover: adj(c.bg, if light { -5 } else { 9 }),
             active: c.bg,
             text_active: if light { mix(c.fg, Color32::BLACK, 0.5) } else { mix(c.fg, Color32::WHITE, 0.5) },
             text_inactive: if light { mix(c.fg, Color32::BLACK, 0.1) } else { mix(c.fg, bar, 0.22) },
             close_hover: adj(c.bg, if light { -30 } else { 26 }),
             accent: c.accent,
-            accent2: c.accent2,
         }
     }
 

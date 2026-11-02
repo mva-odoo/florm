@@ -25,12 +25,24 @@ impl App {
     pub(in crate::app) fn sidebar(&mut self, ctx: &egui::Context) {
         let mut tree_action = None;
         let panel = sidebar_fill(&ctx.style().visuals);
+        let tc = self.hl.tab_colors();
         let shown = egui::SidePanel::left("sidebar")
             .resizable(true)
             .default_width(260.0)
             .width_range(150.0..=700.0)
-            .frame(egui::Frame::none().fill(panel).inner_margin(egui::Margin { left: 10.0, right: 8.0, top: 4.0, bottom: 6.0 }))
+            .show_separator_line(false)
+            // the window's background around it (the color of the tab strip)…
+            .frame(egui::Frame::none().fill(tc.bar).inner_margin(egui::Margin::same(6.0)))
             .show(ctx, |ui| {
+            // …and the tree on a card of its own, rounded like the tabs, with a thin border: the
+            // place of the tree is plain to see, as in VS Code
+            let card = egui::Frame::none()
+                .fill(panel)
+                .stroke(egui::Stroke::new(1.0_f32, tc.text_inactive.gamma_multiply(0.25)))
+                .rounding(CARD_ROUNDING)
+                .inner_margin(egui::Margin { left: 6.0, right: 4.0, top: 4.0, bottom: 4.0 });
+            card.show(ui, |ui| {
+            ui.set_min_size(ui.available_size());
             // what is drawn inside (sticky folders, icons) on the same background
             ui.visuals_mut().panel_fill = panel;
             self.sidebar_mac_buttons(ui);
@@ -55,6 +67,7 @@ impl App {
                     }
                 }
             }
+            });
         });
         // double click on the border between the sidebar and the editor: the width fits the longest name
         let edge = shown.response.rect.right();

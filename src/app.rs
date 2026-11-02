@@ -162,6 +162,8 @@ fn filled_button(text: impl Into<String>, fill: Color32) -> egui::Button<'static
 }
 
 const TAB_STRIP_H: f32 = 32.0;
+/// The rounding of the sidebar's card and of the top of the tabs, the same so they go together.
+const CARD_ROUNDING: f32 = 8.0;
 
 #[derive(PartialEq, Clone, Copy, Debug)]
 enum BottomTab {
@@ -1601,8 +1603,12 @@ fn doc_tab(d: &Document) -> (TabIcon<'_>, String) {
     }
 }
 
-/// One editor tab: rounded top, active tab merged with the editor and underlined with
-/// the theme accent gradient, close button (or "modified" dot).
+/// One editor tab, rounded at the top like the sidebar's card (`CARD_ROUNDING`), a small gap
+/// between two tabs: the active one in the editor's color, bordered and open at the bottom (it
+/// merges with the editor), the others a softer shape of the same form, lighter on hover. After
+/// the title: the parent folder when another tab has the same name (`hint`), the number of errors
+/// in red. The close button shows on hover and on the active tab (else the "modified" dot, in the
+/// accent). Positions are rounded to whole pixels so the text stays sharp.
 fn tab_widget(
     ui: &mut egui::Ui,
     title: &str,
@@ -1613,61 +1619,82 @@ fn tab_widget(
     tint: Option<Color32>,
     // the whole tab lit in this color (Claude just finished: it blinks)
     flash: Option<Color32>,
+    // a group's color: a line along the top of its tabs
+    group: Option<Color32>,
+    // "…/folder" after the title, to tell apart two files of the same name
+    hint: Option<&str>,
+    errors: usize,
     tc: &crate::highlight::TabColors,
 ) -> (egui::Response, bool) {
-    let font = egui::FontId::proportional(13.5);
+    let font = egui::FontId::proportional(13.0);
+    let small = egui::FontId::proportional(12.0);
     let text_color = tint.unwrap_or(if active { tc.text_active } else { tc.text_inactive });
+    let dim = tc.text_inactive.gamma_multiply(0.75);
     let galley = ui.painter().layout_no_wrap(title.to_string(), font, text_color);
-    let icon_w = 22.0;
-    let w = galley.size().x + 52.0 + icon_w;
+    let hint_g = hint.map(|h| ui.painter().layout_no_wrap(h.to_string(), small.clone(), dim));
+    let count = (errors > 0).then(|| if errors > 9 { "9+".to_string() } else { errors.to_string() });
+    let count_g = count.map(|c| ui.painter().layout_no_wrap(c, small, err()));
+    let extra = hint_g.as_ref().map_or(0.0, |g| g.size().x + 8.0) + count_g.as_ref().map_or(0.0, |g| g.size().x + 6.0);
+    let w = (galley.size().x + extra + 64.0).round();
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, TAB_STRIP_H), Sense::click_and_drag());
-    let tab = egui::Rect::from_min_max(egui::pos2(rect.left(), rect.top() + 4.0), rect.right_bottom());
-    let close_rect = egui::Rect::from_center_size(egui::pos2(tab.right() - 17.0, tab.center().y), egui::vec2(18.0, 18.0));
+    let tab = egui::Rect::from_min_max(egui::pos2(rect.left(), rect.top() + 5.0).round(), rect.max.round());
+    let close_rect = egui::Rect::from_center_size(egui::pos2(tab.right() - 16.0, tab.center().y), egui::vec2(18.0, 18.0));
     let close = ui.interact(close_rect, resp.id.with("close"), Sense::click());
     let hovered = resp.hovered() || close.hovered();
     let p = ui.painter();
-    let rounding = egui::Rounding { nw: 8.0, ne: 8.0, sw: 0.0, se: 0.0 };
-    if active {
-        p.rect_filled(tab, rounding, tc.active);
-        // thin accent gradient under the active tab
-        let line = egui::Rect::from_min_max(egui::pos2(tab.left() + 10.0, tab.bottom() - 2.0), egui::pos2(tab.right() - 10.0, tab.bottom()));
-        let mut mesh = egui::epaint::Mesh::default();
-        mesh.colored_vertex(line.left_top(), tc.accent);
-        mesh.colored_vertex(line.right_top(), tc.accent2);
-        mesh.colored_vertex(line.right_bottom(), tc.accent2);
-        mesh.colored_vertex(line.left_bottom(), tc.accent);
-        mesh.add_triangle(0, 1, 2);
-        mesh.add_triangle(0, 2, 3);
-        p.add(egui::Shape::mesh(mesh));
+    let rounding = egui::Rounding { nw: CARD_ROUNDING, ne: CARD_ROUNDING, sw: 0.0, se: 0.0 };
+    let border = egui::Stroke::new(1.0_f32, tc.text_inactive.gamma_multiply(0.25));
+    let fill = if active {
+        tc.active
     } else if hovered {
-        p.rect_filled(tab, rounding, tc.hover);
+        icons::mix(tc.bar, tc.active, 0.75)
+    } else {
+        icons::mix(tc.bar, tc.active, 0.4)
+    };
+    let fill = flash.map_or(fill, |c| icons::mix(fill, c, 0.45));
+    if active {
+        p.rect_filled(tab, rounding, fill);
+        // its border on the sides and the top only: the bottom (below the strip) is cut off
+        let outline = egui::Rect::from_min_max(tab.min + egui::vec2(0.5, 0.5), egui::pos2(tab.right() - 0.5, tab.bottom() + 12.0));
+        p.with_clip_rect(tab.expand(1.0)).rect_stroke(outline, rounding, border);
+    } else {
+        // the border at the bottom of the strip stays visible under it
+        p.rect_filled(egui::Rect::from_min_max(tab.min, egui::pos2(tab.right(), tab.bottom() - 1.0)), rounding, fill);
     }
-    if let Some(c) = flash {
-        p.rect_filled(tab, rounding, icons::mix(if active { tc.active } else { tc.bar }, c, 0.45));
+    if let Some(c) = group {
+        let r = CARD_ROUNDING;
+        p.rect_filled(egui::Rect::from_min_max(egui::pos2(tab.left() + r, tab.top() + 1.0), egui::pos2(tab.right() - r, tab.top() + 3.0)), 1.0, c);
     }
-    let icon_at = egui::pos2(tab.left() + 20.0, tab.center().y);
+    let y = tab.center().y.round();
+    let icon_at = egui::pos2(tab.left() + 15.0, y);
     match icon {
         TabIcon::File(name) => {
-            let bg = if active { tc.active } else { tc.bar };
-            let light = bg.r() as u32 + bg.g() as u32 + bg.b() as u32 > 384;
-            icons::paint_file(p, egui::Rect::from_center_size(icon_at, egui::vec2(15.0, 15.0)), name, bg, light);
+            let light = fill.r() as u32 + fill.g() as u32 + fill.b() as u32 > 384;
+            icons::paint_file(p, egui::Rect::from_center_size(icon_at, egui::vec2(14.0, 14.0)), name, fill, light);
         }
         TabIcon::View(v) => icons::paint_view(p, icon_at, v, text_color),
     }
-    p.galley(egui::pos2(tab.left() + 13.0 + icon_w, tab.center().y - galley.size().y / 2.0), galley, text_color);
+    let mut x = tab.left() + 29.0;
+    let gw = galley.size().x;
+    p.galley(egui::pos2(x, (y - galley.size().y / 2.0).round()), galley, text_color);
+    x += gw;
+    if let Some(g) = count_g {
+        x += 6.0;
+        let gw = g.size().x;
+        p.galley(egui::pos2(x.round(), (y - g.size().y / 2.0).round()), g, err());
+        x += gw;
+    }
+    if let Some(g) = hint_g {
+        x += 8.0;
+        p.galley(egui::pos2(x.round(), (y - g.size().y / 2.0).round()), g, dim);
+    }
     if close.hovered() {
         p.rect_filled(close_rect, 4.0, tc.close_hover);
     }
     if dirty && !hovered {
-        p.circle_filled(close_rect.center(), 4.0, text_color);
-    } else if active || hovered || dirty {
+        p.circle_filled(close_rect.center(), 3.5, tc.accent);
+    } else if active || hovered {
         p.text(close_rect.center(), Align2::CENTER_CENTER, "×", egui::FontId::proportional(15.0), text_color);
-    }
-    // a thin line between two tabs (not around the active or the hovered one)
-    if !active && !hovered {
-        let x = rect.right() - 0.5;
-        let c = tc.text_inactive.gamma_multiply(0.45);
-        ui.painter().line_segment([egui::pos2(x, tab.top() + 7.0), egui::pos2(x, tab.bottom() - 5.0)], egui::Stroke::new(1.0, c));
     }
     let closed = close.on_hover_text(t!("Fermer (Ctrl+W)", "Close (Ctrl+W)")).clicked();
     (resp, closed)
