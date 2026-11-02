@@ -8,14 +8,17 @@ pub(super) fn sidebar_fill(v: &egui::Visuals) -> Color32 {
 }
 
 impl App {
-    /// Thin strip at the left edge while the sidebar is hidden: a click brings it back.
+    /// Thin strip at the left edge while the sidebar is hidden, the room the editor's card has on
+    /// its right (no more): lit under the pointer, a click brings the sidebar back.
     pub(in crate::app) fn sidebar_strip(&mut self, ctx: &egui::Context) {
-        let panel = sidebar_fill(&ctx.style().visuals);
-        egui::SidePanel::left("sidebar_strip").exact_width(10.0).resizable(false).frame(egui::Frame::none().fill(panel)).show(ctx, |ui| {
+        let bar = self.hl.tab_colors().bar;
+        egui::SidePanel::left("sidebar_strip").exact_width(6.0).resizable(false).show_separator_line(false).frame(egui::Frame::none().fill(bar)).show(ctx, |ui| {
             let rect = ui.max_rect();
             let r = ui.interact(rect, egui::Id::new("sidebar_strip_btn"), Sense::click());
-            let c = if r.hovered() { self.hl.colors.accent } else { ui.visuals().weak_text_color().gamma_multiply(0.5) };
-            ui.painter().text(rect.center(), Align2::CENTER_CENTER, "›", egui::FontId::proportional(14.0), c);
+            if r.hovered() {
+                ui.painter().rect_filled(rect.shrink2(egui::vec2(1.5, 0.0)), 2.0, self.hl.colors.accent.gamma_multiply(0.6));
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
             if r.on_hover_text(t!("Afficher la barre latérale (Ctrl+K Ctrl+B)", "Show the sidebar (Ctrl+K Ctrl+B)")).clicked() {
                 self.show_sidebar = true;
             }

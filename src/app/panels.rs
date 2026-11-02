@@ -25,10 +25,9 @@ impl App {
         }
         let two = self.is_split();
         // the editor on a card, on the window's background, the same space around it as around the
-        // sidebar's (on the left only when the sidebar is hidden: its own margin is there otherwise)
+        // sidebar's (on the left: the sidebar's own margin, or the strip left when it is hidden)
         let tc = self.hl.tab_colors();
-        let left = if self.show_sidebar { 0.0 } else { 6.0 };
-        let outer = egui::Frame::none().fill(tc.bar).inner_margin(egui::Margin { left, right: 6.0, top: 0.0, bottom: 6.0 });
+        let outer = egui::Frame::none().fill(tc.bar).inner_margin(egui::Margin { left: 0.0, right: 6.0, top: 0.0, bottom: 6.0 });
         egui::CentralPanel::default().frame(outer).show(ctx, |ui| {
             if two {
                 let frame = egui::Frame::none();
