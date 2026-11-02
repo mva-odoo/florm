@@ -1,8 +1,11 @@
-//! The Florm logo (gradient "F" holding code lines), drawn as vectors so it is
-//! sharp at any size, plus a tiny rasterizer for the window icon.
+//! The Florm logo: a gradient "F" drawn as a folded ribbon, as the logos of Sublime Text and
+//! VS Code: the stem folds over to the right into the top bar (the back of the ribbon, darker,
+//! shows in the fold, and the fold casts a shadow), the middle bar comes out from under the stem.
+//! One function gives its color at each point (`shade`): a tiny rasterizer makes the window icon,
+//! the packaging icons and the textures of the logo in the app (cached at the size shown).
 
 use eframe::egui::{
-    self, epaint::Mesh, Color32, Painter, Pos2, Rect, Shape, Stroke, Vec2,
+    self, Color32, Painter, Pos2, Rect, Shape, Stroke, Vec2,
 };
 
 pub const CYAN: Color32 = Color32::from_rgb(0x3b, 0xd5, 0xf5);
@@ -60,6 +63,93 @@ fn grad_at(p: Vec2) -> Color32 {
     gradient((p.x * 0.45 + p.y * 0.75) / 1.1)
 }
 
+/// `c` darker by `k` (0: as is, 1: black).
+fn darken(c: Color32, k: f32) -> Color32 {
+    let f = |x: u8| (x as f32 * (1.0 - k.clamp(0.0, 1.0))).round() as u8;
+    Color32::from_rgb(f(c.r()), f(c.g()), f(c.b()))
+}
+
+/// `c` lighter by `k` (0: as is, 1: white).
+fn lighten(c: Color32, k: f32) -> Color32 {
+    lerp(c, Color32::WHITE, k.clamp(0.0, 1.0))
+}
+
+/// Inside a convex polygon (counterclockwise in screen coordinates, as `rrect` makes them).
+fn inside(poly: &[Vec2], p: Vec2) -> bool {
+    let n = poly.len();
+    (0..n).all(|i| {
+        let (a, b) = (poly[i], poly[(i + 1) % n]);
+        (b - a).x * (p - a).y - (b - a).y * (p - a).x >= -1e-6
+    })
+}
+
+/// Right edge of the stem, where the bars leave it; bottom of the top bar.
+const STEM_RIGHT: f32 = 0.42;
+const TOP_BOTTOM: f32 = 0.25;
+
+/// 0 before `a`, 1 after `b`, smooth in between.
+fn smooth(a: f32, b: f32, x: f32) -> f32 {
+    let t = ((x - a) / (b - a)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// Color of the logo at `p` (unit coordinates), None around the letter.
+fn shade(pieces: &[Vec<Vec2>; 3], p: Vec2) -> Option<Color32> {
+    let (top, stem, mid) = (inside(&pieces[0], p), inside(&pieces[1], p), inside(&pieces[2], p));
+    let base = grad_at(p);
+    // the fold, from the outer corner (0.20, 0.04) to the inner one: `d` > 0 above it
+    let (ax, ay, bx, by) = (0.20, 0.04, STEM_RIGHT, TOP_BOTTOM);
+    let d = ((p.x - ax) * (by - ay) - (p.y - ay) * (bx - ax)) / (bx - ax).hypot(by - ay);
+    let in_corner = top && p.x <= STEM_RIGHT;
+    if top && (!in_corner || d > 0.0) {
+        // the top bar is the back of the ribbon, folded over: dark at the fold, lit further on;
+        // a thin light crease along the fold
+        if in_corner && d < 0.008 {
+            return Some(lighten(base, 0.35));
+        }
+        return Some(darken(base, 0.40 * (1.0 - smooth(0.22, 0.90, p.x))));
+    }
+    if stem {
+        // the front of the ribbon; the shadow the fold casts on it below the top bar
+        let k = if p.y > TOP_BOTTOM { 0.24 * (1.0 - smooth(TOP_BOTTOM, TOP_BOTTOM + 0.10, p.y)) } else { 0.0 };
+        return Some(darken(base, k));
+    }
+    if mid {
+        // it comes out from under the stem: in its shadow first
+        return Some(darken(base, 0.34 * (1.0 - smooth(STEM_RIGHT, STEM_RIGHT + 0.22, p.x))));
+    }
+    None
+}
+
+/// The letter rasterized `size`×`size`, 4×4 supersampled; `to_unit` maps a point of the image (0..1)
+/// to the logo's unit coordinates. RGBA, transparent around the letter.
+fn render(size: usize, to_unit: impl Fn(f32, f32) -> Vec2) -> Vec<u8> {
+    let pieces = pieces();
+    let mut rgba = Vec::with_capacity(size * size * 4);
+    let ss = 4;
+    for y in 0..size {
+        for x in 0..size {
+            let (mut r, mut g, mut b, mut a) = (0.0, 0.0, 0.0, 0.0);
+            for sy in 0..ss {
+                for sx in 0..ss {
+                    let u = (x as f32 + (sx as f32 + 0.5) / ss as f32) / size as f32;
+                    let v = (y as f32 + (sy as f32 + 0.5) / ss as f32) / size as f32;
+                    if let Some(c) = shade(&pieces, to_unit(u, v)) {
+                        r += c.r() as f32;
+                        g += c.g() as f32;
+                        b += c.b() as f32;
+                        a += 255.0;
+                    }
+                }
+            }
+            let alpha = a / (ss * ss) as f32;
+            let k = if a > 0.0 { 255.0 / a } else { 0.0 };
+            rgba.extend([(r * k) as u8, (g * k) as u8, (b * k) as u8, alpha as u8]);
+        }
+    }
+    rgba
+}
+
 /// Paints the logo in `rect` (square). `detail` adds the code lines, braces and glow.
 pub fn paint(painter: &Painter, rect: Rect, detail: bool) {
     let s = rect.width().min(rect.height());
@@ -77,26 +167,18 @@ pub fn paint(painter: &Painter, rect: Rect, detail: bool) {
             }
         }
     }
-    for poly in pieces() {
-        // gradient fill: triangle fan from the centroid with per-vertex colors
-        let mut mesh = Mesh::default();
-        let center = poly.iter().fold(Vec2::ZERO, |a, p| a + *p) / poly.len() as f32;
-        mesh.colored_vertex(at(center), grad_at(center));
-        for p in &poly {
-            mesh.colored_vertex(at(*p), grad_at(*p));
-        }
-        let n = poly.len() as u32;
-        for i in 0..n {
-            mesh.add_triangle(0, 1 + i, 1 + (i + 1) % n);
-        }
-        painter.add(Shape::mesh(mesh));
-        // anti-aliased edge in the same colors
-        let pts: Vec<Pos2> = poly.iter().map(|p| at(*p)).collect();
-        for (a, b) in pts.iter().zip(pts.iter().cycle().skip(1)) {
-            let m = (*a - o) / s;
-            painter.line_segment([*a, *b], Stroke::new(1.0_f32, grad_at(m)));
-        }
-    }
+    // the letter: a texture rendered at the pixel size shown, kept for the next frames
+    let ctx = painter.ctx();
+    let px = (s * ctx.pixels_per_point()).round().clamp(8.0, 1024.0) as usize;
+    let id = egui::Id::new(("florm_logo", px));
+    let tex = ctx.data(|d| d.get_temp::<egui::TextureHandle>(id)).unwrap_or_else(|| {
+        let image = egui::ColorImage::from_rgba_unmultiplied([px, px], &render(px, |u, v| Vec2::new(u, v)));
+        let tex = ctx.load_texture("florm_logo", image, egui::TextureOptions::LINEAR);
+        ctx.data_mut(|d| d.insert_temp(id, tex.clone()));
+        tex
+    });
+    let square = Rect::from_min_size(o, Vec2::splat(s));
+    painter.image(tex.id(), square, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
     if !detail {
         return;
     }
@@ -142,49 +224,16 @@ const LETTER: f32 = 0.98;
 /// Horizontal point of the F (unit coordinates) put at the center of the icon.
 const LETTER_CX: f32 = 0.53;
 
-/// Window icon: the gradient F alone on a transparent background, 4×4 supersampled, `inset` of
-/// empty margin around it.
+/// Window icon: the folded F alone on a transparent background, `inset` of empty margin around it.
 pub fn icon(size: usize, inset: f32) -> egui::IconData {
-    let pieces = pieces();
-    let inside = |poly: &[Vec2], p: Vec2| {
-        let n = poly.len();
-        (0..n).all(|i| {
-            let (a, b) = (poly[i], poly[(i + 1) % n]);
-            (b - a).x * (p - a).y - (b - a).y * (p - a).x >= -1e-6
-        })
-    };
-    let mut rgba = Vec::with_capacity(size * size * 4);
-    let ss = 4;
-    for y in 0..size {
-        for x in 0..size {
-            let (mut r, mut g, mut b, mut a) = (0.0, 0.0, 0.0, 0.0);
-            for sy in 0..ss {
-                for sx in 0..ss {
-                    let side = 1.0 - 2.0 * inset;
-                    let u = ((x as f32 + (sx as f32 + 0.5) / ss as f32) / size as f32 - inset) / side;
-                    let v = ((y as f32 + (sy as f32 + 0.5) / ss as f32) / size as f32 - inset) / side;
-                    // Letter scaled to LETTER. Its box (x 0.20..0.96) is wider on the right than its
-                    // ink (the stem is on the left): centering the box would push the F to the
-                    // right, centering the ink to the left, so the point halfway between both
-                    // centers goes in the middle.
-                    let p = Vec2::new((u - 0.5) / LETTER + LETTER_CX, (v - 0.5) / LETTER + 0.5);
-                    // around the letter: transparent
-                    if !pieces.iter().any(|poly| inside(poly, p)) {
-                        continue;
-                    }
-                    let c = grad_at(p);
-                    r += c.r() as f32;
-                    g += c.g() as f32;
-                    b += c.b() as f32;
-                    a += 255.0;
-                }
-            }
-            let n = (ss * ss) as f32;
-            let alpha = a / n;
-            let k = if a > 0.0 { 255.0 / a } else { 0.0 };
-            rgba.extend([(r * k) as u8, (g * k) as u8, (b * k) as u8, alpha as u8]);
-        }
-    }
+    let side = 1.0 - 2.0 * inset;
+    let rgba = render(size, |x, y| {
+        let (u, v) = ((x - inset) / side, (y - inset) / side);
+        // Letter scaled to LETTER. Its box (x 0.20..0.96) is wider on the right than its ink (the
+        // stem is on the left): centering the box would push the F to the right, centering the ink
+        // to the left, so the point halfway between both centers goes in the middle.
+        Vec2::new((u - 0.5) / LETTER + LETTER_CX, (v - 0.5) / LETTER + 0.5)
+    });
     egui::IconData { rgba, width: size as u32, height: size as u32 }
 }
 
