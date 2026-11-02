@@ -432,6 +432,14 @@ impl Keymap {
         })
     }
 
+    /// The commands of the `ctrl+k` chords, for the list Ctrl+K opens.
+    pub fn chord_cmds(&self) -> Vec<Cmd> {
+        let mut v: Vec<Cmd> = self.chords.values().copied().collect();
+        v.sort_by_key(|c| self.label(*c));
+        v.dedup();
+        v
+    }
+
     pub fn label(&self, cmd: Cmd) -> String {
         self.labels.get(&cmd).cloned().unwrap_or_default()
     }

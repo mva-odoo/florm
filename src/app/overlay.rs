@@ -20,6 +20,18 @@ impl App {
                         action: Action::Cmd(Cmd::Plugin(k)),
                     });
                 }
+                // `#`: the views, terminals and conversations (only listed after a #)
+                v.extend(self.view_items("# "));
+                v.into()
+            }
+            Mode::Views => {
+                // the views, then the commands of the Ctrl+K chords (Ctrl+K Ctrl+B…), named
+                let mut v = self.view_items("");
+                for c in self.keymap.chord_cmds().into_iter().filter(|c| crate::features::cmd_on(*c)) {
+                    if let Some((id, l, _)) = commands::ALL.iter().find(|(_, l, x)| *x == c && !l.is_empty()) {
+                        v.push(Item { label: commands::label(id, l).to_string(), detail: self.keymap.label(c), action: Action::Cmd(c) });
+                    }
+                }
                 v.into()
             }
             Mode::Files => self.file_items(),
@@ -106,6 +118,27 @@ impl App {
         }
     }
 
+    /// The views, the terminals of the bottom panel and the Claude conversations (when there are
+    /// several), each label after `prefix`: Ctrl+K, and the palette after a #.
+    fn view_items(&self, prefix: &str) -> Vec<Item> {
+        let mut v = Vec::new();
+        for (tab, _, label) in BottomTab::shown() {
+            v.push(Item { label: format!("{prefix}{label}"), detail: self.keymap.label(tab.cmd()), action: Action::View(tab) });
+        }
+        for (id, title, _, ended) in self.term.panel_sessions() {
+            let detail = if ended { t!("terminé", "ended") } else { "" };
+            v.push(Item { label: format!("{prefix}Terminal › {title}"), detail: detail.into(), action: Action::Terminal(id) });
+        }
+        let convs = self.claude_conversations();
+        if convs.len() > 1 {
+            for (tab, title, busy, done) in convs {
+                let detail = if busy { t!("au travail", "working") } else if done { "✔" } else { "" };
+                v.push(Item { label: format!("{prefix}Claude › {title}"), detail: detail.into(), action: Action::Conversation(tab) });
+            }
+        }
+        v
+    }
+
     pub(super) fn file_items(&mut self) -> Items {
         if self.root.is_none() {
             return Vec::new().into();
@@ -182,6 +215,7 @@ impl App {
         }
         let title = match &ov.mode {
             Mode::Commands => t!("Palette de commandes", "Command palette").to_string(),
+            Mode::Views => t!("Vues   (après Ctrl+K, Ctrl+B, Ctrl+U… gardent leur rôle)", "Views   (after Ctrl+K, Ctrl+B, Ctrl+U… keep their role)").to_string(),
             Mode::Files => t!("Aller au fichier   (fichier:ligne, ou :ligne dans le fichier courant)", "Go to file   (file:line, or :line in the current file)").into(),
             Mode::GotoLine if self.goto_select => {
                 t!("Sélectionner la ligne   (42, ou 10-20 pour plusieurs lignes ; vide + Entrée : la ligne courante)", "Select line   (42, or 10-20 for several lines; empty + Enter: the current line)").into()
@@ -286,7 +320,7 @@ impl App {
                         egui::TextEdit::singleline(&mut ov.query)
                             .desired_width(f32::INFINITY)
                             .frame(false)
-                            .hint_text(t!("Tapez pour filtrer…", "Type to filter…"))
+                            .hint_text(if matches!(ov.mode, Mode::Commands) { t!("Tapez pour filtrer… (# : ouvrir une vue)", "Type to filter… (#: open a view)") } else { t!("Tapez pour filtrer…", "Type to filter…") })
                             .font(egui::FontId::proportional(17.0))
                             // Tab completes the path: it must not also move the focus to the next widget
                             .lock_focus(path_base.is_some()),
@@ -367,6 +401,7 @@ impl App {
                         ov.last_query = Some(ov.query.clone());
                         ov.selected = 0;
                         let q = ov.query.split(':').next().unwrap_or("").to_string();
+                        let views = q.starts_with('#');
                         // typing one more letter: only the items that matched before can match
                         let narrowing = ov.matched.as_ref().filter(|(prev, _)| !prev.is_empty() && q.starts_with(prev.as_str()));
                         let pool = narrowing.map(|(_, m)| m.clone());
@@ -401,6 +436,11 @@ impl App {
                             ov.matched = Some((q.clone(), Arc::new(scored.iter().map(|(_, i)| *i).collect())));
                             ov.filtered = best(scored);
                         }
+                        // the palette: a query starting with # lists the views, the others the commands
+                        if matches!(ov.mode, Mode::Commands) {
+                            let items = &ov.items;
+                            ov.filtered.retain(|&i| items.label(i).starts_with('#') == views);
+                        }
                     }
                     let n = ov.filtered.len();
                     if n > 0 && down {
@@ -410,7 +450,7 @@ impl App {
                         ov.selected = (ov.selected + n - 1) % n;
                     }
                     // same height whatever the number of results: the window does not jump while typing
-                    let fixed = matches!(ov.mode, Mode::Files | Mode::Commands);
+                    let fixed = matches!(ov.mode, Mode::Files | Mode::Commands | Mode::Views);
                     egui::ScrollArea::vertical()
                         .max_height(440.0)
                         .min_scrolled_height(if fixed { 440.0 } else { 0.0 })
@@ -577,6 +617,17 @@ impl App {
             Action::Project(p) => self.switch_project(p),
             Action::Template(k) => self.insert_template(k),
             Action::Remote(t) => self.remote_connect(t),
+            Action::View(tab) => self.open_tool(tab),
+            Action::Conversation(Some(uid)) if self.docs.iter().any(|d| d.uid == uid) => {
+                if let Some(i) = self.docs.iter().position(|d| d.uid == uid) {
+                    self.activate_tab(i);
+                }
+            }
+            Action::Conversation(_) => self.show_bottom(BottomTab::Claude, false),
+            Action::Terminal(id) => {
+                self.bottom = Some(BottomTab::Terminal);
+                self.term.show(id);
+            }
         }
     }
 

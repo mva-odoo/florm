@@ -10,7 +10,8 @@ Tous les raccourcis se changent dans **Préférences → Raccourcis** (Ctrl+,).
 | Raccourci | Action |
 |---|---|
 | **Ctrl+P** | Aller à un fichier du projet. `nom:42` ouvre à la ligne 42, `:42` va à la ligne 42 du fichier courant |
-| **Ctrl+Shift+P** | Palette de commandes (les accents sont facultatifs : « theme » trouve « Choisir le thème… ») |
+| **Ctrl+K** | Les vues à part des commandes : Recherche, Terminal, Claude, Git, Docker…, les terminaux et les conversations, puis les combinaisons Ctrl+K… avec leur nom. Tape pour filtrer ; **Ctrl+K Ctrl+B**, **Ctrl+K V**… gardent leur rôle |
+| **Ctrl+Shift+P** | Palette de commandes (les accents sont facultatifs : « theme » trouve « Choisir le thème… »). **`#`** en tête liste les vues, les terminaux et les conversations : `#git`, `#dock`, `#term`, `#claude` |
 | **Ctrl+R** | Aller à une classe, une fonction, un record Odoo du fichier |
 | **Ctrl+O** / **Ctrl+Shift+S** | Ouvrir / enregistrer sous : **Tab complète le chemin** comme dans un terminal |
 | **F12** | Aller à la définition (aussi sur `'sale.order'` ou `'module.xml_id'`) |

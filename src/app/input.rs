@@ -26,11 +26,20 @@ impl App {
             if !self.chord && self.keymap.is_chord_start(&combo) {
                 self.chord = true;
                 consumed[i] = true;
+                // Ctrl+K alone: the list of the views, until the next key says otherwise
+                if self.overlay.is_none() && self.confirm.is_none() {
+                    self.open_overlay(Mode::Views);
+                }
                 continue;
             }
             let in_chord = std::mem::take(&mut self.chord);
+            let launcher = in_chord && self.overlay.as_ref().is_some_and(|o| matches!(o.mode, Mode::Views));
             match self.keymap.lookup(combo, in_chord) {
                 Some(cmd) => {
+                    // a chord (Ctrl+K Ctrl+B…): the list of the views gives way to it
+                    if launcher {
+                        self.overlay = None;
+                    }
                     // a confirmation dialog holds the keyboard: Échap cancels it, Entrée and Tab
                     // go to its buttons
                     if self.confirm.is_some() && cmd != Cmd::Escape {
@@ -48,7 +57,12 @@ impl App {
                     consumed[i] = true;
                     cmds.push(cmd);
                 }
-                None if in_chord => consumed[i] = true,
+                // the list of the views is open: Échap closes it, the other keys go to its filter
+                None if launcher && *key == Key::Escape => {
+                    self.overlay = None;
+                    consumed[i] = true;
+                }
+                None if in_chord && !launcher => consumed[i] = true,
                 None => {}
             }
         }
@@ -252,6 +266,7 @@ impl App {
             NextResult => self.step_result(true),
             PrevResult => self.step_result(false),
             SwitchProject => self.open_overlay(Mode::Projects),
+            Views => self.open_overlay(Mode::Views),
             RenameProject => match self.projects.iter().find(|p| Some(&p.path) == self.root.as_ref()).cloned() {
                 Some(p) => self.open_overlay_with(Mode::Prompt(Prompt::RenameProject(p.path)), Vec::new(), p.name),
                 None => self.set_status(t!("Aucun dossier ouvert", "No folder open")),
