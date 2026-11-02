@@ -404,15 +404,36 @@ impl App {
         uid
     }
 
-    /// Title of the tab of the current conversation: its first message, short.
-    fn claude_title(&self) -> String {
-        match self.claude.wish.as_deref().and_then(|w| w.lines().find(|l| !l.trim().is_empty())) {
-            Some(l) if l.chars().count() > 28 => format!("{}…", l.trim().chars().take(27).collect::<String>()),
-            Some(l) => l.trim().to_string(),
-            None => "Claude".into(),
-        }
+    /// Every conversation, for the ▾ menu of the bottom panel: its tab (None: the panel's), its
+    /// title, working, finished and not seen yet. The panel's first, then the tabs in their order.
+    pub(super) fn claude_conversations(&self) -> Vec<(Option<u64>, String, bool, bool)> {
+        let mut all: Vec<&ClaudeUi> = std::iter::once(&self.claude).chain(self.claude_others.iter()).collect();
+        let order = |c: &&ClaudeUi| c.tab.map_or(0, |u| 1 + self.docs.iter().position(|d| d.uid == u).unwrap_or(usize::MAX - 1));
+        all.sort_by_key(order);
+        all.into_iter()
+            .map(|c| {
+                let title = c.tab.and_then(|u| self.docs.iter().find(|d| d.uid == u)).and_then(|d| d.title_override.clone()).unwrap_or_else(|| conv_title(c));
+                (c.tab, title, c.busy, c.unseen && !c.busy)
+            })
+            .collect()
     }
 
+    /// Title of the tab of the current conversation: its first message, short.
+    fn claude_title(&self) -> String {
+        conv_title(&self.claude)
+    }
+}
+
+/// Title of a conversation: its first message, short ("Claude" before it).
+fn conv_title(c: &ClaudeUi) -> String {
+    match c.wish.as_deref().and_then(|w| w.lines().find(|l| !l.trim().is_empty())) {
+        Some(l) if l.chars().count() > 28 => format!("{}…", l.trim().chars().take(27).collect::<String>()),
+        Some(l) => l.trim().to_string(),
+        None => "Claude".into(),
+    }
+}
+
+impl App {
     /// An empty conversation with the settings of the current one, shown in `tab`.
     fn claude_fresh(&self, tab: Option<u64>) -> ClaudeUi {
         static N: AtomicU64 = AtomicU64::new(1);
@@ -532,6 +553,15 @@ impl App {
     /// light up (blinking a few seconds first).
     pub(super) fn claude_bottom_done(&self) -> bool {
         std::iter::once(&self.claude).chain(self.claude_others.iter()).any(|c| c.tab.is_none() && c.unseen && !c.busy && self.claude_lit(c))
+    }
+
+    /// For the status bar: how many conversations are working, and the first one that finished
+    /// and is not seen yet (Some(its tab), Some(None): the bottom panel's), lit or not while it blinks.
+    pub(super) fn claude_activity(&self) -> (usize, Option<(Option<u64>, bool)>) {
+        let all = || std::iter::once(&self.claude).chain(self.claude_others.iter());
+        let busy = all().filter(|c| c.busy).count();
+        let done = all().find(|c| c.unseen && !c.busy).map(|c| (c.tab, self.claude_lit(c)));
+        (busy, done)
     }
 
     /// On or off: blinking for a few seconds after the end of the answer, then on.

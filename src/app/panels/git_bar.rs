@@ -310,10 +310,8 @@ impl App {
         if let Some(a) = stash_act {
             self.stash_act(a);
         }
-        match move_to {
-            Some(true) => self.show_big(BottomTab::Git),
-            Some(false) => self.show_bottom(BottomTab::Git, false),
-            None => {}
+        if let Some(b) = move_to {
+            self.move_view(BottomTab::Git, b);
         }
         let mut cmds_after = Vec::new();
         // --- errors stay until dismissed (or until a later git command succeeds)

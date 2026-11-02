@@ -6,7 +6,7 @@ use crate::highlight::Colors;
 use eframe::egui::{self, Align2, Color32, CursorIcon, Event, FontId, Id, Key, Modifiers, Pos2, Rect, RichText, Sense, Stroke};
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -371,60 +371,30 @@ impl Terminal {
         }
     }
 
-    /// The bottom panel: tabs of the terminals not moved into the editor, and the shown one.
+    /// The terminals of the bottom panel, for its ▾ menu (no row of tabs): id, title, shown, ended.
+    pub fn panel_sessions(&self) -> Vec<(u64, String, bool, bool)> {
+        let shown = self.sessions.get(self.active).filter(|s| s.in_panel()).map(|s| s.id);
+        self.sessions.iter().filter(|s| s.in_panel()).map(|s| (s.id, s.title(), Some(s.id) == shown, s.exited.load(Ordering::Relaxed))).collect()
+    }
+
+    /// Folder of the terminal shown in the bottom panel.
+    pub fn shown_cwd(&self) -> Option<&Path> {
+        self.sessions.get(self.active).filter(|s| s.in_panel()).map(|s| s.cwd.as_path())
+    }
+
+    /// The terminal shown in the bottom panel goes into an editor tab ("⇱").
+    pub fn dock_shown(&mut self) {
+        if let Some(s) = self.sessions.get(self.active).filter(|s| s.in_panel()) {
+            self.dock_request = Some(s.id);
+        }
+    }
+
+    /// The bottom panel: the terminal shown (the others are in its ▾ menu).
     pub fn ui(&mut self, ui: &mut egui::Ui, shell: Option<&str>, colors: Colors, light: bool) {
         let ctx = ui.ctx().clone();
         self.fix_active();
         if !self.sessions.iter().any(Session::in_panel) && self.error.is_none() {
             self.open(&ctx, shell, None);
-        }
-        // --- tabs
-        let (mut close, mut new, mut dock) = (None, false, false);
-        ui.horizontal(|ui| {
-            for (i, s) in self.sessions.iter().enumerate().filter(|(_, s)| s.in_panel()) {
-                let done = s.exited.load(Ordering::Relaxed);
-                let label = format!("{}{}", s.title(), if done { t!(" (terminé)", " (ended)") } else { "" });
-                let r = ui.selectable_label(i == self.active, RichText::new(label).monospace());
-                if r.clicked() {
-                    self.active = i;
-                    self.want_focus = true;
-                }
-                let r = r.on_hover_text(s.cwd.display().to_string());
-                if r.middle_clicked() {
-                    close = Some(i);
-                }
-                if ui.small_button("×").on_hover_text(t!("Fermer ce terminal", "Close this terminal")).clicked() {
-                    close = Some(i);
-                }
-                ui.add_space(6.0);
-            }
-            let plus = egui::Button::new(RichText::new("+").size(16.0).strong()).min_size(egui::vec2(26.0, 22.0));
-            if ui.add(plus).on_hover_text(t!("Nouveau terminal", "New terminal")).clicked() {
-                new = true;
-            }
-            let in_panel = self.sessions.get(self.active).is_some_and(Session::in_panel);
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if in_panel && crate::view_bar::controls(ui, false, None, None).is_some() {
-                    dock = true;
-                }
-                ui.label(
-                    RichText::new(t!("Ctrl+C : interrompre (ou copier la sélection) · Ctrl+V : coller · clic droit : menu", "Ctrl+C: interrupt (or copy the selection) · Ctrl+V: paste · right click: menu"))
-                        .small()
-                        .weak(),
-                );
-            });
-        });
-        if let Some(i) = close {
-            self.sessions.remove(i);
-            self.fix_active();
-        }
-        if new {
-            self.open(&ctx, shell, None);
-        }
-        if dock {
-            if let Some(s) = self.sessions.get(self.active) {
-                self.dock_request = Some(s.id);
-            }
         }
         if let Some(e) = &self.error {
             ui.label(RichText::new(e).color(crate::highlight::red()));
@@ -435,7 +405,7 @@ impl Terminal {
         }
         let i = self.active;
         if !self.sessions.get(i).is_some_and(Session::in_panel) {
-            ui.label(RichText::new(t!("Aucun terminal ouvert — « + » pour en ouvrir un.", "No terminal open — “+” to open one.")).weak());
+            ui.label(RichText::new(t!("Aucun terminal ouvert — « + » en haut pour en ouvrir un.", "No terminal open — “+” at the top to open one.")).weak());
             return;
         }
         let focus = std::mem::take(&mut self.want_focus);

@@ -1,4 +1,4 @@
-//! The sidebar: the tree of the folder, the icons of the views, what the tree asks for.
+//! The sidebar: the tree of the folder and what it asks for.
 
 use super::*;
 
@@ -34,17 +34,7 @@ impl App {
             // what is drawn inside (sticky folders, icons) on the same background
             ui.visuals_mut().panel_fill = panel;
             self.sidebar_mac_buttons(ui);
-            // the views of the bottom panel, icons only: left click in the editor area, right click
-            // there; projects are under the folder name (Ctrl+Alt+P). At the top or the bottom of the sidebar.
-            let top = self.settings.sidebar_tools_top;
-            let in_bar = self.settings.tools_in_status_bar;
-            let frame = egui::Frame::none().inner_margin(if top { egui::Margin { left: 0.0, right: 0.0, top: 0.0, bottom: 6.0 } } else { egui::Margin { left: 0.0, right: 0.0, top: 6.0, bottom: 0.0 } });
-            if in_bar {
-            } else if top {
-                egui::TopBottomPanel::top("sidebar_tools").frame(frame).show_inside(ui, |ui| self.sidebar_tools(ui, false));
-            } else {
-                egui::TopBottomPanel::bottom("sidebar_tools").frame(frame).show_inside(ui, |ui| self.sidebar_tools(ui, false));
-            }
+            // only the tree: the views are reached from the status bar, the bottom panel's ▾ and the palette
             match self.tree.as_mut() {
                 Some(tree) => {
                     let active = self.docs.get(self.active).and_then(|d| d.path.clone());
@@ -85,107 +75,6 @@ impl App {
         if let Some(a) = tree_action {
             self.tree_action(ctx, a);
         }
-    }
-
-    /// The icons of the views (`sidebar`), with the menu that chooses which are shown.
-    /// `in_bar`: in the status bar (one row, smaller) rather than in the sidebar.
-    pub(super) fn sidebar_tools(&mut self, ui: &mut egui::Ui, in_bar: bool) {
-        let top = self.settings.sidebar_tools_top;
-        let size = if in_bar { egui::vec2(24.0, 22.0) } else { egui::vec2(26.0, 24.0) };
-        let row = |ui: &mut egui::Ui, add: &mut dyn FnMut(&mut egui::Ui)| {
-            if in_bar {
-                ui.horizontal(|ui| add(ui));
-            } else {
-                ui.horizontal_wrapped(|ui| add(ui));
-            }
-        };
-        row(ui, &mut |ui| {
-            ui.spacing_mut().item_spacing.x = 0.0;
-            let hidden = self.settings.sidebar_hidden.clone();
-            let shown = |key: &str| !hidden.iter().any(|h| h == key);
-            // preferences, left of the search (the first view)
-            if shown("settings") {
-                let (rect, r) = ui.allocate_exact_size(size, Sense::click());
-                if r.hovered() {
-                    ui.painter().rect_filled(rect, 4.0, ui.visuals().widgets.hovered.weak_bg_fill);
-                }
-                let c = if r.hovered() { ui.visuals().strong_text_color() } else { ui.visuals().weak_text_color() };
-                icons::paint_view(ui.painter(), rect.center(), icons::ViewIcon::Settings, c);
-                if r.on_hover_text(t!("Préférences", "Preferences")).clicked() {
-                    self.pending.push(Cmd::OpenSettings);
-                }
-            }
-            // problems and output are in the status bar, the debugger opens by itself: not here
-            for (tab, icon, label) in BottomTab::shown().filter(|(t, ..)| t.in_sidebar() && shown(&t.key())) {
-                let (rect, r) = ui.allocate_exact_size(size, Sense::click());
-                let on = self.bottom == Some(tab);
-                // Claude finished in the bottom panel, not seen yet: in green
-                let done = tab == BottomTab::Claude && !on && self.claude_bottom_done();
-                if done {
-                    ui.painter().rect_filled(rect, 4.0, icons::mix(ui.visuals().panel_fill, ok(), 0.3));
-                } else if r.hovered() || on {
-                    ui.painter().rect_filled(rect, 4.0, ui.visuals().widgets.hovered.weak_bg_fill);
-                }
-                let c = if done { ok() } else if r.hovered() || on { ui.visuals().strong_text_color() } else { ui.visuals().weak_text_color() };
-                icons::paint_view(ui.painter(), rect.center(), icon, c);
-                let r = r.on_hover_text(format!("{label}\n{}", BottomTab::hint(tab)));
-                if r.clicked() && !tab.bottom_only() {
-                    self.show_big(tab);
-                } else if r.clicked() || r.secondary_clicked() {
-                    self.show_bottom(tab, true);
-                }
-            }
-            // which icons are shown
-            let mut changed = None;
-            let mut placed = None;
-            let mut to_bar = None;
-            let menu = ui.menu_button(RichText::new("▾").weak(), |ui| {
-                ui.visuals_mut().override_text_color = None;
-                ui.label(RichText::new(t!("Icônes affichées", "Icons shown")).small().weak());
-                let mut items = vec![("settings".to_string(), t!("Préférences", "Preferences").to_string())];
-                items.extend(BottomTab::shown().filter(|(t, ..)| t.in_sidebar()).map(|(t, _, l)| (t.key(), l.to_string())));
-                for (key, label) in items {
-                    let mut on = shown(&key);
-                    if ui.checkbox(&mut on, label).changed() {
-                        changed = Some((key, on));
-                    }
-                }
-                ui.separator();
-                if ui.add_enabled(!hidden.is_empty(), egui::Button::new(t!("Tout afficher", "Show all"))).clicked() {
-                    changed = Some((String::new(), true));
-                    ui.close_menu();
-                }
-                let mut bar = in_bar;
-                if ui.checkbox(&mut bar, t!("Dans la barre d'état (en bas)", "In the status bar (at the bottom)")).changed() {
-                    to_bar = Some(bar);
-                }
-                if !in_bar {
-                    let mut at_top = top;
-                    if ui.checkbox(&mut at_top, t!("En haut de la barre latérale", "At the top of the sidebar")).changed() {
-                        placed = Some(at_top);
-                    }
-                }
-            });
-            if let Some(bar) = to_bar {
-                self.settings.tools_in_status_bar = bar;
-                self.persist("tools_in_status_bar", bar.to_string());
-            }
-            if let Some(at_top) = placed {
-                self.settings.sidebar_tools_top = at_top;
-                self.persist("sidebar_tools_top", at_top.to_string());
-            }
-            menu.response.on_hover_text(t!("Afficher ou masquer ces icônes (les vues restent dans la palette et les menus)", "Show or hide these icons (the views stay in the palette and the menus)"));
-            if let Some((key, on)) = changed {
-                let h = &mut self.settings.sidebar_hidden;
-                match (key.is_empty(), on) {
-                    (true, _) => h.clear(),
-                    (false, true) => h.retain(|x| *x != key),
-                    (false, false) => h.push(key),
-                }
-                let v = config::toml_str_array(h);
-                self.persist("sidebar_hidden", v);
-            }
-        });
     }
 
     pub(super) fn tree_action(&mut self, ctx: &egui::Context, a: TreeAction) {

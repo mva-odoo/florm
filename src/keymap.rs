@@ -112,6 +112,7 @@ const DEFAULTS: &[(&str, &str)] = &[
     ("ctrl+pageup", "prev_tab"),
     ("ctrl+`", "toggle_terminal"),
     ("ctrl+alt+t", "toggle_terminal"),
+    ("ctrl+shift+j", "toggle_panel"),
     ("ctrl+alt+n", "insert_template"),
     ("ctrl+shift+`", "new_terminal_tab"),
     ("ctrl+\\", "split_right"),

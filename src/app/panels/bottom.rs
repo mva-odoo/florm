@@ -1,10 +1,11 @@
-//! The bottom panel: its tabs, its views, and moving a view between it and an editor tab.
+//! The bottom panel: one view at a time (▾ for the others), where each view opens (its editor tab
+//! or here, as ⇱ / ⇲ left it), and moving a view between the two.
 
 use super::*;
 
 impl App {
-    /// Right click on a view (button of the sidebar, tab of the bottom panel): in the bottom panel,
-    /// taken out of the editor area if it was there; `toggle`: a click on the one shown hides it.
+    /// `tab` in the bottom panel, taken out of the editor area if it was there; `toggle`: hidden
+    /// when it is the one shown.
     pub(in crate::app) fn show_bottom(&mut self, tab: BottomTab, toggle: bool) {
         if toggle && self.bottom == Some(tab) {
             self.bottom = None;
@@ -36,8 +37,7 @@ impl App {
         }
     }
 
-    /// Left click on a view: in the editor area, with all the room (problems and output only
-    /// exist in the bottom panel).
+    /// `tab` in the editor area, with all the room (problems and output only exist in the bottom panel).
     pub(in crate::app) fn show_big(&mut self, tab: BottomTab) {
         match tab {
             BottomTab::Search => self.open_search_tab(),
@@ -85,6 +85,141 @@ impl App {
         }
     }
 
+    /// The view goes into an editor tab (`big`) or into the bottom panel, and opens there from now
+    /// on (⇱ / ⇲ of Git, GitHub, Docker and the debugger; search and Claude have their own setting).
+    pub(in crate::app) fn move_view(&mut self, tab: BottomTab, big: bool) {
+        let key = tab.key();
+        let list = &mut self.settings.views_in_tab;
+        list.retain(|k| *k != key);
+        if big {
+            list.push(key);
+        }
+        let v = config::toml_str_array(list);
+        self.persist("views_in_tab", v);
+        if big {
+            self.show_big(tab);
+        } else {
+            self.show_bottom(tab, false);
+        }
+    }
+
+    /// `tab` opens in an editor tab rather than in the bottom panel (its last ⇱ / ⇲).
+    fn prefers_tab(&self, tab: BottomTab) -> bool {
+        match tab {
+            BottomTab::Search => self.settings.search_in_tab,
+            BottomTab::Claude => self.settings.claude_in_tab,
+            BottomTab::Terminal | BottomTab::Problems | BottomTab::Output => false,
+            _ => self.settings.views_in_tab.contains(&tab.key()),
+        }
+    }
+
+    /// Opens `tab` in its one place: its editor tab when it has one, else where ⇱ / ⇲ put it last.
+    /// The shortcuts, the palette, the status bar and the ▾ menus all go through here.
+    pub(in crate::app) fn open_tool(&mut self, tab: BottomTab) {
+        match tab {
+            BottomTab::Claude => self.open_claude(),
+            _ if self.view_in_tab(tab) || self.prefers_tab(tab) => self.show_big(tab),
+            _ => self.show_bottom(tab, false),
+        }
+    }
+
+    /// A click on a state of the status bar: hides `tab` when the bottom panel shows it, else opens it.
+    pub(super) fn toggle_tool(&mut self, tab: BottomTab) {
+        if self.bottom == Some(tab) && !self.view_in_tab(tab) {
+            self.bottom = None;
+        } else {
+            self.open_tool(tab);
+        }
+    }
+
+    /// The views, one row each (icon, name, what is waiting, shortcut), the conversations under
+    /// « Claude » and the terminals of the panel under « Terminal »: the ▾ of the bottom panel and the right click on its button in the status bar.
+    pub(super) fn tools_menu(&self, ui: &mut egui::Ui, current: Option<BottomTab>) -> Option<Pick> {
+        ui.visuals_mut().override_text_color = None;
+        ui.set_min_width(270.0);
+        let nd: usize = self.docs.iter().map(|d| d.diagnostics.len()).sum();
+        let mut chosen = None;
+        for (tab, icon, label) in BottomTab::shown() {
+            let note = match tab {
+                BottomTab::Problems if nd > 0 => Some((nd.to_string(), warn())),
+                BottomTab::Claude if self.claude_bottom_done() => Some(("●".to_string(), ok())),
+                BottomTab::Debug if self.debug_activity() == Some(true) => Some(("⏸".to_string(), warn())),
+                _ => None,
+            };
+            if tool_row(ui, icon, label, note, &self.keymap.label(tab.cmd()), current == Some(tab)).clicked() {
+                chosen = Some(Pick::View(tab));
+                ui.close_menu();
+            }
+            // the conversations, when there are several: where each is, whether it works or is done
+            let convs = if tab == BottomTab::Claude { self.claude_conversations() } else { Vec::new() };
+            if convs.len() > 1 {
+                for (where_, title, busy, done) in convs {
+                    let shown = where_.is_none() && current == Some(tab);
+                    let note = if busy {
+                        Some((t!("au travail", "working"), self.hl.colors.accent))
+                    } else if done {
+                        Some(("✔", ok()))
+                    } else if where_.is_some() {
+                        Some((t!("onglet", "tab"), ui.visuals().weak_text_color()))
+                    } else {
+                        None
+                    };
+                    if sub_row(ui, &title, note, shown, false, false).0 {
+                        chosen = Some(Pick::Claude(where_));
+                        ui.close_menu();
+                    }
+                }
+            }
+            if tab == BottomTab::Terminal {
+                for (id, title, shown, ended) in self.term.panel_sessions() {
+                    let note = ended.then(|| (t!("terminé", "ended"), ui.visuals().weak_text_color()));
+                    let (open, close) = sub_row(ui, &title, note, shown && current == Some(tab), true, true);
+                    if close {
+                        chosen = Some(Pick::CloseTerm(id));
+                    } else if open {
+                        chosen = Some(Pick::Term(id));
+                        ui.close_menu();
+                    }
+                }
+                if sub_row(ui, t!("+ Nouveau terminal", "+ New terminal"), None, false, false, true).0 {
+                    chosen = Some(Pick::NewTerm);
+                    ui.close_menu();
+                }
+            }
+        }
+        chosen
+    }
+
+    /// What the views menu chose; `here`: from the bottom panel's ▾ (the view comes into it).
+    pub(super) fn apply_pick(&mut self, pick: Pick, here: bool) {
+        match pick {
+            Pick::View(tab) if here => self.show_bottom(tab, false),
+            Pick::View(tab) => self.open_tool(tab),
+            Pick::Term(id) => {
+                self.bottom = Some(BottomTab::Terminal);
+                self.term.show(id);
+            }
+            Pick::NewTerm => self.new_panel_terminal(),
+            Pick::Claude(Some(uid)) => match self.docs.iter().position(|d| d.uid == uid) {
+                Some(i) => self.activate_tab(i),
+                None => self.show_bottom(BottomTab::Claude, false),
+            },
+            Pick::Claude(None) => self.show_bottom(BottomTab::Claude, false),
+            Pick::CloseTerm(id) => self.term.close(id),
+        }
+    }
+
+    /// A new terminal in the bottom panel, shown.
+    fn new_panel_terminal(&mut self) {
+        if self.term.cwd.is_none() {
+            self.term.cwd = self.root.clone();
+        }
+        let shell = self.term_shell();
+        let ctx = self.egui_ctx.clone();
+        self.term.open(&ctx, shell.as_deref(), None);
+        self.bottom = Some(BottomTab::Terminal);
+    }
+
     pub(in crate::app) fn bottom_panel(&mut self, ctx: &egui::Context) {
         if let Some(t) = self.bottom {
             self.last_bottom = t;
@@ -94,26 +229,40 @@ impl App {
         egui::TopBottomPanel::bottom("bottom").resizable(true).default_height(230.0).height_range(min_h..=900.0).show(
             ctx,
             |ui| {
+                // one view at a time, no row of tabs: its name, ▾ for the others
                 ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 2.0;
-                    let nd: usize = self.docs.iter().map(|d| d.diagnostics.len()).sum();
-                    let problems = if nd > 0 { tf!("Problèmes {nd}", "Problems {nd}") } else { t!("Problèmes", "Problems").to_string() };
-                    for (tab, icon, label) in BottomTab::shown() {
-                        let label = if tab == BottomTab::Problems { problems.clone() } else { label.to_string() };
-                        let r = nav_tab(ui, icon, &label, self.bottom == Some(tab));
-                        if tab == BottomTab::Claude && self.bottom != Some(tab) && self.claude_bottom_done() {
-                            ui.painter().rect_stroke(r.rect, 4.0, egui::Stroke::new(1.5, ok()));
-                        }
-                        if r.clicked() && !tab.bottom_only() {
-                            self.show_big(tab);
-                        } else if r.clicked() || r.secondary_clicked() {
-                            self.show_bottom(tab, false);
-                        }
-                        r.on_hover_text(BottomTab::hint(tab));
+                    let cur = self.bottom.unwrap_or(self.last_bottom);
+                    let (_, icon, label) = BottomTab::shown().find(|(t, ..)| *t == cur).unwrap_or(BottomTab::ALL[0]);
+                    let (rect, _) = ui.allocate_exact_size(egui::vec2(18.0, 20.0), Sense::hover());
+                    icons::paint_view(ui.painter(), rect.center(), icon, ui.visuals().strong_text_color());
+                    let mut chosen = None;
+                    let menu = ui.menu_button(RichText::new(format!("{label}  ▾")).strong(), |ui| chosen = self.tools_menu(ui, Some(cur)));
+                    menu.response.on_hover_text(t!("Changer de vue (une seule à la fois dans le panneau du bas)", "Switch view (one at a time in the bottom panel)"));
+                    // the conversation of the panel finished while another view is shown
+                    if cur != BottomTab::Claude && self.claude_bottom_done() {
+                        ui.label(RichText::new("✳ ●").color(ok())).on_hover_text(t!("Claude a fini de répondre", "Claude has finished answering"));
+                    }
+                    let term = self.bottom == Some(BottomTab::Terminal);
+                    // the terminal's folder, where its row of tabs was
+                    if let Some(cwd) = self.term.shown_cwd().filter(|_| term) {
+                        ui.label(RichText::new(cwd.display().to_string()).small().weak())
+                            .on_hover_text(t!("Ctrl+C : interrompre (ou copier la sélection) · Ctrl+V : coller · clic droit : menu\nLes autres terminaux sont dans ▾", "Ctrl+C: interrupt (or copy the selection) · Ctrl+V: paste · right click: menu\nThe other terminals are in ▾"));
+                    }
+                    if let Some(p) = chosen {
+                        self.apply_pick(p, true);
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.small_button("×").clicked() {
+                        let keys = self.keymap.label(Cmd::TogglePanel);
+                        if ui.small_button("×").on_hover_text(tf!("Fermer le panneau ({keys})", "Close the panel ({keys})")).clicked() {
                             self.bottom = None;
+                        }
+                        if term {
+                            if icons::layout_button(ui, icons::Layout::ToTab, t!("Ce terminal dans un onglet de l'éditeur", "This terminal in an editor tab")).clicked() {
+                                self.term.dock_shown();
+                            }
+                            if ui.small_button("+").on_hover_text(t!("Nouveau terminal", "New terminal")).clicked() {
+                                self.new_panel_terminal();
+                            }
                         }
                     });
                 });
@@ -211,4 +360,62 @@ impl App {
             ui.ctx().memory_mut(|m| m.request_focus(editor_id()));
         }
     }
+}
+
+/// What the views menu chose.
+pub(super) enum Pick {
+    View(BottomTab),
+    /// A terminal of the bottom panel, shown there.
+    Term(u64),
+    NewTerm,
+    CloseTerm(u64),
+    /// A Claude conversation: its editor tab, or None for the bottom panel's.
+    Claude(Option<u64>),
+}
+
+/// A row under a view in the views menu (a terminal, a conversation): its title, a note in
+/// color after it, × on hover when `closable`. Returns (open, close).
+fn sub_row(ui: &mut egui::Ui, title: &str, note: Option<(&str, Color32)>, shown: bool, closable: bool, mono: bool) -> (bool, bool) {
+    let w = ui.available_width().max(260.0);
+    let (rect, r) = ui.allocate_exact_size(egui::vec2(w, 22.0), Sense::click());
+    let x_rect = egui::Rect::from_center_size(egui::pos2(rect.right() - 14.0, rect.center().y), egui::vec2(18.0, 18.0));
+    let x = ui.interact(x_rect, r.id.with("close"), Sense::click());
+    let v = ui.visuals();
+    let hovered = r.hovered() || x.hovered();
+    if hovered || shown {
+        ui.painter().rect_filled(rect, 4.0, v.widgets.hovered.weak_bg_fill);
+    }
+    let c = if hovered || shown { v.strong_text_color() } else { v.text_color() };
+    let font = if mono { egui::FontId::monospace(12.0) } else { egui::FontId::proportional(12.5) };
+    let y = rect.center().y;
+    let name = ui.painter().text(egui::pos2(rect.left() + 28.0, y), Align2::LEFT_CENTER, title, font, c);
+    if let Some((text, col)) = note {
+        ui.painter().text(egui::pos2(name.right() + 8.0, y), Align2::LEFT_CENTER, text, egui::FontId::proportional(12.0), col);
+    }
+    if hovered && closable {
+        let xc = if x.hovered() { v.strong_text_color() } else { v.weak_text_color() };
+        ui.painter().text(x_rect.center(), Align2::CENTER_CENTER, "×", egui::FontId::proportional(14.0), xc);
+    }
+    let close = closable && x.clicked();
+    (r.clicked() && !close, close)
+}
+
+/// A row of the views menu: icon, name, a note (count, ●) and the shortcut on the right.
+fn tool_row(ui: &mut egui::Ui, icon: icons::ViewIcon, label: &str, note: Option<(String, Color32)>, shortcut: &str, current: bool) -> egui::Response {
+    let w = ui.available_width().max(260.0);
+    let (rect, r) = ui.allocate_exact_size(egui::vec2(w, 24.0), Sense::click());
+    let v = ui.visuals();
+    if r.hovered() || current {
+        ui.painter().rect_filled(rect, 4.0, v.widgets.hovered.weak_bg_fill);
+    }
+    let c = if r.hovered() || current { v.strong_text_color() } else { v.text_color() };
+    let y = rect.center().y;
+    icons::paint_view(ui.painter(), egui::pos2(rect.left() + 12.0, y), icon, c);
+    let font = egui::FontId::proportional(13.0);
+    let name = ui.painter().text(egui::pos2(rect.left() + 28.0, y), Align2::LEFT_CENTER, label, font.clone(), c);
+    if let Some((text, col)) = note {
+        ui.painter().text(egui::pos2(name.right() + 8.0, y), Align2::LEFT_CENTER, text, font.clone(), col);
+    }
+    ui.painter().text(egui::pos2(rect.right() - 8.0, y), Align2::RIGHT_CENTER, shortcut, egui::FontId::proportional(12.0), v.weak_text_color());
+    r
 }

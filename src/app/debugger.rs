@@ -183,6 +183,14 @@ impl App {
         self.open_view_tab(document::View::Debug, t!("Débogage", "Debug").into());
     }
 
+    /// A session runs (Some(false)), is stopped on a breakpoint (Some(true)), or none (None).
+    pub(super) fn debug_activity(&self) -> Option<bool> {
+        match &self.debug.session {
+            Some(s) => Some(s.paused.is_some()),
+            None => self.debug.preparing.as_ref().map(|_| false),
+        }
+    }
+
     /// The debug view on screen (in the bottom panel when it is not in a tab).
     fn debug_show(&mut self) {
         if !self.docs.iter().any(|d| d.view == document::View::Debug) && self.bottom != Some(BottomTab::Debug) {

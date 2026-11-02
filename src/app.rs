@@ -193,7 +193,7 @@ impl BottomTab {
         Self::ALL.iter().map(|a| a.0).find(|b| b.key() == k)
     }
 
-    /// The views of the bottom panel: its tabs, and the buttons at the bottom of the sidebar.
+    /// The views of the bottom panel, in the order of its ▾ menu.
     const ALL: [(BottomTab, icons::ViewIcon, &'static str); 9] = [
         (BottomTab::Search, icons::ViewIcon::Search, "Recherche"),
         (BottomTab::Problems, icons::ViewIcon::Problems, "Problèmes"),
@@ -221,27 +221,23 @@ impl BottomTab {
         })
     }
 
-    /// Its name in the settings (`sidebar_hidden`).
+    /// Its name in the settings (`views_in_tab`) and the session.
     fn key(self) -> String {
         format!("{self:?}").to_lowercase()
     }
 
-    /// Problems and output only exist in the bottom panel.
-    fn bottom_only(self) -> bool {
-        matches!(self, BottomTab::Problems | BottomTab::Output)
-    }
-
-    /// Has an icon at the bottom of the sidebar. Not problems, output (in the status bar) nor the
-    /// debugger (its view opens by F5, a breakpoint's run or the palette's « Débogage »).
-    fn in_sidebar(self) -> bool {
-        !matches!(self, BottomTab::Problems | BottomTab::Output | BottomTab::Debug)
-    }
-
-    fn hint(tab: BottomTab) -> &'static str {
-        if tab.bottom_only() {
-            t!("Clic : dans le panneau du bas", "Click: in the bottom panel")
-        } else {
-            t!("Clic : en grand dans l'éditeur · clic droit : dans le panneau du bas", "Click: large in the editor · right click: in the bottom panel")
+    /// The command that opens it, for the shortcut shown in the ▾ menu of the bottom panel.
+    fn cmd(self) -> Cmd {
+        match self {
+            BottomTab::Search => Cmd::FindInFiles,
+            BottomTab::Problems => Cmd::ShowProblems,
+            BottomTab::Terminal => Cmd::ToggleTerminal,
+            BottomTab::Output => Cmd::ShowOutput,
+            BottomTab::Claude => Cmd::Claude,
+            BottomTab::Git => Cmd::ShowGit,
+            BottomTab::Pulls => Cmd::PullRequests,
+            BottomTab::Docker => Cmd::Docker,
+            BottomTab::Debug => Cmd::Debug,
         }
     }
 }
@@ -2063,31 +2059,6 @@ fn history_arrows(ui: &egui::Ui, list: &[String], pos: &mut Option<usize>) -> Op
     None
 }
 
-/// Minimal text tab with an accent underline when selected (sidebar / bottom panel headers).
-fn nav_tab(ui: &mut egui::Ui, icon: icons::ViewIcon, label: &str, active: bool) -> egui::Response {
-    let font = egui::FontId::proportional(13.0);
-    let size = ui.painter().layout_no_wrap(label.to_string(), font.clone(), Color32::WHITE).size();
-    let (rect, resp) = ui.allocate_exact_size(size + egui::vec2(38.0, 14.0), Sense::click());
-    let v = ui.visuals();
-    let color = if active {
-        v.strong_text_color()
-    } else if resp.hovered() {
-        v.text_color()
-    } else {
-        v.weak_text_color()
-    };
-    icons::paint_view(ui.painter(), egui::pos2(rect.left() + 17.0, rect.center().y - 1.0), icon, color);
-    ui.painter().text(egui::pos2(rect.left() + 30.0, rect.center().y - 1.0), Align2::LEFT_CENTER, label, font, color);
-    if active {
-        let y = rect.bottom() - 1.5;
-        ui.painter().line_segment(
-            [egui::pos2(rect.left() + 8.0, y), egui::pos2(rect.right() - 8.0, y)],
-            egui::Stroke::new(2.0_f32, v.selection.stroke.color),
-        );
-    }
-    resp
-}
-
 /// flake8 / ruff codes reported on `line` (the ones "# noqa" understands).
 fn noqa_codes(d: &Document, line: usize) -> Vec<String> {
     let mut codes: Vec<String> = d
@@ -2122,6 +2093,12 @@ mod font_tests {
             include_str!("app/navigation.rs"),
             include_str!("app/overlay.rs"),
             include_str!("app/panels.rs"),
+            include_str!("app/panels/bottom.rs"),
+            include_str!("app/panels/status.rs"),
+            include_str!("app/panels/tabs.rs"),
+            include_str!("app/panels/side_bar.rs"),
+            include_str!("app/panels/menus.rs"),
+            include_str!("app/panels/git_bar.rs"),
             include_str!("app/panes.rs"),
             include_str!("app/prefs.rs"),
             include_str!("app/projects.rs"),
@@ -2316,7 +2293,7 @@ mod font_tests {
         let (conf, proj) = (dir.join("conf"), dir.join("proj"));
         std::fs::create_dir_all(&conf).unwrap();
         std::fs::create_dir_all(&proj).unwrap();
-        std::fs::write(conf.join("settings.toml"), "check_updates = false\nlsp = false\nsidebar_hidden = [\"settings\", \"docker\"]\nshow_menu_bar = false\n").unwrap();
+        std::fs::write(conf.join("settings.toml"), "check_updates = false\nlsp = false\nshow_menu_bar = false\n").unwrap();
         let _lock = config::TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         std::env::set_var("FLORM_CONFIG", &conf);
         let ctx = egui::Context::default();
@@ -2378,6 +2355,21 @@ mod font_tests {
             all(&mut app);
             assert_eq!(app.bottom, Some(tab));
         }
+        // a view has one place: ⇲ keeps Docker in the bottom panel, its shortcut opens it there,
+        // ⇱ puts it back in a tab, and the shortcut then shows that tab
+        let docker_tab = |app: &App| app.docs.iter().any(|d| d.view == document::View::Docker);
+        app.move_view(BottomTab::Docker, false);
+        app.bottom = None;
+        app.open_tool(BottomTab::Docker);
+        assert_eq!(app.bottom, Some(BottomTab::Docker));
+        assert!(!docker_tab(&app));
+        app.move_view(BottomTab::Docker, true);
+        assert!(docker_tab(&app));
+        app.bottom = Some(BottomTab::Terminal);
+        app.open_tool(BottomTab::Docker);
+        assert!(app.showing(document::View::Docker));
+        assert_eq!(app.bottom, Some(BottomTab::Terminal));
+        assert!(app.settings.views_in_tab.contains(&"docker".to_string()));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

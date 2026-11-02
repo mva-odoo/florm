@@ -820,10 +820,8 @@ impl App {
             });
         }
 
-        match move_to {
-            Some(true) => self.show_big(BottomTab::Pulls),
-            Some(false) => self.show_bottom(BottomTab::Pulls, false),
-            None => {}
+        if let Some(b) = move_to {
+            self.move_view(BottomTab::Pulls, b);
         }
         // a repository chosen: also when none could be read yet
         if let Some(PrAct::Repo(r)) = act {

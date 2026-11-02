@@ -42,12 +42,35 @@ sidebar shown or not.
 - **Double-click the edge** between the sidebar and the editor: the width fits the longest name of
   the tree. Drag the edge to change the width; **Ctrl+K Ctrl+B** hides the sidebar, and a click on
   the thin strip on the left shows it again.
-- On the folder of a git repository: its branch, the tracked remote branch (↑ to push, ↓ to
+- On the folder of a git repository inside the open folder (the open folder's own is in the status bar): its branch, the tracked remote branch (↑ to push, ↓ to
   pull) and the number of changed files; hovering shows the remotes
   (can be turned off in Preferences → Git).
-- The icons of the views (Preferences, Search, Terminal, Claude, Git…) are **in the status bar, bottom left**, as in Zed. **▾** at the end of the row chooses those shown, and can move them back to the sidebar (top or bottom). A hidden view stays in the palette (Ctrl+Shift+P) and the menus.
+- The sidebar only shows the tree: the views (Search, Terminal, Claude, Git…) are in the bottom
+  panel and the status bar (see below).
 - **Copy / paste files**: right click → **Copy** puts the file or folder on the system clipboard; **Paste** (or Ctrl+C / Ctrl+V in the tree) drops the files copied from your PC's file manager, or from the tree. A name already taken becomes “name (copy).ext”: nothing is replaced.
 - Right click on a folder → **Initialize a git repository here** (`git init`), for a new project.
+
+## Bottom panel and status bar
+
+One simple rule: **files (and what reads like them: diffs, pull requests, SQL results) go in the
+tabs; the views that come along (search, terminal, Claude, Git, GitHub, Docker, debug, problems,
+output) each have one place**, which you choose.
+
+- **The bottom panel shows one view at a time**, without a row of tabs: its name at the top left,
+  **▾** to switch to another (with its shortcut, and what is waiting: number of problems, ● when
+  Claude has finished, ⏸ when the debugger is stopped); under “Claude” the conversations when there
+  are several (working, ✔ done, or in a tab: a click goes there), under “Terminal” the open terminals.
+  **Ctrl+Shift+J** shows or hides it.
+- **⇱ / ⇲ in the header of a view** puts it in a tab or in the bottom panel, and Florm remembers:
+  its shortcut, the palette, the status bar and ▾ then open it in the same place. A view that
+  already has its tab is shown there, never in two places. By default Git, GitHub, Docker and the
+  debugger open in a tab, the others at the bottom (`views_in_tab` in settings.toml).
+- **The status bar only shows what is going on**: on the left the button of the bottom panel
+  (click: show or hide it, right click: open a view); on the right the branch (**↑** commits to
+  push, **↓** to pull, **●** changed files), then, only when it is the case, Claude (**working**,
+  or **✔** when it has finished: a click shows the answer), the running Docker containers, the
+  debugger (**running** / **paused**), and the problems. At rest, it is almost empty.
+- The Preferences: **Ctrl+,**, the menu or the palette.
 
 ## Find in folder (Ctrl+Shift+F)
 
@@ -180,14 +203,16 @@ one of the commits.
 
 ## Terminal
 
-- **Ctrl+`** (or the **>_ Terminal** button of the status bar): the terminal at the bottom.
-- **Ctrl+Shift+`** (or click the Terminal icon at the bottom of the sidebar): a terminal **in a
+- **Ctrl+`**: the terminal in the bottom panel.
+- **Ctrl+Shift+`**: a terminal **in a
   tab** of the editor. Like any tab, it can be dragged to the right or bottom edge of the editor
   to be next to a file (or right click on the tab → Split right / down).
-- **In a tab** in the bottom panel sends the current terminal there, **at the bottom** brings it back.
+- In the bottom panel, **one terminal at a time**: its folder at the top, **+** opens another,
+  **⇱** sends it to a tab (**at the bottom** in the tab brings it back). The other terminals are in
+  **▾**, under “Terminal”: click to switch, **×** on hover to close it.
 - All the views (Search, Git, GitHub, Docker, Claude, Debug, Terminal) have the same buttons at
   the right of their header, in the same order: **⟳** read again, **in a tab / at the
-  bottom** (a small window: with a tab on top, or a band at the bottom), **⋯** the other actions
+  bottom** (a small window: with a tab on top, or a band at the bottom; remembered for next time), **⋯** the other actions
   and options. The layout buttons all look alike: the four corners maximize a panel in its view
   (Escape to come back), a window with a column on the right shows or hides a side panel (the
   review of Claude), filled when it is shown. Git, the Preferences and the split of a commit are
@@ -243,7 +268,8 @@ the bottom** brings it back to the bottom. The list is read again every few seco
 ## Debugger
 
 Like VS Code's, for Python and Odoo, on this computer or in a Docker container. **Debug** in the
-palette, or the **Debug** tab of the bottom panel.
+palette, or **▾ → Debug** in the bottom panel. During a session, the status bar shows **running**
+or **paused**: a click shows the view.
 
 - **Breakpoint**: click left of the line numbers of a Python file (or **F9**). A red dot. In the
   **Breakpoints** list, a **condition** (`self.id == 7`) only stops when it is true. They follow
@@ -357,7 +383,7 @@ command and your login: no key to set up.
   working, else from the next message, the conversation kept. **Shift+Tab** in the field: next
   mode, as in Claude Code.
 - **End of an answer**: if the conversation is not shown, its tab (or, in the bottom panel, the
-  Claude tab and its icon in the sidebar) blinks a few seconds (the whole tab lights up) then stays green until you look at
+  ✳ ● next to its name and ✔ in the status bar) blinks a few seconds (the whole tab lights up) then stays green until you look at
   it, and a sound plays. **Preferences → Claude**: blink or not, and the sound (Chime, Bell,
   Drop, Beep, Chord, Microwave, or none; ▶ to listen).
 - **/** at the start of the field: the commands of Claude Code (`/usage`, `/context`, `/compact`,

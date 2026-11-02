@@ -43,12 +43,35 @@ bas ouvert et la barre latérale affichée ou non.
 - **Double-clic sur le bord** entre la barre et l'éditeur : la largeur s'ajuste au nom le plus long
   de l'arborescence. Le bord se glisse pour changer la largeur ; **Ctrl+K Ctrl+B** masque la barre,
   et un clic sur la fine bande à gauche la réaffiche.
-- Sur le dossier d'un dépôt git : sa branche, la branche distante suivie (↑ à pousser, ↓ à
+- Sur le dossier d'un dépôt git rangé dans le dossier ouvert (celui du dossier ouvert est dans la barre d'état) : sa branche, la branche distante suivie (↑ à pousser, ↓ à
   récupérer) et le nombre de fichiers modifiés ; le survol montre les remotes
   (désactivable dans Préférences → Git).
-- Les icônes des vues (Préférences, Recherche, Terminal, Claude, Git…) sont **dans la barre d'état, en bas à gauche**, comme dans Zed. **▾** au bout de la ligne choisit celles qui sont affichées, et permet de les remettre dans la barre latérale (en haut ou en bas). Une vue masquée reste dans la palette (Ctrl+Shift+P) et les menus.
+- La barre latérale ne montre que l'arborescence : les vues (Recherche, Terminal, Claude, Git…) se
+  trouvent dans le panneau du bas et la barre d'état (voir plus bas).
 - **Copier / coller des fichiers** : clic droit → **Copier** met le fichier ou le dossier sur le presse-papiers du système ; **Coller** (ou Ctrl+C / Ctrl+V dans l'arborescence) y dépose les fichiers copiés depuis le gestionnaire de fichiers de ton PC, ou depuis l'arborescence. Un nom déjà pris devient « nom (copie).ext » : rien n'est remplacé.
 - Clic droit sur un dossier → **Initialiser un dépôt git ici** (`git init`), pour un nouveau projet.
+
+## Panneau du bas et barre d'état
+
+Une règle simple : **les fichiers (et ce qui se lit comme eux : diff, pull request, résultat SQL)
+vont dans les onglets ; les vues qui t'accompagnent (recherche, terminal, Claude, Git, GitHub,
+Docker, débogage, problèmes, sortie) ont chacune une seule place**, que tu choisis.
+
+- **Le panneau du bas montre une vue à la fois**, sans rangée d'onglets : son nom en haut à gauche,
+  **▾** pour passer à une autre (avec son raccourci, et ce qui attend : nombre de problèmes, ● quand
+  Claude a fini, ⏸ quand le débogueur est arrêté) ; sous « Claude » les conversations quand il y en a
+  plusieurs (au travail, ✔ finie, ou dans un onglet : un clic y va), sous « Terminal » les terminaux ouverts.
+  **Ctrl+Shift+J** l'affiche ou le masque.
+- **⇱ / ⇲ dans l'en-tête d'une vue** la met dans un onglet ou dans le panneau du bas, et Florm s'en
+  souvient : son raccourci, la palette, la barre d'état et ▾ l'ouvriront ensuite au même endroit.
+  Une vue qui a déjà son onglet s'y affiche, jamais à deux endroits. Par défaut Git, GitHub, Docker
+  et le débogage s'ouvrent en onglet, les autres en bas (`views_in_tab` dans settings.toml).
+- **La barre d'état ne montre que ce qui se passe** : à gauche le bouton du panneau du bas (clic :
+  l'afficher ou le masquer, clic droit : ouvrir une vue) ; à droite la branche (**↑** commits à
+  pousser, **↓** à récupérer, **●** fichiers modifiés), puis, seulement quand c'est le cas, Claude
+  (**au travail**, ou **✔** quand il a fini : un clic montre la réponse), les conteneurs Docker
+  démarrés, le débogage (**en cours** / **en pause**), et les problèmes. Au repos, elle est presque vide.
+- Les Préférences : **Ctrl+,**, le menu ou la palette.
 
 ## Rechercher dans le dossier (Ctrl+Shift+F)
 
@@ -184,14 +207,16 @@ interactif** (clic droit → « Rebase interactif à partir d'ici… »), l'acti
 
 ## Terminal
 
-- **Ctrl+`** (ou le bouton **>_ Terminal** de la barre d'état) : le terminal en bas.
-- **Ctrl+Shift+`** (ou clic sur l'icône Terminal en bas de la barre latérale) : un terminal **dans un onglet** de
+- **Ctrl+`** : le terminal dans le panneau du bas.
+- **Ctrl+Shift+`** : un terminal **dans un onglet** de
   l'éditeur. Comme tout onglet, il se glisse sur le bord droit ou bas de l'éditeur pour être à
   côté d'un fichier (ou clic droit sur l'onglet → Diviser à droite / en bas).
-- **En onglet** dans le panneau du bas y envoie le terminal courant, **en bas** le ramène.
+- Dans le panneau du bas, **un terminal à la fois** : son dossier en haut, **+** en ouvre un autre,
+  **⇱** l'envoie dans un onglet (**en bas** dans l'onglet le ramène). Les autres terminaux sont dans
+  **▾**, sous « Terminal » : clic pour y passer, **×** au survol pour le fermer.
 - Toutes les vues (Recherche, Git, GitHub, Docker, Claude, Débogage, Terminal) ont à droite de
   leur en-tête les mêmes boutons, dans le même ordre : **⟳** relire, **en onglet / en bas**
-  (une petite fenêtre : avec un onglet en haut, ou une bande en bas), **⋯** les autres actions et
+  (une petite fenêtre : avec un onglet en haut, ou une bande en bas ; retenu pour la prochaine fois), **⋯** les autres actions et
   options. Les boutons de disposition se ressemblent tous : les quatre coins agrandissent un
   panneau dans sa vue (Échap pour revenir), une fenêtre avec une colonne à droite affiche ou
   masque un panneau latéral (la revue de Claude), pleine quand il est affiché. Git, les Préférences et le découpage d'un commit
@@ -247,7 +272,8 @@ est relue toutes les quelques secondes.
 ## Débogueur
 
 Comme celui de VS Code, pour Python et Odoo, sur cet ordinateur ou dans un conteneur Docker.
-**Débogage** dans la palette, ou l'onglet **Débogage** du panneau du bas.
+**Débogage** dans la palette, ou **▾ → Débogage** dans le panneau du bas. Pendant une session, la
+barre d'état affiche **en cours** ou **en pause** : un clic montre la vue.
 
 - **Point d'arrêt** : clic à gauche des numéros de ligne d'un fichier Python (ou **F9**). Un rond
   rouge. Dans la liste **Points d'arrêt**, une **condition** (`self.id == 7`) ne s'arrête que
@@ -362,7 +388,7 @@ panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en
   sinon au prochain message, la conversation gardée. **Maj+Tab** dans le champ : mode suivant,
   comme dans Claude Code.
 - **Fin de réponse** : si la conversation n'est pas affichée, son onglet (ou, dans le panneau
-  du bas, l'onglet Claude et son icône de la barre latérale) clignote quelques secondes (tout l'onglet s'allume) puis
+  du bas, ✳ ● à côté de son nom et ✔ dans la barre d'état) clignote quelques secondes (tout l'onglet s'allume) puis
   reste vert jusqu'à ce que tu la regardes, et un son est joué. **Préférences → Claude** :
   clignoter ou non, et le son (Carillon, Clochette, Goutte, Bip, Accord, Micro-ondes, ou aucun ; ▶ pour
   écouter).

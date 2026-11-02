@@ -324,10 +324,7 @@ pub fn show(
         if shown.is_none() || act.is_some() {
             crate::pick::closed(ui, popup);
         }
-        if let Some((label, tip)) = repos.get(&root.path) {
-            let color = mix(ui.visuals().hyperlink_color, ui.visuals().weak_text_color(), 0.35);
-            ui.vertical_centered(|ui| ui.label(RichText::new(label.as_str()).size(11.0).color(color)).on_hover_text(tip.as_str()));
-        }
+        // the branch of the folder itself is in the status bar (nested repositories keep theirs below)
         ui.add_space(6.0);
         drop_target(ui, &r, &root.path, &mut act);
         r.context_menu(|ui| menu(ui, &root.path, true, None, &mut act));

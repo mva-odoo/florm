@@ -100,12 +100,9 @@ pub struct Settings {
     /// Order of the services of each compose project in the Docker view (▶ tout starts them in
     /// it, ■ tout stops them the other way): project → services.
     pub docker_order: HashMap<String, Vec<String>>,
-    /// Icons hidden at the bottom of the sidebar: "settings", "search", "terminal", "claude"…
-    pub sidebar_hidden: Vec<String>,
-    /// The icons of the views at the top of the sidebar rather than at its bottom.
-    pub sidebar_tools_top: bool,
-    /// The icons of the views in the status bar (as Zed) rather than in the sidebar.
-    pub tools_in_status_bar: bool,
+    /// Views opened in an editor tab rather than in the bottom panel: "git", "pulls", "docker",
+    /// "debug" (search and Claude have their own setting). ⇱ / ⇲ in a view change it.
+    pub views_in_tab: Vec<String>,
     /// Debugger: the container the program runs in, empty for this computer.
     pub debug_target: String,
     /// "launch" (Florm starts the program) or "attach" (it listens with debugpy).
@@ -201,9 +198,7 @@ impl Default for Settings {
             odoo_test_history: Vec::new(),
             odoo_test_container: String::new(),
             docker_order: HashMap::new(),
-            sidebar_hidden: Vec::new(),
-            sidebar_tools_top: false,
-            tools_in_status_bar: true,
+            views_in_tab: ["git", "pulls", "docker", "debug"].map(String::from).to_vec(),
             debug_target: String::new(),
             debug_mode: "launch".into(),
             debug_command: String::new(),
@@ -267,8 +262,9 @@ claude_budget = 0.0
 # "Read(./.env)", "WebFetch(domain:github.com)", "mcp__github" (les outils d'un serveur MCP)
 claude_allow = []
 claude_deny = []
-# les icônes des vues (Préférences, Recherche, Terminal, Claude, Git…) dans la barre d'état plutôt que dans la barre latérale
-tools_in_status_bar = true
+# vues qui s'ouvrent dans un onglet plutôt que dans le panneau du bas ("git", "pulls", "docker", "debug") ;
+# ⇱ / ⇲ dans l'en-tête d'une vue changent ce choix
+views_in_tab = ["git", "pulls", "docker", "debug"]
 # barre de mise en forme au-dessus du Markdown (le texte reste modifiable à la main)
 markdown_toolbar = true
 # branche et branche distante des dépôts git sur leur dossier dans l'arborescence

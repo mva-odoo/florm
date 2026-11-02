@@ -619,8 +619,7 @@ impl App {
                 }
             }
             DebugAct::Target(name) => self.debug_set_target(name),
-            DebugAct::Move(true) => self.show_big(BottomTab::Debug),
-            DebugAct::Move(false) => self.show_bottom(BottomTab::Debug, false),
+            DebugAct::Move(b) => self.move_view(BottomTab::Debug, b),
         }
     }
 

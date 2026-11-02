@@ -1,4 +1,5 @@
-//! The status bar (message, position, branch, problems, update) and the find bar of the editor.
+//! The status bar (the bottom panel's button, position, message; then what is going on: branch,
+//! Claude, containers, debugger, problems; update) and the find bar of the editor.
 
 use super::*;
 
@@ -70,10 +71,19 @@ impl App {
                     .on_hover_text(t!("Menus (barre de menus masquée)", "Menus (menu bar hidden)"));
                     self.pending.extend(pending);
                 }
-                if self.settings.tools_in_status_bar {
-                    self.sidebar_tools(ui, true);
-                    ui.separator();
+                // the bottom panel: a click shows / hides it, a right click picks the view to open
+                let keys = self.keymap.label(Cmd::TogglePanel);
+                let tip = tf!("Panneau du bas ({keys}) · clic droit : ouvrir une vue", "Bottom panel ({keys}) · right click: open a view");
+                let panel = icons::layout_button(ui, icons::Layout::ToBottom, &tip);
+                if panel.clicked() {
+                    self.pending.push(Cmd::TogglePanel);
                 }
+                let mut chosen = None;
+                panel.context_menu(|ui| chosen = self.tools_menu(ui, self.bottom));
+                if let Some(p) = chosen {
+                    self.apply_pick(p, false);
+                }
+                ui.separator();
                 if let Some(d) = self.docs.get(self.active) {
                     let p = d.primary_sel();
                     let (l, c) = d.line_col(p.head);
@@ -184,12 +194,68 @@ impl App {
                             self.pending.push(Cmd::ShowProblems);
                         }
                     }
+                    // what is going on, only while it is: the debugger, the containers, Claude
+                    let weak = ui.visuals().weak_text_color();
+                    match self.debug_activity() {
+                        Some(true) => {
+                            if state_chip(ui, icons::ViewIcon::Debug, t!("en pause", "paused"), warn()).on_hover_text(t!("Débogage : arrêté sur un point d'arrêt", "Debug: stopped on a breakpoint")).clicked() {
+                                self.toggle_tool(BottomTab::Debug);
+                            }
+                        }
+                        Some(false) => {
+                            if state_chip(ui, icons::ViewIcon::Debug, t!("en cours", "running"), self.hl.colors.accent).on_hover_text(t!("Débogage en cours", "Debugging")).clicked() {
+                                self.toggle_tool(BottomTab::Debug);
+                            }
+                        }
+                        None => {}
+                    }
+                    let running = self.docker_running();
+                    if running > 0 && state_chip(ui, icons::ViewIcon::Docker, &running.to_string(), weak).on_hover_text(tf!("Docker : {running} conteneur(s) démarré(s)", "Docker: {running} running container(s)")).clicked() {
+                        self.toggle_tool(BottomTab::Docker);
+                    }
+                    match self.claude_activity() {
+                        // finished, not seen yet: there at once
+                        (_, Some((tab, lit))) => {
+                            let col = if lit { ok() } else { weak };
+                            if state_chip(ui, icons::ViewIcon::Claude, "✔", col).on_hover_text(t!("Claude a fini de répondre · clic : voir la réponse", "Claude has finished answering · click: see the answer")).clicked() {
+                                match tab.and_then(|u| self.docs.iter().position(|d| d.uid == u)) {
+                                    Some(i) => self.activate_tab(i),
+                                    None => self.show_bottom(BottomTab::Claude, false),
+                                }
+                            }
+                        }
+                        (n, None) if n > 0 => {
+                            let text = if n > 1 { tf!("{n} au travail", "{n} working") } else { t!("au travail", "working").to_string() };
+                            if state_chip(ui, icons::ViewIcon::Claude, &text, self.hl.colors.accent).on_hover_text(t!("Claude répond", "Claude is answering")).clicked() {
+                                self.open_tool(BottomTab::Claude);
+                            }
+                        }
+                        _ => {}
+                    }
                     if let Some(st) = &self.git.status {
-                        let label = match (&self.repo, self.repos.len() > 1) {
+                        let mut label = match (&self.repo, self.repos.len() > 1) {
                             (Some(r), true) => format!("🔀 {} · {}", self.repo_label(r), st.branch),
                             _ => format!("🔀 {}", st.branch),
                         };
-                        if ui.add(egui::Button::new(label).frame(false)).clicked() {
+                        // commits to push / to pull, and the changed files
+                        if let Some((_, ahead, behind)) = st.upstream() {
+                            if ahead > 0 {
+                                label.push_str(&format!(" ↑{ahead}"));
+                            }
+                            if behind > 0 {
+                                label.push_str(&format!(" ↓{behind}"));
+                            }
+                        }
+                        if !st.entries.is_empty() {
+                            label.push_str(&format!(" ●{}", st.entries.len()));
+                        }
+                        // the branch, what it tracks and the remotes (what the top of the sidebar showed)
+                        let legend = t!("↑ à pousser, ↓ à récupérer, ● fichiers modifiés · clic : Git", "↑ to push, ↓ to pull, ● changed files · click: Git");
+                        let tip = match self.repo.as_ref().and_then(|r| self.repo_info.get(r)) {
+                            Some((_, t)) => format!("{t}\n\n{legend}"),
+                            None => legend.to_string(),
+                        };
+                        if ui.add(egui::Button::new(label).frame(false)).on_hover_text(tip).clicked() {
                             self.pending.push(Cmd::ShowGit);
                         }
                     }
@@ -340,4 +406,16 @@ impl App {
             None => {}
         }
     }
+}
+
+/// A state of the status bar: the icon of its view and a short text, without a frame.
+fn state_chip(ui: &mut egui::Ui, icon: icons::ViewIcon, text: &str, color: Color32) -> egui::Response {
+    let galley = ui.painter().layout_no_wrap(text.to_string(), egui::FontId::proportional(12.5), color);
+    let (rect, r) = ui.allocate_exact_size(egui::vec2(galley.size().x + 26.0, 22.0), Sense::click());
+    if r.hovered() {
+        ui.painter().rect_filled(rect, 4.0, ui.visuals().widgets.hovered.weak_bg_fill);
+    }
+    icons::paint_view(ui.painter(), egui::pos2(rect.left() + 10.0, rect.center().y), icon, color);
+    ui.painter().galley(egui::pos2(rect.left() + 20.0, rect.center().y - galley.size().y / 2.0), galley, color);
+    r
 }

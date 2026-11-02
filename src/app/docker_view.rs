@@ -62,6 +62,19 @@ impl App {
         self.docker_load();
     }
 
+    /// Running containers, for the status bar: 0 until the Docker view read the list once; then
+    /// read again in the background every 15 s while some run, so the count does not go stale.
+    pub(super) fn docker_running(&mut self) -> usize {
+        let n = match &self.docker.list {
+            Some(Ok(l)) => l.iter().filter(|c| c.state == "running").count(),
+            _ => 0,
+        };
+        if n > 0 && self.docker.loaded_at.is_some_and(|t| t.elapsed() > Duration::from_secs(15)) {
+            self.docker_load();
+        }
+        n
+    }
+
     pub(super) fn docker_load(&mut self) {
         if self.docker.loading {
             return;
@@ -535,8 +548,7 @@ impl App {
                 self.debug_set_target(name);
                 self.open_debug();
             }
-            Some(DockAct::Move(true)) => self.show_big(BottomTab::Docker),
-            Some(DockAct::Move(false)) => self.show_bottom(BottomTab::Docker, false),
+            Some(DockAct::Move(b)) => self.move_view(BottomTab::Docker, b),
             None => {}
         }
     }

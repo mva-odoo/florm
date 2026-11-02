@@ -340,9 +340,9 @@ impl App {
             }
             ShowProblems => self.bottom = Some(BottomTab::Problems),
             ShowOutput => self.bottom = Some(BottomTab::Output),
-            ShowGit => self.open_git_view(),
-            PullRequests => self.open_pulls(),
-            Docker => self.open_docker(),
+            ShowGit => self.open_tool(BottomTab::Git),
+            PullRequests => self.open_tool(BottomTab::Pulls),
+            Docker => self.open_tool(BottomTab::Docker),
             TestAgain => match self.settings.odoo_test_history.first().cloned() {
                 Some(t) => self.run_tests(t),
                 None => self.run_tests(String::new()),
@@ -355,7 +355,7 @@ impl App {
                 Some(t) => self.debug_test(t),
                 None => self.set_status(t!("Pas de test ni de module Odoo sous le curseur", "No Odoo test or module under the cursor")),
             },
-            Debug => self.open_debug(),
+            Debug => self.open_tool(BottomTab::Debug),
             DebugStart => self.debug_start_or_continue(),
             DebugStop => self.debug_stop_by_hand(),
             DebugRestart => self.debug_restart(),
