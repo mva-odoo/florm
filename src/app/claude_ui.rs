@@ -30,7 +30,17 @@ pub(super) enum Item {
     /// The answer, being written (pieces) or whole.
     Text(String),
     Streaming(String),
-    Tool { id: String, name: String, summary: String, result: Option<(String, bool)> },
+    /// Claude's thinking before it answers (shown folded).
+    Thinking(String),
+    /// A tool used, its result, and for an agent the tools it used in turn (name, what about).
+    Tool {
+        id: String,
+        name: String,
+        summary: String,
+        result: Option<(String, bool)>,
+        #[serde(default)]
+        steps: Vec<(String, String)>,
+    },
     Info(String),
     Error(String),
     /// What the last answer cost: tokens in (`cached` of them read from the cache), out, dollars.
@@ -62,6 +72,12 @@ pub(super) struct ClaudeUi {
     pub(super) items: Vec<Item>,
     pub(super) input: String,
     pub(super) busy: bool,
+    /// While it works: what it is doing when nothing of it shows (thinking, a subagent…), and
+    /// when it last sent something.
+    activity: Option<String>,
+    news: Option<Instant>,
+    /// The message waiting for its files to be noted before it leaves.
+    pub(super) outgoing: Option<send::Outgoing>,
     pub(super) model: usize,
     mode: usize,
     cost: f64,
@@ -134,14 +150,40 @@ pub(super) struct ClaudeUi {
 }
 
 /// What the height of a message depends on: its content, its place and the width.
+impl App {
+    /// The last commits of the folder of conversation `id`, for « + Contexte → Un commit ».
+    pub(super) fn claude_commits_loaded(&mut self, id: u64, out: String) {
+        let Some(c) = std::iter::once(&mut self.claude).chain(self.claude_others.iter_mut()).find(|c| c.id == id) else { return };
+        c.recent_commits = out
+            .lines()
+            .filter_map(|l| {
+                let mut f = l.split('\x1f');
+                Some((f.next()?.to_string(), f.next()?.to_string(), f.next()?.to_string(), f.next()?.to_string()))
+            })
+            .collect();
+    }
+}
+
+/// « Claude is thinking… », with the time since its last news when it is long (it is still there).
+fn working_label(activity: Option<&str>, news: Option<Instant>) -> String {
+    let what = match activity {
+        Some(a) => tf!("Claude {a}…", "Claude {a}…"),
+        None => t!("Claude travaille…", "Claude is working…").to_string(),
+    };
+    match news.map(|t| t.elapsed().as_secs()) {
+        Some(s) if s >= 15 => tf!("{what} ({s} s sans nouvelles)", "{what} (no news for {s} s)"),
+        _ => what,
+    }
+}
+
 fn item_key(it: &Item, claude_said: bool, busy: bool, last_turn: bool, extra: u8, width: f32, ppp: f32) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     std::mem::discriminant(it).hash(&mut h);
     match it {
         Item::User(t, given, notes, images) => (t, given, notes, images).hash(&mut h),
-        Item::Text(t) | Item::Streaming(t) | Item::Info(t) | Item::Error(t) => t.hash(&mut h),
-        Item::Tool { name, summary, result, .. } => (name, summary, result).hash(&mut h),
+        Item::Text(t) | Item::Streaming(t) | Item::Thinking(t) | Item::Info(t) | Item::Error(t) => t.hash(&mut h),
+        Item::Tool { name, summary, result, steps, .. } => (name, summary, result, steps).hash(&mut h),
         Item::Usage { input, cached, output, cost } => (input, cached, output, cost.to_bits()).hash(&mut h),
     }
     (claude_said, busy, last_turn, extra, width.to_bits(), ppp.to_bits()).hash(&mut h);
@@ -232,9 +274,34 @@ impl App {
         let (mut reload, mut save) = (false, false);
         // the answer ended: the task of the queue being done is finished (or failed)
         let mut task_done: Option<Result<(), String>> = None;
+        self.claude.news = Some(Instant::now());
         for e in events {
             let items = &mut self.claude.items;
+            // what it does shows by itself from now on (text, a tool), else the last activity stays
+            if !matches!(e, Event::Activity(_) | Event::SubTool { .. } | Event::Context(_) | Event::Limits(_) | Event::Uuid(_)) {
+                self.claude.activity = None;
+            }
             match e {
+                Event::Activity(a) => self.claude.activity = Some(a),
+                Event::ThinkingDelta(t) => match items.last_mut() {
+                    Some(Item::Thinking(s)) => s.push_str(&t),
+                    _ => items.push(Item::Thinking(t)),
+                },
+                Event::Thinking(t) => match items.last_mut() {
+                    Some(Item::Thinking(s)) => *s = t,
+                    _ => items.push(Item::Thinking(t)),
+                },
+                Event::SubTool { parent, name, summary } => {
+                    for it in items.iter_mut().rev() {
+                        if let Item::Tool { id, steps, .. } = it {
+                            if *id == parent {
+                                steps.push((name, summary));
+                                break;
+                            }
+                        }
+                    }
+                }
+                Event::Note(t) => items.push(Item::Info(t)),
                 // its session: continued after a restart of Florm
                 Event::Init { session, version, commands, terminal, .. } => {
                     if !session.is_empty() {
@@ -278,7 +345,7 @@ impl App {
                     if name == "Read" && claude::is_image(&summary) {
                         items.push(Item::Info(tf!("— Claude a ouvert une image ({summary}) : elle coûte beaucoup de tokens, à chaque message suivant —", "— Claude opened an image ({summary}): it costs many tokens, with every next message —")));
                     }
-                    items.push(Item::Tool { id, name, summary, result: None });
+                    items.push(Item::Tool { id, name, summary, result: None, steps: Vec::new() });
                 }
                 Event::ToolResult { id, text, error } => {
                     for it in items.iter_mut().rev() {
@@ -748,13 +815,21 @@ impl App {
                         // the review of the changes on the right, or the whole width for the conversation
                         let n = c.review.as_ref().map_or(0, |d| d.files.len());
                         let label = if n > 0 { tf!("Revue ({n})", "Review ({n})") } else { t!("Revue", "Review").to_string() };
-                        let text = if !show_review && n > 0 { RichText::new(label).color(accent).strong() } else { RichText::new(label) };
-                        let tip = if show_review { t!("Masquer la revue des changements : la conversation prend toute la largeur", "Hide the review of the changes: the conversation takes the whole width") } else { t!("Afficher à droite la revue de ce que Claude a changé", "Show on the right the review of what Claude changed") };
+                        // shown also as the changes of one question, or maximized: hidden in one click,
+                        // the conversation gets its whole width back
+                        let view = cid("claude_view");
+                        let shown = show_review || c.turn_diff.is_some() || maximize::maxed(ui.ctx(), view).is_some();
+                        let text = if !shown && n > 0 { RichText::new(label).color(accent).strong() } else { RichText::new(label) };
+                        let tip = if shown { t!("Masquer la revue des changements : la conversation prend toute la largeur", "Hide the review of the changes: the conversation takes the whole width") } else { t!("Afficher à droite la revue de ce que Claude a changé", "Show on the right the review of what Claude changed") };
                         // a panel on the right, filled when shown: like the other layout buttons
-                        let b = crate::icons::layout_button(ui, crate::icons::Layout::SidePanel(show_review), tip);
+                        let b = crate::icons::layout_button(ui, crate::icons::Layout::SidePanel(shown), tip);
                         let a = ui.add(egui::Label::new(text).sense(Sense::click())).on_hover_text(tip);
                         if a.clicked() || b.clicked() {
-                            show_review = !show_review;
+                            show_review = !shown;
+                            if shown {
+                                close_turn = true;
+                                maximize::restore(ui.ctx(), view);
+                            }
                         }
                         ui.add_space(8.0);
                         // the plan's quota over 5 hours always; over 7 days and the context only
@@ -1263,7 +1338,7 @@ impl App {
                                 later = true;
                             }
                             spinner(ui);
-                            ui.label(RichText::new(t!("Claude travaille…", "Claude is working…")).weak());
+                            ui.label(RichText::new(working_label(c.activity.as_deref(), c.news)).weak());
                         } else if ui.add_enabled(can_send, filled_button(t!("Envoyer", "Send"), accent)).clicked() {
                             send = true;
                         }
@@ -1365,7 +1440,10 @@ impl App {
                             Item::User(..) => u8::from(c.folded.contains(&k)) | u8::from(c.confirm_rewind == Some(k)) << 1,
                             _ => 0,
                         };
-                        let key = item_key(it, claude_said, c.busy, last_user.is_none_or(|u| k > u), extra, ui.available_width(), ppp);
+                        // working or not only changes the last answer (its questions): the others
+                        // are not laid out again each time Claude starts or ends
+                        let last_turn = last_user.is_none_or(|u| k > u);
+                        let key = item_key(it, claude_said, c.busy && last_turn, last_turn, extra, ui.available_width(), ppp);
                         let top = ui.cursor().top();
                         let (known, h, stable) = c.heights[k];
                         // only a height measured twice the same stands for the message: one still
@@ -1507,7 +1585,7 @@ impl App {
                                     answer = c.answers.as_ref().map(|a| a.message(&questions));
                                 }
                             }
-                            Item::Tool { name, summary, result, .. } => {
+                            Item::Tool { name, summary, result, steps, .. } => {
                                 let (icon, color) = match name.as_str() {
                                     "Edit" | "MultiEdit" | "Write" | "NotebookEdit" => ("✏", warn()),
                                     "Bash" => ("$", accent),
@@ -1556,6 +1634,23 @@ impl App {
                                         });
                                     }
                                 }
+                                // an agent: the tools it used, folded under its call
+                                if !steps.is_empty() {
+                                    let label = tf!("{} étape(s) de l'agent", "{} step(s) of the agent", steps.len());
+                                    ui.indent(("agent_steps", k), |ui| {
+                                        egui::CollapsingHeader::new(RichText::new(label).small().weak()).id_salt(("agent_steps", k)).show(ui, |ui| {
+                                            for (name, what) in steps {
+                                                ui.add(egui::Label::new(RichText::new(format!("· {name}  {what}")).monospace().size(11.5).weak()).wrap());
+                                            }
+                                        });
+                                    });
+                                }
+                            }
+                            Item::Thinking(t) => {
+                                // while it is written, « Claude réfléchit… » is said at the end of the conversation
+                                egui::CollapsingHeader::new(RichText::new(t!("Réflexion", "Thinking")).small().weak()).id_salt(("thinking", k)).show(ui, |ui| {
+                                    ui.add(egui::Label::new(RichText::new(t.as_str()).weak().italics()).wrap());
+                                });
                             }
                             Item::Info(t) => {
                                 ui.label(RichText::new(t).weak().italics());
@@ -1583,6 +1678,16 @@ impl App {
                         // allocate_space adds the spacing after it again
                         let new_h = ui.cursor().top() - top - ui.spacing().item_spacing.y;
                         c.heights[k] = (key, new_h, known == key && (new_h - h).abs() < 0.5);
+                    }
+                    // working without anything new in sight (thinking, a subagent, a tool running):
+                    // said at the end of the conversation, where the eye is
+                    let quiet = !matches!(c.items.last(), Some(Item::Streaming(_) | Item::Tool { result: None, .. }));
+                    if c.busy && quiet {
+                        ui.add_space(6.0);
+                        ui.horizontal(|ui| {
+                            spinner(ui);
+                            ui.label(RichText::new(working_label(c.activity.as_deref(), c.news)).weak().italics());
+                        });
                     }
                     ui.add_space(10.0);
                     // the end of the conversation: scrolled to here, not to an offset past the end
@@ -1668,15 +1773,10 @@ impl App {
             self.claude_switch(model_changed, mode_changed);
         }
         if read_commits {
-            let dir = self.claude.dir.clone();
-            let out = dir.and_then(|d| git::stdout(&d, &["log", "-40", "--format=%H%x1f%h%x1f%s%x1f%cr"]).ok()).unwrap_or_default();
-            self.claude.recent_commits = out
-                .lines()
-                .filter_map(|l| {
-                    let mut f = l.split('\x1f');
-                    Some((f.next()?.to_string(), f.next()?.to_string(), f.next()?.to_string(), f.next()?.to_string()))
-                })
-                .collect();
+            if let Some(dir) = self.claude.dir.clone() {
+                let id = self.claude.id;
+                self.jobs.spawn(move || JobResult::ClaudeCommits(id, git::stdout(&dir, &["log", "-40", "--format=%H%x1f%h%x1f%s%x1f%cr"]).unwrap_or_default()));
+            }
         }
         if let Some(w) = ctx_add {
             self.claude_add_context(w);
@@ -1712,6 +1812,12 @@ impl App {
             self.claude_new_conversation();
         }
         if stop {
+            // still noting the files: the message does not leave, it goes back to the field
+            if let Some(out) = self.claude.outgoing.take() {
+                out.give_back(&mut self.claude);
+                self.claude.busy = false;
+                self.claude.activity = None;
+            }
             if let Some(s) = self.claude.session.as_mut() {
                 let _ = s.interrupt();
             }
@@ -1817,7 +1923,7 @@ mod tests {
             updated: 1,
             items: vec![
                 Item::User("Corrige".into(), vec!["a.py".into()], vec![], vec![]),
-                Item::Tool { id: "t".into(), name: "Bash".into(), summary: "ls".into(), result: Some(("ok".into(), false)) },
+                Item::Tool { id: "t".into(), name: "Bash".into(), summary: "ls".into(), result: Some(("ok".into(), false)), steps: Vec::new() },
                 Item::Text("Fait.".into()),
             ],
             queue: {
@@ -1892,7 +1998,8 @@ mod tests {
         std::fs::write(dir.join("mine.txt"), "à moi\n").unwrap();
         let index = review_index_of(&dir, 0);
         assert!(review_index_of(&dir, 3).ends_with("florm-review-index-3"));
-        rgit(&dir, &index, &["read-tree", "HEAD"], None).unwrap();
+        // from a copy of the real index, as when the review starts
+        crate::app::claude_turns::seed_index(&dir, &index).unwrap();
         rgit(&dir, &index, &["add", "-A"], None).unwrap();
         assert_eq!(review_diff(&dir, &index).unwrap(), "");
         // Claude changes two places and adds a file

@@ -167,10 +167,21 @@ pub enum Event {
     Delta(String),
     /// A whole text block of the answer (replaces the pieces).
     Text(String),
+    /// A piece of Claude's thinking being written, then the whole of it (replaces the pieces).
+    ThinkingDelta(String),
+    Thinking(String),
     /// A tool used: its id, name and what it is about (file, command…).
     Tool { id: String, name: String, summary: String },
     /// The result of a tool.
     ToolResult { id: String, text: String, error: bool },
+    /// What Claude is doing while nothing of it shows yet: thinking, writing the input of a tool,
+    /// a step of a subagent, summarizing the conversation.
+    Activity(String),
+    /// A step of a subagent: the id of the tool call that started it (`Agent` / `Task`), the tool
+    /// it uses and what about.
+    SubTool { parent: String, name: String, summary: String },
+    /// A note of Claude Code itself: the API called again after an error, the conversation summarized.
+    Note(String),
     /// End of the answer: error or not, its cost in dollars, the size of the model's context
     /// window (tokens, 0: unknown), and the tokens it used.
     Done { error: bool, text: String, cost: f64, window: u64, tokens: Tokens },
@@ -201,13 +212,28 @@ pub fn parse_line(line: &str) -> Vec<Event> {
             let names = |k: &str| v[k].as_array().map(|a| a.iter().filter_map(|c| c.as_str().map(String::from)).collect()).unwrap_or_default();
             vec![Event::Init { session: s(&v["session_id"]), model: s(&v["model"]), version: s(&v["claude_code_version"]), commands: names("slash_commands"), terminal: names("terminal_slash_commands") }]
         }
+        Some("system") => match v["subtype"].as_str() {
+            Some("status") if v["status"] == "compacting" => vec![Event::Activity(t!("résume la conversation", "is summarizing the conversation").into())],
+            Some("compact_boundary") => vec![Event::Note(t!("— conversation résumée pour libérer du contexte —", "— conversation summarized to free some context —").into())],
+            Some("api_retry") => {
+                let (n, max) = (v["attempt"].as_u64().unwrap_or(0), v["max_retries"].as_u64().unwrap_or(0));
+                let why = v["error_status"].as_u64().map(|c| format!(" ({c})")).unwrap_or_default();
+                vec![Event::Activity(tf!("attend l'API, nouvel essai {n}/{max}{why}", "is waiting for the API, retry {n}/{max}{why}"))]
+            }
+            _ => Vec::new(),
+        },
         Some("conversation_reset") => vec![Event::Reset],
-        Some("stream_event") => {
+        Some("stream_event") if v["parent_tool_use_id"].is_null() => {
             let e = &v["event"];
-            if e["type"] == "content_block_delta" && e["delta"]["type"] == "text_delta" && v["parent_tool_use_id"].is_null() {
-                vec![Event::Delta(s(&e["delta"]["text"]))]
-            } else {
-                Vec::new()
+            match (e["type"].as_str(), e["delta"]["type"].as_str(), e["content_block"]["type"].as_str()) {
+                (Some("content_block_delta"), Some("text_delta"), _) => vec![Event::Delta(s(&e["delta"]["text"]))],
+                (Some("content_block_delta"), Some("thinking_delta"), _) => vec![Event::ThinkingDelta(s(&e["delta"]["thinking"]))],
+                // long silences otherwise: the thinking is not shown, a tool's input comes whole
+                (Some("content_block_start"), _, Some("thinking" | "redacted_thinking")) => vec![Event::Activity(t!("réfléchit", "is thinking").into())],
+                (Some("content_block_start"), _, Some("tool_use")) => {
+                    vec![Event::Activity(tf!("prépare {}", "is preparing {}", s(&e["content_block"]["name"])))]
+                }
+                _ => Vec::new(),
             }
         }
         // what subagents write is left out (only their tool calls count)
@@ -218,6 +244,7 @@ pub fn parse_line(line: &str) -> Vec<Event> {
                     a.iter()
                         .filter_map(|c| match c["type"].as_str() {
                             Some("text") => Some(Event::Text(s(&c["text"]))),
+                            Some("thinking") if !s(&c["thinking"]).trim().is_empty() => Some(Event::Thinking(s(&c["thinking"]))),
                             Some("tool_use") => Some(Event::Tool { id: s(&c["id"]), name: s(&c["name"]), summary: tool_summary(&s(&c["name"]), &c["input"]) }),
                             _ => None,
                         })
@@ -233,6 +260,24 @@ pub fn parse_line(line: &str) -> Vec<Event> {
                 events.push(Event::Context(tokens));
             }
             events
+        }
+        // a subagent at work: only its tool calls, under the call that started it
+        Some("assistant") => {
+            let parent = s(&v["parent_tool_use_id"]);
+            v["message"]["content"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter(|c| c["type"] == "tool_use")
+                        .flat_map(|c| {
+                            let name = s(&c["name"]);
+                            let summary = tool_summary(&name, &c["input"]);
+                            let doing = tf!("fait travailler un agent : {name} {summary}", "has an agent at work: {name} {summary}").trim_end().to_string();
+                            [Event::SubTool { parent: parent.clone(), name, summary }, Event::Activity(doing)]
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
         }
         Some("rate_limit_event") => {
             let windows = &v["rate_limit_info"]["unifiedWindows"];
@@ -983,6 +1028,25 @@ mod tests {
         assert_eq!(parse_line(r), vec![Event::Done { error: false, text: "ok".into(), cost: 0.001, window: 1_000_000, tokens: Tokens::default() }]);
         let l = r#"{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","unifiedWindows":{"five_hour":{"utilization":0.8,"resetsAt":1792619400},"seven_day":{"utilization":0.5,"resetsAt":1792688400}}}}"#;
         assert_eq!(parse_line(l), vec![Event::Limits(vec![("five_hour".into(), 0.8, 1792619400), ("seven_day".into(), 0.5, 1792688400)])]);
+    }
+
+    #[test]
+    fn what_claude_does_between_messages() {
+        let think = r#"{"type":"stream_event","event":{"type":"content_block_start","content_block":{"type":"thinking"}},"parent_tool_use_id":null}"#;
+        assert!(matches!(parse_line(think).as_slice(), [Event::Activity(_)]));
+        let tool = r#"{"type":"stream_event","event":{"type":"content_block_start","content_block":{"type":"tool_use","name":"Write"}},"parent_tool_use_id":null}"#;
+        assert!(matches!(parse_line(tool).as_slice(), [Event::Activity(a)] if a.contains("Write")));
+        let sub = r#"{"type":"assistant","parent_tool_use_id":"t9","message":{"content":[{"type":"tool_use","id":"t1","name":"Grep","input":{"pattern":"fn main"}}]}}"#;
+        assert!(matches!(parse_line(sub).as_slice(), [Event::SubTool { parent, name, .. }, Event::Activity(a)] if parent == "t9" && name == "Grep" && a.contains("Grep fn main")));
+        let think = r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"Hmm"}},"parent_tool_use_id":null}"#;
+        assert_eq!(parse_line(think), vec![Event::ThinkingDelta("Hmm".into())]);
+        let whole = r#"{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"thinking","thinking":"Je pense."}]}}"#;
+        assert_eq!(parse_line(whole), vec![Event::Thinking("Je pense.".into())]);
+        let retry = r#"{"type":"system","subtype":"api_retry","attempt":2,"max_retries":10,"error_status":529}"#;
+        assert!(matches!(parse_line(retry).as_slice(), [Event::Activity(a)] if a.contains("2/10 (529)")));
+        assert!(matches!(parse_line(r#"{"type":"system","subtype":"compact_boundary"}"#).as_slice(), [Event::Note(_)]));
+        // a subagent's text and its stream stay out
+        assert!(parse_line(r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"x"}},"parent_tool_use_id":"t9"}"#).is_empty());
     }
 
     #[test]

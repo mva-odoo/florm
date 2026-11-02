@@ -625,27 +625,45 @@ impl App {
             self.set_status(t!("Claude travaille : arrête-le d'abord (■ Arrêter)", "Claude is working: stop it first (■ Stop)"));
             return;
         }
-        match git::run(&w.main, &["worktree", "remove", &path.to_string_lossy()]) {
-            Ok(_) => {
-                let c = &mut self.claude;
-                c.session = None;
-                c.session_id = None;
-                c.last_uuid = None;
-                c.checkpoints.clear();
-                c.review_index = None;
-                c.review = None;
-                c.dir = Some(w.main.clone());
-                c.worktree = None;
-                c.items.push(Item::Info(tf!(
-                    "— worktree supprimé ; la branche {} reste, à fusionner depuis la vue Git —",
-                    "— worktree removed; the branch {} stays, to merge from the Git view —",
-                    w.branch
-                )));
-                self.claude_save();
-                self.git_refresh();
-            }
-            Err(e) => self.set_error(tf!("Worktree non supprimé : {e}", "Worktree not removed: {e}")),
+        let id = self.claude.id;
+        self.set_status(t!("Suppression du worktree…", "Removing the worktree…"));
+        self.jobs.spawn(move || JobResult::ClaudeWorktreeRemoved(id, git::run(&w.main, &["worktree", "remove", &path.to_string_lossy()]).map(|_| ())));
+    }
+
+    /// The worktree of conversation `id` removed (or not).
+    pub(in crate::app) fn claude_worktree_removed(&mut self, id: u64, r: Result<(), String>) {
+        if let Err(e) = r {
+            self.set_error(tf!("Worktree non supprimé : {e}", "Worktree not removed: {e}"));
+            return;
         }
+        self.set_status(t!("Worktree supprimé", "Worktree removed"));
+        let k = self.claude_others.iter().position(|c| c.id == id);
+        let c = match k {
+            Some(k) => &mut self.claude_others[k],
+            None if self.claude.id == id => &mut self.claude,
+            None => return,
+        };
+        let Some(w) = c.worktree.take() else { return };
+        c.session = None;
+        c.session_id = None;
+        c.last_uuid = None;
+        c.checkpoints.clear();
+        c.review_index = None;
+        c.review = None;
+        c.dir = Some(w.main.clone());
+        c.items.push(Item::Info(tf!(
+            "— worktree supprimé ; la branche {} reste, à fusionner depuis la vue Git —",
+            "— worktree removed; the branch {} stays, to merge from the Git view —",
+            w.branch
+        )));
+        if let Some(k) = k {
+            std::mem::swap(&mut self.claude, &mut self.claude_others[k]);
+        }
+        self.claude_save();
+        if let Some(k) = k {
+            std::mem::swap(&mut self.claude, &mut self.claude_others[k]);
+        }
+        self.git_refresh();
     }
 }
 

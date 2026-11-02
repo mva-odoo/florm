@@ -178,6 +178,16 @@ impl App {
             return false;
         }
         let command = text.starts_with('/');
+        // the files are being noted for the message before: this one follows it
+        if self.claude.outgoing.is_some() {
+            if command || text.is_empty() {
+                return false;
+            }
+            self.claude.queue.push_message(&text);
+            self.claude.queue.running = true;
+            self.set_status(t!("Message ajouté à la file : il partira quand Claude aura fini", "Message queued: it goes when Claude is done"));
+            return true;
+        }
         let during = self.claude.busy;
         if during && (command || self.claude.session.is_none()) {
             return false;
@@ -195,10 +205,6 @@ impl App {
                     self.claude.attach.push(Attach { path: p, lines: None, note: None, image: None });
                 }
             }
-        }
-        // the review starts with the first message: everything changed since is Claude's
-        if self.claude.review_index.is_none() && !command {
-            self.claude_start_review();
         }
         let mut message = text.clone();
         // a command leaves the files given for the next message
@@ -253,15 +259,72 @@ impl App {
                 }
             }
         }
-        // the files as they are before the message starts work: to see its changes, to go back
+        let out = Outgoing { text, message, given, notes, image_files, attach };
+        // the files as they are before the message starts work (to see its changes, to go back),
+        // read on a thread: the message leaves once they are (the review starts with the first one)
+        if !during && !command && dir.join(".git").exists() {
+            let (id, review, first) = (self.claude.id, self.claude.review_index.is_none(), self.claude.checkpoints.is_empty());
+            self.claude.outgoing = Some(out);
+            self.claude.busy = true;
+            self.claude.activity = Some(t!("note l'état des fichiers", "is noting the state of the files").into());
+            self.claude.news = Some(Instant::now());
+            self.jobs.spawn(move || {
+                let (review, tree) = super::claude_turns::prepare_turn(&dir, id, review, first);
+                JobResult::ClaudePrepared(id, review, tree)
+            });
+            return true;
+        }
+        let checkpoint = !during && !command;
+        self.claude_deliver(out, checkpoint, None)
+    }
+
+    /// The files of conversation `id` were noted: its message leaves.
+    pub(in crate::app) fn claude_prepared(&mut self, id: u64, review: Option<Result<PathBuf, String>>, tree: Option<String>) {
+        let k = self.claude_others.iter().position(|c| c.id == id);
+        if k.is_none() && self.claude.id != id {
+            return;
+        }
+        if let Some(k) = k {
+            std::mem::swap(&mut self.claude, &mut self.claude_others[k]);
+        }
+        if let Some(r) = review {
+            self.claude_review_started(r);
+        }
+        // stopped meanwhile: nothing leaves
+        if let Some(out) = self.claude.outgoing.take() {
+            self.claude.busy = false;
+            if !self.claude_deliver(out, true, tree) {
+                // a task of the queue: it failed, the queue waits
+                let q = &mut self.claude.queue;
+                if let Some(k) = q.current().filter(|k| q.tasks[*k].state == TaskState::Running) {
+                    q.tasks[k].state = TaskState::Failed;
+                    q.running = false;
+                }
+            }
+        }
+        if let Some(k) = k {
+            std::mem::swap(&mut self.claude, &mut self.claude_others[k]);
+        }
+    }
+
+    /// The message given to Claude Code; `checkpoint`: it starts work (the files then: `tree`).
+    fn claude_deliver(&mut self, out: Outgoing, checkpoint: bool, tree: Option<String>) -> bool {
+        let Outgoing { text, message, given, notes, image_files, attach } = out;
+        let during = self.claude.busy;
+        let command = text.starts_with('/');
         let at = self.claude.items.len() - usize::from(matches!(self.claude.items.last(), Some(Item::Streaming(_))));
-        let checkpoint = (!during && !command).then(|| self.claude_checkpoint(at));
-        let Some(s) = self.claude.session.as_mut() else { return false };
+        let checkpoint = checkpoint.then(|| self.claude_checkpoint(at, tree));
+        let Some(s) = self.claude.session.as_mut() else {
+            // the process stopped while the files were noted
+            self.claude.items.push(Item::Error(t!("Claude s'est arrêté : le message revient dans le champ.", "Claude stopped: the message goes back to the field.").into()));
+            Outgoing { text, message, given, notes, image_files, attach }.give_back(&mut self.claude);
+            return false;
+        };
         let images: Vec<Vec<u8>> = match image_files.iter().map(|(_, p)| std::fs::read(p)).collect() {
             Ok(images) => images,
             Err(e) => {
                 self.set_error(tf!("Image jointe illisible : {e}", "Attached image unreadable: {e}"));
-                self.claude.attach = attach;
+                Outgoing { text, message, given, notes, image_files, attach }.give_back(&mut self.claude);
                 return false;
             }
         };
@@ -290,6 +353,7 @@ impl App {
                     self.claude.wish.get_or_insert(text);
                 }
                 self.claude.busy = true;
+                self.claude.news = Some(Instant::now());
                 // its tab is named after the first message
                 if let (true, Some(uid)) = (first, self.claude.tab) {
                     let title = self.claude_title();
@@ -303,7 +367,7 @@ impl App {
             Err(e) => {
                 self.claude.session = None;
                 self.claude.items.push(Item::Error(e));
-                self.claude.attach = attach;
+                Outgoing { text, message, given, notes, image_files, attach }.give_back(&mut self.claude);
                 false
             }
         }
@@ -453,5 +517,26 @@ impl App {
             QueueAct::Close => q.tasks.clear(),
         }
         self.claude_save();
+    }
+}
+
+/// A message ready to leave: what the user wrote, what goes to Claude, and what is shown with it.
+pub(in crate::app) struct Outgoing {
+    text: String,
+    message: String,
+    given: Vec<String>,
+    notes: Vec<(String, String)>,
+    image_files: Vec<(String, PathBuf)>,
+    attach: Vec<Attach>,
+}
+
+impl Outgoing {
+    /// Not sent: the text back in the field (unless something else was written there since) and
+    /// what was given with it back above it.
+    pub(super) fn give_back(self, c: &mut ClaudeUi) {
+        if c.input.trim().is_empty() {
+            c.input = self.text;
+        }
+        c.attach = self.attach;
     }
 }

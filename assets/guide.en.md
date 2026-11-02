@@ -449,7 +449,13 @@ command and your login: no key to set up.
   does (“do the same for…”).
 - On the right, **what Claude changed** since your first message, file by file and block by
   block: **✔ Keep** (the block leaves the review and stays in the file) or **↺ Reject** (it is
-  removed from the file). Your own earlier changes are not in it.
+  removed from the file). Your own earlier changes are not in it. **Review** at the top right hides
+  the whole panel (even maximized, or showing one question): the conversation gets its whole width
+  back.
+- **What Claude is doing**: when nothing new shows, a line at the end of the conversation says it
+  (“Claude is thinking…”, “Claude is preparing Write…”, “Claude has an agent at work: …”, “is
+  waiting for the API, retry 2/10”), with the time without news past 15 s. Its **Thinking** is
+  kept folded above its answer, and the steps of an agent folded under its call.
 - **Question by question**: the **▾** in front of one of your messages folds the answer to that
   question (one line stays: “N steps · N files changed”); right click on the ▾: fold all but the
   last one, or unfold all. **±** on the message shows on the right the file changes of that
@@ -458,6 +464,9 @@ command and your login: no key to set up.
   nothing staged). **↶** on a message (or **/rewind** for the last one) offers to put **the files
   and the conversation** back as before that message, **the conversation only** or **the files
   only**. What changed since is lost; the message goes back to the field to be written again.
+- **■ Stop** interrupts the current answer; the conversation goes on. Before a message leaves,
+  Florm notes the state of the files (a few moments on a big repository): **■ Stop** then puts
+  it back in the field.
 - **While it works**, you choose where your message goes:
   - **Send** (Ctrl+Enter): at once. Claude reads it between two steps and takes it into account in the
     work going on (“use that file instead”, “add a test too”…).

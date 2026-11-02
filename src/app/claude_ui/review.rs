@@ -5,7 +5,7 @@ use super::*;
 
 /// Review index of a repository for conversation `conv` (inside .git: not seen by git status,
 /// not committed); each conversation has its own.
-pub(super) fn review_index_of(repo: &Path, conv: u64) -> PathBuf {
+pub(in crate::app) fn review_index_of(repo: &Path, conv: u64) -> PathBuf {
     let name = if conv == 0 { "florm-review-index".to_string() } else { format!("florm-review-index-{conv}") };
     let p = git::stdout(repo, &["rev-parse", "--git-path", &name]).unwrap_or_default();
     let p = PathBuf::from(p.trim());
@@ -15,6 +15,9 @@ pub(super) fn review_index_of(repo: &Path, conv: u64) -> PathBuf {
         repo.join(p)
     }
 }
+
+/// One change of a review at a time: two would fight over its index (`index.lock`).
+static REVIEW_GIT: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// git with the review index instead of the real one.
 pub(in crate::app) fn rgit(repo: &Path, index: &Path, args: &[&str], input: Option<&str>) -> Result<String, String> {
@@ -43,13 +46,10 @@ pub(super) fn review_diff(repo: &Path, index: &Path) -> Result<String, String> {
 }
 
 impl App {
-    /// The review starts from the files as they are now.
-    pub(super) fn claude_start_review(&mut self) {
-        let Some(repo) = self.claude.dir.clone().filter(|d| d.join(".git").exists()) else { return };
-        let index = review_index_of(&repo, self.claude.id);
-        let r = rgit(&repo, &index, &["read-tree", "HEAD"], None).and_then(|_| rgit(&repo, &index, &["add", "-A"], None));
+    /// The review started from the files as they were before the first message (read on a thread).
+    pub(super) fn claude_review_started(&mut self, r: Result<PathBuf, String>) {
         match r {
-            Ok(_) => {
+            Ok(index) => {
                 self.claude.review_index = Some(index);
                 self.claude.review = None;
                 self.claude.collapsed.clear();
@@ -62,7 +62,10 @@ impl App {
         let (Some(repo), Some(index)) = (self.claude.dir.clone(), self.claude.review_index.clone()) else { return };
         self.claude.review_loading = true;
         let id = self.claude.id;
-        self.jobs.spawn(move || JobResult::ClaudeReview(id, review_diff(&repo, &index)));
+        self.jobs.spawn(move || {
+            let _one = REVIEW_GIT.lock();
+            JobResult::ClaudeReview(id, review_diff(&repo, &index))
+        });
     }
 
     /// The review of conversation `id` read again (wherever the conversation is now).
@@ -84,60 +87,73 @@ impl App {
         let Some(path) = history::file_at(&d.text, idx) else { return };
         let new_file = history::file_patch(&d.text, idx).is_some_and(|f| f.contains("\n--- /dev/null"));
         let text = d.text.clone();
-        let r = match click {
-            DiffClick::Line(_) | DiffClick::File(_, DiffAct::Open) => {
-                let line = history::target_line(&d.lines, idx);
-                self.pr_open_path(&repo.join(&path), line);
-                return;
-            }
-            DiffClick::File(_, DiffAct::Stage) => rgit(&repo, &index, &["add", "-A", "--", &path], None),
-            DiffClick::Hunk(_, DiffAct::Stage) if new_file => rgit(&repo, &index, &["add", "--", &path], None),
-            DiffClick::Hunk(i, DiffAct::Stage) => match history::hunk_patch(&text, i) {
-                Some(p) => rgit(&repo, &index, &["apply", "--cached", "--recount", "-"], Some(&p)),
-                None => return,
-            },
-            DiffClick::File(..) | DiffClick::Hunk(..) if new_file => std::fs::remove_file(repo.join(&path)).map(|_| String::new()).map_err(|e| e.to_string()),
-            DiffClick::File(..) => {
-                // the file as it was (or removed again when Claude deleted it… restored)
-                rgit(&repo, &index, &["checkout-index", "-f", "--", &path], None)
-            }
-            DiffClick::Hunk(i, _) => match history::hunk_patch(&text, i) {
-                Some(p) => git::run_with(&repo, &["apply", "-R", "--recount", "-"], &[], Some(&p)),
-                None => return,
-            },
-        };
+        if let DiffClick::Line(_) | DiffClick::File(_, DiffAct::Open) = click {
+            let line = history::target_line(&d.lines, idx);
+            self.pr_open_path(&repo.join(&path), line);
+            return;
+        }
         // shown at once without it, git's new diff follows
         if let Some(d) = self.claude.review.as_mut() {
             d.text = history::without(&d.text, idx, matches!(click, DiffClick::File(..)));
             d.lines = history::parse_diff(&d.text);
             d.files = history::diff_files(&d.lines);
         }
-        if let Err(e) = r {
-            self.claude.items.push(Item::Error(format!("{path} : {e}")));
-        }
-        self.last_disk_check = Instant::now() - Duration::from_secs(10);
-        self.claude_reload_review();
-        self.git_refresh();
+        let id = self.claude.id;
+        self.jobs.spawn(move || {
+            let _one = REVIEW_GIT.lock();
+            let r = match click {
+                DiffClick::Line(_) => Ok(String::new()),
+                DiffClick::File(_, DiffAct::Stage) => rgit(&repo, &index, &["add", "-A", "--", &path], None),
+                DiffClick::Hunk(_, DiffAct::Stage) if new_file => rgit(&repo, &index, &["add", "--", &path], None),
+                DiffClick::Hunk(i, DiffAct::Stage) => match history::hunk_patch(&text, i) {
+                    Some(p) => rgit(&repo, &index, &["apply", "--cached", "--recount", "-"], Some(&p)),
+                    None => Ok(String::new()),
+                },
+                DiffClick::File(..) | DiffClick::Hunk(..) if new_file => std::fs::remove_file(repo.join(&path)).map(|_| String::new()).map_err(|e| e.to_string()),
+                // the file as it was (or removed again when Claude deleted it… restored)
+                DiffClick::File(..) => rgit(&repo, &index, &["checkout-index", "-f", "--", &path], None),
+                DiffClick::Hunk(i, _) => match history::hunk_patch(&text, i) {
+                    Some(p) => git::run_with(&repo, &["apply", "-R", "--recount", "-"], &[], Some(&p)),
+                    None => Ok(String::new()),
+                },
+            };
+            JobResult::ClaudeReviewDone(id, r.map(|_| ()).map_err(|e| format!("{path} : {e}")))
+        });
     }
 
     /// Keeps everything (the review starts again from here) or rejects everything.
     pub(super) fn claude_review_all(&mut self, keep: bool) {
         let (Some(repo), Some(index)) = (self.claude.dir.clone(), self.claude.review_index.clone()) else { return };
-        let r = if keep {
-            rgit(&repo, &index, &["add", "-A"], None)
-        } else {
-            let news = rgit(&repo, &index, &["-c", "core.quotePath=false", "ls-files", "--others", "--exclude-standard"], None).unwrap_or_default();
-            for p in news.lines().filter(|p| !p.is_empty()) {
-                let _ = std::fs::remove_file(repo.join(p));
-            }
-            rgit(&repo, &index, &["checkout-index", "-a", "-f"], None)
-        };
-        if let Err(e) = r {
-            self.claude.items.push(Item::Error(e));
-        }
         self.claude.confirm_reject = false;
+        self.claude.review_loading = true;
+        let id = self.claude.id;
+        self.jobs.spawn(move || {
+            let _one = REVIEW_GIT.lock();
+            let r = if keep {
+                rgit(&repo, &index, &["add", "-A"], None)
+            } else {
+                let news = rgit(&repo, &index, &["-c", "core.quotePath=false", "ls-files", "--others", "--exclude-standard"], None).unwrap_or_default();
+                for p in news.lines().filter(|p| !p.is_empty()) {
+                    let _ = std::fs::remove_file(repo.join(p));
+                }
+                rgit(&repo, &index, &["checkout-index", "-a", "-f"], None)
+            };
+            JobResult::ClaudeReviewDone(id, r.map(|_| ()))
+        });
+    }
+
+    /// A block, a file or everything of the review of conversation `id` kept or rejected: the
+    /// files and the review read again.
+    pub(in crate::app) fn claude_review_done(&mut self, id: u64, r: Result<(), String>) {
+        if let Some(c) = std::iter::once(&mut self.claude).chain(self.claude_others.iter_mut()).find(|c| c.id == id) {
+            if let Err(e) = r {
+                c.items.push(Item::Error(e));
+            }
+        }
         self.last_disk_check = Instant::now() - Duration::from_secs(10);
-        self.claude_reload_review();
+        if self.claude.id == id {
+            self.claude_reload_review();
+        }
         self.git_refresh();
     }
 

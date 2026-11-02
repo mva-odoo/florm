@@ -54,6 +54,33 @@ pub(super) fn snapshot(repo: &Path, index: &Path) -> Result<String, String> {
     Ok(tree.trim().to_string())
 }
 
+/// A private index starting as a copy of the repository's own: git then reads again only the
+/// files changed since (from HEAD alone, every file of the project would be read, seconds on a
+/// big one). Without an index yet: HEAD, or nothing in a repository without commits.
+pub(super) fn seed_index(repo: &Path, index: &Path) -> Result<(), String> {
+    let real = PathBuf::from(git::stdout(repo, &["rev-parse", "--git-path", "index"]).unwrap_or_default().trim());
+    let real = if real.is_absolute() { real } else { repo.join(real) };
+    if std::fs::copy(&real, index).is_ok() {
+        return Ok(());
+    }
+    rgit(repo, index, &["read-tree", "HEAD"], None).or_else(|_| rgit(repo, index, &["read-tree", "--empty"], None)).map(|_| ())
+}
+
+/// Before a message starts work, on a thread: the review started (`review`: its index, the
+/// files as they are now), and the files written as a tree to come back to (`first`: the first
+/// message of the conversation, its private index made afresh).
+pub(super) fn prepare_turn(repo: &Path, conv: u64, review: bool, first: bool) -> (Option<Result<PathBuf, String>>, Option<String>) {
+    let review = review.then(|| {
+        let index = super::claude_ui::review_index_of(repo, conv);
+        seed_index(repo, &index).and_then(|_| rgit(repo, &index, &["add", "-A"], None)).map(|_| index)
+    });
+    let index = snap_index(repo, conv, "");
+    if first || !index.exists() {
+        let _ = seed_index(repo, &index);
+    }
+    (review, snapshot(repo, &index).ok())
+}
+
 /// The diff between two trees, or between `from` and the files now (`to` None).
 fn turn_diff_text(repo: &Path, index: &Path, from: &str, to: Option<&str>) -> Result<String, String> {
     let to = match to {
@@ -114,11 +141,10 @@ pub(super) fn turn_summary(items: &[Item], k: usize) -> (usize, usize) {
 }
 
 impl App {
-    /// The checkpoint before a message starting work: the files as they are now, and where the
-    /// conversation is. `item`: where the message goes.
-    pub(super) fn claude_checkpoint(&self, item: usize) -> Checkpoint {
+    /// The checkpoint before a message starting work: the files then (`tree`, from `prepare_turn`),
+    /// and where the conversation is. `item`: where the message goes.
+    pub(super) fn claude_checkpoint(&self, item: usize, tree: Option<String>) -> Checkpoint {
         let c = &self.claude;
-        let tree = c.dir.as_deref().filter(|d| d.join(".git").exists()).and_then(|repo| snapshot(repo, &snap_index(repo, c.id, "")).ok());
         Checkpoint { item, tree, session: c.session_id.clone(), after: c.last_uuid.clone() }
     }
 
@@ -246,7 +272,7 @@ mod tests {
 
     #[test]
     fn a_folded_turn_is_summed_up() {
-        let tool = |name: &str, file: &str| Item::Tool { id: String::new(), name: name.into(), summary: file.into(), result: None };
+        let tool = |name: &str, file: &str| Item::Tool { id: String::new(), name: name.into(), summary: file.into(), result: None, steps: Vec::new() };
         let items = vec![
             Item::User("a".into(), vec![], vec![], vec![]),
             Item::Text("je regarde".into()),

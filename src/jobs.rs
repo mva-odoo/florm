@@ -14,6 +14,11 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 pub enum JobResult {
     /// Changes since the start of the review of Claude's work (a diff).
     ClaudeReview(u64, Result<String, String>),
+    /// A block, a file or everything of the review of conversation (id) kept or rejected.
+    ClaudeReviewDone(u64, Result<(), String>),
+    /// Before a message of conversation (id) leaves: its review started (the review index), and
+    /// the files then, as a git tree.
+    ClaudePrepared(u64, Option<Result<PathBuf, String>>, Option<String>),
     /// Answer of a `/btw` of conversation (id).
     ClaudeBtw(u64, Result<String, String>),
     /// Model suggested for a message of conversation (id) before it starts; None: the current one.
@@ -22,6 +27,10 @@ pub enum JobResult {
     ClaudeTurnDiff(u64, usize, Result<String, String>),
     /// The MCP servers of a Claude conversation (true: asked by /mcp).
     ClaudeMcp(u64, bool, Result<Vec<crate::claude::Mcp>, String>),
+    /// The worktree of a Claude conversation (id) removed.
+    ClaudeWorktreeRemoved(u64, Result<(), String>),
+    /// The last commits of the folder of a Claude conversation (`git log` lines).
+    ClaudeCommits(u64, String),
     /// A worktree made for a new Claude conversation: its folder, its branch, the main repository.
     ClaudeWorktree(Result<(std::path::PathBuf, String, std::path::PathBuf), String>),
     /// The changes not committed split by Claude into commits: the blocks, then each commit's
