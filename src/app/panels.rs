@@ -24,20 +24,30 @@ impl App {
             self.open_view_tab(document::View::Welcome, t!("Accueil", "Welcome").into());
         }
         let two = self.is_split();
-        egui::CentralPanel::default().frame(egui::Frame::none()).show(ctx, |ui| {
+        // the editor on a card, on the window's background, the same space around it as around the
+        // sidebar's (on the left only when the sidebar is hidden: its own margin is there otherwise)
+        let tc = self.hl.tab_colors();
+        let left = if self.show_sidebar { 0.0 } else { 6.0 };
+        let outer = egui::Frame::none().fill(tc.bar).inner_margin(egui::Margin { left, right: 6.0, top: 0.0, bottom: 6.0 });
+        egui::CentralPanel::default().frame(outer).show(ctx, |ui| {
             if two {
                 let frame = egui::Frame::none();
+                // a gap between the two cards
+                let beside = match self.split_dir {
+                    SplitDir::Right => egui::Margin { left: 6.0, ..Default::default() },
+                    SplitDir::Down => egui::Margin { top: 6.0, ..Default::default() },
+                };
                 match self.split_dir {
                     SplitDir::Right => {
                         let w = ui.available_width() / 2.0;
-                        egui::SidePanel::right("pane_1").resizable(true).default_width(w).min_width(180.0).frame(frame).show_inside(ui, |ui| {
+                        egui::SidePanel::right("pane_1").resizable(true).default_width(w).min_width(180.0).show_separator_line(false).frame(frame.inner_margin(beside)).show_inside(ui, |ui| {
                             let r = self.pane_ui(ui, 1);
                             editor_resp = editor_resp.take().or(r);
                         });
                     }
                     SplitDir::Down => {
                         let h = ui.available_height() / 2.0;
-                        egui::TopBottomPanel::bottom("pane_1").resizable(true).default_height(h).min_height(120.0).frame(frame).show_inside(ui, |ui| {
+                        egui::TopBottomPanel::bottom("pane_1").resizable(true).default_height(h).min_height(120.0).show_separator_line(false).frame(frame.inner_margin(beside)).show_inside(ui, |ui| {
                             let r = self.pane_ui(ui, 1);
                             editor_resp = editor_resp.take().or(r);
                         });
@@ -49,8 +59,9 @@ impl App {
                 });
                 return;
             }
-            self.tabs_strip(ui, None);
-            self.drop_zones.panes.push((0, ui.available_rect_before_wrap()));
+            let gap = self.tabs_strip(ui, None);
+            let card = ui.available_rect_before_wrap();
+            self.drop_zones.panes.push((0, card));
             if self.active < self.docs.len() {
                 self.breadcrumbs_ui(ui, self.active, 0);
                 self.conflict_bar(ui, self.active, 0);
@@ -61,6 +72,7 @@ impl App {
             } else {
                 welcome = true;
             }
+            self.editor_card(ui, card, gap);
         });
         if let Some(r) = editor_resp {
             r.context_menu(|ui| self.editor_context_menu(ui));
@@ -76,6 +88,12 @@ impl App {
         if welcome {
             egui::CentralPanel::default().frame(egui::Frame::none().fill(self.hl.colors.bg)).show(ctx, |ui| self.welcome_ui(ui));
         }
+    }
+
+    /// The editor area of a panel as a card (rounded, bordered, open under the tab shown).
+    pub(super) fn editor_card(&self, ui: &egui::Ui, rect: egui::Rect, gap: Option<egui::Rect>) {
+        let tc = self.hl.tab_colors();
+        card_over(ui, rect, tc.bar, egui::Stroke::new(1.0_f32, tc.text_inactive.gamma_multiply(0.25)), gap);
     }
 
     /// Selected text (single line) or the word under the cursor.

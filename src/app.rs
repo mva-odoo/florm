@@ -157,6 +157,54 @@ fn replace_tip() -> &'static str {
     t!("Maj+Entrée : retour à la ligne dans le remplacement.\nEn mode regex (.*) : \\n retour à la ligne, \\t tabulation, \\\\ barre oblique inverse, $1 groupe.\nEx. : chercher \\\\n (regex), remplacer par \\n, pour changer les « \\n » écrits en vrais retours à la ligne.", "Shift+Enter: new line in the replacement.\nIn regex mode (.*): \\n new line, \\t tab, \\\\ backslash, $1 group.\nE.g.: find \\\\n (regex), replace with \\n, to turn written “\\n” into real new lines.")
 }
 
+/// The editor area as a card, like the sidebar's: drawn over what the editor painted in `rect`,
+/// its corners are rounded (the bits outside them painted in `outside`, the window's background)
+/// and a thin border goes round it, open under the tab shown (`gap`) so that tab merges with it.
+fn card_over(ui: &egui::Ui, rect: egui::Rect, outside: Color32, border: egui::Stroke, gap: Option<egui::Rect>) {
+    let r = CARD_ROUNDING;
+    let p = ui.painter();
+    // (corner, center of its arc, angle where the arc starts): top left, top right, bottom right, bottom left
+    let corners = [
+        (rect.left_top(), rect.left_top() + egui::vec2(r, r), std::f32::consts::PI),
+        (rect.right_top(), rect.right_top() + egui::vec2(-r, r), 1.5 * std::f32::consts::PI),
+        (rect.right_bottom(), rect.right_bottom() + egui::vec2(-r, -r), 0.0),
+        (rect.left_bottom(), rect.left_bottom() + egui::vec2(r, -r), 0.5 * std::f32::consts::PI),
+    ];
+    let arc = |c: egui::Pos2, a0: f32, rad: f32| (0..=8).map(move |k| {
+        let a = a0 + k as f32 / 8.0 * std::f32::consts::FRAC_PI_2;
+        c + rad * egui::vec2(a.cos(), a.sin())
+    });
+    // outside each arc: a fan from the corner, in the window's color
+    for (corner, c, a0) in corners {
+        let mut mesh = egui::epaint::Mesh::default();
+        mesh.colored_vertex(corner, outside);
+        for q in arc(c, a0, r) {
+            mesh.colored_vertex(q, outside);
+        }
+        for k in 1..9 {
+            mesh.add_triangle(0, k, k + 1);
+        }
+        p.add(egui::Shape::mesh(mesh));
+    }
+    // the border, half a pixel inside, from the right of the gap round to its left
+    let inner = rect.shrink(0.5);
+    let rad = r - 0.5;
+    let c = [
+        inner.left_top() + egui::vec2(rad, rad),
+        inner.right_top() + egui::vec2(-rad, rad),
+        inner.right_bottom() + egui::vec2(-rad, -rad),
+        inner.left_bottom() + egui::vec2(rad, -rad),
+    ];
+    let (g0, g1) = gap.map_or((inner.left() + rad, inner.left() + rad), |g| (g.left().max(inner.left() + rad), g.right().min(inner.right() - rad)));
+    let mut path = vec![egui::pos2(g1, inner.top())];
+    path.extend(arc(c[1], 1.5 * std::f32::consts::PI, rad));
+    path.extend(arc(c[2], 0.0, rad));
+    path.extend(arc(c[3], 0.5 * std::f32::consts::PI, rad));
+    path.extend(arc(c[0], std::f32::consts::PI, rad));
+    path.push(egui::pos2(g0, inner.top()));
+    p.add(egui::Shape::line(path, border));
+}
+
 fn filled_button(text: impl Into<String>, fill: Color32) -> egui::Button<'static> {
     egui::Button::new(RichText::new(text.into()).color(text_on(fill)).strong()).fill(fill)
 }
@@ -1666,8 +1714,7 @@ fn tab_widget(
         let outline = egui::Rect::from_min_max(tab.min + egui::vec2(0.5, 0.5), egui::pos2(tab.right() - 0.5, tab.bottom() + 12.0));
         p.with_clip_rect(tab.expand(1.0)).rect_stroke(outline, rounding, border);
     } else {
-        // the border at the bottom of the strip stays visible under it
-        p.rect_filled(egui::Rect::from_min_max(tab.min, egui::pos2(tab.right(), tab.bottom() - 1.0)), rounding, fill);
+        p.rect_filled(tab, rounding, fill);
     }
     if let Some(c) = group {
         let r = CARD_ROUNDING;
@@ -2295,7 +2342,9 @@ mod font_tests {
         let id = egui::Id::new("tabs").with(None::<u8>);
         let frame = |app: &mut App, events: Vec<egui::Event>| {
             let _ = ctx.run(egui::RawInput { screen_rect: screen, events, ..Default::default() }, |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| app.tabs_strip(ui, None));
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    app.tabs_strip(ui, None);
+                });
             });
         };
         for _ in 0..3 {

@@ -5,7 +5,8 @@ use super::*;
 impl App {
     /// Tab strip drawn above the editor area only (not above the sidebar).
     /// Tab strip: every tab (`pane == None`, with the history / split / settings tabs) or those of one panel.
-    pub(in crate::app) fn tabs_strip(&mut self, ui: &mut egui::Ui, pane: Option<u8>) {
+    /// Returns the rectangle of the tab shown, where the editor's card leaves its top border open.
+    pub(in crate::app) fn tabs_strip(&mut self, ui: &mut egui::Ui, pane: Option<u8>) -> Option<egui::Rect> {
         let tc = self.hl.tab_colors();
         let (mut activate, mut close) = (None, None);
         let (mut drag_start, mut menu_act) = (None, None);
@@ -15,13 +16,12 @@ impl App {
             counts[(d.pane as usize).min(1)] += 1;
         }
         let mut scrolled = None;
+        let mut shown_rect = None;
         let mut strip = (egui::Rect::NOTHING, Vec::new());
         let panel_id = egui::Id::new("tabs").with(pane);
-        // the strip a bit darker than the editor, a border at its bottom that the active tab covers
+        // on the window's background, above the editor's card (its border runs under the tabs)
         egui::TopBottomPanel::top(panel_id).exact_height(TAB_STRIP_H).frame(egui::Frame::none().fill(tc.bar)).show_inside(ui, |ui| {
             let bar = ui.max_rect();
-            let hair = tc.text_inactive.gamma_multiply(0.22);
-            ui.painter().hline(bar.x_range(), bar.bottom() - 0.5, egui::Stroke::new(1.0_f32, hair));
             strip.0 = bar;
             let controls = self.strip_controls(pane);
             let maximized = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
@@ -98,9 +98,9 @@ impl App {
             let out = area
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        // a small gap between the tabs, as between the cards
+                        // a small gap between the tabs; the first one starts after the card's rounded corner
                         ui.spacing_mut().item_spacing.x = 3.0;
-                        ui.add_space(4.0);
+                        ui.add_space(CARD_ROUNDING);
                         let mut groups: Vec<String> = Vec::new();
                         for g in self.docs.iter().filter_map(|d| d.group.clone()) {
                             if !groups.contains(&g) {
@@ -150,6 +150,9 @@ impl App {
                                 let _ = body.clone().on_hover_text(tip);
                             }
                             strip.1.push((body.rect, i));
+                            if active {
+                                shown_rect = Some(body.rect);
+                            }
                             if body.drag_started() {
                                 drag_start = Some(i);
                             }
@@ -290,6 +293,7 @@ impl App {
             }
             None => {}
         }
+        shown_rect
     }
 }
 

@@ -69,7 +69,7 @@ impl App {
 
     /// One panel of a split editor: its tabs and its editor.
     pub(super) fn pane_ui(&mut self, ui: &mut egui::Ui, pane: u8) -> Option<egui::Response> {
-        self.tabs_strip(ui, Some(pane));
+        let gap = self.tabs_strip(ui, Some(pane));
         let rect = ui.available_rect_before_wrap();
         self.drop_zones.panes.push((pane, rect));
         let i = self.pane_doc(pane)?;
@@ -79,8 +79,9 @@ impl App {
         self.md_toolbar_ui(ui, i, pane);
         let focused = pane == self.focused_pane;
         let id = if focused { editor_id() } else { editor_view::other_editor_id() };
-        let r = self.doc_body(ui, i, id, focused)?;
-        focused.then_some(r)
+        let r = self.doc_body(ui, i, id, focused);
+        self.editor_card(ui, rect, gap);
+        focused.then_some(r?)
     }
 
     /// Body of tab `i`: the editor, an image, or a Markdown preview. Returns the editor's response.
