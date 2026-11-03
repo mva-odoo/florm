@@ -192,6 +192,10 @@ explique comment l'installer (le système est détecté) et reprend toute seule 
   - **✨ Consignes des messages de commit** : ouvre `.florm/commit.md`, ce que Claude doit suivre
     pour ✨ et ✂ dans ce projet (langue, préfixes, longueur…). À commiter pour le partager.
     Sans ce fichier, Claude prend la section « Commits » du CLAUDE.md du projet s'il y en a une.
+  - **✨ Mes consignes des messages de commit** : les tiennes, pour tous les dépôts qui n'ont pas
+    les leurs (`commit.md` du dossier de configuration) : rien à ajouter dans un dépôt partagé.
+    Par exemple : en anglais, `[FIX] module: …`, le pourquoi dans le corps, `task-…` à la fin.
+  - Les deux s'ouvrent aussi d'un **clic droit sur ✨ ou ✂**, à côté du message du commit.
 - **Historique du fichier** (clic droit dans l'éditeur, menu Git) : tous ses commits, à travers
   ses renommages. **Historique de la ligne** (Ctrl+Alt+B) prend aussi plusieurs lignes sélectionnées.
 

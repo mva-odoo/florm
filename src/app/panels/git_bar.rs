@@ -279,6 +279,10 @@ impl App {
                         cmds.push(Cmd::GitCommitRules);
                         ui.close_menu();
                     }
+                    if crate::features::on(crate::features::Feature::Claude) && ui.button(t!("✨ Mes consignes des messages de commit (tous les dépôts)…", "✨ My commit message rules (every repository)…")).on_hover_text(t!("Tes consignes (langue, format…) pour les dépôts qui n'ont pas les leurs : rien à ajouter dans le dépôt", "Your rules (language, format…) for the repositories without their own: nothing to add to the repository")).clicked() {
+                        cmds.push(Cmd::GitMyCommitRules);
+                        ui.close_menu();
+                    }
                     ui.separator();
                     if ui.checkbox(all, t!("Toutes les branches dans le graphe", "All branches in the graph")).changed() {
                         reload = true;

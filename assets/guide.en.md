@@ -188,6 +188,10 @@ explains how to install it (the system is detected) and comes back by itself as 
   - **✨ Commit message rules**: opens `.florm/commit.md`, what Claude must follow for ✨ and ✂ in
     this project (language, prefixes, length…). Commit it to share it. Without this file, Claude
     takes the “Commits” section of the project's CLAUDE.md if there is one.
+  - **✨ My commit message rules**: yours, for every repository without its own (`commit.md` of
+    the config folder): nothing to add to a shared repository. For instance: in English,
+    `[FIX] module: …`, the why in the body, `task-…` at the end.
+  - Both also open with a **right click on ✨ or ✂**, next to the commit message.
 - **File history** (right click in the editor, Git menu): all its commits, through its renames.
   **Line history** (Ctrl+Alt+B) also takes several selected lines.
 

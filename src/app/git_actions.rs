@@ -262,6 +262,34 @@ impl App {
         self.set_status(t!("Consignes des messages de commit : Claude les suit pour ✨ et ✂", "Commit message rules: Claude follows them for ✨ and ✂"));
     }
 
+    /// The user's own rules for the commit messages (config folder), for every repository that
+    /// has none of its own: nothing to add to a shared repository. Created with an example.
+    pub(super) fn open_my_commit_rules(&mut self) {
+        let path = crate::claude::my_commit_rules_path();
+        if !path.exists() {
+            let text = t!(
+                "<!-- Tes consignes pour les messages de commit écrits par Claude (✨ et ✂ de la vue Git), dans tous les dépôts. -->\n\
+                 <!-- Un dépôt avec ses propres consignes (.florm/commit.md, ou une section « commit » de son CLAUDE.md) passe avant. -->\n\
+                 <!-- Les lignes <!-- … --> sont ignorées. Exemple à adapter : -->\n\n",
+                "<!-- Your rules for the commit messages written by Claude (✨ and ✂ of the Git view), in every repository. -->\n\
+                 <!-- A repository with its own rules (.florm/commit.md, or a « commit » section of its CLAUDE.md) comes first. -->\n\
+                 <!-- The <!-- … --> lines are ignored. An example to adapt: -->\n\n"
+            );
+            let example = "- In English, even if the last messages of the repository are in another language.\n\
+                           - Subject: `[TAG] module: what changes`, at most 72 characters, imperative mood.\n\
+                           - Tags: [FIX] bug fix, [IMP] improvement, [ADD] new module, [REF] refactoring, [REM] removal.\n\
+                           - Then an empty line, and a body that explains the problem before, the fix, and why.\n\
+                           - Last line, if known: `task-123456` or `opw-123456`.\n";
+            let write = std::fs::create_dir_all(path.parent().unwrap_or(&path)).and_then(|()| std::fs::write(&path, format!("{text}{example}")));
+            if let Err(e) = write {
+                self.set_error(tf!("Création de {} impossible : {e}", "Cannot create {}: {e}", path.display()));
+                return;
+            }
+        }
+        self.open_path(path);
+        self.set_status(t!("Tes consignes de commit : Claude les suit dans les dépôts qui n'ont pas les leurs", "Your commit rules: Claude follows them in the repositories without their own"));
+    }
+
     /// The untracked files listed, then deleted once confirmed (`git clean`).
     pub(super) fn ask_clean(&mut self) {
         let Some(repo) = self.repo.clone() else { return };

@@ -613,6 +613,7 @@ impl App {
             }
             GitClean => self.ask_clean(),
             GitCommitRules => self.open_commit_rules(),
+            GitMyCommitRules => self.open_my_commit_rules(),
             ToggleInlineDiff => {
                 self.settings.inline_diff = !self.settings.inline_diff;
                 self.persist("inline_diff", self.settings.inline_diff.to_string());

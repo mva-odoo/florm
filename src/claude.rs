@@ -531,18 +531,30 @@ pub fn commit_rules_path(repo: &Path) -> PathBuf {
     repo.join(".florm").join("commit.md")
 }
 
+/// The user's own rules for the commit messages, for the repositories without rules of their own.
+pub fn my_commit_rules_path() -> PathBuf {
+    crate::config::config_dir().join("commit.md")
+}
+
+/// A rules file without its comment lines (they are only for the reader); empty if missing.
+fn read_rules(path: &Path) -> String {
+    let t = std::fs::read_to_string(path).unwrap_or_default();
+    t.lines().filter(|l| !l.trim_start().starts_with("<!--")).collect::<Vec<_>>().join("\n").trim().to_string()
+}
+
 /// The rules the commit messages of `repo` must follow: `.florm/commit.md`, else the section of
-/// the CLAUDE.md of the project about commits (its title contains "commit").
+/// the CLAUDE.md of the project about commits (its title contains "commit"), else the user's own.
 pub fn commit_rules(repo: &Path) -> String {
     let root = crate::git::repo_root(repo).unwrap_or_else(|| repo.to_path_buf());
-    if let Ok(t) = std::fs::read_to_string(commit_rules_path(&root)) {
-        // the comment lines of the template are only for the reader
-        let t: String = t.lines().filter(|l| !l.trim_start().starts_with("<!--")).collect::<Vec<_>>().join("\n");
-        if !t.trim().is_empty() {
-            return t.trim().to_string();
-        }
+    let project = read_rules(&commit_rules_path(&root));
+    if !project.is_empty() {
+        return project;
     }
-    claude_md_section(&std::fs::read_to_string(root.join("CLAUDE.md")).unwrap_or_default(), "commit")
+    let section = claude_md_section(&std::fs::read_to_string(root.join("CLAUDE.md")).unwrap_or_default(), "commit");
+    if !section.is_empty() {
+        return section;
+    }
+    read_rules(&my_commit_rules_path())
 }
 
 /// The section of a Markdown text whose title contains `word` (any case), without its title,
