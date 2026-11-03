@@ -197,9 +197,9 @@ impl App {
             let cmd = self.debug_local_command();
             let cmd = if cmd.is_empty() { "./odoo-bin --workers 0".to_string() } else { cmd };
             let python = Some(self.settings.debug_python.trim()).filter(|p| !p.is_empty()).unwrap_or(if cfg!(windows) { "python" } else { "python3" }).to_string();
-            format!("{python} -m debugpy --listen {port} {cmd}")
+            format!("{python} -m debugpy --listen 127.0.0.1:{port} {cmd}")
         } else {
-            format!("python3 -m debugpy --listen 0.0.0.0:{port} /usr/bin/odoo --workers 0")
+            format!("python3 -m debugpy --listen 127.0.0.1:{port} /usr/bin/odoo --workers 0")
         }
     }
 

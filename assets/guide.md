@@ -303,7 +303,7 @@ barre d'état affiche **en cours** ou **en pause** : un clic montre la vue.
   - **S'attacher** : à un Odoo lancé avec debugpy devant la commande habituelle, avec
     `--workers 0` (sinon les requêtes passent par d'autres processus, que le débogueur ne suit pas) :
     `python3 -m debugpy --listen 5678 ./odoo-bin --addons-path=… -d ma_base --workers 0`.
-    Dans un conteneur : `python3 -m debugpy --listen 0.0.0.0:5678 /usr/bin/odoo … --workers 0`
+    Dans un conteneur : `python3 -m debugpy --listen 127.0.0.1:5678 /usr/bin/odoo … --workers 0`
     dans la `command:` du `docker-compose.yml`, debugpy installé dans l'image, et **Où** sur ce
     conteneur.
     **Tout est automatique, quel que soit le mode** : dès qu'un point d'arrêt est posé, Florm

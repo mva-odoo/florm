@@ -33,10 +33,15 @@ pub enum Outcome {
 pub type Running = Arc<Mutex<Option<Child>>>;
 
 fn psql(conn: &str) -> std::process::Command {
+    let (conn, password) = split_password(conn);
     let mut c = crate::os::command("psql");
     c.args(["-X", "-q", "--csv", "-v", "ON_ERROR_STOP=1"]);
     if !conn.trim().is_empty() {
         c.args(["-d", conn.trim()]);
+    }
+    // the password goes in the environment: a command line can be read by any user of the machine
+    if let Some(password) = password {
+        c.env("PGPASSWORD", password);
     }
     c.env("PGCONNECT_TIMEOUT", "8").stdin(Stdio::null());
     c
@@ -113,8 +118,59 @@ pub fn databases(server: &str) -> Result<Vec<String>, String> {
     Ok(parse_csv(&out, usize::MAX).rows.into_iter().filter_map(|r| r.into_iter().next().flatten()).collect())
 }
 
+/// The connection without its password, and the password: `postgresql://user:pw@host/db` or
+/// `host=… password=pw`. The password is not kept in the session of a project.
+pub fn split_password(conn: &str) -> (String, Option<String>) {
+    let c = conn.trim();
+    if c.starts_with("postgres://") || c.starts_with("postgresql://") {
+        let scheme_end = c.find("://").map_or(0, |i| i + 3);
+        let (scheme, rest) = c.split_at(scheme_end);
+        let authority_end = rest.find(['/', '?']).unwrap_or(rest.len());
+        if let Some(at) = rest[..authority_end].rfind('@') {
+            if let Some((user, pw)) = rest[..at].split_once(':') {
+                // in an URI the password is percent-encoded (`p%40ss` for `p@ss`)
+                return (format!("{scheme}{user}{}", &rest[at..]), Some(percent_decode(pw)));
+            }
+        }
+        return (c.to_string(), None);
+    }
+    let mut password = None;
+    let kept: Vec<&str> = c
+        .split_whitespace()
+        .filter(|p| match p.strip_prefix("password=") {
+            Some(pw) => {
+                password = Some(pw.to_string());
+                false
+            }
+            None => true,
+        })
+        .collect();
+    (kept.join(" "), password)
+}
+
 /// `conn` pointing at database `db`: a name alone or empty → the name; "key=value …" → its
 /// dbname; an URI → its path.
+/// `a%40b` → `a@b`.
+fn percent_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        let hex = b.get(i + 1..i + 3).and_then(|h| std::str::from_utf8(h).ok()).and_then(|h| u8::from_str_radix(h, 16).ok());
+        match (b[i], hex) {
+            (b'%', Some(v)) => {
+                out.push(v);
+                i += 3;
+            }
+            (c, _) => {
+                out.push(c);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 pub fn with_database(conn: &str, db: &str) -> String {
     let c = conn.trim();
     if c.starts_with("postgres://") || c.starts_with("postgresql://") {
@@ -406,5 +462,19 @@ mod tests {
         assert!(p.root.children[2].never && p.root.children[2].misestimate().is_none());
         assert_eq!(p.root.walk().iter().map(|(d, _)| *d).collect::<Vec<_>>(), [0, 1, 1, 1]);
         assert!(parse_plan("not json").is_err());
+    }
+}
+
+#[cfg(test)]
+mod password_tests {
+    use super::split_password;
+
+    #[test]
+    fn password_leaves_the_connection() {
+        assert_eq!(split_password("postgresql://me:secret@db.local:5432/odoo?sslmode=require"), ("postgresql://me@db.local:5432/odoo?sslmode=require".into(), Some("secret".into())));
+        assert_eq!(split_password("postgresql://me@db.local/odoo"), ("postgresql://me@db.local/odoo".into(), None));
+        assert_eq!(split_password("host=db user=me password=secret dbname=odoo"), ("host=db user=me dbname=odoo".into(), Some("secret".into())));
+        assert_eq!(split_password("odoo"), ("odoo".into(), None));
+        assert_eq!(split_password("postgresql://me:p%40ss@db/odoo").1.as_deref(), Some("p@ss"));
     }
 }

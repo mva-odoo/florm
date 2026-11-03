@@ -129,7 +129,7 @@ impl App {
             split: self.is_split().then(|| if self.split_dir == SplitDir::Down { "down" } else { "right" }.to_string()),
             bottom: self.bottom.map(|b| b.key()),
             sidebar_hidden: !self.show_sidebar,
-            sql_conn: self.sql.conn(),
+            sql_conn: crate::sql::split_password(&self.sql.conn()).0,
             sql_query: self.sql.query.clone(),
         };
         (session, backups)

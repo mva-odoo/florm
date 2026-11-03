@@ -469,14 +469,32 @@ pub fn is_installed(name: &str) -> bool {
     find_runner(name).is_some()
 }
 
+/// Runs `python -m <module>` with the tools folder in `sys.path`, but not the folder the linter
+/// runs in: `python -m` puts the current folder first, so a file of a cloned repository named like
+/// a module the linter imports (json.py…) would run. `-I` (isolated mode) leaves it out, and
+/// ignores PYTHONPATH: the tools folder is added by the code run with `-c`.
+fn module_command(module: &str) -> std::process::Command {
+    const BOOT: &str = "import sys, runpy; sys.path.insert(0, sys.argv[1]); m = sys.argv[2]; \
+        sys.argv = [m] + sys.argv[3:]; runpy.run_module(m, run_name='__main__', alter_sys=True)";
+    let mut c = crate::os::command(python());
+    c.args(["-I", "-c", BOOT]).arg(tools_dir()).arg(module);
+    c
+}
+
+/// The file pylint reads no configuration from. The configuration of a repository is not read
+/// by pylint: its `init-hook` is Python code, run at each lint.
+fn null_rcfile() -> &'static str {
+    if cfg!(windows) {
+        "NUL"
+    } else {
+        "/dev/null"
+    }
+}
+
 fn run_with_stdin(runner: &Runner, args: &[String], input: &str, cwd: &Path) -> Option<String> {
     let mut c = match runner {
         Runner::Bin(p) => crate::os::command(p),
-        Runner::Module(m) => {
-            let mut c = crate::os::command(python());
-            c.arg("-m").arg(m).env("PYTHONPATH", tools_dir());
-            c
-        }
+        Runner::Module(m) => module_command(m),
     };
     c.args(args).current_dir(cwd).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = c.spawn().ok()?;
@@ -538,6 +556,7 @@ pub fn lint_python(path: &Path, text: &str, root: Option<&Path>, cfg: &LintConfi
             "pylint" => [
                 "--from-stdin".to_string(),
                 "--score=n".to_string(),
+                format!("--rcfile={}", null_rcfile()),
                 "--msg-template={path}:{line}:{column}: {msg_id} {msg} ({symbol})".to_string(),
             ]
             .into_iter()
@@ -788,5 +807,30 @@ mod tests {
         let d = parse_colon_format("x.py:1:1: F401 'os' imported but unused\nx.py:4:12: F821 undefined name 'y'\nx.py:2:80: E501 line too long (90 > 79 characters)\nx.py:3:1: E0602 Undefined variable 'z' (undefined-variable)", "flake8");
         assert_eq!(d.iter().map(|d| d.code.clone().unwrap()).collect::<Vec<_>>(), ["F401", "F821", "E501", "E0602"]);
         assert_eq!(d.iter().map(|d| d.severity).collect::<Vec<_>>(), [Severity::Warning, Severity::Error, Severity::Warning, Severity::Error]);
+    }
+}
+
+#[cfg(test)]
+mod isolation_tests {
+    use super::*;
+
+    /// `python -m <module>` runs from the folder of the linted file: a file named like a module must
+    /// not run in place of the module (the marker file is written only if it does).
+    #[test]
+    fn module_runs_do_not_import_the_working_folder() {
+        let dir = std::env::temp_dir().join(format!("florm_shadow_{}", std::process::id()));
+        let marker = dir.join("marker");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("this.py"), format!("open({:?}, 'w').write('ran')\n", marker)).unwrap();
+        let out = module_command("this").current_dir(&dir).stdin(Stdio::null()).output().expect("python runs");
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        assert!(!marker.exists(), "the file of the folder ran in place of the module");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn pylint_ignores_the_configuration_of_the_repository() {
+        let line = format!("--rcfile={}", null_rcfile());
+        assert!(line == "--rcfile=/dev/null" || line == "--rcfile=NUL");
     }
 }

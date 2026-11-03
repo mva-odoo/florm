@@ -751,8 +751,11 @@ impl App {
                     Err(e) => self.set_error(tf!("Renommage de {} impossible : {e}", "Cannot rename {}: {e}", old.display())),
                 }
             }
+            Prompt::NewBranch if !ref_name_ok(&text) => self.set_error(t!("Nom de branche refusé : il ne doit pas commencer par « - »", "Branch name refused: it must not start with “-”")),
             Prompt::NewBranch => self.git_job("checkout -b", &["checkout", "-b", &text]),
+            Prompt::BranchAt(_) if !ref_name_ok(&text) => self.set_error(t!("Nom de branche refusé : il ne doit pas commencer par « - »", "Branch name refused: it must not start with “-”")),
             Prompt::BranchAt(hash) => self.git_job("branch", &["branch", &text, &hash]),
+            Prompt::RenameBranch { .. } if !ref_name_ok(&text) => self.set_error(t!("Nom de branche refusé : il ne doit pas commencer par « - »", "Branch name refused: it must not start with “-”")),
             Prompt::RenameBranch { old, upstream } => {
                 let Some(repo) = self.repo.clone() else { return };
                 if text == old {
@@ -771,7 +774,9 @@ impl App {
             }
             Prompt::TagAt(hash) => {
                 let (name, msg) = text.split_once(char::is_whitespace).map_or((text.as_str(), ""), |(n, m)| (n, m.trim()));
-                if msg.is_empty() {
+                if !ref_name_ok(name) {
+                    self.set_error(t!("Nom de tag refusé : il ne doit pas commencer par « - »", "Tag name refused: it must not start with “-”"));
+                } else if msg.is_empty() {
                     self.git_job("tag", &["tag", name, &hash]);
                 } else {
                     self.git_job("tag", &["tag", "-a", name, "-m", msg, &hash]);
@@ -1141,4 +1146,9 @@ fn best(mut scored: Vec<(i32, usize)>) -> Vec<usize> {
     }
     scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
     scored.into_iter().map(|(_, i)| i).collect()
+}
+
+/// A name given to git: not empty, and not read as an option (`-d`, `--force`…).
+fn ref_name_ok(name: &str) -> bool {
+    !name.trim().is_empty() && !name.starts_with('-')
 }

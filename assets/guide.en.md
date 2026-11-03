@@ -299,7 +299,7 @@ or **paused**: a click shows the view.
   - **Attach**: to an Odoo started with debugpy in front of the usual command, with
     `--workers 0` (otherwise the requests go through other processes, which the debugger does not
     follow): `python3 -m debugpy --listen 5678 ./odoo-bin --addons-path=… -d my_db --workers 0`.
-    In a container: `python3 -m debugpy --listen 0.0.0.0:5678 /usr/bin/odoo … --workers 0` in the
+    In a container: `python3 -m debugpy --listen 127.0.0.1:5678 /usr/bin/odoo … --workers 0` in the
     `command:` of `docker-compose.yml`, debugpy installed in the image, and **Where** set to that
     container.
     **It is all automatic, whatever the mode**: as soon as a breakpoint is set, Florm waits for a

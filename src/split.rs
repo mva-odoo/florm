@@ -31,7 +31,9 @@ pub fn edit_todo(file: &Path) -> Result<(), String> {
 /// Sequence editor command running this executable with `TODO_FLAG`.
 pub fn self_editor() -> Result<String, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    Ok(format!("\"{}\" {TODO_FLAG}", exe.display().to_string().replace('\\', "/")))
+    // git runs this through a shell: the path is quoted, with what a shell would read inside quotes escaped
+    let path = exe.display().to_string().replace('\\', "/").replace('"', "\\\"").replace('$', "\\$").replace('`', "\\`");
+    Ok(format!("\"{path}\" {TODO_FLAG}"))
 }
 
 #[derive(Clone, Debug)]

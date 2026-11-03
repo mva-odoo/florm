@@ -286,7 +286,8 @@ pub fn prepare(cfg: &Config) -> Result<Prepared, Failure> {
                 if name.contains('/') || name.ends_with(".py") {
                     return cwd.as_ref().map(|d| format!("{}/{}", d.trim_end_matches('/'), name.trim_start_matches("./")));
                 }
-                let found = crate::docker::exec_output(c, &["sh", "-c", &format!("command -v {name}")]).ok()?;
+                // the name is a positional argument of the shell, never part of its code
+                let found = crate::docker::exec_output(c, &["sh", "-c", "command -v \"$1\"", "sh", name]).ok()?;
                 Some(found.trim().to_string()).filter(|f| !f.is_empty())
             })?;
             let args = common(run.launch_args(cwd.as_deref()));
