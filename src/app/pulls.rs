@@ -588,7 +588,7 @@ impl App {
                         });
                         // like the chatter of Odoo: write on top, then everything that happened, newest first
                         egui::ScrollArea::vertical().id_salt("pr_conv").auto_shrink([false, false]).show(ui, |ui| {
-                            ui.set_max_width(ui.available_width().min(1000.0));
+                            ui.set_max_width(ui.available_width());
                             ui.add_space(4.0);
                             merge_box(ui, d, &mut p.merge_method, &mut p.delete_branch, &mut p.all_checks, p.busy, accent, &mut act);
                             let draft = p.drafts.entry(DRAFT_PR.into()).or_default();
@@ -633,7 +633,7 @@ impl App {
                                             if d.body.trim().is_empty() {
                                                 ui.label(RichText::new(t!("Pas de description.", "No description.")).weak().italics());
                                             } else {
-                                                egui_commonmark::CommonMarkViewer::new().show(ui, cache, &d.body);
+                                                egui_commonmark::CommonMarkViewer::new().show(ui, cache, &super::md::autolink(&d.body));
                                             }
                                             ui.horizontal_wrapped(|ui| reactions_row(ui, &d.id, &d.reactions, p.busy, &mut act));
                                         });
@@ -652,7 +652,7 @@ impl App {
                                             comment_block(ui, &c.author.login, &date, review, |ui| {
                                                 let tools = CommentTools { id: &c.id, body: &c.body, mine: c.mine, deletable: !c.is_review(), reactions: &c.reactions, busy: p.busy, accent };
                                                 comment_body(ui, cache, tools, &mut p.editing, &mut act, |ui, cache, _| {
-                                                    egui_commonmark::CommonMarkViewer::new().show(ui, cache, &c.body);
+                                                    egui_commonmark::CommonMarkViewer::new().show(ui, cache, &super::md::autolink(&c.body));
                                                 });
                                             });
                                         }
@@ -1809,7 +1809,7 @@ fn thread_ui(
                             for part in github::parts(&c.body) {
                                 match part {
                                     Part::Text(text) => {
-                                        egui_commonmark::CommonMarkViewer::new().show(ui, cache, &text);
+                                        egui_commonmark::CommonMarkViewer::new().show(ui, cache, &super::md::autolink(&text));
                                     }
                                     Part::Suggestion(text) => suggestion_ui(ui, t, c, &text, start, line, applied, shifts, checked_out, accent, act),
                                 }
