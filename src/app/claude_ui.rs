@@ -15,6 +15,7 @@ use super::claude_tools::{ToolAct, ToolsUi, Worktree};
 
 mod context;
 mod hub;
+mod live;
 mod review;
 mod send;
 mod store;
@@ -156,6 +157,8 @@ pub(super) struct ClaudeUi {
     pub(super) tools: ToolsUi,
     /// Where it was drawn, and at which frame: an image dropped there is given to it.
     pub(super) drop_area: Option<(u64, egui::Rect)>,
+    /// The outputs of its commands shown while they run.
+    live: live::Live,
 }
 
 /// What the height of a message depends on: its content, its place and the width.
@@ -1524,6 +1527,7 @@ impl App {
                         ui.add_space(6.0);
                         let extra = match it {
                             Item::User(..) => u8::from(c.folded.contains(&k)) | u8::from(c.confirm_rewind == Some(k)) << 1,
+                            Item::Tool { id, .. } => u8::from(c.live.open.contains(id)) << 2,
                             _ => 0,
                         };
                         // working or not only changes the last answer (its questions): the others
@@ -1671,7 +1675,7 @@ impl App {
                                     answer = c.answers.as_ref().map(|a| a.message(&questions));
                                 }
                             }
-                            Item::Tool { name, summary, result, steps, time, .. } => {
+                            Item::Tool { id: tool_id, name, summary, result, steps, time } => {
                                 // how long it took, or has been running
                                 let took = match *time {
                                     (0, _) => None,
@@ -1689,6 +1693,8 @@ impl App {
                                 let head = RichText::new(format!("{icon} {name}  {summary}")).monospace().size(12.0).color(if error { err() } else { color });
                                 // a command: copied to run it again in a terminal
                                 let command = (name == "Bash" && !summary.is_empty()).then_some(summary.as_str());
+                                // sent to the background: its output goes on in a file
+                                let background = name == "Bash" && result.as_ref().is_some_and(|(t, _)| live::background_file(t).is_some());
                                 // lines that wrap: one too wide (a long command, its output) would widen the
                                 // conversation, and every answer after it would go past the right edge
                                 match result.as_ref().filter(|(t, _)| !t.trim().is_empty() && (name == "Bash" || error)) {
@@ -1703,6 +1709,9 @@ impl App {
                                                     }
                                                     if let Some(cmd) = command {
                                                         super::md::copy_button(ui, cmd, t!("Copier", "Copy"));
+                                                    }
+                                                    if background {
+                                                        live_toggle(ui, &mut c.live, tool_id);
                                                     }
                                                     clicked
                                                 })
@@ -1731,8 +1740,17 @@ impl App {
                                             if let Some(cmd) = command {
                                                 super::md::copy_button(ui, cmd, t!("Copier", "Copy"));
                                             }
+                                            if name == "Bash" && (result.is_none() || background) {
+                                                live_toggle(ui, &mut c.live, tool_id);
+                                            }
                                         });
                                     }
+                                }
+                                // what the command prints, read while it runs
+                                // (a command in the foreground: until its result comes, Claude Code removes the file then)
+                                if c.live.open.contains(tool_id) && name == "Bash" && (result.is_none() || background) {
+                                    let running = result.is_none() && c.busy;
+                                    live_output(ui, &mut c.live, tool_id, time.0, result.as_ref().map(|(t, _)| t.as_str()), c.session_id.as_deref(), running || background);
                                 }
                                 // an agent: the tools it used, folded under its call
                                 if !steps.is_empty() {
@@ -2163,6 +2181,58 @@ fn gauges_tip(ui: &mut egui::Ui, gauges: &[(String, f32, String)], accent: Color
 }
 
 /// Now, in unix milliseconds.
+/// The button that shows (or hides) what command `id` prints.
+fn live_toggle(ui: &mut egui::Ui, live: &mut live::Live, id: &str) {
+    let open = live.open.contains(id);
+    let label = if open { t!("▾ Sortie", "▾ Output") } else { t!("▸ Sortie", "▸ Output") };
+    if ui.small_button(label).on_hover_text(t!("Voir ce que la commande affiche, pendant qu'elle tourne", "See what the command prints, while it runs")).clicked() {
+        if open {
+            live.open.remove(id);
+        } else {
+            live.open.insert(id.to_string());
+        }
+    }
+}
+
+/// What command `id` (started at `start`, unix ms) prints, its end, read again while it runs.
+fn live_output(ui: &mut egui::Ui, live: &mut live::Live, id: &str, start: u64, result: Option<&str>, session: Option<&str>, running: bool) {
+    let frame = egui::Frame::none().fill(ui.visuals().extreme_bg_color).rounding(4.0).inner_margin(egui::Margin::symmetric(8.0, 6.0));
+    frame.show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        let Some(path) = live.file(id, start, result, session) else {
+            ui.horizontal(|ui| {
+                if running {
+                    spinner(ui);
+                }
+                ui.label(RichText::new(t!("Pas encore de sortie", "No output yet")).small().weak());
+            });
+            return;
+        };
+        let (text, quiet) = live.text(&path);
+        ui.horizontal(|ui| {
+            let when = match quiet {
+                Some(s) if s < 2 => t!("s'écrit", "being written").to_string(),
+                Some(s) => tf!("rien de nouveau depuis {}", "nothing new for {}", duration(s * 1000)),
+                None => String::new(),
+            };
+            ui.label(RichText::new(when).small().weak());
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                super::md::copy_button(ui, &text, t!("Copier", "Copy"));
+            });
+        });
+        if text.trim().is_empty() {
+            ui.label(RichText::new(t!("Pas encore de sortie", "No output yet")).small().weak());
+        } else {
+            egui::ScrollArea::vertical().id_salt(("live_output", id)).max_height(260.0).stick_to_bottom(true).show(ui, |ui| {
+                ui.add(egui::Label::new(RichText::new(text).monospace().size(11.5)).wrap());
+            });
+        }
+    });
+    if running {
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(500));
+    }
+}
+
 fn now_ms() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
 }

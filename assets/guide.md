@@ -450,6 +450,9 @@ panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en
   onglet Claude** pour revenir à un onglet par conversation.
 - **Liens et commandes** : les adresses (https://…) des réponses s'ouvrent dans le navigateur d'un
   clic. Chaque commande lancée par Claude montre sa durée (en direct tant qu'elle tourne).
+- **Sortie d'une commande en cours** : **▸ Sortie** à côté d'une commande qui tourne (des tests…)
+  ou envoyée en arrière-plan montre ce qu'elle affiche, mis à jour en direct, avec un bouton
+  pour le copier.
 - **Quotas** : en haut à droite, la jauge **5 h** du quota de ton abonnement ; celles de **7 j** et
   du **Contexte** de la conversation n'apparaissent qu'au-delà de 70 %. Le survol de la jauge 5 h
   les montre toutes les trois, avec quand le quota repart à zéro.

@@ -440,6 +440,8 @@ command and your login: no key to set up.
   Preferences → Claude → **One Claude tab** to go back to a tab per conversation.
 - **Links and commands**: the addresses (https://…) in the answers open in the browser with a
   click. Each command run by Claude shows how long it took (live while it runs).
+- **Output of a running command**: **▸ Output** next to a command that runs (tests…) or was
+  sent to the background shows what it prints, updated live, with a button to copy it.
 - **Quotas**: at the top right, the **5 h** gauge of your subscription's quota; the **7 d** one and
   the conversation's **Context** only show past 70 %. Hovering the 5 h gauge shows all three, with
   when the quota resets.
