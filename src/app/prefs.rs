@@ -2,6 +2,9 @@
 
 use super::*;
 
+mod accounts;
+pub(super) use accounts::AccountsUi;
+
 /// A theme in the preferences: its background with a few lines of "code" in its colors.
 fn theme_card(ui: &mut egui::Ui, name: &str, pv: &highlight::ThemePreview, selected: bool) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(168.0, 92.0), Sense::click());
@@ -843,6 +846,9 @@ impl App {
             PrefSection::Debug if !self.settings.debugger => Some(crate::features::Feature::Debugger),
             _ => None,
         };
+        if sec == PrefSection::Claude && self.settings.claude {
+            self.claude_accounts_prefs(ui, rc);
+        }
         if let Some(f) = needs.filter(|_| rc.filter.is_empty()) {
             self.feature_needs(ui, f);
         }

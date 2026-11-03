@@ -40,6 +40,7 @@ impl App {
         use crate::features::{self, Feature};
         let s = &self.settings;
         features::set_all(s.github, s.debugger, s.claude);
+        crate::claude_account::set_default(super::claude_ui::default_account_dir(s));
         let off = |v: &document::View| match v {
             document::View::PullRequests => !features::on(Feature::GitHub),
             document::View::Debug => !features::on(Feature::Debugger),

@@ -31,6 +31,11 @@ pub(in crate::app) struct SavedConv {
     pub(super) add_dirs: Vec<PathBuf>,
     #[serde(default)]
     pub(super) worktree: Option<Worktree>,
+    /// The Claude account of the conversation, and the one of its session.
+    #[serde(default)]
+    pub(super) account: String,
+    #[serde(default)]
+    pub(super) session_account: String,
 }
 
 /// The options of the messages: what goes with each one, and the questions and model checks.
@@ -237,12 +242,19 @@ pub(super) fn limits_path() -> PathBuf {
     config::data_dir().join("claude_limits.json")
 }
 
-/// Use of the plan's quotas last known, kept between sessions: shown before the first message.
-pub(in crate::app) fn load_limits() -> Vec<(String, f32, i64)> {
-    std::fs::read_to_string(limits_path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+type Limits = Vec<(String, f32, i64)>;
+
+/// Use of the plan's quotas last known, of each account, kept between sessions: shown before
+/// the first message. (Those of before the accounts: the first account's.)
+pub(in crate::app) fn load_limits() -> HashMap<String, Limits> {
+    let text = std::fs::read_to_string(limits_path()).unwrap_or_default();
+    serde_json::from_str(&text)
+        .ok()
+        .or_else(|| serde_json::from_str::<Limits>(&text).ok().map(|l| HashMap::from([(String::new(), l)])))
+        .unwrap_or_default()
 }
 
-pub(super) fn write_limits(limits: &[(String, f32, i64)]) {
+pub(super) fn write_limits(limits: &HashMap<String, Limits>) {
     let p = limits_path();
     if let Some(d) = p.parent() {
         let _ = std::fs::create_dir_all(d);
@@ -285,6 +297,8 @@ impl App {
             last_uuid: c.last_uuid.clone(),
             add_dirs: c.add_dirs.clone(),
             worktree: c.worktree.clone(),
+            account: c.account.clone(),
+            session_account: c.session_account.clone(),
         };
         self.claude.saved_key = key;
         self.claude_saved.retain(|s| s.key != key);
@@ -313,6 +327,7 @@ impl App {
         c.last_uuid = s.last_uuid.clone();
         c.add_dirs = s.add_dirs.clone();
         c.worktree = s.worktree.clone();
+        (c.account, c.session_account) = (s.account.clone(), s.session_account.clone());
         (c.with_context, c.ask_first, c.model_first, c.no_defs) = (s.options.with_context, s.options.ask_first, s.options.model_first, s.options.no_defs);
         c.items.push(Item::Info(t!("— conversation reprise : le prochain message continue avec son contexte —", "— conversation resumed: the next message goes on with its context —").into()));
         c

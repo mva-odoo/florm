@@ -6,6 +6,7 @@
 
 use super::*;
 use crate::claude::{self, Event};
+use crate::claude_account;
 use serde::{Deserialize, Serialize};
 use history::{DiffAct, DiffClick};
 use super::claude_queue::{self, Queue, QueueAct, TaskState};
@@ -159,6 +160,16 @@ pub(super) struct ClaudeUi {
     pub(super) drop_area: Option<(u64, egui::Rect)>,
     /// The outputs of its commands shown while they run.
     live: live::Live,
+    /// The Claude account it runs with (its name; empty: the first one), and the one its session
+    /// (`session_id`) was made with: another one, it is copied there before going on.
+    pub(super) account: String,
+    pub(super) session_account: String,
+}
+
+/// The configuration folder of the account chosen by default in `s`.
+pub(in crate::app) fn default_account_dir(s: &config::Settings) -> Option<PathBuf> {
+    let accounts = claude_account::accounts(&s.claude_accounts);
+    claude_account::find(&accounts, &s.claude_account).dir.clone()
 }
 
 /// What the height of a message depends on: its content, its place and the width.
@@ -383,9 +394,10 @@ impl App {
                 }
                 Event::Context(tokens) => self.claude.context.0 = tokens,
                 Event::Limits(l) => {
-                    if l != self.claude_limits {
-                        write_limits(&l);
-                        self.claude_limits = l;
+                    let key = self.claude_limits_key(&self.claude.account);
+                    if self.claude_limits.get(&key) != Some(&l) {
+                        self.claude_limits.insert(key, l);
+                        write_limits(&self.claude_limits);
                     }
                 }
                 Event::Done { error, text, cost, window, tokens } => {
@@ -553,9 +565,42 @@ impl App {
             mode: c.mode,
             with_context: c.with_context,
             add_dirs: c.add_dirs.clone(),
+            account: c.account.clone(),
             focus: true,
             ..Default::default()
         }
+    }
+
+    /// The Claude accounts of the settings.
+    pub(in crate::app) fn claude_accounts(&self) -> Vec<claude_account::Account> {
+        claude_account::accounts(&self.settings.claude_accounts)
+    }
+
+    /// The key of the quotas of account `name`: empty for the first one.
+    pub(in crate::app) fn claude_limits_key(&self, name: &str) -> String {
+        let accounts = self.claude_accounts();
+        let a = claude_account::find(&accounts, name);
+        if a.name == accounts[0].name { String::new() } else { a.name.clone() }
+    }
+
+    /// The configuration folder of the account named `name` (None: the usual one).
+    pub(super) fn claude_account_dir(&self, name: &str) -> Option<PathBuf> {
+        claude_account::find(&self.claude_accounts(), name).dir.clone()
+    }
+
+    /// The current conversation goes on with the account `name`, from the next message (its
+    /// session is copied there then: `claude_session_to_account`).
+    pub(in crate::app) fn claude_set_account(&mut self, name: String) {
+        if self.claude.account == name {
+            return;
+        }
+        if self.claude.session.is_some() {
+            self.claude.restart = true;
+        }
+        self.claude.account = name.clone();
+        self.settings.claude_account = name.clone();
+        self.persist("claude_account", config::toml_str(&name));
+        self.claude_save();
     }
 
     /// A new conversation in `dir` (a worktree), in a new tab; the current one goes on in its place.
@@ -756,10 +801,15 @@ impl App {
             })
             .collect();
         let (mut open_saved, mut forget_saved) = (None, None);
+        let accounts = self.claude_accounts();
+        let account_name = claude_account::find(&accounts, &self.claude.account).name.clone();
+        let limits_key = self.claude_limits_key(&self.claude.account);
+        let mut chosen_account: Option<String> = None;
         let (perms, budget, mut perms_changed) = (&mut self.settings.claude_perms, &mut self.settings.claude_budget, false);
         let (allow, deny) = (&self.settings.claude_allow, &self.settings.claude_deny);
         let (mut show_review, was_shown) = (self.settings.claude_review, self.settings.claude_review);
-        let limits = &self.claude_limits;
+        let no_limits = Vec::new();
+        let limits = self.claude_limits.get(&limits_key).unwrap_or(&no_limits);
         let commands = command_list(&self.claude_commands);
         let c = &mut self.claude;
         let cache = &mut self.md_cache;
@@ -798,6 +848,20 @@ impl App {
                     .on_hover_text(t!("Le dossier où Claude travaille : un dépôt du projet, un projet récent ou n'importe quel dossier", "The folder Claude works in: a repository of the project, a recent project or any folder"));
                     // changed during the conversation: Claude goes on with it (at once while it works,
                     // else from the next message, the conversation kept)
+                    // the account it runs with (from the next message, the conversation kept)
+                    if accounts.len() > 1 {
+                        egui::ComboBox::from_id_salt(("claude_account", conv))
+                            .selected_text(format!("👤 {account_name}"))
+                            .show_ui(ui, |ui| {
+                                for a in &accounts {
+                                    if ui.selectable_label(a.name == account_name, &a.name).clicked() && a.name != account_name {
+                                        chosen_account = Some(a.name.clone());
+                                    }
+                                }
+                            })
+                            .response
+                            .on_hover_text(t!("Le compte Claude de cette conversation (son abonnement et ses quotas) ; changé, il s'applique au prochain message, la conversation continue", "The Claude account of this conversation (its subscription and quotas); changed, it applies from the next message, the conversation goes on"));
+                    }
                     egui::ComboBox::from_id_salt(("claude_model", conv)).selected_text(claude::label(claude::MODELS[c.model].1)).show_ui(ui, |ui| {
                         for (k, (_, label)) in claude::MODELS.iter().enumerate() {
                             ui.selectable_value(&mut c.model, k, claude::label(label));
@@ -1890,6 +1954,10 @@ impl App {
         if model_changed || mode_changed {
             self.claude_switch(model_changed, mode_changed);
         }
+        if let Some(a) = chosen_account {
+            self.set_status(tf!("Compte Claude : {a} (dès le prochain message)", "Claude account: {a} (from the next message on)"));
+            self.claude_set_account(a);
+        }
         if read_commits {
             if let Some(dir) = self.claude.dir.clone() {
                 let id = self.claude.id;
@@ -2061,10 +2129,13 @@ mod tests {
             last_uuid: Some("u".into()),
             add_dirs: Vec::new(),
             worktree: None,
+            account: "Perso".into(),
+            session_account: "Pro".into(),
         };
         let back: Vec<SavedConv> = serde_json::from_str(&serde_json::to_string(&vec![s]).unwrap()).unwrap();
         assert_eq!((back[0].key, back[0].session_id.as_deref(), back[0].items.len()), (7, Some("abc"), 3));
         assert!(back[0].options.ask_first && !back[0].options.model_first);
+        assert_eq!((back[0].account.as_str(), back[0].session_account.as_str()), ("Perso", "Pro"));
         assert_eq!((back[0].checkpoints[0].tree.as_deref(), back[0].last_uuid.as_deref()), (Some("abc"), Some("u")));
         assert!(matches!(&back[0].items[1], Item::Tool { result: Some((r, false)), .. } if r == "ok"));
         // the list of the history: what the messages gave, for « Reprendre la conversation de ce fichier »

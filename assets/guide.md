@@ -450,6 +450,13 @@ panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en
   onglet Claude** pour revenir à un onglet par conversation.
 - **Liens et commandes** : les adresses (https://…) des réponses s'ouvrent dans le navigateur d'un
   clic. Chaque commande lancée par Claude montre sa durée (en direct tant qu'elle tourne).
+- **Plusieurs comptes Claude** (pro, perso…) : **Préférences → Claude → Comptes Claude**,
+  « + Ajouter un compte », puis **Se connecter…** (la connexion se fait une fois, dans un
+  terminal de Florm ; chaque compte a son dossier, `~/.claude-perso` par exemple). Le menu
+  **👤** en haut d'une conversation choisit son compte : changé en cours de route, il
+  s'applique au prochain message et la conversation garde son contexte. Le compte
+  « par défaut » sert aux nouvelles conversations et aux messages de commit, descriptions de
+  PR et revues. Les jauges de quota suivent le compte de la conversation affichée.
 - **Sortie d'une commande en cours** : **▸ Sortie** à côté d'une commande qui tourne (des tests…)
   ou envoyée en arrière-plan montre ce qu'elle affiche, mis à jour en direct, avec un bouton
   pour le copier.

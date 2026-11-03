@@ -57,6 +57,10 @@ pub struct Settings {
     /// "Bash(git *)", "Edit(src/**)", "Read(./.env)", "WebFetch(domain:github.com)", "mcp__github"…
     pub claude_allow: Vec<String>,
     pub claude_deny: Vec<String>,
+    /// Claude accounts: "name=configuration folder" (empty folder: the usual one of Claude Code).
+    pub claude_accounts: Vec<String>,
+    /// The account of new conversations and of the other calls (commit messages…); empty: the first.
+    pub claude_account: String,
     /// Branch and upstream of git repositories on their folder in the tree.
     /// The toolbar of formatting buttons above a Markdown source (the source stays editable).
     pub markdown_toolbar: bool,
@@ -180,6 +184,8 @@ impl Default for Settings {
             claude_budget: 0.0,
             claude_allow: Vec::new(),
             claude_deny: Vec::new(),
+            claude_accounts: Vec::new(),
+            claude_account: String::new(),
             markdown_toolbar: true,
             tree_git_info: true,
             inline_diff: false,
@@ -275,6 +281,10 @@ claude_budget = 0.0
 # "Read(./.env)", "WebFetch(domain:github.com)", "mcp__github" (les outils d'un serveur MCP)
 claude_allow = []
 claude_deny = []
+# comptes Claude ("nom=dossier de configuration", dossier vide = celui habituel de Claude Code), par ex.
+# ["Pro=", "Perso=~/.claude-perso"] ; compte des nouvelles conversations et des messages de commit…
+claude_accounts = []
+claude_account = ""
 # vues qui s'ouvrent dans un onglet plutôt que dans le panneau du bas ("git", "pulls", "docker", "debug") ;
 # ⇱ / ⇲ dans l'en-tête d'une vue changent ce choix
 views_in_tab = ["git", "pulls", "docker", "debug"]

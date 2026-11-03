@@ -6,6 +6,7 @@ mod i18n;
 
 mod app;
 mod claude;
+mod claude_account;
 mod commands;
 mod config;
 mod dap;

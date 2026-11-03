@@ -171,14 +171,19 @@ impl App {
     pub(in crate::app) fn claude_list_ui(&self, ui: &mut egui::Ui, hub: u64) -> Option<ListAct> {
         let accent = self.hl.colors.accent;
         let weak = ui.visuals().weak_text_color();
+        // with several accounts, each conversation says its own
+        let accounts = self.claude_accounts();
         let mut rows: Vec<Row> = self
             .all_convs()
             .map(|c| {
                 let base = c.dir.as_deref().map(|d| self.repo_label(d)).unwrap_or_default();
-                let place = match &c.worktree {
+                let mut place = match &c.worktree {
                     Some(w) => format!("🌿 {}", w.branch),
                     None => base,
                 };
+                if accounts.len() > 1 {
+                    place = format!("👤 {} · {place}", crate::claude_account::find(&accounts, &c.account).name);
+                }
                 let title = if c.forked { format!("⇉ {}", conv_title(c)) } else { conv_title(c) };
                 Row {
                     id: c.id,
@@ -388,7 +393,7 @@ mod glyph_tests {
         ctx.set_fonts(crate::app::font_definitions());
         let _ = ctx.run(Default::default(), |_| {});
         let id = egui::FontId::proportional(13.0);
-        let missing: Vec<char> = "⟳❓✔·⇉+⇱×📄".chars().filter(|c| !ctx.fonts(|f| f.has_glyphs(&id, &c.to_string()))).collect();
+        let missing: Vec<char> = "⟳❓✔·⇉+⇱×📄👤✏".chars().filter(|c| !ctx.fonts(|f| f.has_glyphs(&id, &c.to_string()))).collect();
         assert!(missing.is_empty(), "{missing:?}");
     }
 }

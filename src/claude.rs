@@ -367,8 +367,9 @@ impl Session {
     /// `perms`: the arguments of `permission_args`.
     /// `resume`: the id of an earlier session to continue (its context is kept), and `at`: the
     /// message of it after which it goes on (a copy of it, what came after is left out).
-    /// `add_dirs`: folders Claude may use besides `dir`.
-    pub fn start(dir: &Path, model: &str, perms: &[String], resume: Option<&str>, at: Option<&str>, add_dirs: &[std::path::PathBuf], repaint: impl Fn() + Send + 'static) -> Result<Session, String> {
+    /// `add_dirs`: folders Claude may use besides `dir`; `account`: the configuration folder of
+    /// the account it runs with (None: the usual one).
+    pub fn start(dir: &Path, account: Option<&Path>, model: &str, perms: &[String], resume: Option<&str>, at: Option<&str>, add_dirs: &[std::path::PathBuf], repaint: impl Fn() + Send + 'static) -> Result<Session, String> {
         let mut args = vec!["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages"];
         args.extend(perms.iter().map(String::as_str));
         if let Some(id) = resume {
@@ -384,7 +385,7 @@ impl Session {
         if !model.is_empty() {
             args.extend(["--model", model]);
         }
-        let mut child = crate::os::command("claude")
+        let mut child = crate::claude_account::command_for(account)
             .args(&args)
             .current_dir(dir)
             .stdin(Stdio::piped())
@@ -484,7 +485,7 @@ pub struct Mcp {
 /// The MCP servers of `dir` (`claude mcp list`: it starts each one to check it, so it takes a
 /// few seconds).
 pub fn mcp_list(dir: &Path) -> Result<Vec<Mcp>, String> {
-    let out = crate::os::command("claude").args(["mcp", "list"]).current_dir(dir).output().map_err(|_| not_installed())?;
+    let out = crate::claude_account::command().args(["mcp", "list"]).current_dir(dir).output().map_err(|_| not_installed())?;
     let text = String::from_utf8_lossy(&out.stdout).to_string();
     if !out.status.success() && text.trim().is_empty() {
         return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
@@ -524,7 +525,7 @@ pub fn mcp_remove(dir: &Path, name: &str) -> Result<(), String> {
 }
 
 fn run_cli(dir: &Path, args: &[&str]) -> Result<(), String> {
-    let out = crate::os::command("claude").args(args).current_dir(dir).output().map_err(|_| not_installed())?;
+    let out = crate::claude_account::command().args(args).current_dir(dir).output().map_err(|_| not_installed())?;
     if out.status.success() {
         Ok(())
     } else {
@@ -950,7 +951,7 @@ pub fn base64_encode(bytes: &[u8]) -> String {
 /// Runs `claude` once with `args`, `input` on its standard input; returns its answer (its
 /// spaces at the start kept: the indentation of code).
 fn run_once(dir: &Path, args: &[&str], input: String) -> Result<String, String> {
-    let mut child = crate::os::command("claude")
+    let mut child = crate::claude_account::command()
         .args(args)
         .current_dir(dir)
         .stdin(Stdio::piped())

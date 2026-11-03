@@ -31,6 +31,8 @@ pub enum JobResult {
     ClaudeWorktreeRemoved(u64, Result<(), String>),
     /// The last commits of the folder of a Claude conversation (`git log` lines).
     ClaudeCommits(u64, String),
+    /// What `claude auth status` says of the Claude account named so.
+    ClaudeAuth(String, Result<crate::claude_account::Status, String>),
     /// A worktree made for a new Claude conversation: its folder, its branch, the main repository.
     ClaudeWorktree(Result<(std::path::PathBuf, String, std::path::PathBuf), String>),
     /// The changes not committed split by Claude into commits: the blocks, then each commit's

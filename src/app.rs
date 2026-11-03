@@ -1010,7 +1010,8 @@ pub struct App {
     claude_loaded: bool,
     /// Use of the plan's quotas (5 hours, 7 days), shared by the conversations and kept between
     /// sessions.
-    claude_limits: Vec<(String, f32, i64)>,
+    /// The quotas of each Claude account (key: `App::claude_limits_key`).
+    claude_limits: HashMap<String, Vec<(String, f32, i64)>>,
     /// Slash commands of Claude Code (the last known, kept between sessions): sent as a message,
     /// and those of its terminal interface only.
     claude_commands: claude_ui::Commands,
@@ -1130,11 +1131,13 @@ struct PrefsUi {
     /// Fonts of the system, for the preferences (None until listed).
     font_list: Option<Vec<crate::fonts::FontInfo>>,
     font_list_loading: bool,
+    /// Préférences → Claude → Comptes.
+    accounts: prefs::AccountsUi,
 }
 
 impl Default for PrefsUi {
     fn default() -> Self {
-        PrefsUi { capture: None, proposed: None, key_action: None, section: PrefSection::Appearance, filter: String::new(), lint_args: String::new(), lint_ignore: Default::default(), theme_draft: None, template: None, shell: String::new(), exclude: String::new(), shared: String::new(), rulers: String::new(), font_list: None, font_list_loading: false }
+        PrefsUi { capture: None, proposed: None, key_action: None, section: PrefSection::Appearance, filter: String::new(), lint_args: String::new(), lint_ignore: Default::default(), theme_draft: None, template: None, shell: String::new(), exclude: String::new(), shared: String::new(), rulers: String::new(), font_list: None, font_list_loading: false, accounts: Default::default() }
     }
 }
 
@@ -1147,6 +1150,7 @@ impl App {
     fn with_ctx(egui_ctx: &egui::Context, arg: Option<PathBuf>) -> Self {
         let (settings, settings_err) = config::load();
         crate::features::set_all(settings.github, settings.debugger, settings.claude);
+        crate::claude_account::set_default(claude_ui::default_account_dir(&settings));
         // Florm has its own palette: egui must not switch to its light / dark style with the system
         // theme (Windows), and both styles get the same settings
         egui_ctx.set_theme(egui::ThemePreference::Dark);
@@ -2382,6 +2386,46 @@ mod font_tests {
         }
         let r = ctx.memory(|m| m.area_rect(egui::Id::new("overlay"))).expect("the list is shown");
         assert!(r.height() > 400.0, "{r:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Two Claude accounts: the preferences list them, a conversation moved to the other one
+    /// takes its session there (to go on with its context). `FLORM_TEST_APP=1`.
+    #[test]
+    fn claude_accounts() {
+        if std::env::var_os("FLORM_TEST_APP").is_none() {
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("florm_accounts_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (conf, proj, pro, perso) = (dir.join("conf"), dir.join("proj"), dir.join("pro"), dir.join("perso"));
+        for d in [&conf, &proj, &pro.join("projects/-p"), &perso] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        std::fs::write(pro.join("projects/-p/s1.jsonl"), "{}").unwrap();
+        let toml = format!("check_updates = false\nlsp = false\nclaude_accounts = [\"Pro={}\", \"Perso={}\"]\n", pro.display(), perso.display());
+        std::fs::write(conf.join("settings.toml"), toml).unwrap();
+        let _lock = config::TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("FLORM_CONFIG", &conf);
+        let ctx = egui::Context::default();
+        let mut app = App::with_ctx(&ctx, Some(proj.clone()));
+        assert_eq!(app.claude_accounts().iter().map(|a| a.name.as_str()).collect::<Vec<_>>(), ["Pro", "Perso"]);
+        app.prefs.section = PrefSection::Claude;
+        let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 800.0))), ..Default::default() };
+        for _ in 0..3 {
+            let _ = ctx.run(input.clone(), |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| app.prefs_ui(ui));
+            });
+        }
+        // the conversation of the Pro account goes on with the Perso one
+        app.claude.session_id = Some("s1".into());
+        app.claude_set_account("Perso".into());
+        assert_eq!(app.claude.account, "Perso");
+        app.claude_session_to_account();
+        assert!(perso.join("projects/-p/s1.jsonl").is_file());
+        assert_eq!((app.claude.session_id.as_deref(), app.claude.session_account.as_str()), (Some("s1"), "Perso"));
+        // the quotas of each account apart
+        assert_eq!((app.claude_limits_key("Pro"), app.claude_limits_key("Perso")), (String::new(), "Perso".to_string()));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

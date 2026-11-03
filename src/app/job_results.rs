@@ -188,6 +188,7 @@ impl App {
                 JobResult::ClaudeWorktree(r) => self.claude_worktree_ready(r),
                 JobResult::ClaudeWorktreeRemoved(id, r) => self.claude_worktree_removed(id, r),
                 JobResult::ClaudeCommits(id, out) => self.claude_commits_loaded(id, out),
+                JobResult::ClaudeAuth(name, r) => self.claude_auth_loaded(name, r),
                 JobResult::CommitMessage(r) => self.commit_message_ready(r),
                 JobResult::CommitPlan(repo, r) => self.commit_plan_loaded(repo, r),
                 JobResult::CommitPlanDone(repo, done, e) => self.commit_plan_done(repo, done, e),

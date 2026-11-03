@@ -139,7 +139,12 @@ impl App {
             }
             _ if self.claude_commands.terminal.iter().any(|t| t == name) => {
                 let ctx = self.egui_ctx.clone();
-                match self.term.open_command_panel(&ctx, &["claude".to_string(), text.to_string()], Some(dir)) {
+                // with the account of the conversation
+                let mut argv = vec!["claude".to_string(), text.to_string()];
+                if let Some(d) = self.claude_account_dir(&self.claude.account).filter(|_| cfg!(unix)) {
+                    argv.splice(0..0, ["env".to_string(), format!("CLAUDE_CONFIG_DIR={}", d.display())]);
+                }
+                match self.term.open_command_panel(&ctx, &argv, Some(dir)) {
                     Ok(id) => {
                         self.term.set_name(id, format!("claude /{name}"));
                         self.bottom = Some(BottomTab::Terminal);
@@ -244,13 +249,16 @@ impl App {
             let ctx = self.egui_ctx.clone();
             // a conversation of before (restart of Florm, process stopped): continued with its
             // context; after going back, from the message gone back to
+            self.claude_session_to_account();
             let resume = self.claude.session_id.clone();
             let at = self.claude.resume_at.clone().filter(|_| resume.is_some());
             self.claude.started = false;
-            match claude::Session::start(&dir, model, &perms, resume.as_deref(), at.as_deref(), &self.claude.add_dirs, move || ctx.request_repaint()) {
+            let account = self.claude_account_dir(&self.claude.account);
+            match claude::Session::start(&dir, account.as_deref(), model, &perms, resume.as_deref(), at.as_deref(), &self.claude.add_dirs, move || ctx.request_repaint()) {
                 Ok(s) => {
                     self.claude.session = Some(s);
                     self.claude.resume_at = None;
+                    self.claude.session_account = self.claude.account.clone();
                 }
                 Err(e) => {
                     self.claude.items.push(Item::Error(e));
@@ -538,5 +546,23 @@ impl Outgoing {
             c.input = self.text;
         }
         c.attach = self.attach;
+    }
+}
+
+impl App {
+    /// Before Claude starts again: a session made with another account is copied to the one
+    /// chosen now (else Claude starts again without the context, and says so).
+    pub(in crate::app) fn claude_session_to_account(&mut self) {
+        let c = &self.claude;
+        let Some(session) = c.session_id.clone().filter(|_| c.session_account != c.account) else { return };
+        let (from, to) = (self.claude_account_dir(&c.session_account), self.claude_account_dir(&c.account));
+        let name = c.account.clone();
+        if let Err(e) = crate::claude_account::copy_session(from.as_deref(), to.as_deref(), &session) {
+            self.log(tf!("Claude : session non copiée vers le compte {name} : {e}", "Claude: session not copied to the account {name}: {e}"));
+            self.claude.session_id = None;
+            self.claude.resume_at = None;
+            self.claude.items.push(Item::Info(t!("— autre compte : Claude repart sans le contexte de la conversation —", "— another account: Claude starts again without the context of the conversation —").into()));
+        }
+        self.claude.session_account = self.claude.account.clone();
     }
 }

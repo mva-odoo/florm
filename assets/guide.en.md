@@ -440,6 +440,13 @@ command and your login: no key to set up.
   Preferences → Claude → **One Claude tab** to go back to a tab per conversation.
 - **Links and commands**: the addresses (https://…) in the answers open in the browser with a
   click. Each command run by Claude shows how long it took (live while it runs).
+- **Several Claude accounts** (work, personal…): **Preferences → Claude → Claude accounts**,
+  “+ Add an account”, then **Log in…** (once, in a terminal of Florm; each account has its
+  folder, `~/.claude-personal` for instance). The **👤** menu at the top of a conversation
+  chooses its account: changed along the way, it applies from the next message and the
+  conversation keeps its context. The “default” account is used by new conversations and by
+  the commit messages, PR descriptions and reviews. The quota gauges follow the account of the
+  conversation shown.
 - **Output of a running command**: **▸ Output** next to a command that runs (tests…) or was
   sent to the background shows what it prints, updated live, with a button to copy it.
 - **Quotas**: at the top right, the **5 h** gauge of your subscription's quota; the **7 d** one and
