@@ -635,6 +635,26 @@ pub fn guess_base(branch: &str, bases: &[String], default: &str) -> String {
         .unwrap_or_else(|| default.to_string())
 }
 
+/// The error of a pull request GitHub does not know (yet): just after `gh pr create`, its
+/// API can still answer "Could not resolve to a PullRequest" for a few seconds.
+pub fn not_found_yet(e: &str) -> bool {
+    let e = e.to_ascii_lowercase();
+    e.contains("could not resolve to a pullrequest") || e.contains("no pull requests found")
+}
+
+/// `detail`, tried again for some seconds while GitHub does not know the pull request yet.
+pub fn detail_soon(dir: &Path, n: u64) -> Result<PrDetail, String> {
+    let mut r = detail(dir, n);
+    for _ in 0..10 {
+        match &r {
+            Err(e) if not_found_yet(e) => std::thread::sleep(std::time::Duration::from_millis(1500)),
+            _ => break,
+        }
+        r = detail(dir, n);
+    }
+    r
+}
+
 /// Number of a pull request from its address (".../pull/123").
 pub fn number_of(url: &str) -> Option<u64> {
     url.trim().rsplit('/').next()?.parse().ok()
@@ -912,6 +932,9 @@ mod tests {
         assert_eq!(guess_base("20-test", &bases, "master"), "master");
         assert_eq!(guess_base("17.0", &bases, "master"), "master");
         assert_eq!(number_of("https://github.com/odoo/odoo/pull/123\n"), Some(123));
+        assert!(not_found_yet("GraphQL: Could not resolve to a PullRequest with the number of 4631. (repository.pullRequest)"));
+        assert!(!not_found_yet(&not_installed()));
+        assert!(!not_found_yet("HTTP 502: Bad Gateway"));
         let base = r#"{"repo":{"full_name":"odoo/odoo"}}"#;
         let fork = r#"{"repo":{"full_name":"someone/odoo"}}"#;
         let l = parse_linked(

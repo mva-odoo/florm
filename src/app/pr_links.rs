@@ -206,7 +206,7 @@ impl App {
                 self.git_refresh();
                 self.set_status(tf!("Pull request créée : {url}", "Pull request created: {url}"));
                 if let Some(n) = github::number_of(&url) {
-                    self.open_pr(repo, n);
+                    self.show_created_pr(repo, n);
                 }
             }
             Err(e) => c.error = Some(e),

@@ -93,6 +93,8 @@ pub(super) struct PrUi {
     /// Labels and milestones of the repository, read once.
     choices: Option<(Vec<github::Label>, Vec<String>)>,
     choices_asked: bool,
+    /// The pull request just created from here: GitHub takes a few seconds to know it.
+    created: Option<u64>,
     /// Logins being typed to add a reviewer, an assignee.
     new_reviewer: String,
     new_assignee: String,
@@ -222,7 +224,19 @@ impl App {
             let repo = repo.clone();
             self.jobs.spawn(move || JobResult::PrChoices(repo.clone(), github::choices(&repo)));
         }
-        self.jobs.spawn(move || JobResult::PrDetail(repo.clone(), n, github::detail(&repo, n)));
+        let soon = self.pr.created == Some(n);
+        self.jobs.spawn(move || JobResult::PrDetail(repo.clone(), n, if soon { github::detail_soon(&repo, n) } else { github::detail(&repo, n) }));
+    }
+
+    /// The pull request just created, shown in the tab; the list is read again once GitHub
+    /// knows it (until then it is not in it).
+    pub(super) fn show_created_pr(&mut self, repo: PathBuf, n: u64) {
+        self.pr.created = Some(n);
+        let same = self.pr.repo.as_ref() == Some(&repo) && self.pr.list.is_some();
+        self.open_pr(repo.clone(), n);
+        if same {
+            self.load_prs(Some(repo));
+        }
     }
 
     pub(super) fn pr_choices_loaded(&mut self, repo: PathBuf, r: Result<(Vec<github::Label>, Vec<String>), String>) {
@@ -269,6 +283,14 @@ impl App {
                     (s.state, s.is_draft, s.title) = (d.state.clone(), d.is_draft, d.title.clone());
                     s.review_decision = Some(d.review_decision.clone()).filter(|x| !x.is_empty());
                 }
+            }
+        }
+        // the one just created: once GitHub knows it, the list read before may lack it
+        if self.pr.created == Some(n) && r.is_ok() {
+            self.pr.created = None;
+            let listed = matches!(&self.pr.list, Some(Ok(list)) if list.iter().any(|s| s.number == n));
+            if !listed && !self.pr.loading {
+                self.load_prs(Some(repo));
             }
         }
         self.pr.detail = Some(r);
