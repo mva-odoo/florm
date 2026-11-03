@@ -1413,7 +1413,8 @@ impl App {
                 let to_end = ui.data_mut(|d| d.remove_temp::<bool>(to_end_id)).unwrap_or(false);
                 let chat = egui::ScrollArea::vertical().id_salt(chat_id).stick_to_bottom(true).auto_shrink([false, false]);
                 let out = chat.show(ui, |ui| {
-                    ui.set_max_width(ui.available_width().min(900.0));
+                    // the whole width: long commands and outputs wrap less
+                    ui.set_max_width(ui.available_width());
                     if c.items.is_empty() {
                         ui.add_space(20.0);
                         ui.label(RichText::new(t!("Demande quelque chose à Claude : il lit le projet et modifie les fichiers. Tu revois ses changements à droite, bloc par bloc.", "Ask Claude something: it reads the project and changes the files. You review its changes on the right, block by block.")).weak());
