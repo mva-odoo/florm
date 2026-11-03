@@ -896,61 +896,92 @@ impl App {
             });
         // what loses something (or cannot be undone) is not chosen by Entrée alone
         let careful = matches!(c, Confirm::TrustPlugins(_) | Confirm::TrustSharedPlugins(_) | Confirm::Delete(_) | Confirm::DropStash(..) | Confirm::DiffOp { .. } | Confirm::ReplaceInFiles | Confirm::Overwrite(_) | Confirm::Git { .. } | Confirm::Gh { .. });
+        let (yes, no) = match c {
+            Confirm::CloseTab(_) => (t!("Enregistrer", "Save"), Some(t!("Ne pas enregistrer", "Don't save"))),
+            Confirm::Quit => (t!("Tout enregistrer et quitter", "Save all and quit"), Some(t!("Quitter sans enregistrer", "Quit without saving"))),
+            Confirm::Delete(_) => (t!("Mettre à la corbeille", "Move to the trash"), Some(t!("Supprimer définitivement", "Delete for good"))),
+            Confirm::SwitchProject(_) => (t!("Tout enregistrer et changer", "Save all and switch"), Some(t!("Changer sans enregistrer", "Switch without saving"))),
+            Confirm::ReplaceInFiles => (t!("Remplacer", "Replace"), None),
+            Confirm::DiffOp { .. } => (t!("Oui, annuler le changement", "Yes, undo the change"), None),
+            Confirm::DropStash(..) => (t!("Supprimer", "Delete"), None),
+            Confirm::TrustPlugins(_) => (t!("Faire confiance à ce dossier", "Trust this folder"), None),
+            Confirm::TrustSharedPlugins(_) => (t!("Faire confiance à ces plugins", "Trust these plugins"), None),
+            Confirm::Git { yes, alt, .. } => (yes.as_str(), alt.as_ref().map(|(l, _)| l.as_str())),
+            Confirm::Gh { yes, .. } => (yes.as_str(), None),
+            Confirm::Overwrite(_) => (t!("Écraser avec ma version", "Overwrite with mine"), Some(t!("Recharger la version du disque", "Reload the version on disk"))),
+        };
+        // the main action filled (red when it loses something); the other choice in red text
+        // when it is the one that loses something (unsaved changes, a file for good)
+        let yes_loses = matches!(c, Confirm::DropStash(..) | Confirm::DiffOp { .. } | Confirm::ReplaceInFiles | Confirm::Overwrite(_) | Confirm::Git { .. } | Confirm::Gh { .. });
+        let no_loses = matches!(c, Confirm::CloseTab(_) | Confirm::Quit | Confirm::Delete(_) | Confirm::SwitchProject(_));
+        let accent = self.hl.colors.accent;
+        let (icon, icon_color) = if careful || no_loses { ("⚠", warn()) } else { ("?", accent) };
         egui::Window::new(title)
+            .id(egui::Id::new("confirm"))
+            .title_bar(false)
             .collapsible(false)
             .resizable(false)
             .order(egui::Order::Foreground)
-            // egui starts windows at 320 px: the message, often with a path, wrapped on many lines
-            .default_width(460.0)
+            .frame(egui::Frame::window(&ctx.style()).inner_margin(egui::Margin::same(22.0)))
             .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
-                ui.label(msg);
-                ui.add_space(8.0);
+                // a fixed width: the message (often a path) wraps the same way every time
+                ui.set_width(460.0);
+                let v = ui.visuals().clone();
                 ui.horizontal(|ui| {
-                    let mut buttons = Vec::new();
-                    let (yes, no) = match c {
-                        Confirm::CloseTab(_) => (t!("Enregistrer", "Save"), Some(t!("Ne pas enregistrer", "Don't save"))),
-                        Confirm::Quit => (t!("Tout enregistrer et quitter", "Save all and quit"), Some(t!("Quitter sans enregistrer", "Quit without saving"))),
-                        Confirm::Delete(_) => (t!("Mettre à la corbeille", "Move to the trash"), Some(t!("Supprimer définitivement", "Delete for good"))),
-                        Confirm::SwitchProject(_) => (t!("Tout enregistrer et changer", "Save all and switch"), Some(t!("Changer sans enregistrer", "Switch without saving"))),
-                        Confirm::ReplaceInFiles => (t!("Remplacer", "Replace"), None),
-                        Confirm::DiffOp { .. } => (t!("Oui, annuler le changement", "Yes, undo the change"), None),
-                        Confirm::DropStash(..) => (t!("Supprimer", "Delete"), None),
-                        Confirm::TrustPlugins(_) => (t!("Faire confiance à ce dossier", "Trust this folder"), None),
-                        Confirm::TrustSharedPlugins(_) => (t!("Faire confiance à ces plugins", "Trust these plugins"), None),
-                        Confirm::Git { yes, alt, .. } => (yes.as_str(), alt.as_ref().map(|(l, _)| l.as_str())),
-                        Confirm::Gh { yes, .. } => (yes.as_str(), None),
-                        Confirm::Overwrite(_) => (t!("Écraser avec ma version", "Overwrite with mine"), Some(t!("Recharger la version du disque", "Reload the version on disk"))),
+                    let (r, _) = ui.allocate_exact_size(egui::vec2(30.0, 30.0), Sense::hover());
+                    ui.painter().circle_filled(r.center(), 15.0, icons::mix(v.window_fill, icon_color, 0.16));
+                    ui.painter().text(r.center(), Align2::CENTER_CENTER, icon, egui::FontId::proportional(16.0), icon_color);
+                    ui.add_space(6.0);
+                    ui.label(RichText::new(title).size(17.0).strong());
+                });
+                ui.add_space(12.0);
+                ui.add(egui::Label::new(RichText::new(msg).size(14.0)).wrap());
+                ui.add_space(20.0);
+                let mut buttons = Vec::new();
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.spacing_mut().button_padding = egui::vec2(14.0, 6.0);
+                    ui.spacing_mut().item_spacing.x = 8.0;
+                    let size = egui::vec2(0.0, 32.0);
+                    let outlined = |text: &str, color: Color32| {
+                        egui::Button::new(RichText::new(text).color(color)).fill(v.faint_bg_color).stroke(egui::Stroke::new(1.0_f32, v.widgets.noninteractive.bg_stroke.color.gamma_multiply(3.0))).min_size(size)
                     };
-                    let r = ui.button(yes);
+                    // right to left: the main action at the right end
+                    let r = ui.add(filled_button(yes, if yes_loses { err() } else { accent }).min_size(size));
                     if r.clicked() {
                         choice = Some(1);
                     }
                     buttons.push(r);
                     if let Some(no) = no {
-                        let r = ui.button(no);
+                        let r = ui.add(outlined(no, if no_loses { err() } else { v.text_color() }));
                         if r.clicked() {
                             choice = Some(2);
                         }
                         buttons.push(r);
                     }
-                    let r = ui.button(t!("Annuler", "Cancel"));
+                    let r = ui.add(outlined(t!("Annuler", "Cancel"), v.text_color()));
                     if r.clicked() {
                         choice = Some(0);
                     }
                     buttons.push(r);
-                    // a button always has the focus (Entrée presses it, Tab goes to the next one):
-                    // the main action, or Cancel when it would lose something
-                    let focused = ui.ctx().memory(|m| m.focused());
-                    if !buttons.iter().any(|b| Some(b.id) == focused) {
+                });
+                // a button always has the focus (Entrée presses it, Tab goes to the next one):
+                // the main action, or Cancel when it would lose something; ringed so it shows
+                let focused = ui.ctx().memory(|m| m.focused());
+                match buttons.iter().find(|b| Some(b.id) == focused) {
+                    Some(b) => {
+                        ui.painter().rect_stroke(b.rect.expand(3.0), 8.0, egui::Stroke::new(2.0_f32, accent));
+                    }
+                    None => {
                         let default = if careful { buttons.last() } else { buttons.first() };
                         if let Some(b) = default {
                             b.request_focus();
                             ui.ctx().request_repaint();
                         }
                     }
-                });
-                ui.label(RichText::new(t!("Entrée : le bouton en surbrillance · Tab : le suivant · Échap : annuler", "Enter: the highlighted button · Tab: the next one · Esc: cancel")).small().weak());
+                }
+                ui.add_space(12.0);
+                ui.label(RichText::new(t!("Entrée : le bouton entouré · Tab : le suivant · Échap : annuler", "Enter: the ringed button · Tab: the next one · Esc: cancel")).small().weak());
             });
         let Some(choice) = choice else { return };
         let c = self.confirm.take().unwrap();
