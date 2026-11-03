@@ -2325,6 +2325,34 @@ mod font_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// A confirmation is a small window in the middle, not stretched over the whole height
+    /// (a row of buttons from the right once took all of it). `FLORM_TEST_APP=1`.
+    #[test]
+    fn confirm_window_keeps_its_size() {
+        if std::env::var_os("FLORM_TEST_APP").is_none() {
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("florm_confirm_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (conf, proj) = (dir.join("conf"), dir.join("proj"));
+        std::fs::create_dir_all(&conf).unwrap();
+        std::fs::create_dir_all(&proj).unwrap();
+        std::fs::write(conf.join("settings.toml"), "check_updates = false\nlsp = false\n").unwrap();
+        let _lock = config::TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("FLORM_CONFIG", &conf);
+        let ctx = egui::Context::default();
+        let mut app = App::with_ctx(&ctx, Some(proj.clone()));
+        app.confirm = Some(Confirm::Delete(proj.join("a long name of a file to delete, to see it wrap.txt")));
+        let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 800.0))), ..Default::default() };
+        for _ in 0..4 {
+            let _ = ctx.run(input.clone(), |ctx| app.confirm_ui(ctx));
+        }
+        let r = ctx.memory(|m| m.area_rect(egui::Id::new("confirm"))).expect("the window is shown");
+        assert!(r.height() < 320.0 && r.width() < 560.0, "{r:?}");
+        assert!(r.top() > 100.0, "in the middle of the screen: {r:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// Too many tabs: the arrows appear, the wheel moves the strip. `FLORM_TEST_APP=1`.
     #[test]
     fn many_tabs_scroll() {

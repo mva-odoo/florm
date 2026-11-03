@@ -939,7 +939,9 @@ impl App {
                 ui.add(egui::Label::new(RichText::new(msg).size(14.0)).wrap());
                 ui.add_space(20.0);
                 let mut buttons = Vec::new();
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                // one row of a fixed height: a layout from the right would take all the height
+                // left, and the window would grow to the whole screen
+                ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), 34.0), egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.spacing_mut().button_padding = egui::vec2(14.0, 6.0);
                     ui.spacing_mut().item_spacing.x = 8.0;
                     let size = egui::vec2(0.0, 32.0);
