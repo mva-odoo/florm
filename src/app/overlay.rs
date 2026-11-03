@@ -131,9 +131,9 @@ impl App {
         }
         let convs = self.claude_conversations();
         if convs.len() > 1 {
-            for (tab, title, busy, done) in convs {
+            for (id, _, title, busy, done) in convs {
                 let detail = if busy { t!("au travail", "working") } else if done { "✔" } else { "" };
-                v.push(Item { label: format!("{prefix}Claude › {title}"), detail: detail.into(), action: Action::Conversation(tab) });
+                v.push(Item { label: format!("{prefix}Claude › {title}"), detail: detail.into(), action: Action::Conversation(id) });
             }
         }
         v
@@ -618,12 +618,7 @@ impl App {
             Action::Template(k) => self.insert_template(k),
             Action::Remote(t) => self.remote_connect(t),
             Action::View(tab) => self.open_tool(tab),
-            Action::Conversation(Some(uid)) if self.docs.iter().any(|d| d.uid == uid) => {
-                if let Some(i) = self.docs.iter().position(|d| d.uid == uid) {
-                    self.activate_tab(i);
-                }
-            }
-            Action::Conversation(_) => self.show_bottom(BottomTab::Claude, false),
+            Action::Conversation(id) => self.claude_go_to(id),
             Action::Terminal(id) => {
                 self.bottom = Some(BottomTab::Terminal);
                 self.term.show(id);

@@ -131,6 +131,7 @@ impl App {
             sidebar_hidden: !self.show_sidebar,
             sql_conn: crate::sql::split_password(&self.sql.conn()).0,
             sql_query: self.sql.query.clone(),
+            claude_listed: self.claude_listed_keys(),
         };
         (session, backups)
     }
@@ -228,6 +229,7 @@ impl App {
         self.show_sidebar = !s.sidebar_hidden;
         self.sql.set_conn(&s.sql_conn);
         self.sql.query = s.sql_query.clone();
+        self.claude_restore_listed(&s.claude_listed);
         if let Some(b) = s.bottom.as_deref().and_then(BottomTab::from_key).filter(|b| b.feature_on()) {
             self.show_bottom(b, false);
             // back where it was, without taking the keyboard from the editor

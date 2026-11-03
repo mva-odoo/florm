@@ -213,24 +213,26 @@ impl App {
                     if running > 0 && state_chip(ui, icons::ViewIcon::Docker, &running.to_string(), weak).on_hover_text(tf!("Docker : {running} conteneur(s) démarré(s)", "Docker: {running} running container(s)")).clicked() {
                         self.toggle_tool(BottomTab::Docker);
                     }
-                    match self.claude_activity() {
-                        // finished, not seen yet: there at once
-                        (_, Some((tab, lit))) => {
-                            let col = if lit { ok() } else { weak };
-                            if state_chip(ui, icons::ViewIcon::Claude, "✔", col).on_hover_text(t!("Claude a fini de répondre · clic : voir la réponse", "Claude has finished answering · click: see the answer")).clicked() {
-                                match tab.and_then(|u| self.docs.iter().position(|d| d.uid == u)) {
-                                    Some(i) => self.activate_tab(i),
-                                    None => self.show_bottom(BottomTab::Claude, false),
-                                }
-                            }
+                    // the conversations: finished and not seen yet, waiting for you, working
+                    let (busy, waiting, done) = self.claude_states();
+                    if let Some((id, lit)) = done {
+                        let col = if lit { ok() } else { weak };
+                        if state_chip(ui, icons::ViewIcon::Claude, "✔", col).on_hover_text(t!("Claude a fini de répondre · clic : voir la réponse", "Claude has finished answering · click: see the answer")).clicked() {
+                            self.claude_go_to(id);
                         }
-                        (n, None) if n > 0 => {
-                            let text = if n > 1 { tf!("{n} au travail", "{n} working") } else { t!("au travail", "working").to_string() };
-                            if state_chip(ui, icons::ViewIcon::Claude, &text, self.hl.colors.accent).on_hover_text(t!("Claude répond", "Claude is answering")).clicked() {
-                                self.open_tool(BottomTab::Claude);
-                            }
+                    }
+                    if !waiting.is_empty() {
+                        let n = waiting.len();
+                        let text = if n > 1 { tf!("❓ {n} attendent", "❓ {n} waiting") } else { t!("❓ attend", "❓ waiting").to_string() };
+                        if state_chip(ui, icons::ViewIcon::Claude, &text, warn()).on_hover_text(t!("Claude attend ta réponse à ses questions · clic : y aller (Ctrl+Alt+W : la suivante)", "Claude waits for your answer to its questions · click: go there (Ctrl+Alt+W: the next one)")).clicked() {
+                            self.claude_next_waiting();
                         }
-                        _ => {}
+                    }
+                    if busy > 0 {
+                        let text = if busy > 1 { tf!("{busy} au travail", "{busy} working") } else { t!("au travail", "working").to_string() };
+                        if state_chip(ui, icons::ViewIcon::Claude, &text, self.hl.colors.accent).on_hover_text(t!("Claude répond", "Claude is answering")).clicked() {
+                            self.open_claude();
+                        }
                     }
                     if let Some(st) = &self.git.status {
                         let mut label = match (&self.repo, self.repos.len() > 1) {

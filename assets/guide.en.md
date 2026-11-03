@@ -429,6 +429,13 @@ command and your login: no key to set up.
   lines)” chip above the field, sent whole with the message; the field stays short. A click on the
   chip shows the whole text below it, editable; another click folds it. The pasted text can go
   alone: **Send** works even when the field is empty. A chip is removed with its ×.
+- **Several conversations, one tab**: every conversation is listed on the left of the Claude
+  tab, with what it does (⟳ working, ❓ waiting for your answer, ✔ done), its folder, how long it
+  has been working and its cost. A click shows one, the others go on behind; **+** starts a new
+  one. Right click: **⇉ Duplicate** (a copy that starts again from the last answer), **⇱ Open in
+  its own tab**, **× Close** (its process stops, it stays in the history). **Ctrl+Alt+W**: the next
+  one waiting for your answer. The status bar says how many are working or waiting.
+  Preferences → Claude → **One Claude tab** to go back to a tab per conversation.
 - **Links and commands**: the addresses (https://…) in the answers open in the browser with a
   click. Each command run by Claude shows how long it took (live while it runs).
 - **Quotas**: at the top right, the **5 h** gauge of your subscription's quota; the **7 d** one and

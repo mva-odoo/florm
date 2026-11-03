@@ -368,8 +368,8 @@ enum Action {
     View(BottomTab),
     /// Show a terminal of the bottom panel (`#` in the palette).
     Terminal(u64),
-    /// Show a Claude conversation: its tab, or None for the bottom panel's (`#` in the palette).
-    Conversation(Option<u64>),
+    /// Show a Claude conversation (its id), where it is (`#` in the palette).
+    Conversation(u64),
 }
 
 struct Item {

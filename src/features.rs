@@ -30,7 +30,7 @@ pub fn of_cmd(cmd: Cmd) -> Option<Feature> {
     Some(match cmd {
         PullRequests | CreatePr | CopyGithubLink => Feature::GitHub,
         Debug | DebugStart | DebugStop | DebugRestart | DebugPause | StepOver | StepInto | StepOut | ToggleBreakpoint | ClearBreakpoints | DebugTestHere => Feature::Debugger,
-        Claude | SuggestCommit | ClaudeAddSelection | ClaudeAddFile | ClaudeResumeFile | ClaudeAsk | ClaudeInline | GitAiReview | GitCommitRules | GitMyCommitRules => Feature::Claude,
+        Claude | SuggestCommit | ClaudeAddSelection | ClaudeAddFile | ClaudeResumeFile | ClaudeAsk | ClaudeInline | ClaudeNextWaiting | GitAiReview | GitCommitRules | GitMyCommitRules => Feature::Claude,
         _ => return None,
     })
 }

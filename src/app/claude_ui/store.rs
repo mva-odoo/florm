@@ -365,21 +365,46 @@ impl App {
             self.open_claude();
             return;
         }
-        if let Some(o) = self.claude_others.iter().find(|o| o.saved_key == key) {
-            match o.tab.and_then(|u| self.docs.iter().position(|d| d.uid == u)) {
-                Some(i) => self.activate_tab(i),
-                None => self.bottom = Some(BottomTab::Claude),
-            }
+        if let Some(id) = self.claude_others.iter().find(|o| o.saved_key == key).map(|o| o.id) {
+            self.claude_go_to(id);
             return;
         }
         let Some(s) = self.claude_saved.iter().any(|s| s.key == key).then(|| load_conv(key)).flatten() else {
             self.set_error(t!("Cette conversation n'a pas pu être relue", "This conversation could not be read again"));
             return;
         };
+        // one Claude tab: it comes in place of the current one, which goes on in the list
+        if self.claude_one_tab_at(self.claude.tab) {
+            let conv = self.claude_from_saved(&s, None);
+            self.claude_in_place(conv);
+            self.open_claude();
+            return;
+        }
         let uid = self.new_claude_tab(s.title.clone());
         let conv = self.claude_from_saved(&s, Some(uid));
         let old = std::mem::replace(&mut self.claude, conv);
         self.claude_others.push(old);
+    }
+
+    /// The conversations of the list of the Claude tab (their key in the history), kept with the
+    /// session of the project.
+    pub(in crate::app) fn claude_listed_keys(&self) -> Vec<u64> {
+        std::iter::once(&self.claude).chain(&self.claude_others).filter(|c| c.tab == Some(LISTED) && c.saved_key != 0).map(|c| c.saved_key).collect()
+    }
+
+    /// The list of the Claude tab at the start: the conversations it had (read from the history,
+    /// their process starts again with the next message).
+    pub(in crate::app) fn claude_restore_listed(&mut self, keys: &[u64]) {
+        for &key in keys {
+            let taken = self.claude.saved_key == key || self.claude_others.iter().any(|o| o.saved_key == key);
+            if taken || !self.claude_saved.iter().any(|s| s.key == key) {
+                continue;
+            }
+            if let Some(s) = load_conv(key) {
+                let conv = self.claude_from_saved(&s, Some(LISTED));
+                self.claude_others.push(conv);
+            }
+        }
     }
 
     /// « Reprendre la conversation de ce fichier » : the most recent conversation that gave this

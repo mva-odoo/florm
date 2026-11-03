@@ -14,10 +14,12 @@ use super::claude_turns::{Checkpoint, Rewind, TurnDiff};
 use super::claude_tools::{ToolAct, ToolsUi, Worktree};
 
 mod context;
+mod hub;
 mod review;
 mod send;
 mod store;
 pub(in crate::app) use context::*;
+pub(in crate::app) use hub::*;
 pub(in crate::app) use review::*;
 pub(in crate::app) use store::*;
 
@@ -144,6 +146,10 @@ pub(super) struct ClaudeUi {
     pub(super) add_dirs: Vec<PathBuf>,
     /// The worktree the conversation was started in (« 🌿 »).
     pub(super) worktree: Option<Worktree>,
+    /// Since when it has been working (shown in the list of the conversations).
+    pub(super) busy_since: Option<Instant>,
+    /// A copy of another conversation (« ⇉ Dupliquer »).
+    pub(super) forked: bool,
     /// `#` at the start of a message: the note to remember, until where is chosen.
     memory: Option<String>,
     /// The fields and lists of the menus (⋯, rules, worktree, `@`).
@@ -475,16 +481,17 @@ impl App {
         uid
     }
 
-    /// Every conversation, for the ▾ menu of the bottom panel: its tab (None: the panel's), its
-    /// title, working, finished and not seen yet. The panel's first, then the tabs in their order.
-    pub(super) fn claude_conversations(&self) -> Vec<(Option<u64>, String, bool, bool)> {
+    /// Every conversation, for the ▾ menu of the bottom panel and the palette: its id, its tab
+    /// (None: the panel's), its title, working, finished and not seen yet. The panel's first,
+    /// then the tabs in their order, then the list of the Claude tab.
+    pub(super) fn claude_conversations(&self) -> Vec<(u64, Option<u64>, String, bool, bool)> {
         let mut all: Vec<&ClaudeUi> = std::iter::once(&self.claude).chain(self.claude_others.iter()).collect();
         let order = |c: &&ClaudeUi| c.tab.map_or(0, |u| 1 + self.docs.iter().position(|d| d.uid == u).unwrap_or(usize::MAX - 1));
         all.sort_by_key(order);
         all.into_iter()
             .map(|c| {
                 let title = c.tab.and_then(|u| self.docs.iter().find(|d| d.uid == u)).and_then(|d| d.title_override.clone()).unwrap_or_else(|| conv_title(c));
-                (c.tab, title, c.busy, c.unseen && !c.busy)
+                (c.id, c.tab, title, c.busy, c.unseen && !c.busy)
             })
             .collect()
     }
@@ -540,6 +547,13 @@ impl App {
 
     /// A new conversation in `dir` (a worktree), in a new tab; the current one goes on in its place.
     pub(super) fn claude_new_in(&mut self, dir: PathBuf) {
+        if self.claude_one_tab_at(self.claude.tab) {
+            let mut fresh = self.claude_fresh(None);
+            fresh.dir = Some(dir);
+            self.claude_in_place(fresh);
+            self.claude_prepare();
+            return;
+        }
         let uid = self.new_claude_tab("Claude".into());
         let mut fresh = self.claude_fresh(Some(uid));
         fresh.dir = Some(dir);
@@ -556,6 +570,13 @@ impl App {
         let empty = self.claude.session.is_none() && self.claude.items.iter().all(|i| matches!(i, Item::Info(_)));
         if empty {
             self.claude.focus = true;
+            return;
+        }
+        // one Claude tab: the new one takes its place, this one goes on in the list
+        if self.claude_one_tab_at(self.claude.tab) {
+            let fresh = self.claude_fresh(None);
+            self.claude_in_place(fresh);
+            self.claude_prepare();
             return;
         }
         let uid = self.new_claude_tab("Claude".into());
@@ -579,6 +600,12 @@ impl App {
         if self.claude.tab != tab {
             if let Some(k) = self.claude_others.iter().position(|o| o.tab == tab) {
                 std::mem::swap(&mut self.claude, &mut self.claude_others[k]);
+            } else if tab.is_some() && self.settings.claude_one_tab && self.claude.tab == Some(LISTED) {
+                // one Claude tab (opened again): the current one of the list comes back in it
+                self.claude.tab = tab;
+            } else if let Some(k) = self.claude_others.iter().enumerate().filter(|(_, o)| tab.is_some() && self.settings.claude_one_tab && o.tab == Some(LISTED)).max_by_key(|(_, o)| o.id).map(|(k, _)| k) {
+                self.claude_others[k].tab = tab;
+                std::mem::swap(&mut self.claude, &mut self.claude_others[k]);
             } else if tab.is_some() && self.claude.tab.is_none() && self.bottom != Some(BottomTab::Claude) {
                 // a Claude tab without a conversation (from the menu, a restored session): the
                 // current one, shown nowhere, goes there
@@ -591,6 +618,13 @@ impl App {
             }
         }
         self.claude.unseen = false;
+        // one tab for every conversation: it is named after the one shown
+        if let (true, Some(uid)) = (self.settings.claude_one_tab, tab) {
+            let title = self.claude_title();
+            if let Some(d) = self.docs.iter_mut().find(|d| d.uid == uid && d.title_override.as_deref() != Some(title.as_str())) {
+                d.title_override = Some(title);
+            }
+        }
         self.claude_ui(ui, tab.is_some());
     }
 
@@ -604,8 +638,19 @@ impl App {
                 std::mem::swap(&mut self.claude, &mut self.claude_others[k]);
             }
         }
+        self.claude_track_busy();
         let docs = &self.docs;
-        let alive = |c: &ClaudeUi| c.tab.map_or(true, |u| docs.iter().any(|d| d.uid == u));
+        let alive = |c: &ClaudeUi| c.tab.map_or(true, |u| u == LISTED || docs.iter().any(|d| d.uid == u));
+        // one Claude tab: a closed tab leaves its conversation in the list (× in the list stops it),
+        // unless it is empty
+        if self.settings.claude_one_tab {
+            let empty = |c: &ClaudeUi| c.session.is_none() && c.items.iter().all(|i| matches!(i, Item::Info(_)));
+            for c in std::iter::once(&mut self.claude).chain(self.claude_others.iter_mut()) {
+                if !alive(c) && !empty(c) {
+                    c.tab = Some(LISTED);
+                }
+            }
+        }
         self.claude_others.retain(alive);
         if !alive(&self.claude) {
             self.claude = match self.claude_others.iter().position(|o| o.tab.is_none()) {
@@ -639,15 +684,6 @@ impl App {
     /// light up (blinking a few seconds first).
     pub(super) fn claude_bottom_done(&self) -> bool {
         std::iter::once(&self.claude).chain(self.claude_others.iter()).any(|c| c.tab.is_none() && c.unseen && !c.busy && self.claude_lit(c))
-    }
-
-    /// For the status bar: how many conversations are working, and the first one that finished
-    /// and is not seen yet (Some(its tab), Some(None): the bottom panel's), lit or not while it blinks.
-    pub(super) fn claude_activity(&self) -> (usize, Option<(Option<u64>, bool)>) {
-        let all = || std::iter::once(&self.claude).chain(self.claude_others.iter());
-        let busy = all().filter(|c| c.busy).count();
-        let done = all().find(|c| c.unseen && !c.busy).map(|c| (c.tab, self.claude_lit(c)));
-        (busy, done)
     }
 
     /// On or off: blinking for a few seconds after the end of the answer, then on.

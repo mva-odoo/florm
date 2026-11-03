@@ -36,6 +36,8 @@ pub struct Settings {
     pub diff_side_by_side: bool,
     /// Claude in an editor tab instead of the bottom panel.
     pub claude_in_tab: bool,
+    /// Every conversation in one Claude tab, listed on its left, instead of a tab each.
+    pub claude_one_tab: bool,
     /// Parts that can be turned off: GitHub (pull requests), the debugger, Claude.
     pub github: bool,
     pub debugger: bool,
@@ -165,6 +167,7 @@ impl Default for Settings {
             search_in_tab: false,
             diff_side_by_side: false,
             claude_in_tab: false,
+            claude_one_tab: true,
             github: true,
             debugger: true,
             claude: true,
@@ -256,6 +259,8 @@ debugger = false
 claude = false
 # Claude (Ctrl+Alt+C) dans un onglet plutôt que dans le panneau du bas
 claude_in_tab = false
+# toutes les conversations dans un seul onglet Claude, listées à sa gauche, plutôt qu'un onglet chacune
+claude_one_tab = true
 # revue des changements de Claude à droite de la conversation (bouton « Revue »)
 claude_review = true
 # Ce que Claude a le droit de faire : "edit" (modifier les fichiers), "bash" (lancer des commandes),

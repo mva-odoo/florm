@@ -438,6 +438,14 @@ panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en
   Un clic sur la puce montre tout le texte en dessous, modifiable ; un autre clic le replie.
   Le texte collé peut partir seul : **Envoyer** marche même si le champ est vide.
   Une puce se retire avec son ×.
+- **Plusieurs conversations, un seul onglet** : toutes les conversations sont listées à gauche
+  de l'onglet Claude, avec ce qu'elles font (⟳ travaille, ❓ attend ta réponse, ✔ a fini), leur
+  dossier, depuis quand elles travaillent et leur coût. Un clic en affiche une, les autres
+  continuent derrière ; **+** en commence une nouvelle. Clic droit : **⇉ Dupliquer** (une copie
+  qui repart de la dernière réponse), **⇱ Ouvrir dans son propre onglet**, **× Fermer** (son
+  processus s'arrête, elle reste dans l'historique). **Ctrl+Alt+W** : la suivante qui attend ta
+  réponse. La barre d'état dit combien travaillent ou attendent. Préférences → Claude → **Un seul
+  onglet Claude** pour revenir à un onglet par conversation.
 - **Liens et commandes** : les adresses (https://…) des réponses s'ouvrent dans le navigateur d'un
   clic. Chaque commande lancée par Claude montre sa durée (en direct tant qu'elle tourne).
 - **Quotas** : en haut à droite, la jauge **5 h** du quota de ton abonnement ; celles de **7 j** et

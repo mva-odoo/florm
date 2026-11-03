@@ -153,19 +153,21 @@ impl App {
             // the conversations, when there are several: where each is, whether it works or is done
             let convs = if tab == BottomTab::Claude { self.claude_conversations() } else { Vec::new() };
             if convs.len() > 1 {
-                for (where_, title, busy, done) in convs {
+                for (id, where_, title, busy, done) in convs {
                     let shown = where_.is_none() && current == Some(tab);
                     let note = if busy {
                         Some((t!("au travail", "working"), self.hl.colors.accent))
                     } else if done {
                         Some(("✔", ok()))
+                    } else if where_ == Some(claude_ui::LISTED) {
+                        Some((t!("liste", "list"), ui.visuals().weak_text_color()))
                     } else if where_.is_some() {
                         Some((t!("onglet", "tab"), ui.visuals().weak_text_color()))
                     } else {
                         None
                     };
                     if sub_row(ui, &title, note, shown, false, false).0 {
-                        chosen = Some(Pick::Claude(where_));
+                        chosen = Some(Pick::Claude(id));
                         ui.close_menu();
                     }
                 }
@@ -200,11 +202,7 @@ impl App {
                 self.term.show(id);
             }
             Pick::NewTerm => self.new_panel_terminal(),
-            Pick::Claude(Some(uid)) => match self.docs.iter().position(|d| d.uid == uid) {
-                Some(i) => self.activate_tab(i),
-                None => self.show_bottom(BottomTab::Claude, false),
-            },
-            Pick::Claude(None) => self.show_bottom(BottomTab::Claude, false),
+            Pick::Claude(id) => self.claude_go_to(id),
             Pick::CloseTerm(id) => self.term.close(id),
         }
     }
@@ -370,7 +368,8 @@ pub(super) enum Pick {
     NewTerm,
     CloseTerm(u64),
     /// A Claude conversation: its editor tab, or None for the bottom panel's.
-    Claude(Option<u64>),
+    /// A conversation (its id).
+    Claude(u64),
 }
 
 /// A row under a view in the views menu (a terminal, a conversation): its title, a note in
