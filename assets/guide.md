@@ -436,6 +436,8 @@ panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en
   Un clic sur la puce montre tout le texte en dessous, modifiable ; un autre clic le replie.
   Le texte collé peut partir seul : **Envoyer** marche même si le champ est vide.
   Une puce se retire avec son ×.
+- **Liens et commandes** : les adresses (https://…) des réponses s'ouvrent dans le navigateur d'un
+  clic. Chaque commande lancée par Claude montre sa durée (en direct tant qu'elle tourne).
 - **Quotas** : en haut à droite, la jauge **5 h** du quota de ton abonnement ; celles de **7 j** et
   du **Contexte** de la conversation n'apparaissent qu'au-delà de 70 %. Le survol de la jauge 5 h
   les montre toutes les trois, avec quand le quota repart à zéro.

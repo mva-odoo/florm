@@ -427,6 +427,8 @@ command and your login: no key to set up.
   lines)” chip above the field, sent whole with the message; the field stays short. A click on the
   chip shows the whole text below it, editable; another click folds it. The pasted text can go
   alone: **Send** works even when the field is empty. A chip is removed with its ×.
+- **Links and commands**: the addresses (https://…) in the answers open in the browser with a
+  click. Each command run by Claude shows how long it took (live while it runs).
 - **Quotas**: at the top right, the **5 h** gauge of your subscription's quota; the **7 d** one and
   the conversation's **Context** only show past 70 %. Hovering the 5 h gauge shows all three, with
   when the quota resets.

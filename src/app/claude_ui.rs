@@ -40,6 +40,9 @@ pub(super) enum Item {
         result: Option<(String, bool)>,
         #[serde(default)]
         steps: Vec<(String, String)>,
+        /// When it started and ended (unix milliseconds; end 0: still running, start 0: unknown).
+        #[serde(default)]
+        time: (u64, u64),
     },
     Info(String),
     Error(String),
@@ -345,14 +348,15 @@ impl App {
                     if name == "Read" && claude::is_image(&summary) {
                         items.push(Item::Info(tf!("— Claude a ouvert une image ({summary}) : elle coûte beaucoup de tokens, à chaque message suivant —", "— Claude opened an image ({summary}): it costs many tokens, with every next message —")));
                     }
-                    items.push(Item::Tool { id, name, summary, result: None, steps: Vec::new() });
+                    items.push(Item::Tool { id, name, summary, result: None, steps: Vec::new(), time: (now_ms(), 0) });
                 }
                 Event::ToolResult { id, text, error } => {
                     for it in items.iter_mut().rev() {
-                        if let Item::Tool { id: i, name, result, .. } = it {
+                        if let Item::Tool { id: i, name, result, time, .. } = it {
                             if *i == id {
                                 reload |= claude::changes_files(name);
                                 *result = Some((text, error));
+                                time.1 = now_ms();
                                 break;
                             }
                         }
@@ -1591,7 +1595,15 @@ impl App {
                                     answer = c.answers.as_ref().map(|a| a.message(&questions));
                                 }
                             }
-                            Item::Tool { name, summary, result, steps, .. } => {
+                            Item::Tool { name, summary, result, steps, time, .. } => {
+                                // how long it took, or has been running
+                                let took = match *time {
+                                    (0, _) => None,
+                                    (a, 0) if result.is_none() && c.busy => Some(now_ms().saturating_sub(a)),
+                                    (a, b) if b >= a => Some(b - a),
+                                    _ => None,
+                                };
+                                let took = took.map(|ms| RichText::new(duration(ms)).small().weak());
                                 let (icon, color) = match name.as_str() {
                                     "Edit" | "MultiEdit" | "Write" | "NotebookEdit" => ("✏", warn()),
                                     "Bash" => ("$", accent),
@@ -1610,6 +1622,9 @@ impl App {
                                             .show_header(ui, |ui| {
                                                 ui.horizontal_wrapped(|ui| {
                                                     let clicked = ui.add(egui::Label::new(head).sense(egui::Sense::click())).clicked();
+                                                    if let Some(t) = took.clone() {
+                                                        ui.label(t).on_hover_text(t!("Durée de la commande", "Time the command took"));
+                                                    }
                                                     if let Some(cmd) = command {
                                                         super::md::copy_button(ui, cmd, t!("Copier", "Copy"));
                                                     }
@@ -1633,6 +1648,9 @@ impl App {
                                             ui.label(head);
                                             if result.is_none() {
                                                 spinner(ui);
+                                            }
+                                            if let Some(t) = took.clone() {
+                                                ui.label(t).on_hover_text(t!("Durée de la commande", "Time the command took"));
                                             }
                                             if let Some(cmd) = command {
                                                 super::md::copy_button(ui, cmd, t!("Copier", "Copy"));
@@ -1929,7 +1947,7 @@ mod tests {
             updated: 1,
             items: vec![
                 Item::User("Corrige".into(), vec!["a.py".into()], vec![], vec![]),
-                Item::Tool { id: "t".into(), name: "Bash".into(), summary: "ls".into(), result: Some(("ok".into(), false)), steps: Vec::new() },
+                Item::Tool { id: "t".into(), name: "Bash".into(), summary: "ls".into(), result: Some(("ok".into(), false)), steps: Vec::new(), time: (0, 0) },
                 Item::Text("Fait.".into()),
             ],
             queue: {
@@ -2059,6 +2077,23 @@ fn gauges_tip(ui: &mut egui::Ui, gauges: &[(String, f32, String)], accent: Color
             ui.label(RichText::new(pct).small());
         });
         ui.label(RichText::new(tip).small().weak());
+    }
+}
+
+/// Now, in unix milliseconds.
+fn now_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
+}
+
+/// How long a command took: "0,4 s", "12 s", "2 min 05".
+fn duration(ms: u64) -> String {
+    match ms {
+        0..=9_999 => {
+            let s = format!("{:.1} s", ms as f64 / 1000.0);
+            if crate::i18n::en() { s } else { s.replace('.', ",") }
+        }
+        10_000..=59_999 => format!("{} s", ms / 1000),
+        _ => format!("{} min {:02}", ms / 60_000, ms / 1000 % 60),
     }
 }
 

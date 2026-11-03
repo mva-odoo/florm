@@ -272,7 +272,7 @@ mod tests {
 
     #[test]
     fn a_folded_turn_is_summed_up() {
-        let tool = |name: &str, file: &str| Item::Tool { id: String::new(), name: name.into(), summary: file.into(), result: None, steps: Vec::new() };
+        let tool = |name: &str, file: &str| Item::Tool { id: String::new(), name: name.into(), summary: file.into(), result: None, steps: Vec::new(), time: (0, 0) };
         let items = vec![
             Item::User("a".into(), vec![], vec![], vec![]),
             Item::Text("je regarde".into()),
