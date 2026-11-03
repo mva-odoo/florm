@@ -421,6 +421,9 @@ command and your login: no key to set up.
   lines)” chip above the field, sent whole with the message; the field stays short. A click on the
   chip shows the whole text below it, editable; another click folds it. The pasted text can go
   alone: **Send** works even when the field is empty. A chip is removed with its ×.
+- **Quotas**: at the top right, the **5 h** gauge of your subscription's quota; the **7 d** one and
+  the conversation's **Context** only show past 70 %. Hovering the 5 h gauge shows all three, with
+  when the quota resets.
 - **Images**: an image goes with the message, scaled down to 1568 pixels to cost fewer tokens.
   Three ways to give it: paste it with Ctrl+V (a copied image), drop it from the file manager on
   the conversation, or **+ Context → Image…**. Several images go together in one message: drop

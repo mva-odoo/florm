@@ -860,14 +860,19 @@ impl App {
                                 tf!("Contexte de la conversation : {} / {} tokens.\nPlein, Claude résume le début de la conversation ; « Nouvelle conversation » repart de zéro.", "Context of the conversation: {} / {} tokens.\nWhen full, Claude summarizes the start of the conversation; “New conversation” starts from scratch.", thousands(tokens), thousands(window)),
                             ));
                         }
+                        // hovering the 5 h one shows them all, the hidden ones too
+                        let all = gauges.clone();
+                        let all_tip = |ui: &mut egui::Ui| gauges_tip(ui, &all, accent);
                         for (k, (label, used, tip)) in gauges.into_iter().enumerate().rev() {
                             match k {
                                 0 if used < 0.0 => {
-                                    ui.label(RichText::new("5 h – %").small().weak()).on_hover_text(tip);
+                                    ui.label(RichText::new("5 h – %").small().weak()).on_hover_ui(all_tip);
                                     ui.add_space(6.0);
                                 }
-                                0 => gauge(ui, &label, used, accent, tip),
-                                _ if used > 0.7 => gauge(ui, &label, used, accent, tip),
+                                0 => gauge(ui, &label, used, accent, all_tip),
+                                _ if used > 0.7 => gauge(ui, &label, used, accent, |ui: &mut egui::Ui| {
+                                    ui.label(tip);
+                                }),
                                 _ => {}
                             }
                         }
@@ -2022,15 +2027,38 @@ mod tests {
 }
 
 /// A small gauge (right to left: the bar, then its label), red when nearly full.
-fn gauge(ui: &mut egui::Ui, label: &str, used: f32, accent: Color32, tip: String) {
-    let color = if used >= 0.9 { err() } else if used >= 0.7 { warn() } else { accent };
+fn gauge(ui: &mut egui::Ui, label: &str, used: f32, accent: Color32, tip: impl FnOnce(&mut egui::Ui)) {
     let (rect, r) = ui.allocate_exact_size(egui::vec2(46.0, 14.0), Sense::hover());
-    let bar = egui::Rect::from_center_size(rect.center(), egui::vec2(46.0, 6.0));
-    ui.painter().rect_filled(bar, 3.0, ui.visuals().widgets.inactive.bg_fill);
-    ui.painter().rect_filled(egui::Rect::from_min_size(bar.min, egui::vec2(bar.width() * used, bar.height())), 3.0, color);
+    gauge_bar(ui, rect, used, accent);
     let text = ui.label(RichText::new(format!("{label} {:.0} %", used * 100.0)).small().weak());
-    r.union(text).on_hover_text(tip);
+    r.union(text).on_hover_ui(tip);
     ui.add_space(6.0);
+}
+
+/// The bar of a gauge in `rect`: `used` (0 to 1) filled, orange then red when nearly full.
+fn gauge_bar(ui: &egui::Ui, rect: egui::Rect, used: f32, accent: Color32) {
+    let color = if used >= 0.9 { err() } else if used >= 0.7 { warn() } else { accent };
+    let bar = egui::Rect::from_center_size(rect.center(), egui::vec2(rect.width(), 6.0));
+    ui.painter().rect_filled(bar, 3.0, ui.visuals().widgets.inactive.bg_fill);
+    ui.painter().rect_filled(egui::Rect::from_min_size(bar.min, egui::vec2(bar.width() * used.max(0.0), bar.height())), 3.0, color);
+}
+
+/// Every gauge (label, used or -1 when unknown, details) one under the other, for a tooltip.
+fn gauges_tip(ui: &mut egui::Ui, gauges: &[(String, f32, String)], accent: Color32) {
+    ui.set_max_width(420.0);
+    for (k, (label, used, tip)) in gauges.iter().enumerate() {
+        if k > 0 {
+            ui.add_space(6.0);
+        }
+        ui.horizontal(|ui| {
+            ui.add_sized([64.0, 14.0], egui::Label::new(RichText::new(label).strong()));
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(120.0, 14.0), Sense::hover());
+            gauge_bar(ui, rect, *used, accent);
+            let pct = if *used < 0.0 { "– %".to_string() } else { format!("{:.0} %", used * 100.0) };
+            ui.label(RichText::new(pct).small());
+        });
+        ui.label(RichText::new(tip).small().weak());
+    }
 }
 
 /// "dans 2 h 05", "dans 3 j" until a unix time.
