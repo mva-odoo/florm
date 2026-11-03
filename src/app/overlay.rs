@@ -451,9 +451,12 @@ impl App {
                     }
                     // same height whatever the number of results: the window does not jump while typing
                     let fixed = matches!(ov.mode, Mode::Files | Mode::Commands | Mode::Views);
+                    // the others as tall as their rows (440 at most): the window keeps the size of
+                    // the one shown before (a prompt without a list), the list would get one row
+                    let rows = n as f32 * (30.0 + ui.spacing().item_spacing.y);
                     egui::ScrollArea::vertical()
                         .max_height(440.0)
-                        .min_scrolled_height(if fixed { 440.0 } else { 0.0 })
+                        .min_scrolled_height(if fixed { 440.0 } else { rows.min(440.0) })
                         .auto_shrink([false, !fixed])
                         .show(ui, |ui| {
                         for (row, &i) in ov.filtered.iter().enumerate() {

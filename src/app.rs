@@ -2353,6 +2353,38 @@ mod font_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// A list (branches, themes…) opened after a prompt without a list shows its rows, not one
+    /// cut in half: the window keeps the size of the one before. `FLORM_TEST_APP=1`.
+    #[test]
+    fn overlay_list_shows_its_rows() {
+        if std::env::var_os("FLORM_TEST_APP").is_none() {
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("florm_overlay_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (conf, proj) = (dir.join("conf"), dir.join("proj"));
+        std::fs::create_dir_all(&conf).unwrap();
+        std::fs::create_dir_all(&proj).unwrap();
+        std::fs::write(conf.join("settings.toml"), "check_updates = false\nlsp = false\n").unwrap();
+        let _lock = config::TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("FLORM_CONFIG", &conf);
+        let ctx = egui::Context::default();
+        let mut app = App::with_ctx(&ctx, Some(proj.clone()));
+        let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 800.0))), ..Default::default() };
+        app.open_overlay_with(Mode::Prompt(Prompt::NewBranch), Vec::<Item>::new(), String::new());
+        for _ in 0..3 {
+            let _ = ctx.run(input.clone(), |ctx| app.overlay_ui(ctx));
+        }
+        let items: Vec<Item> = (0..20).map(|k| Item { label: format!("branch-{k}"), detail: String::new(), action: Action::Cmd(Cmd::Claude) }).collect();
+        app.open_overlay_with(Mode::Themes, items, String::new());
+        for _ in 0..3 {
+            let _ = ctx.run(input.clone(), |ctx| app.overlay_ui(ctx));
+        }
+        let r = ctx.memory(|m| m.area_rect(egui::Id::new("overlay"))).expect("the list is shown");
+        assert!(r.height() > 400.0, "{r:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// Too many tabs: the arrows appear, the wheel moves the strip. `FLORM_TEST_APP=1`.
     #[test]
     fn many_tabs_scroll() {

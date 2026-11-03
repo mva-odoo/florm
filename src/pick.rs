@@ -64,7 +64,10 @@ pub fn list(ui: &mut egui::Ui, id: Id, items: &[String], current: Option<usize>)
     if shown.is_empty() {
         ui.label(RichText::new(t!("Aucun résultat", "No result")).weak());
     }
-    egui::ScrollArea::vertical().id_salt(state.with("scroll")).max_height(400.0).auto_shrink([false, true]).show(ui, |ui| {
+    // as tall as its rows (400 at most): a popup keeps the size it had the last time
+    let row = ui.spacing().interact_size.y + ui.spacing().item_spacing.y;
+    let rows = shown.len().min(500) as f32 * row;
+    egui::ScrollArea::vertical().id_salt(state.with("scroll")).max_height(400.0).min_scrolled_height(rows.min(400.0)).auto_shrink([false, true]).show(ui, |ui| {
         ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
         for (k, &i) in shown.iter().enumerate().take(500) {
             let text = if Some(i) == current { RichText::new(format!("● {}", items[i])).strong() } else { RichText::new(&items[i]) };
@@ -92,7 +95,10 @@ pub fn combo(ui: &mut egui::Ui, id_salt: impl std::hash::Hash, selected: impl In
     if r.clicked() {
         ui.memory_mut(|m| m.toggle_popup(popup));
     }
-    let width = r.rect.width().max(240.0);
+    // wide enough for the longest item (560 at most), not only for the button
+    let font = egui::TextStyle::Button.resolve(ui.style());
+    let longest = ui.fonts(|f| items.iter().take(500).map(|s| f.layout_no_wrap(format!("● {s}"), font.clone(), egui::Color32::WHITE).size().x).fold(0.0, f32::max));
+    let width = r.rect.width().max(240.0).max((longest + 40.0).min(560.0));
     // clicks in the filter field must not close it
     let shown = egui::popup_below_widget(ui, popup, &r, egui::PopupCloseBehavior::CloseOnClickOutside, |ui| {
         ui.set_min_width(width);
