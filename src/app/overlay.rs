@@ -862,6 +862,16 @@ impl App {
                     ),
                 )
             }
+            Confirm::TrustSharedPlugins(dir) => {
+                let name = dir.parent().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                (
+                    t!("Plugins de la configuration partagée", "Plugins of the shared configuration"),
+                    tf!(
+                        "Les plugins de la configuration partagée « {name} » sont nouveaux ou ont changé. Ils peuvent lancer n'importe quelle commande sur ta machine, par exemple à chaque enregistrement d'un fichier.\nFais-leur confiance seulement si tu fais confiance à l'auteur de ce dépôt. Chaque changement (par exemple un pull) redemandera confiance. Sans confiance, ils ne sont pas chargés.",
+                        "The plugins of the shared configuration “{name}” are new or have changed. They can run any command on your machine, for instance each time a file is saved.\nTrust them only if you trust the author of this repository. Each change (for instance a pull) asks for trust again. Without trust, they are not loaded."
+                    ),
+                )
+            }
             Confirm::DropStash(_, what) => (t!("Supprimer le stash", "Delete the stash"), tf!("Supprimer définitivement « {what} » ?\nSes changements seront perdus.", "Delete “{what}” for good?\nIts changes will be lost.")),
             Confirm::Git { title, msg, .. } | Confirm::Gh { title, msg, .. } => (title.as_str(), msg.clone()),
             Confirm::ReplaceInFiles => {
@@ -885,7 +895,7 @@ impl App {
                 ui.painter().rect_filled(screen, 0.0, Color32::from_black_alpha(90));
             });
         // what loses something (or cannot be undone) is not chosen by Entrée alone
-        let careful = matches!(c, Confirm::TrustPlugins(_) | Confirm::Delete(_) | Confirm::DropStash(..) | Confirm::DiffOp { .. } | Confirm::ReplaceInFiles | Confirm::Overwrite(_) | Confirm::Git { .. } | Confirm::Gh { .. });
+        let careful = matches!(c, Confirm::TrustPlugins(_) | Confirm::TrustSharedPlugins(_) | Confirm::Delete(_) | Confirm::DropStash(..) | Confirm::DiffOp { .. } | Confirm::ReplaceInFiles | Confirm::Overwrite(_) | Confirm::Git { .. } | Confirm::Gh { .. });
         egui::Window::new(title)
             .collapsible(false)
             .resizable(false)
@@ -907,6 +917,7 @@ impl App {
                         Confirm::DiffOp { .. } => (t!("Oui, annuler le changement", "Yes, undo the change"), None),
                         Confirm::DropStash(..) => (t!("Supprimer", "Delete"), None),
                         Confirm::TrustPlugins(_) => (t!("Faire confiance à ce dossier", "Trust this folder"), None),
+                        Confirm::TrustSharedPlugins(_) => (t!("Faire confiance à ces plugins", "Trust these plugins"), None),
                         Confirm::Git { yes, alt, .. } => (yes.as_str(), alt.as_ref().map(|(l, _)| l.as_str())),
                         Confirm::Gh { yes, .. } => (yes.as_str(), None),
                         Confirm::Overwrite(_) => (t!("Écraser avec ma version", "Overwrite with mine"), Some(t!("Recharger la version du disque", "Reload the version on disk"))),
@@ -946,6 +957,13 @@ impl App {
         match (c, choice) {
             (Confirm::DiffOp { label, op, .. }, 1) => self.run_diff_op(label, op),
             (Confirm::DropStash(hash, _), 1) => self.stash_act(super::git_actions::StashAct::Drop(hash)),
+            (Confirm::TrustSharedPlugins(dir), 1) => match crate::plugins::trust_shared(&dir) {
+                Ok(()) => {
+                    self.reload_plugins();
+                    self.set_status(t!("Plugins partagés chargés", "Shared plugins loaded"));
+                }
+                Err(e) => self.set_error(tf!("Confiance non enregistrée : {e}", "Trust not saved: {e}")),
+            },
             (Confirm::TrustPlugins(root), 1) => match crate::plugins::trust(&root) {
                 Ok(()) => {
                     self.reload_plugins();

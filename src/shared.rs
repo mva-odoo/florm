@@ -19,7 +19,12 @@ use std::sync::Mutex;
 pub const DEFAULT_REPO: &str = "florm-config";
 
 /// Settings that stay on each computer (never written to the shared settings.toml).
-pub const LOCAL_KEYS: &[&str] = &["shared_config", "odoo_test_history", "odoo_test_container", "docker_order", "shell", "debug_target", "debug_command", "debug_python"];
+/// Commands run, or permissions of Claude: they stay on each computer (a shared repository must not
+/// set them: it could run any command on every computer that syncs it).
+pub const LOCAL_KEYS: &[&str] = &[
+    "shared_config", "odoo_test_history", "odoo_test_container", "docker_order", "shell", "debug_target", "debug_command", "debug_python",
+    "debug_docker_command", "odoo_test_command", "lsp_servers", "python_linter", "python_lint_args", "claude_perms", "claude_allow", "claude_deny",
+];
 
 /// `shared_config` of the local settings (set by `config::load`).
 static SPEC: Mutex<String> = Mutex::new(String::new());

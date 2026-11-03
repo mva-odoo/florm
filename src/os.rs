@@ -58,6 +58,26 @@ pub fn release_memory() {
     }
 }
 
+/// `rel` (a path given by a pull request, a review or Claude) inside `repo`, or None. Refused:
+/// absolute paths, `..`, a link (it could point outside), a folder that leads out of the repository.
+/// A file not there yet (a pull request not checked out) is accepted: its nearest existing folder
+/// is checked.
+pub fn inside_repo(repo: &Path, rel: &str) -> Option<PathBuf> {
+    use std::path::Component;
+    let rel = Path::new(rel);
+    if rel.as_os_str().is_empty() || rel.is_absolute() || rel.components().any(|c| !matches!(c, Component::Normal(_))) {
+        return None;
+    }
+    let path = repo.join(rel);
+    if std::fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_symlink()) {
+        return None;
+    }
+    let existing = path.ancestors().skip(1).find(|a| a.exists())?;
+    let existing = std::fs::canonicalize(existing).ok()?;
+    let root = std::fs::canonicalize(repo).ok()?;
+    existing.starts_with(&root).then_some(path)
+}
+
 /// Absolute path with links resolved; on Windows without the `\\?\` prefix that canonicalize
 /// adds (it shows in the UI, and git refuses it as working directory, e.g. for `\\wsl.localhost\…`).
 pub fn canon(p: &Path) -> PathBuf {
@@ -467,5 +487,30 @@ mod tests {
         // the shell did not answer: the folders of launchd, then the usual ones that exist
         let p = merge_path(None, "/usr/bin:/bin".as_ref(), &usual);
         assert_eq!(p, std::ffi::OsString::from(format!("/usr/bin:/bin:{}", tmp.display())));
+    }
+
+    #[test]
+    fn paths_of_pull_requests_stay_in_the_repository() {
+        let base = std::env::temp_dir().join(format!("florm_inside_{}", std::process::id()));
+        let repo = base.join("repo");
+        let outside = base.join("outside");
+        std::fs::create_dir_all(repo.join("src")).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(repo.join("src/a.py"), "x\n").unwrap();
+        std::fs::write(outside.join("secret"), "s\n").unwrap();
+        assert_eq!(inside_repo(&repo, "src/a.py"), Some(repo.join("src/a.py")));
+        assert_eq!(inside_repo(&repo, "../outside/secret"), None);
+        assert_eq!(inside_repo(&repo, "/etc/passwd"), None);
+        // not checked out yet: accepted, the folders that exist are inside
+        assert_eq!(inside_repo(&repo, "new/dir/b.py"), Some(repo.join("new/dir/b.py")));
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(outside.join("secret"), repo.join("link")).unwrap();
+            std::os::unix::fs::symlink(&outside, repo.join("dir")).unwrap();
+            assert_eq!(inside_repo(&repo, "link"), None);
+            assert_eq!(inside_repo(&repo, "dir/secret"), None);
+            assert_eq!(inside_repo(&repo, "dir/new/x"), None);
+        }
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

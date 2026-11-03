@@ -114,7 +114,15 @@ impl App {
 
     pub(super) fn reload_plugins(&mut self) {
         let mut dirs = vec![config::plugins_dir()];
-        dirs.extend(crate::shared::sub("plugins"));
+        // the plugins of the shared configuration: its repository can be pushed to by others, so
+        // they run only once trusted as they are now
+        if let Some(shared) = crate::shared::sub("plugins").filter(|p| plugins::has_plugins(p)) {
+            if plugins::is_shared_trusted(&shared) {
+                dirs.push(shared);
+            } else if self.confirm.is_none() && self.trust_asked.insert(shared.clone()) {
+                self.confirm = Some(Confirm::TrustSharedPlugins(shared));
+            }
+        }
         // the plugins of the folder run commands: only once it is trusted
         if let Some(r) = self.root.clone() {
             let local = r.join(".florm").join("plugins");

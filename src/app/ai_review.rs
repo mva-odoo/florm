@@ -351,7 +351,10 @@ impl App {
     pub(super) fn ai_wip_act(&mut self, a: NoteAct) {
         let repo = self.git.ai.repo.clone();
         if let (Some((path, line)), Some(repo)) = (self.git.ai.apply(a), repo) {
-            let path = repo.join(path);
+            let Some(path) = crate::os::inside_repo(&repo, &path) else {
+                self.set_error(tf!("Remarque refusée : « {path} » n'est pas un fichier du dépôt", "Remark refused: “{path}” is not a file of the repository"));
+                return;
+            };
             if self.open_path(path) {
                 if let Some(d) = self.docs.get_mut(self.active) {
                     d.goto_line(line.saturating_sub(1), 0);

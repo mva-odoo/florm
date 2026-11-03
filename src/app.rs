@@ -543,6 +543,8 @@ enum Confirm {
     Git { title: String, msg: String, yes: String, label: String, cmds: Vec<Vec<String>>, alt: Option<(String, Vec<Vec<String>>)> },
     /// The folder has plugins (`.florm/plugins`), not loaded until it is trusted.
     TrustPlugins(PathBuf),
+    /// The plugins of the shared configuration are new or changed (its repository was pulled).
+    TrustSharedPlugins(PathBuf),
     /// `gh` commands on pull request `n` that cannot be undone (merge, close, delete a comment).
     Gh { title: String, msg: String, yes: String, label: String, repo: PathBuf, cmds: Vec<Vec<String>>, n: u64 },
 }

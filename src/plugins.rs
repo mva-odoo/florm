@@ -129,6 +129,70 @@ pub fn is_trusted(root: &Path) -> bool {
     std::fs::read_to_string(trusted_path()).is_ok_and(|t| t.lines().any(|l| Path::new(l) == root))
 }
 
+/// Trust for the plugins of the shared configuration, kept apart: the repository can be pushed to
+/// by others, so trust is given to what is in it now (its fingerprint), and a pull asks again.
+fn shared_trusted_path() -> PathBuf {
+    crate::config::config_dir().join("trusted_shared_plugins")
+}
+
+/// Fingerprint of the files of a plugins folder (names and contents, `.git` and links left out).
+pub fn fingerprint(dir: &Path) -> Option<String> {
+    use sha2::{Digest, Sha256};
+    fn collect(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
+        for e in std::fs::read_dir(dir)? {
+            let e = e?;
+            let path = e.path();
+            let ty = e.file_type()?;
+            if ty.is_symlink() || e.file_name() == ".git" {
+                continue;
+            }
+            if ty.is_dir() {
+                collect(&path, out)?;
+            } else if ty.is_file() {
+                out.push(path);
+            }
+        }
+        Ok(())
+    }
+    let mut files = Vec::new();
+    collect(dir, &mut files).ok()?;
+    files.sort();
+    let mut h = Sha256::new();
+    for f in files {
+        let rel = f.strip_prefix(dir).ok()?.to_string_lossy().into_owned();
+        h.update(rel.as_bytes());
+        h.update([0]);
+        h.update(std::fs::read(&f).ok()?);
+        h.update([0]);
+    }
+    Some(format!("{:x}", h.finalize()))
+}
+
+fn shared_trust_line(dir: &Path) -> Option<String> {
+    Some(format!("{}\t{}", crate::os::canon(dir).to_string_lossy(), fingerprint(dir)?))
+}
+
+pub fn is_shared_trusted(dir: &Path) -> bool {
+    let Some(line) = shared_trust_line(dir) else { return false };
+    std::fs::read_to_string(shared_trusted_path()).is_ok_and(|t| t.lines().any(|l| l == line))
+}
+
+/// Trusts the plugins of the shared folder as they are now.
+pub fn trust_shared(dir: &Path) -> std::io::Result<()> {
+    let line = shared_trust_line(dir).ok_or_else(|| std::io::Error::other("plugins illisibles"))?;
+    let canon = crate::os::canon(dir).to_string_lossy().into_owned();
+    // the old fingerprint of this folder goes
+    let mut lines: Vec<String> = std::fs::read_to_string(shared_trusted_path())
+        .unwrap_or_default()
+        .lines()
+        .filter(|l| !l.starts_with(&format!("{canon}\t")))
+        .map(String::from)
+        .collect();
+    lines.push(line);
+    std::fs::create_dir_all(crate::config::config_dir())?;
+    std::fs::write(shared_trusted_path(), lines.join("\n") + "\n")
+}
+
 pub fn trust(root: &Path) -> std::io::Result<()> {
     let mut text = std::fs::read_to_string(trusted_path()).unwrap_or_default();
     if !text.is_empty() && !text.ends_with('\n') {
@@ -202,5 +266,22 @@ mod tests {
         assert!(is_trusted(&root) && !is_trusted(&base));
         std::env::remove_var("FLORM_CONFIG");
         let _ = std::fs::remove_dir_all(&base);
+    }
+}
+
+#[cfg(test)]
+mod fingerprint_tests {
+    use super::*;
+
+    #[test]
+    fn a_change_of_the_plugins_changes_the_fingerprint() {
+        let dir = std::env::temp_dir().join(format!("florm_fp_{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("p")).unwrap();
+        std::fs::write(dir.join("p/plugin.toml"), "name = \"p\"\n").unwrap();
+        let before = fingerprint(&dir).unwrap();
+        assert_eq!(before, fingerprint(&dir).unwrap());
+        std::fs::write(dir.join("p/plugin.toml"), "name = \"p\"\nrun = \"rm -rf ~\"\n").unwrap();
+        assert_ne!(before, fingerprint(&dir).unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

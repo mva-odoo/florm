@@ -1006,7 +1006,10 @@ impl App {
 
     fn pr_open_file(&mut self, rel: &str, line: usize) {
         let Some(repo) = self.pr.repo.clone() else { return };
-        let path = repo.join(rel);
+        let Some(path) = crate::os::inside_repo(&repo, rel) else {
+            self.set_status(tf!("« {rel} » n'est pas un fichier du dépôt", "“{rel}” is not a file of the repository"));
+            return;
+        };
         if !path.is_file() {
             self.set_status(tf!("« {rel} » n'est pas dans tes fichiers (Checkout de la PR ?)", "“{rel}” is not in your files (Checkout of the PR?)"));
             return;
@@ -1023,7 +1026,12 @@ impl App {
     /// editor (Ctrl+Z undoes it), then saves the file.
     fn apply_suggestion(&mut self, id: String, rel: &str, start: usize, end: usize, text: &str) {
         let Some(repo) = self.pr.repo.clone() else { return };
-        let path = repo.join(rel);
+        // the path comes from a review comment: a link or a path leading out of the repository
+        // would read and then write a file outside it
+        let Some(path) = crate::os::inside_repo(&repo, rel) else {
+            self.set_error(tf!("Suggestion refusée : « {rel} » n'est pas un fichier du dépôt", "Suggestion refused: “{rel}” is not a file of the repository"));
+            return;
+        };
         let back = self.docs.get(self.active).map(|d| d.uid);
         let Some(i) = self.docs.iter().position(|d| d.path.as_ref() == Some(&path)).or_else(|| self.open_path(path.clone()).then_some(self.active)) else {
             self.set_error(tf!("Impossible d'ouvrir {rel}", "Cannot open {rel}"));
