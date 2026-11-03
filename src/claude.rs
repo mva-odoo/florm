@@ -583,16 +583,138 @@ fn claude_md_section(text: &str, word: &str) -> String {
     out.join("\n").trim().to_string()
 }
 
-/// The rules of the project, at the end of a prompt that writes commit messages.
-fn push_rules(prompt: &mut String, dir: &Path) {
+/// The rules of the project, right after the task of a prompt that writes commit messages
+/// (read first, they weigh more); returns them, for `push_reminder` and `finish_message`.
+fn push_rules(prompt: &mut String, dir: &Path) -> String {
     let rules = commit_rules(dir);
     if !rules.is_empty() {
         prompt.push_str(t!(
-            "\n\nConsignes du projet pour les messages de commit (elles passent avant le style des derniers messages) :\n",
-            "\n\nRules of the project for the commit messages (they come before the style of the last messages):\n"
+            "\n\nConsignes OBLIGATOIRES du projet pour les messages de commit (elles passent avant tout le reste, y compris le style des derniers messages) :\n",
+            "\n\nMANDATORY rules of the project for the commit messages (they come before everything else, including the style of the last messages):\n"
         ));
         prompt.push_str(&rules);
     }
+    rules
+}
+
+/// The length of the first line, said again at the end of the prompt when the rules give one.
+fn push_reminder(prompt: &mut String, rules: &str) {
+    if let Some(max) = subject_limit(rules) {
+        prompt.push_str(&tf!("\n\nRappel : la première ligne a {max} caractères au plus.", "\n\nReminder: the first line has at most {max} characters."));
+    }
+}
+
+/// The longest first line the rules allow: a number (20 to 200) on a line about characters
+/// (« Sujet de 72 caractères au plus », "subject: 50 chars max").
+pub fn subject_limit(rules: &str) -> Option<usize> {
+    rules.lines().map(str::to_lowercase).filter(|l| l.contains("caract") || l.contains("char")).find_map(|l| {
+        l.split(|c: char| !c.is_ascii_digit()).filter_map(|n| n.parse::<usize>().ok()).find(|n| (20..=200).contains(n))
+    })
+}
+
+/// 72 when the bodies of the last commits of `dir` are wrapped (as git does by habit: nearly
+/// all their lines within 76 columns), else None.
+fn body_width(dir: &Path) -> Option<usize> {
+    let bodies = crate::git::stdout(dir, &["log", "-20", "--format=%b"]).ok()?;
+    let lines: Vec<usize> = bodies.lines().filter(|l| !l.trim().is_empty()).map(|l| l.chars().count()).collect();
+    let short = lines.iter().filter(|&&n| n <= 76).count();
+    (lines.len() >= 5 && short * 10 >= lines.len() * 9).then_some(72)
+}
+
+/// `body` wrapped at `width` paragraph by paragraph: the lines of a paragraph are joined, then cut
+/// at spaces (a list item goes on under its text). Code blocks and indented lines are left as
+/// they are; a word longer than the width stays whole.
+fn wrap_body(body: &str, width: usize) -> String {
+    // a paragraph being read: its first-line prefix, the indentation of the next lines, its words
+    struct Para {
+        first: String,
+        hang: String,
+        words: Vec<String>,
+    }
+    fn flush(p: &mut Option<Para>, out: &mut Vec<String>, width: usize) {
+        let Some(p) = p.take() else { return };
+        let mut cur = p.first.clone();
+        let mut empty = true;
+        for w in p.words {
+            if !empty && cur.chars().count() + 1 + w.chars().count() > width {
+                out.push(std::mem::replace(&mut cur, p.hang.clone()));
+                empty = true;
+            }
+            if !empty {
+                cur.push(' ');
+            }
+            cur.push_str(&w);
+            empty = false;
+        }
+        out.push(cur);
+    }
+    let mut out: Vec<String> = Vec::new();
+    let mut para: Option<Para> = None;
+    let mut code = false;
+    for line in body.lines() {
+        let t = line.trim_start();
+        let lead = line.len() - t.len();
+        if t.starts_with("```") || code {
+            flush(&mut para, &mut out, width);
+            if t.starts_with("```") {
+                code = !code;
+            }
+            out.push(line.to_string());
+            continue;
+        }
+        if t.is_empty() {
+            flush(&mut para, &mut out, width);
+            out.push(String::new());
+            continue;
+        }
+        let marker = ["- ", "* ", "• "].iter().find(|m| t.starts_with(**m)).map(|m| m.len()).or_else(|| {
+            // "1. ", "2) "
+            let n = t.chars().take_while(|c| c.is_ascii_digit()).count();
+            (n > 0 && t[n..].starts_with(['.', ')']) && t[n + 1..].starts_with(' ')).then_some(n + 2)
+        });
+        let words = |s: &str| s.split_whitespace().map(String::from).collect::<Vec<_>>();
+        match (marker, para.as_mut()) {
+            (Some(m), _) => {
+                flush(&mut para, &mut out, width);
+                para = Some(Para { first: line[..lead + m].to_string(), hang: " ".repeat(lead + m), words: words(&t[m..]) });
+            }
+            // the next line of a list item (indented under it), or of a paragraph
+            (None, Some(p)) if lead == p.hang.len() => p.words.extend(words(t)),
+            (None, _) if lead > 0 => {
+                flush(&mut para, &mut out, width);
+                out.push(line.to_string());
+            }
+            (None, _) => {
+                flush(&mut para, &mut out, width);
+                para = Some(Para { first: String::new(), hang: String::new(), words: words(t) });
+            }
+        }
+    }
+    flush(&mut para, &mut out, width);
+    out.join("\n").trim_end().to_string()
+}
+
+/// A message as the rules want it: its first line shortened by Claude when it is longer than
+/// they allow (kept when Claude cannot), its body wrapped like the last ones of the repository.
+fn finish_message(dir: &Path, msg: &str, rules: &str, width: Option<usize>) -> String {
+    let (subject, body) = msg.split_once('\n').unwrap_or((msg, ""));
+    let mut subject = subject.trim().to_string();
+    if let Some(max) = subject_limit(rules).filter(|max| subject.chars().count() > *max) {
+        let prompt = tf!(
+            "Raccourcis cette première ligne de message de commit (reçue sur l'entrée standard) à {max} caractères au plus. Garde son préfixe, sa langue et son sens. Consignes du projet :\n{rules}\n\nRéponds uniquement par la ligne.",
+            "Shorten this first line of a commit message (given on the standard input) to at most {max} characters. Keep its prefix, its language and its meaning. Rules of the project:\n{rules}\n\nAnswer only with the line."
+        );
+        let short = run_once(dir, &["-p", &prompt, "--output-format", "text", "--model", "haiku", "--tools", "", "--no-session-persistence"], subject.clone());
+        if let Some(s) = short.ok().map(|t| clean_message(&t).lines().next().unwrap_or("").trim().to_string()).filter(|s| !s.is_empty() && s.chars().count() <= max) {
+            subject = s;
+        }
+    }
+    let body = body.trim();
+    let body = match width {
+        Some(w) => wrap_body(body, w),
+        None => body.to_string(),
+    };
+    if body.is_empty() { subject } else { format!("{subject}\n\n{body}") }
 }
 
 /// A commit message for `diff`, in the style of the last messages of the repository; `wish`:
@@ -606,6 +728,7 @@ pub fn commit_message(dir: &Path, diff: &str, recent: &str, wish: &str) -> Resul
          (prefixes like [FIX] / [IMP] / [ADD] module: … if they have some), a short first line, then an empty line and \
          in a few lines the why if it is not obvious. Answer only with the message, without quotes or code block."
     ));
+    let rules = push_rules(&mut prompt, dir);
     if !recent.trim().is_empty() {
         prompt.push_str(t!("\n\nDerniers messages du dépôt :\n", "\n\nLast messages of the repository:\n"));
         prompt.push_str(recent.trim());
@@ -614,10 +737,13 @@ pub fn commit_message(dir: &Path, diff: &str, recent: &str, wish: &str) -> Resul
         prompt.push_str(t!("\n\nCe que le développeur avait demandé pour ces changements :\n", "\n\nWhat the developer had asked for these changes:\n"));
         prompt.push_str(wish.trim());
     }
-    push_rules(&mut prompt, dir);
+    push_reminder(&mut prompt, &rules);
     // a very large diff is cut: the beginning says enough
     let diff: String = diff.chars().take(30_000).collect();
-    run_once(dir, &["-p", &prompt, "--output-format", "text", "--model", "haiku", "--tools", "", "--no-session-persistence"], diff).map(|t| clean_message(&t))
+    // with rules of the project: Sonnet, which follows them (Haiku often forgets the prefixes, the length)
+    let model = if rules.is_empty() { "haiku" } else { "sonnet" };
+    let msg = run_once(dir, &["-p", &prompt, "--output-format", "text", "--model", model, "--tools", "", "--no-session-persistence"], diff).map(|t| clean_message(&t))?;
+    Ok(finish_message(dir, &msg, &rules, body_width(dir)))
 }
 
 /// The description of a pull request (Markdown), from the commits of its branch (`log`) and its
@@ -658,6 +784,7 @@ pub fn commit_plan(dir: &Path, blocks: &str, recent: &str, wish: &str) -> Result
          some), a short first line, then an empty line and the why in a few lines if it is not obvious. Answer only with \
          a JSON array: [{\"message\": \"…\", \"blocks\": [1, 4]}, …]."
     ));
+    let rules = push_rules(&mut prompt, dir);
     if !recent.trim().is_empty() {
         prompt.push_str(t!("\n\nDerniers messages du dépôt :\n", "\n\nLast messages of the repository:\n"));
         prompt.push_str(recent.trim());
@@ -666,9 +793,10 @@ pub fn commit_plan(dir: &Path, blocks: &str, recent: &str, wish: &str) -> Result
         prompt.push_str(t!("\n\nCe que le développeur avait demandé pour ces changements :\n", "\n\nWhat the developer had asked for these changes:\n"));
         prompt.push_str(wish.trim());
     }
-    push_rules(&mut prompt, dir);
+    push_reminder(&mut prompt, &rules);
     let text = run_once(dir, &["-p", &prompt, "--output-format", "text", "--model", "sonnet", "--tools", "", "--no-session-persistence"], blocks.to_string())?;
-    parse_plan(&text)
+    let width = body_width(dir);
+    Ok(parse_plan(&text)?.into_iter().map(|(m, b)| (finish_message(dir, &m, &rules, width), b)).collect())
 }
 
 fn parse_plan(text: &str) -> Result<Vec<(String, Vec<usize>)>, String> {
@@ -1003,6 +1131,20 @@ fn clean_message(t: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn length_rules_are_found_and_kept() {
+        assert_eq!(subject_limit("- En Anglais.\n- Sujet de 72 caractères au plus, puis une ligne vide"), Some(72));
+        assert_eq!(subject_limit("Subject: 50 chars max"), Some(50));
+        assert_eq!(subject_limit("- In English.\n- [FIX] module: 2 words"), None);
+        // a paragraph already cut short is joined, then cut at the width; a list item hangs under
+        // its text; code stays as it is
+        let body = "The route\nis new and\nits name is long.\n\n- an item whose text is long enough to go past the width\n```\nlet a_very_long_line_of_code = it_is_left_as_it_is_even_past_the_width(1);\n```";
+        let w = wrap_body(body, 30);
+        assert_eq!(w.lines().take(2).collect::<Vec<_>>(), ["The route is new and its name", "is long."], "{w}");
+        assert!(w.contains("- an item whose text is long\n  enough"), "{w}");
+        assert!(w.lines().all(|l| l.chars().count() <= 30 || l.starts_with("let ")), "{w}");
+    }
 
     #[test]
     fn commit_section_of_claude_md() {
