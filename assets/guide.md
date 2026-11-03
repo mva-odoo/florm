@@ -432,7 +432,9 @@ panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en
   Une puce se retire avec son ×.
 - **Images** : une image part avec le message, réduite à 1568 pixels pour coûter moins de tokens.
   Trois façons de la donner : la coller avec Ctrl+V (une image copiée), la glisser depuis le
-  gestionnaire de fichiers sur la conversation, ou **+ Contexte → Image…**. Pour une capture
+  gestionnaire de fichiers sur la conversation, ou **+ Contexte → Image…**. Plusieurs images
+  vont ensemble dans un message : glisse-en plusieurs, colle-les l'une après l'autre, ou choisis-en
+  plusieurs dans **Image…** avec Ctrl ou Maj. Pour une capture
   d'écran : prends-la avec l'outil du système (elle va dans le presse-papiers), puis Ctrl+V.
   L'image apparaît en miniature au-dessus du champ, puis dans le message envoyé ; un clic l'ouvre
   en grand.

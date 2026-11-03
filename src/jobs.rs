@@ -118,7 +118,7 @@ pub enum JobResult {
     Search(u64, search::Outcome),
     /// Native file dialog closed: what it was for (0 folder, 1 file, 2 save as) and the choice.
     #[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
-    Picked(crate::os::Pick, Result<Option<PathBuf>, String>),
+    Picked(crate::os::Pick, Result<Vec<PathBuf>, String>),
     /// An image file for Claude, as PNG.
     ClaudeImage { label: String, png: Result<Vec<u8>, String> },
     /// Fonts installed on the system (preferences).

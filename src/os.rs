@@ -254,9 +254,9 @@ pub enum Pick {
 }
 
 /// File chooser of the desktop (GTK, KDE…) through the xdg portal. Blocks until the dialog is
-/// closed; `Ok(None)` when cancelled.
+/// closed; the files chosen (several for images), none when cancelled.
 #[cfg(target_os = "linux")]
-pub fn portal_pick(kind: Pick, dir: &Path, name: Option<&str>) -> Result<Option<PathBuf>, String> {
+pub fn portal_pick(kind: Pick, dir: &Path, name: Option<&str>) -> Result<Vec<PathBuf>, String> {
     use std::collections::HashMap;
     use std::os::unix::ffi::OsStrExt;
     use zbus::zvariant::Value;
@@ -267,7 +267,7 @@ pub fn portal_pick(kind: Pick, dir: &Path, name: Option<&str>) -> Result<Option<
     let (method, title) = match kind {
         Pick::Folder => ("OpenFile", t!("Ouvrir un dossier", "Open a folder")),
         Pick::File => ("OpenFile", t!("Ouvrir un fichier", "Open a file")),
-        Pick::Image => ("OpenFile", t!("Une image pour Claude", "An image for Claude")),
+        Pick::Image => ("OpenFile", t!("Des images pour Claude", "Images for Claude")),
         Pick::SaveAs => ("SaveFile", t!("Enregistrer sous", "Save as")),
     };
     if kind == Pick::Folder {
@@ -278,23 +278,24 @@ pub fn portal_pick(kind: Pick, dir: &Path, name: Option<&str>) -> Result<Option<
         let globs: Vec<(u32, &str)> = IMAGE_EXTS.iter().map(|e| (0, *e)).collect();
         opts.insert("filters", Value::from(vec![(t!("Images", "Images"), globs.clone())]));
         opts.insert("current_filter", Value::from((t!("Images", "Images"), globs)));
+        opts.insert("multiple", Value::from(true));
     }
     if let Some(n) = name {
         opts.insert("current_name", Value::from(n));
     }
     let uri = portal_request("org.freedesktop.portal.FileChooser", method, Some(title), opts)
         .map_err(|e| tf!("Sélecteur de fichiers du bureau indisponible : {e}", "Desktop file chooser unavailable: {e}"))?;
-    Ok(uri.and_then(|u| file_uri_path(&u)))
+    Ok(uri.iter().filter_map(|u| file_uri_path(u)).collect())
 }
 
 /// The patterns of the image files Claude can be given.
 #[cfg(target_os = "linux")]
 const IMAGE_EXTS: [&str; 10] = ["*.png", "*.jpg", "*.jpeg", "*.gif", "*.webp", "*.bmp", "*.PNG", "*.JPG", "*.JPEG", "*.WEBP"];
 
-/// Asks the xdg portal (`interface`, `method`) and waits for its answer: the file it gives (its
-/// uri), None when cancelled. `title`: the dialog's, for the methods that take one.
+/// Asks the xdg portal (`interface`, `method`) and waits for its answer: the files it gives (their
+/// uris), none when cancelled. `title`: the dialog's, for the methods that take one.
 #[cfg(target_os = "linux")]
-fn portal_request(interface: &str, method: &str, title: Option<&str>, mut opts: std::collections::HashMap<&str, zbus::zvariant::Value>) -> Result<Option<String>, zbus::Error> {
+fn portal_request(interface: &str, method: &str, title: Option<&str>, mut opts: std::collections::HashMap<&str, zbus::zvariant::Value>) -> Result<Vec<String>, zbus::Error> {
     use std::collections::HashMap;
     use zbus::zvariant::{OwnedObjectPath, Value};
     let conn = zbus::blocking::Connection::session()?;
@@ -310,15 +311,15 @@ fn portal_request(interface: &str, method: &str, title: Option<&str>, mut opts: 
         Some(t) => portal.call(method, &("", t, opts))?,
         None => portal.call(method, &("", opts))?,
     };
-    let Some(msg) = answers.next() else { return Ok(None) };
+    let Some(msg) = answers.next() else { return Ok(Vec::new()) };
     let body = msg.body();
     let (code, results): (u32, HashMap<String, Value>) = body.deserialize()?;
     if code != 0 {
-        return Ok(None);
+        return Ok(Vec::new());
     }
     Ok(match results.get("uris") {
-        Some(Value::Array(a)) => a.iter().find_map(|v| if let Value::Str(s) = v { Some(s.to_string()) } else { None }),
-        _ => None,
+        Some(Value::Array(a)) => a.iter().filter_map(|v| if let Value::Str(s) = v { Some(s.to_string()) } else { None }).collect(),
+        _ => Vec::new(),
     })
 }
 

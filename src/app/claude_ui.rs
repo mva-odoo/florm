@@ -1356,7 +1356,7 @@ impl App {
                                 (t!("Tous les onglets ouverts", "All open tabs"), t!("Chaque fichier ouvert dans l'éditeur", "Each file open in the editor"), CtxAdd::Tabs),
                                 (t!("Changements non commités", "Uncommitted changes"), t!("Le diff de ce qui n'est pas commité (git diff HEAD, nouveaux fichiers compris)", "The diff of what is not committed (git diff HEAD, new files included)"), CtxAdd::Diff),
                                 (t!("Problèmes du fichier", "Problems of the file"), t!("Les erreurs et avertissements du linter dans le fichier ouvert", "The linter errors and warnings in the open file"), CtxAdd::Problems),
-                                (t!("Image…", "Image…"), t!("Une image choisie sur le disque (aussi : glisse-la sur la conversation, ou colle-la avec Ctrl+V)", "An image chosen on the disk (also: drop it on the conversation, or paste it with Ctrl+V)"), CtxAdd::Image),
+                                (t!("Image…", "Image…"), t!("Des images choisies sur le disque, plusieurs d'un coup avec Ctrl ou Maj (aussi : glisse-les sur la conversation, ou colle-les une à une avec Ctrl+V)", "Images chosen on the disk, several at once with Ctrl or Shift (also: drop them on the conversation, or paste them one by one with Ctrl+V)"), CtxAdd::Image),
                             ] {
                                 if ui.button(label).on_hover_text(tip).clicked() {
                                     ctx_add = Some(what);

@@ -1066,15 +1066,17 @@ impl App {
             let picked = {
                 let d = rfd::FileDialog::new().set_directory(&dir);
                 Ok(match kind {
-                    Pick::Folder => d.set_title(t!("Ouvrir un dossier (les projets WSL : \\\\wsl.localhost\\…)", "Open a folder (WSL projects: \\\\wsl.localhost\\…)")).pick_folder(),
-                    Pick::File => d.set_title(t!("Ouvrir un fichier", "Open a file")).pick_file(),
-                    Pick::Image => d.set_title(t!("Une image pour Claude", "An image for Claude")).add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp", "bmp"]).pick_file(),
+                    Pick::Folder => d.set_title(t!("Ouvrir un dossier (les projets WSL : \\\\wsl.localhost\\…)", "Open a folder (WSL projects: \\\\wsl.localhost\\…)")).pick_folder().into_iter().collect(),
+                    Pick::File => d.set_title(t!("Ouvrir un fichier", "Open a file")).pick_file().into_iter().collect(),
+                    Pick::Image => d.set_title(t!("Des images pour Claude", "Images for Claude")).add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp", "bmp"]).pick_files().unwrap_or_default(),
                     Pick::SaveAs => {
                         let d = d.set_title(t!("Enregistrer sous", "Save as"));
                         match name {
                             Some(n) => d.set_file_name(n).save_file(),
                             None => d.save_file(),
                         }
+                        .into_iter()
+                        .collect()
                     }
                 })
             };

@@ -440,22 +440,26 @@ impl App {
                     }
                     self.after_split_change();
                 }
-                JobResult::Picked(kind, path) => {
+                JobResult::Picked(kind, paths) => {
                     self.dialog_open = false;
-                    if let Err(e) = &path {
+                    let paths = paths.unwrap_or_else(|e| {
                         self.set_error(tf!("Sélecteur de fichiers : {e}", "File chooser: {e}"));
-                    }
-                    if let Ok(Some(p)) = path {
-                        let prompt = match kind {
-                            crate::os::Pick::Folder => Some(Prompt::OpenFolder),
-                            crate::os::Pick::File => Some(Prompt::OpenFile),
-                            crate::os::Pick::SaveAs => Some(Prompt::SaveAs),
-                            crate::os::Pick::Image => None,
-                        };
-                        match prompt {
-                            Some(prompt) => self.submit_prompt(prompt, p.display().to_string()),
-                            None => self.claude_attach_image_file(&p),
+                        Vec::new()
+                    });
+                    let prompt = match kind {
+                        crate::os::Pick::Folder => Some(Prompt::OpenFolder),
+                        crate::os::Pick::File => Some(Prompt::OpenFile),
+                        crate::os::Pick::SaveAs => Some(Prompt::SaveAs),
+                        crate::os::Pick::Image => None,
+                    };
+                    match prompt {
+                        Some(prompt) => {
+                            if let Some(p) = paths.first() {
+                                self.submit_prompt(prompt, p.display().to_string());
+                            }
                         }
+                        // images: all the ones chosen go with the next message
+                        None => paths.iter().for_each(|p| self.claude_attach_image_file(p)),
                     }
                 }
                 JobResult::ClaudeImage { label, png } => match png {
