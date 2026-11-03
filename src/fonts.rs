@@ -98,6 +98,9 @@ struct Cache {
     /// The Nerd Font found at the last start (finding it walks all the font folders).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     nerd: Option<PathBuf>,
+    /// The fonts of symbols found at the last start (emoji like 🟠 ✅ missing from the built-in ones).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    symbols: Vec<PathBuf>,
 }
 
 fn read_cache() -> Cache {
@@ -174,6 +177,39 @@ fn nerd_font_file() -> Option<PathBuf> {
     found
 }
 
+/// Fonts of symbols of the system, in this order: they draw (in one color) the emoji and symbols
+/// the built-in fonts lack (🟠 🟡 ✅ ❌ 🧩…, often in Claude's answers). Found by file name;
+/// kept in the cache while their files are there.
+const SYMBOL_FILES: [&str; 7] = [
+    "NotoSansSymbols2-Regular.ttf",
+    "NotoSansSymbols-Regular.ttf",
+    "seguisym.ttf",
+    "seguiemj.ttf",
+    "Apple Symbols.ttf",
+    "Symbola.ttf",
+    "DejaVuSans.ttf",
+];
+
+fn symbol_font_files() -> Vec<PathBuf> {
+    let mut cache = read_cache();
+    if !cache.symbols.is_empty() && cache.symbols.iter().all(|p| p.is_file()) {
+        return cache.symbols.clone();
+    }
+    let mut files = Vec::new();
+    for d in font_dirs() {
+        font_files(&d, 4, &mut files);
+    }
+    let found: Vec<PathBuf> = SYMBOL_FILES
+        .iter()
+        .filter_map(|name| files.iter().find(|p| p.file_name().is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(name))).cloned())
+        .collect();
+    if found != cache.symbols {
+        cache.symbols = found.clone();
+        write_cache(&cache);
+    }
+    found
+}
+
 fn scan_nerd_font() -> Option<PathBuf> {
     let mut files = Vec::new();
     for d in font_dirs() {
@@ -221,6 +257,15 @@ pub fn definitions(editor: &str, ui: &str) -> FontDefinitions {
         defs.font_data.insert("nerd_symbols".into(), FontData::from_owned(bytes));
         for family in [FontFamily::Monospace, FontFamily::Proportional] {
             defs.families.entry(family).or_default().push("nerd_symbols".into());
+        }
+    }
+    // last: only the glyphs no other font has come from them
+    for (k, path) in symbol_font_files().into_iter().enumerate() {
+        let Ok(bytes) = std::fs::read(&path) else { continue };
+        let name = format!("system_symbols_{k}");
+        defs.font_data.insert(name.clone(), FontData::from_owned(bytes));
+        for family in [FontFamily::Monospace, FontFamily::Proportional] {
+            defs.families.entry(family).or_default().push(name.clone());
         }
     }
     defs
