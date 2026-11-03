@@ -77,11 +77,51 @@ pub(super) fn sections(text: &str) -> (String, Vec<(String, String)>) {
 }
 
 /// Markdown, its code blocks with a « Copier » button.
+/// The bare addresses of `text` (https://…) made into links, so a click opens them in the
+/// browser; the ones already in a link (`<…>`, `[…](…)`) or in code (`…`) are left as they are.
+pub(super) fn autolink(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 16);
+    for (n, line) in text.split('\n').enumerate() {
+        if n > 0 {
+            out.push('\n');
+        }
+        let mut rest = line;
+        let mut in_code = false;
+        while let Some(at) = ["https://", "http://"].iter().filter_map(|p| rest.find(p)).min() {
+            let (before, from) = rest.split_at(at);
+            in_code ^= before.matches('`').count() % 2 == 1;
+            out.push_str(before);
+            let end = from.find(|c: char| c.is_whitespace() || "<>\"'`".contains(c)).unwrap_or(from.len());
+            let mut url = &from[..end];
+            // the punctuation that ends a sentence, or a ")" around the address, is not part of it
+            loop {
+                let t = url.trim_end_matches(['.', ',', ';', ':', '!', '?']);
+                let t = if t.ends_with(')') && t.matches('(').count() < t.matches(')').count() { &t[..t.len() - 1] } else { t };
+                if t.len() == url.len() {
+                    break;
+                }
+                url = t;
+            }
+            let linked = before.ends_with(['<', '(', '[', '"']) || before.ends_with("](");
+            if in_code || linked || url.len() <= "https://".len() {
+                out.push_str(url);
+            } else {
+                out.push('<');
+                out.push_str(url);
+                out.push('>');
+            }
+            rest = &from[url.len()..];
+        }
+        out.push_str(rest);
+    }
+    out
+}
+
 pub(super) fn markdown(ui: &mut egui::Ui, cache: &mut egui_commonmark::CommonMarkCache, text: &str) {
     for part in parts(text) {
         match part {
             MdPart::Text(t) => {
-                egui_commonmark::CommonMarkViewer::new().show(ui, cache, &t);
+                egui_commonmark::CommonMarkViewer::new().show(ui, cache, &autolink(&t));
             }
             MdPart::Code { lang, code } => code_block(ui, &lang, &code),
         }
@@ -94,7 +134,7 @@ pub(super) fn markdown(ui: &mut egui::Ui, cache: &mut egui_commonmark::CommonMar
 pub(super) fn markdown_checks(ui: &mut egui::Ui, cache: &mut egui_commonmark::CommonMarkCache, text: &str, checks: &mut HashSet<(usize, String)>, msg: usize) {
     for part in parts(text) {
         let t = match part {
-            MdPart::Text(t) => t,
+            MdPart::Text(t) => autolink(&t),
             MdPart::Code { lang, code } => {
                 code_block(ui, &lang, &code);
                 continue;
@@ -237,6 +277,17 @@ mod list_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bare_addresses_become_links() {
+        assert_eq!(autolink("Suivi : https://github.com/a/b/runs/1."), "Suivi : <https://github.com/a/b/runs/1>.");
+        assert_eq!(autolink("(voir https://x.io/a_(b))"), "(voir <https://x.io/a_(b)>)");
+        // already links, or code: unchanged
+        for t in ["<https://x.io>", "[x](https://x.io)", "[https://x.io](https://x.io)", "`curl https://x.io`", "a `b` https://x.io `c`"] {
+            let want = if t.starts_with("a `b`") { "a `b` <https://x.io> `c`".to_string() } else { t.to_string() };
+            assert_eq!(autolink(t), want);
+        }
+    }
 
     #[test]
     fn code_blocks_apart() {
