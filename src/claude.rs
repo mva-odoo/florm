@@ -542,19 +542,21 @@ fn read_rules(path: &Path) -> String {
     t.lines().filter(|l| !l.trim_start().starts_with("<!--")).collect::<Vec<_>>().join("\n").trim().to_string()
 }
 
-/// The rules the commit messages of `repo` must follow: `.florm/commit.md`, else the section of
-/// the CLAUDE.md of the project about commits (its title contains "commit"), else the user's own.
-pub fn commit_rules(repo: &Path) -> String {
+/// The rules of the repository itself for its commit messages: `.florm/commit.md`, else the
+/// section of its CLAUDE.md about commits (its title contains "commit"); empty if none.
+pub fn project_commit_rules(repo: &Path) -> String {
     let root = crate::git::repo_root(repo).unwrap_or_else(|| repo.to_path_buf());
     let project = read_rules(&commit_rules_path(&root));
     if !project.is_empty() {
         return project;
     }
-    let section = claude_md_section(&std::fs::read_to_string(root.join("CLAUDE.md")).unwrap_or_default(), "commit");
-    if !section.is_empty() {
-        return section;
-    }
-    read_rules(&my_commit_rules_path())
+    claude_md_section(&std::fs::read_to_string(root.join("CLAUDE.md")).unwrap_or_default(), "commit")
+}
+
+/// The rules the commit messages of `repo` must follow: the repository's, else the user's own.
+pub fn commit_rules(repo: &Path) -> String {
+    let project = project_commit_rules(repo);
+    if project.is_empty() { read_rules(&my_commit_rules_path()) } else { project }
 }
 
 /// The section of a Markdown text whose title contains `word` (any case), without its title,

@@ -237,8 +237,9 @@ impl App {
         };
         let path = crate::claude::commit_rules_path(&repo);
         if !path.exists() {
-            // what the CLAUDE.md already says about commits, as a start
-            let current = crate::claude::commit_rules(&repo);
+            // what the CLAUDE.md already says about commits, as a start (not the user's own rules:
+            // this file is shared with the team)
+            let current = crate::claude::project_commit_rules(&repo);
             let body = if current.is_empty() {
                 t!(
                     "- En français.\n- Sujet : `[TAG] module : ce qui change`, tags [ADD] (nouveauté), [IMP] (amélioration), [FIX] (correction).\n- Sujet de 72 caractères au plus, puis une ligne vide et le pourquoi.\n",
