@@ -66,6 +66,10 @@ pub fn repo_chip(ui: &mut egui::Ui, id_salt: impl std::hash::Hash, name: &str, i
         return crate::pick::combo(ui, id_salt, text, items, current);
     }
     let fill = crate::icons::mix(ui.visuals().panel_fill, accent, 0.15);
-    egui::Frame::none().fill(fill).rounding(5.0).inner_margin(egui::Margin::symmetric(8.0, 2.0)).show(ui, |ui| ui.label(text));
+    // a single repository: nothing to pick here, say where to go instead
+    egui::Frame::none().fill(fill).rounding(5.0).inner_margin(egui::Margin::symmetric(8.0, 2.0)).show(ui, |ui| ui.label(text)).response.on_hover_text(t!(
+        "Le seul dépôt du dossier ouvert. Pour un autre projet : Fichier → Changer de projet…",
+        "The only repository of the opened folder. For another project: File → Switch project…"
+    ));
     None
 }

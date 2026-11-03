@@ -340,6 +340,8 @@ pub(super) fn tools_menu(ui: &mut egui::Ui, c: &mut ClaudeUi, allow: &[String], 
         });
         ui.menu_button(tf!("Agents ({})", "Agents ({})", t.agents.len()), |ui| {
             ui.set_min_width(420.0);
+            // long descriptions would stretch the menu over the whole window
+            ui.set_max_width(520.0);
             ui.label(RichText::new(t!("Des Claude spécialisés, à qui Claude confie une partie du travail (comme /agents). Clic : ouvrir sa définition.", "Specialised Claudes, to which Claude hands part of the work (like /agents). Click: open its definition.")).small().weak());
             if !agents_on {
                 ui.label(RichText::new(t!("⚠ « Sous-agents » n'est pas coché dans 🔒 Permissions", "⚠ “Subagents” is not ticked in 🔒 Permissions")).small().color(warn()));
@@ -350,7 +352,7 @@ pub(super) fn tools_menu(ui: &mut egui::Ui, c: &mut ClaudeUi, allow: &[String], 
                         act = Some(ToolAct::Open(path.clone(), ""));
                         ui.close_menu();
                     }
-                    ui.label(RichText::new(about).small().weak());
+                    ui.add(egui::Label::new(RichText::new(about).small().weak()).truncate()).on_hover_text(about);
                 });
             }
             ui.separator();
