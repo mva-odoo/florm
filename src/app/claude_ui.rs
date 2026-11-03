@@ -295,6 +295,11 @@ impl App {
             if !matches!(e, Event::Activity(_) | Event::SubTool { .. } | Event::Context(_) | Event::Limits(_) | Event::Uuid(_)) {
                 self.claude.activity = None;
             }
+            // it works, even without a message sent from here: a turn it starts by itself (a
+            // command of the background finished), or a late end of the turn before
+            if matches!(e, Event::Activity(_) | Event::ThinkingDelta(_) | Event::Thinking(_) | Event::Delta(_) | Event::Tool { .. } | Event::SubTool { .. }) {
+                self.claude.busy = true;
+            }
             match e {
                 Event::Activity(a) => self.claude.activity = Some(a),
                 Event::ThinkingDelta(t) => match items.last_mut() {
