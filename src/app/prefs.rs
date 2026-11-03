@@ -528,6 +528,16 @@ impl App {
                         }
                     });
                 });
+                pref_row(ui, rc, t!("Auteur affiché au départ", "Author shown at the start"), t!("Les pull requests affichées à l'ouverture de la vue : les miennes, toutes, à relire par moi ou relues par moi.", "The pull requests shown when the view opens: mine, all, to review by me or reviewed by me."), |ui| {
+                    let k = crate::github::WHO_KEYS.iter().position(|k| *k == s.pr_default_who).unwrap_or(1);
+                    egui::ComboBox::from_id_salt("pref_pr_who").selected_text(t!(crate::github::WHO[k].1, crate::github::WHO[k].2)).width(220.0).show_ui(ui, |ui| {
+                        for (key, (_, fr, en)) in crate::github::WHO_KEYS.iter().zip(crate::github::WHO) {
+                            if ui.selectable_label(s.pr_default_who == *key, t!(fr, en)).clicked() {
+                                s.pr_default_who = key.to_string();
+                            }
+                        }
+                    });
+                });
                 pref_row(ui, rc, t!("Conversations résolues", "Resolved conversations"), t!("Affichées dans une pull request, sinon masquées (le bouton « afficher les conversations résolues » reste disponible).", "Shown in a pull request, otherwise hidden (the “show resolved conversations” button stays available)."), |ui| {
                     toggle_switch(ui, &mut s.pr_show_resolved);
                 });
@@ -1054,12 +1064,15 @@ impl App {
         if s.debug_just_my_code != before.debug_just_my_code {
             self.persist("debug_just_my_code", s.debug_just_my_code.to_string());
         }
-        if s.pr_default_state != before.pr_default_state || s.pr_show_resolved != before.pr_show_resolved {
-            self.pr.apply_settings(&s.pr_default_state, s.pr_show_resolved);
+        if s.pr_default_state != before.pr_default_state || s.pr_default_who != before.pr_default_who || s.pr_show_resolved != before.pr_show_resolved {
+            self.pr.apply_settings(&s.pr_default_state, &s.pr_default_who, s.pr_show_resolved);
             self.reload_prs();
         }
         if s.pr_default_state != before.pr_default_state {
             self.persist("pr_default_state", config::toml_str(&s.pr_default_state));
+        }
+        if s.pr_default_who != before.pr_default_who {
+            self.persist("pr_default_who", config::toml_str(&s.pr_default_who));
         }
         if s.pr_show_resolved != before.pr_show_resolved {
             self.persist("pr_show_resolved", s.pr_show_resolved.to_string());

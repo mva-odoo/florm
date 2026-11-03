@@ -357,7 +357,9 @@ it (your system is detected) and comes back by itself as soon as it is found.
 **Ctrl+Alt+R** (or Git → GitHub pull requests, **⋯ → GitHub pull requests** in the Git view, the
 palette).
 
-- On the left, the PRs of the repository (open, merged, closed, yours), with a filter.
+- On the left, the PRs of the repository (open, merged, closed, yours), with a filter. At the
+  start, **yours** (preference “Author shown at the start” to see all of them).
+- A PR you just created opens as soon as GitHub knows it (a few seconds).
 - **Conversation**: the description, the **comments on the code** (clickable file:line, the
   commented code, the replies) then the discussion and the reviews.
 - **Apply the suggestion**: a comment with a `suggestion` block replaces the lines in your file

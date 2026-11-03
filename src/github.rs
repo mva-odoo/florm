@@ -87,6 +87,9 @@ pub const WHO: [(&str, &str, &str); 4] = [
     ("reviewed-by:@me", "Relues par moi", "Reviewed by me"),
 ];
 
+/// Names of `WHO` in the settings (`pr_default_who`).
+pub const WHO_KEYS: [&str; 4] = ["all", "mine", "to_review", "reviewed"];
+
 /// Pull requests of the repository of `dir`: "open", "closed", "merged" or "all"; `search`: a
 /// GitHub search filter of `WHO`.
 pub fn list(dir: &Path, state: &str, search: &str) -> Result<Vec<PrSummary>, String> {

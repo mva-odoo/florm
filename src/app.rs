@@ -1239,7 +1239,7 @@ impl App {
             quick_fix: None,
             pr: {
                 let mut pr = pulls::PrUi::default();
-                pr.apply_settings(&settings.pr_default_state, settings.pr_show_resolved);
+                pr.apply_settings(&settings.pr_default_state, &settings.pr_default_who, settings.pr_show_resolved);
                 pr
             },
             docker: Default::default(),

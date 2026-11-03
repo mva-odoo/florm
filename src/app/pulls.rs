@@ -107,8 +107,9 @@ pub(super) struct PrUi {
 
 impl PrUi {
     /// The state and the resolved conversations of the settings: at the start, and when they change.
-    pub(super) fn apply_settings(&mut self, state: &str, show_resolved: bool) {
+    pub(super) fn apply_settings(&mut self, state: &str, who: &str, show_resolved: bool) {
         self.state = STATES.iter().position(|(k, _, _)| *k == state).unwrap_or(0);
+        self.who = github::WHO_KEYS.iter().position(|k| *k == who).unwrap_or(1);
         self.show_resolved = show_resolved;
     }
 }

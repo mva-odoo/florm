@@ -125,6 +125,8 @@ pub struct Settings {
     pub debug_just_my_code: bool,
     /// State of the pull requests shown at the start: "open", "merged", "closed" or "all".
     pub pr_default_state: String,
+    /// Whose pull requests are shown at the start: "mine", "all", "to_review" or "reviewed".
+    pub pr_default_who: String,
     /// The resolved conversations of a pull request shown (otherwise hidden).
     pub pr_show_resolved: bool,
     /// A new pull request is created as a draft.
@@ -214,6 +216,7 @@ impl Default for Settings {
             debug_exceptions: vec!["uncaught".into()],
             debug_just_my_code: false,
             pr_default_state: "open".into(),
+            pr_default_who: "mine".into(),
             pr_show_resolved: false,
             pr_draft: false,
             shared_config: String::new(),
@@ -316,9 +319,10 @@ odoo_test_command = ""
 # et dans un conteneur (vide = "odoo --workers 0 --http-port 8070")
 debug_command = ""
 debug_docker_command = ""
-# pull requests : état affiché au départ ("open", "merged", "closed", "all"), conversations résolues
-# affichées, nouvelle PR en brouillon
+# pull requests : état affiché au départ ("open", "merged", "closed", "all"), auteur ("mine",
+# "all", "to_review", "reviewed"), conversations résolues affichées, nouvelle PR en brouillon
 pr_default_state = "open"
+pr_default_who = "mine"
 pr_show_resolved = false
 pr_draft = false
 # configuration partagée entre ordinateurs : un dépôt GitHub avec settings.toml, templates/,
