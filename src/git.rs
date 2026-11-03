@@ -573,7 +573,59 @@ pub fn line_history(file: &Path, first: usize, last: usize) -> Result<Vec<LineCo
     let range = format!("{first},{}:{name}", last.max(first));
     // HEAD explicitly: a branch named like the file would be taken for it
     let out = stdout(dir, &["log", "--date=format:%Y-%m-%d %H:%M", "--format=%x1e%H%x1f%an%x1f%ad%x1f%s", "-L", &range, "HEAD"])?;
-    Ok(parse_log(&out))
+    let mut commits = parse_log(&out);
+    // git shows only the followed lines: the whole hunks around them (with some context) read
+    // better, like Sublime Merge does
+    for c in commits.iter_mut().take(300) {
+        let Some(path) = diff_path(&c.diff) else { continue };
+        let top = format!(":(top){path}");
+        let full = stdout(dir, &["show", "--format=", "--no-color", "-m", "--first-parent", "-U3", &c.hash, "--", &top]);
+        if let Some(d) = full.ok().and_then(|f| hunks_around(&f, &c.diff)) {
+            c.diff = d;
+        }
+    }
+    Ok(commits)
+}
+
+/// The file of a one-file diff (its new path, or the old one when deleted).
+fn diff_path(diff: &str) -> Option<String> {
+    let new = diff.lines().find_map(|l| l.strip_prefix("+++ b/"));
+    let old = diff.lines().find_map(|l| l.strip_prefix("--- a/"));
+    new.or(old).map(|p| p.trim_end_matches(['\t', '\r']).to_string())
+}
+
+/// (old, new) line ranges of a "@@ -a,b +c,d @@" line, half-open, at least one line long.
+fn hunk_ranges(line: &str) -> Option<((usize, usize), (usize, usize))> {
+    let mut parts = line.strip_prefix("@@ ")?.split(' ');
+    let range = |s: &str| -> Option<(usize, usize)> {
+        let (start, len) = s.split_once(',').map_or((s, "1"), |(a, b)| (a, b));
+        let (start, len): (usize, usize) = (start.parse().ok()?, len.parse().ok()?);
+        Some((start, start + len.max(1)))
+    };
+    Some((range(parts.next()?.strip_prefix('-')?)?, range(parts.next()?.strip_prefix('+')?)?))
+}
+
+/// The hunks of `full` (the whole diff of a commit for one file) that touch the lines followed
+/// by `git log -L` (`tracked`, its diff of the same commit), with the file header; None when
+/// none does.
+fn hunks_around(full: &str, tracked: &str) -> Option<String> {
+    let wanted: Vec<_> = tracked.lines().filter_map(hunk_ranges).collect();
+    let overlaps = |a: (usize, usize), b: (usize, usize)| a.0 < b.1 && b.0 < a.1;
+    let mut out: Vec<&str> = Vec::new();
+    let mut keep = false;
+    let mut any = false;
+    for l in full.lines() {
+        if let Some((old, new)) = l.starts_with("@@").then(|| hunk_ranges(l)).flatten() {
+            keep = wanted.iter().any(|(o, n)| overlaps(old, *o) || overlaps(new, *n));
+            any |= keep;
+        } else if l.starts_with("diff --git") {
+            keep = true;
+        }
+        if keep {
+            out.push(l);
+        }
+    }
+    any.then(|| out.join("\n"))
 }
 
 /// "il y a 3 jours" from a unix timestamp.
@@ -614,6 +666,17 @@ pub fn parse_github(url: &str) -> Option<(String, String)> {
 #[cfg(test)]
 mod status_tests {
     use super::*;
+
+    #[test]
+    fn line_history_keeps_whole_hunks() {
+        let full = "diff --git a/m.py b/m.py\n--- a/m.py\n+++ b/m.py\n@@ -10,3 +10,3 @@\n a\n-b\n+B\n c\n@@ -249,8 +249,7 @@ def f():\n x\n-    if not LOCAL:\n-        old = f(o)\n-        new = f(n)\n+    old = f(o)\n+    new = f(n)\n y";
+        let tracked = "diff --git a/m.py b/m.py\n--- a/m.py\n+++ b/m.py\n@@ -250,3 +250,1 @@ def f():\n-    if not LOCAL:\n-        old = f(o)\n-        new = f(n)\n+    old = f(o)";
+        assert_eq!(diff_path(tracked).as_deref(), Some("m.py"));
+        let d = hunks_around(full, tracked).unwrap();
+        assert!(d.starts_with("diff --git") && d.contains("+    new = f(n)") && d.contains("\n x\n") && !d.contains("+B"), "{d}");
+        // no hunk touches the lines: git's own diff is kept
+        assert!(hunks_around(full, "@@ -500,1 +500,1 @@\n-z\n+Z").is_none());
+    }
 
     #[test]
     fn upstream_ahead_behind() {
