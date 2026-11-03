@@ -193,7 +193,9 @@ explains how to install it (the system is detected) and comes back by itself as 
     `[FIX] module: …`, the why in the body, `task-…` at the end.
   - Both also open with a **right click on ✨ or ✂**, next to the commit message.
 - **File history** (right click in the editor, Git menu): all its commits, through its renames.
-  **Line history** (Ctrl+Alt+B) also takes several selected lines.
+  **Line history** (Ctrl+Alt+B) also takes several selected lines; each commit shows the whole
+  block that changed around these lines, with some context. The history opens in a tab (↑ / ↓ to
+  go from one commit to the next, Escape to come back).
 
 ### Split a commit
 

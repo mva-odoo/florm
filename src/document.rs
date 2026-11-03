@@ -243,6 +243,8 @@ pub enum View {
     Settings,
     /// The commit being split (it stays while the split is in progress).
     Split,
+    /// The history of lines, of a file, a search in the commits or the reflog.
+    History,
 }
 
 /// Files shown as images rather than text.

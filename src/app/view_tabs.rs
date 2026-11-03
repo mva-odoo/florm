@@ -13,7 +13,7 @@ impl App {
 
     /// Git, the preferences or the split is shown (no editor takes the keys then).
     pub(super) fn special_shown(&self) -> bool {
-        self.docs.get(self.active).is_some_and(|d| matches!(d.view, View::Git | View::Settings | View::Split))
+        self.docs.get(self.active).is_some_and(|d| matches!(d.view, View::Git | View::Settings | View::Split | View::History))
     }
 
     pub(super) fn has_tab(&self, view: View) -> bool {
@@ -25,6 +25,7 @@ impl App {
             View::Git => "Git".into(),
             View::Settings => t!("Préférences", "Preferences").into(),
             View::Split => tf!("Découpage {}", "Splitting {}", self.split.as_ref().map_or("", |s| s.info.short.as_str())),
+            View::History => self.line_history.as_ref().map_or_else(|| t!("Historique", "History").to_string(), |l| l.title.clone()),
             _ => String::new(),
         }
     }
@@ -67,6 +68,13 @@ impl App {
             }
             (false, true) => self.close_view(View::Split),
             _ => {}
+        }
+    }
+
+    /// The tab of the history follows it: gone when there is no history (session restored…).
+    pub(super) fn sync_history_tab(&mut self) {
+        if self.line_history.is_none() && self.has_tab(View::History) {
+            self.close_view(View::History);
         }
     }
 

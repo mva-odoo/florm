@@ -197,7 +197,9 @@ explique comment l'installer (le système est détecté) et reprend toute seule 
     Par exemple : en anglais, `[FIX] module: …`, le pourquoi dans le corps, `task-…` à la fin.
   - Les deux s'ouvrent aussi d'un **clic droit sur ✨ ou ✂**, à côté du message du commit.
 - **Historique du fichier** (clic droit dans l'éditeur, menu Git) : tous ses commits, à travers
-  ses renommages. **Historique de la ligne** (Ctrl+Alt+B) prend aussi plusieurs lignes sélectionnées.
+  ses renommages. **Historique de la ligne** (Ctrl+Alt+B) prend aussi plusieurs lignes sélectionnées ;
+  chaque commit montre tout le bloc qui a changé autour de ces lignes, avec un peu de contexte.
+  L'historique s'ouvre dans un onglet (↑ / ↓ pour passer d'un commit à l'autre, Échap pour revenir).
 
 ### Découper un commit
 

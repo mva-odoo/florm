@@ -1584,7 +1584,7 @@ impl eframe::App for App {
             self.nav_go(mb);
         }
         self.track_nav();
-        self.line_history_ui(ctx);
+        self.sync_history_tab();
         self.local_history_ui(ctx);
         self.pr_create_ui(ctx);
         self.inline_ai_ui(ctx);
@@ -1635,7 +1635,7 @@ fn doc_tab(d: &Document) -> (TabIcon<'_>, String) {
         View::Docker => Some(ViewIcon::Docker),
         View::Sql => Some(ViewIcon::Sql),
         View::Debug => Some(ViewIcon::Debug),
-        View::Git => Some(ViewIcon::Git),
+        View::Git | View::History => Some(ViewIcon::Git),
         View::Settings => Some(ViewIcon::Settings),
         View::Split => Some(ViewIcon::Split),
         View::Claude => Some(ViewIcon::Claude),

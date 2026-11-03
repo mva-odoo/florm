@@ -199,10 +199,12 @@ impl App {
         match cmd {
             Escape => {
                 let peek_open = self.docs.get(self.active).is_some_and(|d| d.peek.is_some());
-                if self.overlay.take().is_some() || self.confirm.take().is_some() || self.line_history.take().is_some() {
+                if self.overlay.take().is_some() || self.confirm.take().is_some() {
                 } else if maximize::restore_shown(ctx) {
                 } else if self.showing(document::View::Split) {
                     self.leave_tab(document::View::Split);
+                } else if self.showing(document::View::History) {
+                    self.leave_tab(document::View::History);
                 } else if self.showing(document::View::Git) && self.history_detail_open() {
                     self.close_history_detail();
                 } else if self.showing(document::View::Git) {

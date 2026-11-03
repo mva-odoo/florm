@@ -103,8 +103,13 @@ impl App {
         self.jobs.spawn(move || JobResult::LineHistory(git::line_history(&path, first + 1, last + 1)));
     }
 
+    /// The history tab (made, or reused for this new history).
     fn open_history_window(&mut self, title: String, repo: PathBuf, reflog: bool) {
-        self.line_history = Some(LineHistoryUi { title, repo, loading: true, error: None, commits: Vec::new(), diffs: Vec::new(), selected: 0, reflog });
+        self.line_history = Some(LineHistoryUi { title: title.clone(), repo, loading: true, error: None, commits: Vec::new(), diffs: Vec::new(), selected: 0, reflog });
+        self.show_tab(document::View::History);
+        if let Some(d) = self.docs.iter_mut().find(|d| d.view == document::View::History) {
+            d.title_override = Some(title);
+        }
     }
 
     /// Every commit of the current file, through its renames.
@@ -157,112 +162,118 @@ impl App {
         });
     }
 
-    pub(super) fn line_history_ui(&mut self, ctx: &egui::Context) {
+    /// The history tab: the commits on the left, the chosen one and its diff on the right.
+    pub(super) fn line_history_ui(&mut self, ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
+        // the keys only for the panel with the keyboard (an editor may be beside it)
+        let focused = self.showing(document::View::History) && !ctx.wants_keyboard_input();
         let Some(lh) = self.line_history.as_mut() else { return };
-        let mut open = true;
         let (mut show_graph, mut copy, mut chose) = (None, None, false);
         let mut act: Option<HistAct> = None;
-        egui::Window::new(lh.title.clone())
-            .id(egui::Id::new("line_history"))
-            .open(&mut open)
-            .collapsible(false)
-            .resizable(true)
-            .default_size([960.0, 540.0])
-            .min_size([480.0, 260.0])
-            .show(ctx, |ui| {
-                if lh.loading {
-                    ui.horizontal(|ui| {
-                        spinner(ui);
-                        ui.label(t!("Recherche des commits…", "Looking for the commits…"));
-                    });
-                    return;
-                }
-                if let Some(e) = &lh.error {
-                    ui.label(RichText::new(e).color(err()));
-                    return;
-                }
-                if lh.commits.is_empty() {
-                    ui.label(RichText::new(t!("Aucun commit trouvé.", "No commit found.")).weak());
-                    return;
-                }
-                ui.set_min_size(ui.available_size());
-                let height = ui.available_height();
-                ui.horizontal_top(|ui| {
-                    // commit list
-                    ui.vertical(|ui| {
-                        ui.set_width(320.0);
-                        let head = if lh.reflog { tf!("{} ENTRÉE(S), LA PLUS RÉCENTE EN HAUT", "{} ENTRIES, THE NEWEST AT THE TOP", lh.commits.len()) } else { tf!("{} COMMIT(S)", "{} COMMIT(S)", lh.commits.len()) };
-                        ui.label(RichText::new(head).small().strong());
-                        egui::ScrollArea::vertical().id_salt("lh_list").max_height(height - 24.0).auto_shrink([false, false]).show(ui, |ui| {
-                            for (i, c) in lh.commits.iter().enumerate() {
-                                let (rect, r) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 44.0), Sense::click());
-                                let v = ui.visuals();
-                                if i == lh.selected {
-                                    ui.painter().rect_filled(rect, 5.0, v.selection.bg_fill);
-                                } else if r.hovered() {
-                                    ui.painter().rect_filled(rect, 5.0, v.widgets.hovered.weak_bg_fill);
-                                }
-                                let p = ui.painter().with_clip_rect(rect.shrink(4.0));
-                                p.text(rect.left_top() + egui::vec2(8.0, 6.0), Align2::LEFT_TOP, &c.subject, egui::FontId::proportional(14.0), v.text_color());
-                                p.text(
-                                    rect.left_top() + egui::vec2(8.0, 25.0),
-                                    Align2::LEFT_TOP,
-                                    format!("{} · {} · {}", c.author, c.date, &c.hash[..c.hash.len().min(7)]),
-                                    egui::FontId::proportional(12.0),
-                                    v.weak_text_color(),
-                                );
-                                if r.clicked() && lh.selected != i {
-                                    lh.selected = i;
-                                    chose = true;
-                                }
-                            }
-                        });
-                    });
-                    ui.separator();
-                    // selected commit: header + diff
-                    ui.vertical(|ui| {
-                        let c = &lh.commits[lh.selected];
-                        ui.horizontal(|ui| {
-                            ui.add(egui::Label::new(RichText::new(&c.subject).strong()).truncate());
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                if lh.reflog {
-                                    ui.menu_button(t!("Récupérer ▾", "Bring back ▾"), |ui| {
-                                        let items = [
-                                            (t!("Créer une branche ici…", "Create a branch here…"), HistAct::BranchAt(c.hash.clone())),
-                                            (t!("Checkout de ce commit (HEAD détachée)", "Checkout of this commit (detached HEAD)"), HistAct::Checkout(c.hash.clone())),
-                                            (t!("Cherry-pick sur la branche courante", "Cherry-pick on the current branch"), HistAct::CherryPick(c.hash.clone())),
-                                            (t!("Ramener la branche courante ici (reset --hard)…", "Move the current branch here (reset --hard)…"), HistAct::Reset(c.hash.clone(), "--hard")),
-                                        ];
-                                        for (label, a) in items {
-                                            if ui.button(label).clicked() {
-                                                act = Some(a);
-                                                ui.close_menu();
-                                            }
-                                        }
-                                    });
-                                } else if ui.button(t!("Voir dans le graphe", "Show in the graph")).clicked() {
-                                    show_graph = Some(c.hash.clone());
-                                }
-                                if ui.button(t!("Copier le hash", "Copy the hash")).clicked() {
-                                    copy = Some(c.hash.clone());
+        let mut list_keys = None;
+        if lh.loading {
+            ui.horizontal(|ui| {
+                spinner(ui);
+                ui.label(t!("Recherche des commits…", "Looking for the commits…"));
+            });
+            return;
+        }
+        if let Some(e) = &lh.error {
+            ui.label(RichText::new(e).color(err()));
+            return;
+        }
+        if lh.commits.is_empty() {
+            ui.label(RichText::new(t!("Aucun commit trouvé.", "No commit found.")).weak());
+            return;
+        }
+        // ↑ / ↓ go through the commits
+        if focused {
+            list_keys = Some(ui.input(|i| (i.key_pressed(Key::ArrowDown), i.key_pressed(Key::ArrowUp))));
+        }
+        ui.set_min_size(ui.available_size());
+        let height = ui.available_height();
+        ui.horizontal_top(|ui| {
+            // commit list
+            ui.vertical(|ui| {
+                ui.set_width(360.0);
+                let head = if lh.reflog { tf!("{} ENTRÉE(S), LA PLUS RÉCENTE EN HAUT", "{} ENTRIES, THE NEWEST AT THE TOP", lh.commits.len()) } else { tf!("{} COMMIT(S)", "{} COMMIT(S)", lh.commits.len()) };
+                ui.label(RichText::new(head).small().strong());
+                egui::ScrollArea::vertical().id_salt("lh_list").max_height(height - 24.0).auto_shrink([false, false]).show(ui, |ui| {
+                    for (i, c) in lh.commits.iter().enumerate() {
+                        let (rect, r) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 44.0), Sense::click());
+                        let v = ui.visuals();
+                        if i == lh.selected {
+                            ui.painter().rect_filled(rect, 5.0, v.selection.bg_fill);
+                        } else if r.hovered() {
+                            ui.painter().rect_filled(rect, 5.0, v.widgets.hovered.weak_bg_fill);
+                        }
+                        let p = ui.painter().with_clip_rect(rect.shrink(4.0));
+                        p.text(rect.left_top() + egui::vec2(8.0, 6.0), Align2::LEFT_TOP, &c.subject, egui::FontId::proportional(14.0), v.text_color());
+                        p.text(
+                            rect.left_top() + egui::vec2(8.0, 25.0),
+                            Align2::LEFT_TOP,
+                            format!("{} · {} · {}", c.author, c.date, &c.hash[..c.hash.len().min(7)]),
+                            egui::FontId::proportional(12.0),
+                            v.weak_text_color(),
+                        );
+                        if r.clicked() && lh.selected != i {
+                            lh.selected = i;
+                            chose = true;
+                        }
+                    }
+                });
+            });
+            ui.separator();
+            // selected commit: header + diff
+            ui.vertical(|ui| {
+                let c = &lh.commits[lh.selected];
+                ui.horizontal(|ui| {
+                    ui.add(egui::Label::new(RichText::new(&c.subject).strong()).truncate());
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if lh.reflog {
+                            ui.menu_button(t!("Récupérer ▾", "Bring back ▾"), |ui| {
+                                let items = [
+                                    (t!("Créer une branche ici…", "Create a branch here…"), HistAct::BranchAt(c.hash.clone())),
+                                    (t!("Checkout de ce commit (HEAD détachée)", "Checkout of this commit (detached HEAD)"), HistAct::Checkout(c.hash.clone())),
+                                    (t!("Cherry-pick sur la branche courante", "Cherry-pick on the current branch"), HistAct::CherryPick(c.hash.clone())),
+                                    (t!("Ramener la branche courante ici (reset --hard)…", "Move the current branch here (reset --hard)…"), HistAct::Reset(c.hash.clone(), "--hard")),
+                                ];
+                                for (label, a) in items {
+                                    if ui.button(label).clicked() {
+                                        act = Some(a);
+                                        ui.close_menu();
+                                    }
                                 }
                             });
-                        });
-                        ui.label(RichText::new(format!("{} · {} · {}", c.author, c.date, &c.hash[..c.hash.len().min(10)])).weak());
-                        ui.separator();
-                        match &lh.diffs[lh.selected] {
-                            Some(d) => {
-                                let _ = history::diff_view(ui, d, "line_history_diff", &[]);
-                            }
-                            None => {
-                                spinner(ui);
-                            }
+                        } else if ui.button(t!("Voir dans le graphe", "Show in the graph")).clicked() {
+                            show_graph = Some(c.hash.clone());
+                        }
+                        if ui.button(t!("Copier le hash", "Copy the hash")).clicked() {
+                            copy = Some(c.hash.clone());
                         }
                     });
                 });
+                ui.label(RichText::new(format!("{} · {} · {}", c.author, c.date, &c.hash[..c.hash.len().min(10)])).weak());
+                ui.separator();
+                match &lh.diffs[lh.selected] {
+                    Some(d) => {
+                        let _ = history::diff_view(ui, d, "line_history_diff", &[]);
+                    }
+                    None => {
+                        spinner(ui);
+                    }
+                }
             });
-        if !open {
-            self.line_history = None;
+        });
+        if let (Some((down, up)), Some(lh)) = (list_keys, self.line_history.as_mut()) {
+            let n = lh.commits.len();
+            if down && lh.selected + 1 < n {
+                lh.selected += 1;
+                chose = true;
+            } else if up && lh.selected > 0 {
+                lh.selected -= 1;
+                chose = true;
+            }
         }
         if chose {
             self.line_history_load_diff();
@@ -282,7 +293,7 @@ impl App {
             }
         }
         if let Some(h) = show_graph {
-            let Some(r) = self.line_history.take().map(|l| l.repo) else { return };
+            let Some(r) = self.line_history.as_ref().map(|l| l.repo.clone()) else { return };
             self.select_repo(r);
             self.show_tab(document::View::Git);
             self.history.all = true;

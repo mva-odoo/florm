@@ -161,6 +161,10 @@ impl App {
                 egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.prefs_ui(ui));
                 None
             }
+            document::View::History => {
+                egui::CentralPanel::default().show_inside(ui, |ui| self.line_history_ui(ui));
+                None
+            }
             document::View::Split => {
                 egui::CentralPanel::default().show_inside(ui, |ui| {
                     if self.split.is_some() {
@@ -784,6 +788,9 @@ impl App {
         }
         let was_active = idx == self.active;
         let d = self.docs.remove(idx);
+        if d.view == document::View::History {
+            self.line_history = None;
+        }
         // a terminal sent back to the bottom panel keeps running
         if let document::View::Terminal(id) = d.view.clone() {
             if self.term.docked_ids().contains(&id) {
