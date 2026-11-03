@@ -392,6 +392,8 @@ command and your login: no key to set up.
 
 - At the top: the repository, the model, and what Claude is allowed to do (**Edit files**,
   **Plan only**, **Allow everything** so that it also runs commands).
+  The folder name is chosen before the first message: a repository of the project, a recent
+  project, or **📁 Another folder…** for any folder.
   The model and the mode can change in the middle of a conversation: at once if Claude is
   working, else from the next message, the conversation kept. **Shift+Tab** in the field: next
   mode, as in Claude Code.

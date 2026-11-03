@@ -450,12 +450,17 @@ impl App {
                         crate::os::Pick::Folder => Some(Prompt::OpenFolder),
                         crate::os::Pick::File => Some(Prompt::OpenFile),
                         crate::os::Pick::SaveAs => Some(Prompt::SaveAs),
-                        crate::os::Pick::Image => None,
+                        crate::os::Pick::Image | crate::os::Pick::ClaudeDir => None,
                     };
                     match prompt {
                         Some(prompt) => {
                             if let Some(p) = paths.first() {
                                 self.submit_prompt(prompt, p.display().to_string());
+                            }
+                        }
+                        None if kind == crate::os::Pick::ClaudeDir => {
+                            if let Some(p) = paths.first() {
+                                self.claude_set_dir(p.clone());
                             }
                         }
                         // images: all the ones chosen go with the next message

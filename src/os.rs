@@ -271,6 +271,8 @@ pub enum Pick {
     /// An image to give to Claude.
     Image,
     SaveAs,
+    /// The folder Claude works in.
+    ClaudeDir,
 }
 
 /// File chooser of the desktop (GTK, KDE…) through the xdg portal. Blocks until the dialog is
@@ -289,8 +291,9 @@ pub fn portal_pick(kind: Pick, dir: &Path, name: Option<&str>) -> Result<Vec<Pat
         Pick::File => ("OpenFile", t!("Ouvrir un fichier", "Open a file")),
         Pick::Image => ("OpenFile", t!("Des images pour Claude", "Images for Claude")),
         Pick::SaveAs => ("SaveFile", t!("Enregistrer sous", "Save as")),
+        Pick::ClaudeDir => ("OpenFile", t!("Le dossier où Claude travaille", "The folder Claude works in")),
     };
-    if kind == Pick::Folder {
+    if matches!(kind, Pick::Folder | Pick::ClaudeDir) {
         opts.insert("directory", Value::from(true));
     }
     if kind == Pick::Image {

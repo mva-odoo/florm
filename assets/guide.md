@@ -397,6 +397,8 @@ panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en
 
 - En haut : le dépôt, le modèle, et ce que Claude a le droit de faire (**Modifie les fichiers**,
   **Plan seulement**, **Tout autoriser** pour qu'il lance aussi des commandes).
+  Le nom du dossier se choisit avant le premier message : un dépôt du projet, un projet récent,
+  ou **📁 Un autre dossier…** pour n'importe quel dossier.
   Le modèle et le mode se changent en pleine conversation : tout de suite si Claude travaille,
   sinon au prochain message, la conversation gardée. **Maj+Tab** dans le champ : mode suivant,
   comme dans Claude Code.

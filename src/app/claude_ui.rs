@@ -505,6 +505,21 @@ fn conv_title(c: &ClaudeUi) -> String {
 }
 
 impl App {
+    /// The folder Claude works in, for the conversation not started yet.
+    pub(super) fn claude_set_dir(&mut self, dir: PathBuf) {
+        if self.claude.session.is_some() {
+            self.set_error(t!("Pour changer de dossier : « Nouvelle conversation »", "To change the folder: “New conversation”"));
+            return;
+        }
+        if !dir.is_dir() {
+            self.set_error(tf!("Dossier introuvable : {}", "Folder not found: {}", dir.display()));
+            return;
+        }
+        self.claude.dir = Some(crate::os::canon(&dir));
+        self.claude.review_index = None;
+        self.claude.review = None;
+    }
+
     /// An empty conversation with the settings of the current one, shown in `tab`.
     fn claude_fresh(&self, tab: Option<u64>) -> ClaudeUi {
         static N: AtomicU64 = AtomicU64::new(1);
@@ -653,10 +668,19 @@ impl App {
         let accent = self.hl.colors.accent;
         let fill = ui.visuals().panel_fill;
         let dir_name = self.claude.dir.as_deref().map(|d| self.repo_label(d)).unwrap_or_default();
-        let dirs: Vec<(PathBuf, String)> = self.repos.iter().map(|r| (r.clone(), self.repo_label(r))).collect();
+        // the repositories of the opened folder, then the recent projects: any of them, not only a repository
+        let mut dirs: Vec<(PathBuf, String)> = self.repos.iter().map(|r| (r.clone(), self.repo_label(r))).collect();
+        for p in self.projects.iter().filter(|p| p.path.is_dir()) {
+            if !dirs.iter().any(|(d, _)| *d == p.path) {
+                dirs.push((p.path.clone(), format!("{}  ·  {}", p.name, p.path.display())));
+            }
+        }
+        if let Some(d) = self.claude.dir.as_ref().filter(|d| !dirs.iter().any(|(x, _)| x == *d)) {
+            dirs.insert(0, (d.clone(), d.display().to_string()));
+        }
         let (mut send, mut stop, mut new_conv, mut review_click, mut all) = (false, false, false, None, None);
         let (mut later, mut hold_act, mut compact) = (false, None, false);
-        let (mut chosen_dir, mut move_to, mut ctx_add) = (None, None, None);
+        let (mut chosen_dir, mut move_to, mut ctx_add, mut pick_dir) = (None, None, None, false);
         let (mut queue_act, mut queued, mut read_commits) = (None, None, false);
         let (mut image_add, mut open_image): (Option<(Vec<u8>, String)>, Option<PathBuf>) = (None, None);
         // an image file dropped on it goes with the next message (seen at the next frame)
@@ -706,18 +730,23 @@ impl App {
                     ui.label(RichText::new("✳ Claude").strong().size(15.0).color(accent));
                     let running = c.session.is_some();
                     ui.add_enabled_ui(!running, |ui| {
-                        let labels: Vec<String> = dirs.iter().map(|(_, l)| l.clone()).collect();
+                        let mut labels: Vec<String> = dirs.iter().map(|(_, l)| l.clone()).collect();
+                        labels.push(t!("📁 Un autre dossier…", "📁 Another folder…").to_string());
                         let current = dirs.iter().position(|(d, _)| c.dir.as_ref() == Some(d));
                         let name = match &c.worktree {
                             Some(w) => format!("🌿 {}", w.branch),
                             None => dir_name.clone(),
                         };
-                        if let Some(k) = crate::view_bar::repo_chip(ui, ("claude_dir", conv), &name, &labels, current) {
-                            chosen_dir = Some(dirs[k].0.clone());
+                        let text = RichText::new(name).strong().size(14.0).color(ui.visuals().hyperlink_color);
+                        match crate::pick::combo(ui, ("claude_dir", conv), text, &labels, current) {
+                            Some(k) if k < dirs.len() => chosen_dir = Some(dirs[k].0.clone()),
+                            Some(_) => pick_dir = true,
+                            None => {}
                         }
                     })
                     .response
-                    .on_disabled_hover_text(t!("Pour changer : « Nouvelle conversation »", "To change: “New conversation”"));
+                    .on_disabled_hover_text(t!("Pour changer : « Nouvelle conversation »", "To change: “New conversation”"))
+                    .on_hover_text(t!("Le dossier où Claude travaille : un dépôt du projet, un projet récent ou n'importe quel dossier", "The folder Claude works in: a repository of the project, a recent project or any folder"));
                     // changed during the conversation: Claude goes on with it (at once while it works,
                     // else from the next message, the conversation kept)
                     egui::ComboBox::from_id_salt(("claude_model", conv)).selected_text(claude::label(claude::MODELS[c.model].1)).show_ui(ui, |ui| {
@@ -1828,9 +1857,10 @@ impl App {
             self.claude_restart_all();
         }
         if let Some(d) = chosen_dir {
-            self.claude.dir = Some(d);
-            self.claude.review_index = None;
-            self.claude.review = None;
+            self.claude_set_dir(d);
+        }
+        if pick_dir {
+            self.file_dialog(crate::os::Pick::ClaudeDir);
         }
         if new_conv {
             self.claude_new_conversation();
