@@ -216,13 +216,18 @@ fn clipboard_image() -> Option<Vec<u8>> {
     None
 }
 
-/// Whether `path` is an image file Claude can be given.
+/// Whether `path` is a file Claude can be given with a message: an image or a PDF.
 pub(super) fn is_image_file(path: &Path) -> bool {
-    path.extension().and_then(|e| e.to_str()).is_some_and(|e| ["png", "jpg", "jpeg", "gif", "webp", "bmp"].contains(&e.to_lowercase().as_str()))
+    claude::is_pdf(path) || path.extension().and_then(|e| e.to_str()).is_some_and(|e| ["png", "jpg", "jpeg", "gif", "webp", "bmp"].contains(&e.to_lowercase().as_str()))
 }
 
-/// The thumbnail of an image given to Claude (`max`: its tallest), its file opened by a click.
+/// The thumbnail of an image given to Claude (`max`: its tallest), its file opened by a click;
+/// a PDF: a 📄 label.
 fn image_thumb(ui: &mut egui::Ui, path: &Path, max: f32) -> egui::Response {
+    if claude::is_pdf(path) {
+        let size = if max > 40.0 { 15.0 } else { 12.5 };
+        return ui.add(egui::Button::new(RichText::new("📄 PDF").size(size)).rounding(4.0)).on_hover_text(t!("Clic : ouvrir le PDF", "Click: open the PDF"));
+    }
     let uri = format!("file://{}", path.display());
     ui.add(egui::Image::new(uri.clone()).max_height(max).max_width(max * 3.0).rounding(4.0).sense(Sense::click())).on_hover_ui(|ui| {
         ui.add(egui::Image::new(uri).max_width(520.0).max_height(520.0));
@@ -1084,6 +1089,7 @@ impl App {
                                     .rounding(10.0);
                                 let tip = match (&a.note, &a.lines) {
                                     (Some((_, t)), _) | (None, Some((_, _, t))) => tf!("{}\n\nClic : voir et modifier tout le texte", "{}\n\nClick: see and edit the whole text", t.lines().take(12).collect::<Vec<_>>().join("\n")),
+                                    (None, None) if a.image.as_ref().is_some_and(|(_, p)| claude::is_pdf(p)) => t!("PDF envoyé avec le message : Claude lit son texte et ses pages", "PDF sent with the message: Claude reads its text and its pages").into(),
                                     (None, None) if a.image.is_some() => t!("Image envoyée avec le message", "Image sent with the message").into(),
                                     (None, None) => a.path.display().to_string(),
                                 };
@@ -1430,7 +1436,7 @@ impl App {
                                 (t!("Tous les onglets ouverts", "All open tabs"), t!("Chaque fichier ouvert dans l'éditeur", "Each file open in the editor"), CtxAdd::Tabs),
                                 (t!("Changements non commités", "Uncommitted changes"), t!("Le diff de ce qui n'est pas commité (git diff HEAD, nouveaux fichiers compris)", "The diff of what is not committed (git diff HEAD, new files included)"), CtxAdd::Diff),
                                 (t!("Problèmes du fichier", "Problems of the file"), t!("Les erreurs et avertissements du linter dans le fichier ouvert", "The linter errors and warnings in the open file"), CtxAdd::Problems),
-                                (t!("Image…", "Image…"), t!("Des images choisies sur le disque, plusieurs d'un coup avec Ctrl ou Maj (aussi : glisse-les sur la conversation, ou colle-les une à une avec Ctrl+V)", "Images chosen on the disk, several at once with Ctrl or Shift (also: drop them on the conversation, or paste them one by one with Ctrl+V)"), CtxAdd::Image),
+                                (t!("Image ou PDF…", "Image or PDF…"), t!("Des images ou des PDF choisis sur le disque, plusieurs d'un coup avec Ctrl ou Maj (aussi : glisse-les sur la conversation ; une image se colle aussi avec Ctrl+V)", "Images or PDFs chosen on the disk, several at once with Ctrl or Shift (also: drop them on the conversation; an image can also be pasted with Ctrl+V)"), CtxAdd::Image),
                             ] {
                                 if ui.button(label).on_hover_text(tip).clicked() {
                                     ctx_add = Some(what);
@@ -1874,7 +1880,12 @@ impl App {
             self.claude_attach_image(png, label);
         }
         if let Some(p) = open_image {
-            self.open_path(p);
+            // a PDF in the viewer of the system, an image in Florm
+            if claude::is_pdf(&p) {
+                self.egui_ctx.open_url(egui::OpenUrl::new_tab(format!("file://{}", p.display())));
+            } else {
+                self.open_path(p);
+            }
         }
         if let Some(k) = open_saved {
             self.claude_open_saved(k);

@@ -443,8 +443,10 @@ command and your login: no key to set up.
   when the quota resets.
 - **Images**: an image goes with the message, scaled down to 1568 pixels to cost fewer tokens.
   Three ways to give it: paste it with Ctrl+V (a copied image), drop it from the file manager on
-  the conversation, or **+ Context → Image…**. Several images go together in one message: drop
-  several, paste them one after the other, or choose several in **Image…** with Ctrl or Shift.
+  the conversation, or **+ Context → Image or PDF…**. Several images go together in one message: drop
+  several, paste them one after the other, or choose several in **Image or PDF…** with Ctrl or Shift.
+  A **PDF** is given the same way (dropped or chosen, 32 MB at most): Claude reads its text and its
+  pages; it shows as 📄 PDF, a click opens it in the viewer of the system.
   For a screenshot: take it with the system's tool (it
   goes to the clipboard), then Ctrl+V. The image shows as a thumbnail above the field, then in the
   message sent; a click opens it full size.

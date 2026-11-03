@@ -453,9 +453,11 @@ panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en
   les montre toutes les trois, avec quand le quota repart à zéro.
 - **Images** : une image part avec le message, réduite à 1568 pixels pour coûter moins de tokens.
   Trois façons de la donner : la coller avec Ctrl+V (une image copiée), la glisser depuis le
-  gestionnaire de fichiers sur la conversation, ou **+ Contexte → Image…**. Plusieurs images
+  gestionnaire de fichiers sur la conversation, ou **+ Contexte → Image ou PDF…**. Plusieurs images
   vont ensemble dans un message : glisse-en plusieurs, colle-les l'une après l'autre, ou choisis-en
-  plusieurs dans **Image…** avec Ctrl ou Maj. Pour une capture
+  plusieurs dans **Image ou PDF…** avec Ctrl ou Maj. Un **PDF** se donne de la même façon (glissé
+  ou choisi, 32 Mo au plus) : Claude lit son texte et ses pages ; il apparaît en 📄 PDF, un clic
+  l'ouvre dans le lecteur du système. Pour une capture
   d'écran : prends-la avec l'outil du système (elle va dans le presse-papiers), puis Ctrl+V.
   L'image apparaît en miniature au-dessus du champ, puis dans le message envoyé ; un clic l'ouvre
   en grand.

@@ -388,7 +388,7 @@ mod glyph_tests {
         ctx.set_fonts(crate::app::font_definitions());
         let _ = ctx.run(Default::default(), |_| {});
         let id = egui::FontId::proportional(13.0);
-        let missing: Vec<char> = "⟳❓✔·⇉+⇱×".chars().filter(|c| !ctx.fonts(|f| f.has_glyphs(&id, &c.to_string()))).collect();
+        let missing: Vec<char> = "⟳❓✔·⇉+⇱×📄".chars().filter(|c| !ctx.fonts(|f| f.has_glyphs(&id, &c.to_string()))).collect();
         assert!(missing.is_empty(), "{missing:?}");
     }
 }

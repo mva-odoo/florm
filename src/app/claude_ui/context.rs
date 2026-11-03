@@ -46,7 +46,10 @@ impl Attach {
     /// How it is said to Claude.
     pub(super) fn prompt(&self, dir: Option<&Path>) -> String {
         let label = self.label(dir);
-        if self.image.is_some() {
+        if let Some((_, p)) = &self.image {
+            if claude::is_pdf(p) {
+                return tf!("PDF joint ({label}), envoyé avec le message", "PDF attached ({label}), sent with the message");
+            }
             return tf!("Image jointe ({label}), envoyée avec le message", "Image attached ({label}), sent with the message");
         }
         if let Some((_, text)) = &self.note {
@@ -196,8 +199,34 @@ impl App {
         self.set_status(tf!("✳ {label} ajoutée au contexte de Claude, envoyée avec le prochain message", "✳ {label} added to Claude's context, sent with the next message"));
     }
 
-    /// An image file given to Claude (read and made smaller in the background).
+    /// A PDF given to Claude with the next message: a copy is kept (shown again in the message).
+    pub(in crate::app) fn claude_attach_pdf(&mut self, path: &Path) {
+        let label = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        match std::fs::metadata(path) {
+            Ok(m) if m.len() > claude::PDF_MAX => {
+                return self.set_error(tf!("{label} : trop gros pour Claude ({} Mo, 32 au plus)", "{label}: too big for Claude ({} MB, 32 at most)", m.len() / 1024 / 1024));
+            }
+            Err(e) => return self.set_error(tf!("{label} : {e}", "{label}: {e}")),
+            Ok(_) => {}
+        }
+        let saved = match std::fs::read(path).map_err(|e| e.to_string()).and_then(|b| claude::save_media(&b, "pdf")) {
+            Ok(p) => p,
+            Err(e) => return self.set_error(tf!("PDF non enregistré : {e}", "PDF not saved: {e}")),
+        };
+        if self.claude.attach.iter().any(|a| a.image.as_ref().is_some_and(|(_, p)| *p == saved)) {
+            return;
+        }
+        let dir = self.claude.dir.clone().unwrap_or_default();
+        self.claude.attach.push(Attach { path: dir, lines: None, note: None, image: Some((label.clone(), saved)) });
+        self.claude.focus = true;
+        self.set_status(tf!("✳ {label} ajouté au contexte de Claude, envoyé avec le prochain message", "✳ {label} added to Claude's context, sent with the next message"));
+    }
+
+    /// An image file given to Claude (read and made smaller in the background); a PDF as it is.
     pub(in crate::app) fn claude_attach_image_file(&mut self, path: &Path) {
+        if claude::is_pdf(path) {
+            return self.claude_attach_pdf(path);
+        }
         let label = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let path = path.to_path_buf();
         self.jobs.spawn(move || {

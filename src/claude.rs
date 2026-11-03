@@ -430,10 +430,16 @@ impl Session {
         self.write(json!({"type": "user", "message": {"role": "user", "content": text}}))
     }
 
-    /// Sends a message of the user with images (PNG bytes), after its text.
-    pub fn send_with_images(&mut self, text: &str, images: &[Vec<u8>]) -> Result<(), String> {
-        let mut content = vec![json!({"type": "text", "text": text})];
-        content.extend(images.iter().map(|png| json!({"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": base64_encode(png)}})));
+    /// Sends a message of the user with files: PDFs (`true`, read by Claude as documents, before
+    /// the text) and images (PNG bytes, after it).
+    pub fn send_with_files(&mut self, text: &str, files: &[(Vec<u8>, bool)]) -> Result<(), String> {
+        let block = |bytes: &[u8], pdf: bool| match pdf {
+            true => json!({"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": base64_encode(bytes)}}),
+            false => json!({"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": base64_encode(bytes)}}),
+        };
+        let mut content: Vec<serde_json::Value> = files.iter().filter(|(_, pdf)| *pdf).map(|(b, _)| block(b, true)).collect();
+        content.push(json!({"type": "text", "text": text}));
+        content.extend(files.iter().filter(|(_, pdf)| !*pdf).map(|(b, _)| block(b, false)));
         self.write(json!({"type": "user", "message": {"role": "user", "content": content}}))
     }
 
@@ -770,17 +776,31 @@ pub fn png_of_file_bytes(bytes: &[u8]) -> Result<Vec<u8>, String> {
 
 /// Saves an image given to Claude (PNG) where its messages can show it again, also after a restart.
 pub fn save_image(png: &[u8]) -> Result<std::path::PathBuf, String> {
+    save_media(png, "png")
+}
+
+/// A file given to Claude (`ext`: "png", "pdf"), kept to be shown again in the message: its
+/// copy, named after its content.
+pub fn save_media(bytes: &[u8], ext: &str) -> Result<std::path::PathBuf, String> {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    png.hash(&mut h);
+    bytes.hash(&mut h);
     let dir = crate::config::data_dir().join("claude_images");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let path = dir.join(format!("{:016x}.png", h.finish()));
+    let path = dir.join(format!("{:016x}.{ext}", h.finish()));
     if !path.exists() {
-        std::fs::write(&path, png).map_err(|e| e.to_string())?;
+        std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
     }
     Ok(path)
 }
+
+/// A PDF, given to Claude as a document (it reads its text and its pages).
+pub fn is_pdf(path: &std::path::Path) -> bool {
+    path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("pdf"))
+}
+
+/// The largest PDF Claude takes (32 MB, at most 100 pages).
+pub const PDF_MAX: u64 = 32 * 1024 * 1024;
 
 /// Standard base64 of `bytes` (with the padding).
 pub fn base64_encode(bytes: &[u8]) -> String {

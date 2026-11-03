@@ -289,7 +289,7 @@ pub fn portal_pick(kind: Pick, dir: &Path, name: Option<&str>) -> Result<Vec<Pat
     let (method, title) = match kind {
         Pick::Folder => ("OpenFile", t!("Ouvrir un dossier", "Open a folder")),
         Pick::File => ("OpenFile", t!("Ouvrir un fichier", "Open a file")),
-        Pick::Image => ("OpenFile", t!("Des images pour Claude", "Images for Claude")),
+        Pick::Image => ("OpenFile", t!("Des images ou des PDF pour Claude", "Images or PDFs for Claude")),
         Pick::SaveAs => ("SaveFile", t!("Enregistrer sous", "Save as")),
         Pick::ClaudeDir => ("OpenFile", t!("Le dossier où Claude travaille", "The folder Claude works in")),
     };
@@ -299,8 +299,8 @@ pub fn portal_pick(kind: Pick, dir: &Path, name: Option<&str>) -> Result<Vec<Pat
     if kind == Pick::Image {
         // a filter: (name, [(0: glob pattern, pattern)])
         let globs: Vec<(u32, &str)> = IMAGE_EXTS.iter().map(|e| (0, *e)).collect();
-        opts.insert("filters", Value::from(vec![(t!("Images", "Images"), globs.clone())]));
-        opts.insert("current_filter", Value::from((t!("Images", "Images"), globs)));
+        opts.insert("filters", Value::from(vec![(t!("Images et PDF", "Images and PDFs"), globs.clone())]));
+        opts.insert("current_filter", Value::from((t!("Images et PDF", "Images and PDFs"), globs)));
         opts.insert("multiple", Value::from(true));
     }
     if let Some(n) = name {
@@ -313,7 +313,7 @@ pub fn portal_pick(kind: Pick, dir: &Path, name: Option<&str>) -> Result<Vec<Pat
 
 /// The patterns of the image files Claude can be given.
 #[cfg(target_os = "linux")]
-const IMAGE_EXTS: [&str; 10] = ["*.png", "*.jpg", "*.jpeg", "*.gif", "*.webp", "*.bmp", "*.PNG", "*.JPG", "*.JPEG", "*.WEBP"];
+const IMAGE_EXTS: [&str; 12] = ["*.png", "*.jpg", "*.jpeg", "*.gif", "*.webp", "*.bmp", "*.pdf", "*.PNG", "*.JPG", "*.JPEG", "*.WEBP", "*.PDF"];
 
 /// Asks the xdg portal (`interface`, `method`) and waits for its answer: the files it gives (their
 /// uris), none when cancelled. `title`: the dialog's, for the methods that take one.

@@ -320,15 +320,15 @@ impl App {
             Outgoing { text, message, given, notes, image_files, attach }.give_back(&mut self.claude);
             return false;
         };
-        let images: Vec<Vec<u8>> = match image_files.iter().map(|(_, p)| std::fs::read(p)).collect() {
+        let images: Vec<(Vec<u8>, bool)> = match image_files.iter().map(|(_, p)| std::fs::read(p).map(|b| (b, claude::is_pdf(p)))).collect() {
             Ok(images) => images,
             Err(e) => {
-                self.set_error(tf!("Image jointe illisible : {e}", "Attached image unreadable: {e}"));
+                self.set_error(tf!("Fichier joint illisible : {e}", "Attached file unreadable: {e}"));
                 Outgoing { text, message, given, notes, image_files, attach }.give_back(&mut self.claude);
                 return false;
             }
         };
-        let sent = if images.is_empty() { s.send(&message) } else { s.send_with_images(&message, &images) };
+        let sent = if images.is_empty() { s.send(&message) } else { s.send_with_files(&message, &images) };
         match sent {
             Ok(()) => {
                 // what goes with the message besides the text itself: the file, the definitions…
