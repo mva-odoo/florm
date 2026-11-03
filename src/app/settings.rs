@@ -25,6 +25,7 @@ impl App {
             self.visuals_dirty = true;
         }
         let parts = (s.github, s.debugger, s.claude) != (self.settings.github, self.settings.debugger, self.settings.claude);
+        history::SIDE_BY_SIDE.store(s.diff_side_by_side, Ordering::Relaxed);
         self.settings = s;
         if parts {
             self.apply_features();

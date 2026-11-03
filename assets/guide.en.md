@@ -196,6 +196,10 @@ explains how to install it (the system is detected) and comes back by itself as 
   **Line history** (Ctrl+Alt+B) also takes several selected lines; each commit shows the whole
   block that changed around these lines, with some context. The history opens in a tab (↑ / ↓ to
   go from one commit to the next, Escape to come back).
+- **Side-by-side diffs**: the **◫ Side by side** button, at the bottom right of every diff (Git,
+  history, Claude's review, pull requests), puts the old version on the left and the new one on
+  the right, each replaced line facing its new version, with the changed words darker.
+  **≡ One column** goes back to the usual display. The choice applies to every diff and is kept.
 
 ### Split a commit
 

@@ -616,6 +616,10 @@ impl App {
             GitClean => self.ask_clean(),
             GitCommitRules => self.open_commit_rules(),
             GitMyCommitRules => self.open_my_commit_rules(),
+            ToggleDiffSideBySide => {
+                let on = !history::side_by_side();
+                history::SIDE_BY_SIDE.store(on, Ordering::Relaxed);
+            }
             ToggleInlineDiff => {
                 self.settings.inline_diff = !self.settings.inline_diff;
                 self.persist("inline_diff", self.settings.inline_diff.to_string());

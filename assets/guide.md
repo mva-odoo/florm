@@ -200,6 +200,10 @@ explique comment l'installer (le système est détecté) et reprend toute seule 
   ses renommages. **Historique de la ligne** (Ctrl+Alt+B) prend aussi plusieurs lignes sélectionnées ;
   chaque commit montre tout le bloc qui a changé autour de ces lignes, avec un peu de contexte.
   L'historique s'ouvre dans un onglet (↑ / ↓ pour passer d'un commit à l'autre, Échap pour revenir).
+- **Diffs côte à côte** : le bouton **◫ Côte à côte**, en bas à droite de chaque diff (Git,
+  historique, revue de Claude, pull requests), met l'ancienne version à gauche et la nouvelle à
+  droite, chaque ligne remplacée en face de la nouvelle, avec les mots changés plus foncés.
+  **≡ Une colonne** revient à l'affichage habituel. Le choix vaut pour tous les diffs et est retenu.
 
 ### Découper un commit
 

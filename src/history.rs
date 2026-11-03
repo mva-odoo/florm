@@ -446,6 +446,8 @@ enum StackRow {
     Gap,
     Header(usize),
     Line(usize),
+    /// Side by side: a line of the old file beside a line of the new one.
+    Pair(Option<usize>, Option<usize>),
     /// What is shown under line `i` (comments of a pull request…).
     Note(usize),
 }
@@ -476,6 +478,8 @@ pub fn stacked_diff_view(
     let font = egui::TextStyle::Monospace.resolve(ui.style());
     let (row_h, cw) = ui.fonts(|f| (f.row_height(&font) + 2.0, crate::editor_view::char_width(f, &font)));
     let row_h = row_h.max(24.0);
+    let place = ui.available_rect_before_wrap();
+    let side = side_by_side();
     // rows: lines before the first file (messages), then each file
     let mut rows: Vec<StackRow> = Vec::new();
     let first = files.first().map_or(lines.len(), |f| f.start);
@@ -490,14 +494,32 @@ pub fn stacked_diff_view(
         }
         let end = files.get(k + 1).map_or(lines.len(), |n| n.start);
         let mut in_hunk = false;
-        for i in f.start + 1..end {
-            in_hunk |= lines[i].kind == DiffKind::Hunk;
-            if !in_hunk && is_file_header(&lines[i].text) {
-                continue;
+        let shown: Vec<usize> = (f.start + 1..end)
+            .filter(|&i| {
+                in_hunk |= lines[i].kind == DiffKind::Hunk;
+                in_hunk || !is_file_header(&lines[i].text)
+            })
+            .collect();
+        let has_note = |i: usize| notes.as_ref().is_some_and(|n| n.at.contains(&i));
+        if side {
+            for row in side_rows(lines, shown) {
+                match row {
+                    SideRow::Full(i) => rows.push(StackRow::Line(i)),
+                    SideRow::Pair(l, r) => rows.push(StackRow::Pair(l, r)),
+                }
+                // the notes of both sides under the pair (once for a context line)
+                let (l, r) = match row {
+                    SideRow::Full(i) => (Some(i), None),
+                    SideRow::Pair(l, r) => (l, r.filter(|r| Some(*r) != l)),
+                };
+                rows.extend([l, r].into_iter().flatten().filter(|&i| has_note(i)).map(StackRow::Note));
             }
-            rows.push(StackRow::Line(i));
-            if notes.as_ref().is_some_and(|n| n.at.contains(&i)) {
-                rows.push(StackRow::Note(i));
+        } else {
+            for i in shown {
+                rows.push(StackRow::Line(i));
+                if has_note(i) {
+                    rows.push(StackRow::Note(i));
+                }
             }
         }
     }
@@ -519,7 +541,8 @@ pub fn stacked_diff_view(
     let total = y;
     let max_len = lines.iter().map(|l| l.text.chars().count()).max().unwrap_or(0);
     let nums_w = cw * 12.0;
-    let width = nums_w + (max_len as f32 + 4.0) * cw;
+    let half = side_width(lines, cw, place.width());
+    let width = if side { 2.0 * half } else { nums_w + (max_len as f32 + 4.0) * cw };
     let v = ui.visuals().clone();
     let (weak, fg, light) = (v.weak_text_color(), v.text_color(), !v.dark_mode);
     let mut click = None;
@@ -579,6 +602,15 @@ pub fn stacked_diff_view(
             match rows[r] {
                 StackRow::Note(_) => {}
                 StackRow::Gap => {}
+                StackRow::Pair(l, rt) => {
+                    paint_pair(ui, rect, half, lines, l, rt, &font, cw);
+                    if resp.hovered() {
+                        ui.painter().rect_stroke(rect, 0.0, Stroke::new(1.0_f32, weak.gamma_multiply(0.4)));
+                    }
+                    if resp.on_hover_text_at_pointer(t!("Double-clic : ouvrir le fichier à cette ligne", "Double-click: open the file at this line")).double_clicked() {
+                        click = rt.or(l).map(DiffClick::Line);
+                    }
+                }
                 StackRow::Header(k) => {
                     let f = &files[k];
                     // the header stays in the visible part when the diff is scrolled sideways
@@ -621,15 +653,7 @@ pub fn stacked_diff_view(
                 }
                 StackRow::Line(i) => {
                     let l = &lines[i];
-                    let (bg, color) = match l.kind {
-                        DiffKind::Added if light => (Some(Color32::from_rgba_unmultiplied(0x2e, 0xa0, 0x43, 34)), crate::highlight::green()),
-                        DiffKind::Removed if light => (Some(Color32::from_rgba_unmultiplied(0xd0, 0x3a, 0x4c, 34)), crate::highlight::red()),
-                        DiffKind::Added => (Some(Color32::from_rgba_unmultiplied(0x5e, 0xe6, 0xc4, 28)), Color32::from_rgb(0x9f, 0xf0, 0xd8)),
-                        DiffKind::Removed => (Some(Color32::from_rgba_unmultiplied(0xff, 0x6b, 0x81, 30)), Color32::from_rgb(0xff, 0xb0, 0xbc)),
-                        DiffKind::Hunk => (Some(Color32::from_rgba_unmultiplied(0x5b, 0x8c, 0xf8, 22)), crate::highlight::blue()),
-                        DiffKind::Meta => (None, weak),
-                        DiffKind::Context => (None, fg),
-                    };
+                    let (bg, color) = line_colors(l.kind, light, weak, fg);
                     if let Some(bg) = bg {
                         p.rect_filled(rect, 0.0, bg);
                     }
@@ -638,9 +662,12 @@ pub fn stacked_diff_view(
                     }
                     let y = rect.center().y;
                     let n = |v: Option<usize>| v.map(|v| v.to_string()).unwrap_or_default();
-                    p.text(Pos2::new(rect.left() + cw * 5.0, y), Align2::RIGHT_CENTER, n(l.old), font.clone(), weak);
-                    p.text(Pos2::new(rect.left() + cw * 10.5, y), Align2::RIGHT_CENTER, n(l.new), font.clone(), weak);
-                    p.text(Pos2::new(rect.left() + nums_w, y), Align2::LEFT_CENTER, &l.text, font.clone(), color);
+                    if !side {
+                        p.text(Pos2::new(rect.left() + cw * 5.0, y), Align2::RIGHT_CENTER, n(l.old), font.clone(), weak);
+                        p.text(Pos2::new(rect.left() + cw * 10.5, y), Align2::RIGHT_CENTER, n(l.new), font.clone(), weak);
+                    }
+                    let text_x = if side { cw * 7.0 } else { nums_w };
+                    p.text(Pos2::new(rect.left() + text_x, y), Align2::LEFT_CENTER, &l.text, font.clone(), color);
                     if l.kind == DiffKind::Hunk && !hunk_buttons.is_empty() {
                         let mut right = rect.right().min(visible.right()) - 6.0;
                         for (label, tip, act) in hunk_buttons.iter().rev() {
@@ -658,7 +685,158 @@ pub fn stacked_diff_view(
             }
         }
     });
+    side_toggle(ui, place);
     click
+}
+
+/// Diffs shown side by side (old on the left, new on the right) instead of one under the other;
+/// for every diff of Florm, changed by the button of the diffs (kept in the settings).
+pub static SIDE_BY_SIDE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn side_by_side() -> bool {
+    SIDE_BY_SIDE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// A row of a side-by-side diff: a line across both sides ("@@", meta), or a line of the old
+/// file beside a line of the new one (a removed line beside the added line that replaces it).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum SideRow {
+    Full(usize),
+    Pair(Option<usize>, Option<usize>),
+}
+
+/// The lines `idx` of a diff as side-by-side rows: each run of removed lines beside the run of
+/// added lines that follows it, context lines on both sides.
+pub fn side_rows(lines: &[DiffLine], idx: impl IntoIterator<Item = usize>) -> Vec<SideRow> {
+    fn flush(out: &mut Vec<SideRow>, dels: &mut Vec<usize>, adds: &mut Vec<usize>) {
+        for k in 0..dels.len().max(adds.len()) {
+            out.push(SideRow::Pair(dels.get(k).copied(), adds.get(k).copied()));
+        }
+        dels.clear();
+        adds.clear();
+    }
+    let (mut out, mut dels, mut adds) = (Vec::new(), Vec::new(), Vec::new());
+    for i in idx {
+        match lines[i].kind {
+            DiffKind::Removed => {
+                if !adds.is_empty() {
+                    flush(&mut out, &mut dels, &mut adds);
+                }
+                dels.push(i);
+            }
+            DiffKind::Added => adds.push(i),
+            DiffKind::Context => {
+                flush(&mut out, &mut dels, &mut adds);
+                out.push(SideRow::Pair(Some(i), Some(i)));
+            }
+            DiffKind::Hunk | DiffKind::Meta => {
+                flush(&mut out, &mut dels, &mut adds);
+                out.push(SideRow::Full(i));
+            }
+        }
+    }
+    flush(&mut out, &mut dels, &mut adds);
+    out
+}
+
+/// Background and text colors of a diff line.
+fn line_colors(kind: DiffKind, light: bool, weak: Color32, fg: Color32) -> (Option<Color32>, Color32) {
+    match kind {
+        DiffKind::Added if light => (Some(Color32::from_rgba_unmultiplied(0x2e, 0xa0, 0x43, 34)), crate::highlight::green()),
+        DiffKind::Removed if light => (Some(Color32::from_rgba_unmultiplied(0xd0, 0x3a, 0x4c, 34)), crate::highlight::red()),
+        DiffKind::Added => (Some(Color32::from_rgba_unmultiplied(0x5e, 0xe6, 0xc4, 28)), Color32::from_rgb(0x9f, 0xf0, 0xd8)),
+        DiffKind::Removed => (Some(Color32::from_rgba_unmultiplied(0xff, 0x6b, 0x81, 30)), Color32::from_rgb(0xff, 0xb0, 0xbc)),
+        DiffKind::Hunk => (Some(Color32::from_rgba_unmultiplied(0x5b, 0x8c, 0xf8, 22)), crate::highlight::blue()),
+        DiffKind::Meta => (None, weak),
+        DiffKind::Context => (None, fg),
+    }
+}
+
+/// What changed inside a line replaced by another: (first char, end char) of `a` and of `b`
+/// once their common start and end are put aside; None when nothing is in common.
+fn changed_chars(a: &str, b: &str) -> Option<((usize, usize), (usize, usize))> {
+    let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
+    let pre = a.iter().zip(&b).take_while(|(x, y)| x == y).count();
+    let suf = a[pre..].iter().rev().zip(b[pre..].iter().rev()).take_while(|(x, y)| x == y).count();
+    // only the indentation in common: the whole line changed
+    if a[..pre].iter().all(|c| c.is_whitespace()) && suf == 0 {
+        return None;
+    }
+    Some(((pre, a.len() - suf), (pre, b.len() - suf)))
+}
+
+/// Width of one side of a side-by-side diff: half the view, or more for long lines (then the
+/// view scrolls sideways).
+fn side_width(lines: &[DiffLine], cw: f32, avail: f32) -> f32 {
+    let max_len = lines.iter().filter(|l| matches!(l.kind, DiffKind::Context | DiffKind::Added | DiffKind::Removed)).map(|l| l.text.chars().count()).max().unwrap_or(0);
+    (avail / 2.0).max(cw * (max_len as f32 + 9.0))
+}
+
+/// Draws a pair of a side-by-side diff in `rect` (both sides, `half` wide each).
+#[allow(clippy::too_many_arguments)]
+fn paint_pair(ui: &Ui, rect: Rect, half: f32, lines: &[DiffLine], left: Option<usize>, right: Option<usize>, font: &FontId, cw: f32) {
+    let v = ui.visuals();
+    let (weak, fg, light) = (v.weak_text_color(), v.text_color(), !v.dark_mode);
+    let clip = ui.clip_rect();
+    // the words that changed in a replaced line, on a stronger background
+    let changed = match (left, right) {
+        (Some(l), Some(r)) if l != r => changed_chars(&lines[l].text, &lines[r].text),
+        _ => None,
+    };
+    for (side, idx) in [(0, left), (1, right)] {
+        let r = Rect::from_min_size(Pos2::new(rect.left() + half * side as f32, rect.top()), egui::vec2(half, rect.height()));
+        let p = ui.painter().with_clip_rect(r.intersect(clip));
+        let Some(i) = idx else {
+            // nothing on this side: a hatched blank
+            p.rect_filled(r, 0.0, v.faint_bg_color);
+            let step = 8.0;
+            let mut x = r.left() - r.height();
+            while x < r.right() {
+                p.line_segment([Pos2::new(x, r.bottom()), Pos2::new(x + r.height(), r.top())], Stroke::new(1.0_f32, v.widgets.noninteractive.bg_stroke.color));
+                x += step;
+            }
+            continue;
+        };
+        let l = &lines[i];
+        let (bg, color) = line_colors(l.kind, light, weak, fg);
+        if let Some(bg) = bg {
+            p.rect_filled(r, 0.0, bg);
+        }
+        if let Some((a, b)) = changed {
+            let (s, e) = if side == 0 { a } else { b };
+            if e > s {
+                let x0 = r.left() + cw * (7.0 + s as f32);
+                let mark = Rect::from_min_max(Pos2::new(x0, r.top() + 1.0), Pos2::new(x0 + cw * (e - s) as f32, r.bottom() - 1.0));
+                p.rect_filled(mark, 2.0, bg.map_or(Color32::TRANSPARENT, |c| c.gamma_multiply(2.6)));
+            }
+        }
+        let y = r.center().y;
+        let num = if side == 0 { l.old } else { l.new };
+        p.text(Pos2::new(r.left() + cw * 5.5, y), Align2::RIGHT_CENTER, num.map(|n| n.to_string()).unwrap_or_default(), font.clone(), weak);
+        p.text(Pos2::new(r.left() + cw * 7.0, y), Align2::LEFT_CENTER, &l.text, font.clone(), color);
+    }
+    // the line between the two sides
+    let x = rect.left() + half;
+    ui.painter().with_clip_rect(clip).line_segment([Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())], Stroke::new(1.0_f32, v.widgets.noninteractive.bg_stroke.color.gamma_multiply(2.0)));
+}
+
+/// The button that switches every diff between one column and side by side, at the bottom
+/// right of `area` (the place of the diff).
+fn side_toggle(ui: &mut Ui, area: Rect) {
+    let on = side_by_side();
+    let (label, tip) = if on {
+        (t!("≡ Une colonne", "≡ One column"), t!("Les lignes enlevées au-dessus des lignes ajoutées, pour tous les diffs", "The removed lines above the added lines, for every diff"))
+    } else {
+        (t!("◫ Côte à côte", "◫ Side by side"), t!("L'ancienne version à gauche, la nouvelle à droite, pour tous les diffs", "The old version on the left, the new one on the right, for every diff"))
+    };
+    let w = button_width(ui, label);
+    let r = Rect::from_min_size(area.right_bottom() - egui::vec2(w + 22.0, 34.0), egui::vec2(w, 24.0));
+    let fill = ui.visuals().window_fill;
+    let b = egui::Button::new(egui::RichText::new(label).size(12.5)).fill(fill).stroke(ui.visuals().window_stroke);
+    if ui.put(r, b).on_hover_text(tip).clicked() {
+        SIDE_BY_SIDE.store(!on, std::sync::atomic::Ordering::Relaxed);
+        ui.ctx().request_repaint();
+    }
 }
 
 /// Width of a diff button (12.5 pt label + the style's padding): the button must fit in the
@@ -694,29 +872,38 @@ pub fn diff_view(ui: &mut Ui, lines: &[DiffLine], id: &str, hunk_buttons: &[Diff
     let font = egui::TextStyle::Monospace.resolve(ui.style());
     let (row_h, cw) = ui.fonts(|f| (f.row_height(&font) + 2.0, crate::editor_view::char_width(f, &font)));
     let row_h = if hunk_buttons.is_empty() { row_h } else { row_h.max(22.0) };
+    let area = ui.available_rect_before_wrap();
+    let side = side_by_side();
+    let rows: Vec<SideRow> = if side { side_rows(lines, 0..lines.len()) } else { (0..lines.len()).map(SideRow::Full).collect() };
     let max_len = lines.iter().map(|l| l.text.chars().count()).max().unwrap_or(0);
     let nums_w = cw * 12.0;
-    let width = nums_w + (max_len as f32 + 4.0) * cw;
+    let half = side_width(lines, cw, area.width());
+    let width = if side { 2.0 * half } else { nums_w + (max_len as f32 + 4.0) * cw };
     let weak = ui.visuals().weak_text_color();
     let fg = ui.visuals().text_color();
     let light = !ui.visuals().dark_mode;
     let mut click = None;
     ui.spacing_mut().item_spacing.y = 0.0;
-    egui::ScrollArea::both().id_salt(id).auto_shrink([false, false]).show_rows(ui, row_h, lines.len(), |ui, range| {
+    egui::ScrollArea::both().id_salt(id).auto_shrink([false, false]).show_rows(ui, row_h, rows.len(), |ui, range| {
         let visible_right = ui.clip_rect().right();
-        for (k, l) in lines[range.clone()].iter().enumerate() {
-            let i = range.start + k;
+        for row in &rows[range] {
             let (rect, resp) = ui.allocate_exact_size(egui::vec2(width.max(ui.available_width()), row_h), Sense::click());
-            let p = ui.painter();
-            let (bg, color) = match l.kind {
-                DiffKind::Added if light => (Some(Color32::from_rgba_unmultiplied(0x2e, 0xa0, 0x43, 34)), crate::highlight::green()),
-                DiffKind::Removed if light => (Some(Color32::from_rgba_unmultiplied(0xd0, 0x3a, 0x4c, 34)), crate::highlight::red()),
-                DiffKind::Added => (Some(Color32::from_rgba_unmultiplied(0x5e, 0xe6, 0xc4, 28)), Color32::from_rgb(0x9f, 0xf0, 0xd8)),
-                DiffKind::Removed => (Some(Color32::from_rgba_unmultiplied(0xff, 0x6b, 0x81, 30)), Color32::from_rgb(0xff, 0xb0, 0xbc)),
-                DiffKind::Hunk => (Some(Color32::from_rgba_unmultiplied(0x5b, 0x8c, 0xf8, 22)), crate::highlight::blue()),
-                DiffKind::Meta => (None, weak),
-                DiffKind::Context => (None, fg),
+            let i = match *row {
+                SideRow::Pair(l, r) => {
+                    paint_pair(ui, rect, half, lines, l, r, &font, cw);
+                    if resp.hovered() {
+                        ui.painter().rect_stroke(rect, 0.0, Stroke::new(1.0_f32, weak.gamma_multiply(0.4)));
+                    }
+                    if resp.on_hover_text_at_pointer(t!("Double-clic : ouvrir le fichier à cette ligne", "Double-click: open the file at this line")).double_clicked() {
+                        click = r.or(l).map(DiffClick::Line);
+                    }
+                    continue;
+                }
+                SideRow::Full(i) => i,
             };
+            let l = &lines[i];
+            let p = ui.painter();
+            let (bg, color) = line_colors(l.kind, light, weak, fg);
             if let Some(bg) = bg {
                 p.rect_filled(rect, 0.0, bg);
             }
@@ -725,9 +912,12 @@ pub fn diff_view(ui: &mut Ui, lines: &[DiffLine], id: &str, hunk_buttons: &[Diff
             }
             let y = rect.center().y;
             let n = |v: Option<usize>| v.map(|v| v.to_string()).unwrap_or_default();
-            p.text(Pos2::new(rect.left() + cw * 5.0, y), Align2::RIGHT_CENTER, n(l.old), font.clone(), weak);
-            p.text(Pos2::new(rect.left() + cw * 10.5, y), Align2::RIGHT_CENTER, n(l.new), font.clone(), weak);
-            p.text(Pos2::new(rect.left() + nums_w, y), Align2::LEFT_CENTER, &l.text, font.clone(), color);
+            if !side {
+                p.text(Pos2::new(rect.left() + cw * 5.0, y), Align2::RIGHT_CENTER, n(l.old), font.clone(), weak);
+                p.text(Pos2::new(rect.left() + cw * 10.5, y), Align2::RIGHT_CENTER, n(l.new), font.clone(), weak);
+            }
+            let text_x = if side { cw * 7.0 } else { nums_w };
+            p.text(Pos2::new(rect.left() + text_x, y), Align2::LEFT_CENTER, &l.text, font.clone(), color);
             if l.kind == DiffKind::Hunk && !hunk_buttons.is_empty() {
                 // buttons on the right of the visible area
                 let mut right = rect.right().min(visible_right) - 6.0;
@@ -744,6 +934,7 @@ pub fn diff_view(ui: &mut Ui, lines: &[DiffLine], id: &str, hunk_buttons: &[Diff
             }
         }
     });
+    side_toggle(ui, area);
     click
 }
 
@@ -843,6 +1034,29 @@ mod diff_tests {
         let f = diff_files(&lines);
         assert_eq!(f.iter().map(|f| (f.start, f.path.as_str(), f.status, f.adds, f.dels)).collect::<Vec<_>>(), [(0, "x", 'M', 1, 1), (8, "n", 'A', 1, 0)]);
         assert!(is_file_header("index 1..2 100644") && !is_file_header(" b"));
+    }
+
+    #[test]
+    fn side_by_side_pairs_and_draws() {
+        let text = "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1,4 +1,3 @@\n ctx\n-a = 1\n-b = 2\n+a = 10\n end\n+new\n";
+        let lines = parse_diff(text);
+        let rows = side_rows(&lines, 0..lines.len());
+        use SideRow::*;
+        assert_eq!(rows[3..], [Full(3), Pair(Some(4), Some(4)), Pair(Some(5), Some(7)), Pair(Some(6), None), Pair(Some(8), Some(8)), Pair(None, Some(9))]);
+        // only "1" → "10" changed in "a = 1"; a line all different is not marked
+        assert_eq!(changed_chars("a = 1", "a = 10"), Some(((5, 5), (5, 6))));
+        assert_eq!(changed_chars("    foo", "    bar"), None);
+        SIDE_BY_SIDE.store(true, std::sync::atomic::Ordering::Relaxed);
+        let files = diff_files(&lines);
+        let mut folded = std::collections::HashSet::new();
+        let ctx = egui::Context::default();
+        let _ = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                assert!(diff_view(ui, &lines, "d", &[]).is_none());
+                assert!(stacked_diff_view(ui, &lines, &files, &mut folded, "s", &[], &[], None, None).is_none());
+            });
+        });
+        SIDE_BY_SIDE.store(false, std::sync::atomic::Ordering::Relaxed);
     }
 
     #[test]

@@ -1169,6 +1169,7 @@ impl App {
             hl.set_theme(&settings.theme);
         }
         hl.set_overrides(highlight::parse_hex(&settings.accent_color), settings.text_softness);
+        history::SIDE_BY_SIDE.store(settings.diff_side_by_side, Ordering::Relaxed);
         apply_visuals(egui_ctx, hl.visuals());
         egui_ctx.set_fonts(crate::fonts::definitions(&settings.editor_font, &settings.ui_font));
         egui_extras::install_image_loaders(egui_ctx);
@@ -1585,6 +1586,12 @@ impl eframe::App for App {
         }
         self.track_nav();
         self.sync_history_tab();
+        // the button of the diffs changes it for all of them: kept for the next time
+        let side = history::side_by_side();
+        if side != self.settings.diff_side_by_side {
+            self.settings.diff_side_by_side = side;
+            self.persist("diff_side_by_side", side.to_string());
+        }
         self.local_history_ui(ctx);
         self.pr_create_ui(ctx);
         self.inline_ai_ui(ctx);
