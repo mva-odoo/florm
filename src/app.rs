@@ -858,7 +858,7 @@ struct GitUi {
     /// Message of the next stash, and whether the untracked files stay out of it.
     stash_msg: String,
     stash_tracked_only: bool,
-    /// The stash menu was open at the last frame (the stashes are read when it opens).
+    /// The stash panel is open (opened from ⋯, below the bar; the stashes are read when it opens).
     stash_shown: bool,
     /// Remotes of the selected repository (name, URL), read with its status.
     remotes: Vec<(String, String)>,

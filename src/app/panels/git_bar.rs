@@ -113,7 +113,7 @@ impl App {
         let mut bar_act: Option<GitBarAct> = None;
         let remotes = self.git.remotes.clone();
         let repo_dir = self.history.repo.clone();
-        ui.horizontal(|ui| {
+        let row = ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
             // the repository first and large (easy to mistake in a project with several)
             let labels: Vec<String> = repo_choices.iter().map(|(_, l)| l.clone()).collect();
@@ -201,18 +201,16 @@ impl App {
             .on_hover_text(t!("Pull, Push, Fetch : récupérer et envoyer les commits", "Pull, Push, Fetch: get and send the commits"));
             // the graph: repository, filter; the rest under ⋯
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let changes = self.git.status.as_ref().is_some_and(|s| !s.entries.is_empty());
                 let (git, all) = (&mut self.git, &mut self.history.all);
-                let mut stash_shown = false;
                 let mut more = |ui: &mut egui::Ui| {
+                    // a panel of its own, opened on click: as a submenu it opened on hover and,
+                    // ⋯ being at the right edge, covered the rest of the menu
                     let n = git.stashes.len();
-                    let label = if n > 0 { format!("Stash ({n})") } else { "Stash".into() };
-                    ui.menu_button(label, |ui| {
-                        stash_shown = true;
-                        stash_menu(ui, git, changes, &mut stash_act);
-                    })
-                    .response
-                    .on_hover_text(t!("Mettre des changements de côté (git stash) et les reprendre plus tard", "Put changes aside (git stash) and take them back later"));
+                    let label = if n > 0 { format!("Stash ({n})…") } else { "Stash…".into() };
+                    if ui.button(label).on_hover_text(t!("Mettre des changements de côté (git stash) et les reprendre plus tard", "Put changes aside (git stash) and take them back later")).clicked() {
+                        stash_open = true;
+                        ui.close_menu();
+                    }
                     if crate::features::on(crate::features::Feature::GitHub) && ui.button(t!("Pull requests GitHub", "GitHub pull requests")).on_hover_text(t!("Commentaires, suggestions, commits", "Comments, suggestions, commits")).clicked() {
                         cmds.push(Cmd::PullRequests);
                         ui.close_menu();
@@ -293,11 +291,6 @@ impl App {
                     Some(crate::view_bar::BarAct::Refresh) => reload = true,
                     None => {}
                 }
-                // the stashes read when their menu opens
-                if stash_shown && !self.git.stash_shown {
-                    stash_open = true;
-                }
-                self.git.stash_shown = stash_shown;
                 let h = &mut self.history;
                 if h.loading {
                     spinner(ui);
@@ -308,8 +301,25 @@ impl App {
         });
         self.pending.extend(cmds);
 
+        // the stash panel, below the bar at its right (under ⋯); closed by Escape, a click
+        // outside or an action
         if stash_open {
+            self.git.stash_shown = true;
             self.stash_reload();
+        } else if self.git.stash_shown {
+            let changes = self.git.status.as_ref().is_some_and(|s| !s.entries.is_empty());
+            let area = egui::Area::new(ui.id().with("stash_panel"))
+                .order(egui::Order::Foreground)
+                .fixed_pos(row.response.rect.right_bottom())
+                .pivot(egui::Align2::RIGHT_TOP)
+                .constrain(true)
+                .show(ui.ctx(), |ui| {
+                    egui::Frame::popup(ui.style()).show(ui, |ui| stash_menu(ui, &mut self.git, changes, &mut stash_act));
+                });
+            let outside = ui.input(|i| i.pointer.any_click() && i.pointer.interact_pos().is_some_and(|p| !area.response.rect.contains(p)));
+            if stash_act.is_some() || outside || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                self.git.stash_shown = false;
+            }
         }
         if let Some(a) = stash_act {
             self.stash_act(a);
