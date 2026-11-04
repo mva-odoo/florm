@@ -328,7 +328,7 @@ exclude = ["__pycache__/", "*.pyc", "node_modules/", ".venv/", "*.egg-info/"]
 index_max_files = 150000
 # chercher une nouvelle version de Florm au démarrage (releases GitHub)
 check_updates = true
-# tests Odoo dans un conteneur (vue Docker → 🧪 Tests) : commande lancée, {tags} = les tags
+# tests Odoo dans un conteneur (vue Docker → ☑ Tests) : commande lancée, {tags} = les tags
 # vide = "odoo --stop-after-init --test-enable --test-tags {tags}"
 odoo_test_command = ""
 # débogueur (F5, vue Débogage) : programme lancé sur cet ordinateur (vide = l'odoo-bin du dossier)

@@ -445,7 +445,7 @@ impl App {
                                 if ui.button(">_ Terminal").on_hover_text(t!("Un shell dans le conteneur (docker exec), dans le panneau du bas", "A shell in the container (docker exec), in the bottom panel")).clicked() {
                                     act = Some(DockAct::Shell(c.name.clone()));
                                 }
-                                if ui.selectable_label(self.tests.open, "🧪 Tests").on_hover_text(t!("Lancer des tests Odoo dans ce conteneur", "Run Odoo tests in this container")).clicked() {
+                                if ui.selectable_label(self.tests.open, "☑ Tests").on_hover_text(t!("Lancer des tests Odoo dans ce conteneur", "Run Odoo tests in this container")).clicked() {
                                     act = Some(DockAct::Tests);
                                 }
                                 if crate::features::on(crate::features::Feature::Debugger) && ui.button(t!("Déboguer", "Debug")).on_hover_text(t!("Le débogueur (F5) dans ce conteneur : points d'arrêt, variables, pas à pas", "The debugger (F5) in this container: breakpoints, variables, stepping")).clicked() {

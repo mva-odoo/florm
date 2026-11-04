@@ -500,7 +500,7 @@ fn parse_mcp_list(text: &str) -> Vec<Mcp> {
             let (name, rest) = l.split_once(": ")?;
             let (target, status) = rest.rsplit_once(" - ")?;
             let name = name.trim();
-            (!name.is_empty() && !name.contains(char::is_whitespace)).then(|| Mcp { name: name.into(), target: target.trim().into(), status: status.trim().into() })
+            (!name.is_empty() && !name.contains(char::is_whitespace)).then(|| Mcp { name: name.into(), target: target.trim().into(), status: status.trim().replace('\u{2713}', "✔").replace('\u{2717}', "✖") })
         })
         .collect()
 }
@@ -1301,8 +1301,8 @@ mod tests {
         assert_eq!(
             parse_mcp_list(text),
             vec![
-                Mcp { name: "github".into(), target: "npx -y @modelcontextprotocol/server-github".into(), status: "✓ Connected".into() },
-                Mcp { name: "sentry".into(), target: "https://mcp.sentry.dev/mcp (HTTP)".into(), status: "✗ Failed to connect".into() },
+                Mcp { name: "github".into(), target: "npx -y @modelcontextprotocol/server-github".into(), status: "✔ Connected".into() },
+                Mcp { name: "sentry".into(), target: "https://mcp.sentry.dev/mcp (HTTP)".into(), status: "✖ Failed to connect".into() },
             ]
         );
     }

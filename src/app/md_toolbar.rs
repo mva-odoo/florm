@@ -18,7 +18,7 @@ const FORMATS: [(&str, &str, Fmt); 13] = [
     ("•", "Liste à puces", Fmt::Line(Prefix::Bullet)),
     ("1.", "Liste numérotée", Fmt::Line(Prefix::Numbered)),
     ("☐", "Case à cocher (tâche)", Fmt::Line(Prefix::Task)),
-    ("❝", "Citation", Fmt::Line(Prefix::Quote)),
+    ("“", "Citation", Fmt::Line(Prefix::Quote)),
     ("```", "Bloc de code", Fmt::CodeBlock),
 ];
 

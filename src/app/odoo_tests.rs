@@ -1,4 +1,4 @@
-//! Odoo tests run in a Docker container: from the Docker view (🧪 Tests, tags filled from the
+//! Odoo tests run in a Docker container: from the Docker view (☑ Tests, tags filled from the
 //! code under the cursor, the last ones kept), again from anywhere (Ctrl+F6), or from the ▶ of
 //! the gutter of a test file. A run goes to the bottom panel's terminal (an `ipdb` in a test works there);
 //! its summary goes to the status bar, its tracebacks open their file with Ctrl+clic.

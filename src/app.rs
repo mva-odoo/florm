@@ -2182,51 +2182,25 @@ mod font_tests {
         let ctx = egui::Context::default();
         ctx.set_fonts(font_definitions());
         let _ = ctx.run(Default::default(), |_| {});
-        let sources = [
-            include_str!("app.rs"),
-            include_str!("app/find.rs"),
-            include_str!("app/git_actions.rs"),
-            include_str!("app/git_view.rs"),
-            include_str!("app/input.rs"),
-            include_str!("app/job_results.rs"),
-            include_str!("app/lsp_client.rs"),
-            include_str!("app/navigation.rs"),
-            include_str!("app/overlay.rs"),
-            include_str!("app/panels.rs"),
-            include_str!("app/panels/bottom.rs"),
-            include_str!("app/panels/status.rs"),
-            include_str!("app/panels/tabs.rs"),
-            include_str!("app/panels/side_bar.rs"),
-            include_str!("app/panels/menus.rs"),
-            include_str!("app/panels/git_bar.rs"),
-            include_str!("app/panes.rs"),
-            include_str!("app/prefs.rs"),
-            include_str!("app/projects.rs"),
-            include_str!("app/claude_queue.rs"),
-            include_str!("app/claude_ask.rs"),
-            include_str!("app/claude_ui.rs"),
-            include_str!("app/claude_turns.rs"),
-            include_str!("app/claude_tools.rs"),
-            include_str!("app/theme_edit.rs"),
-            include_str!("app/template_edit.rs"),
-            include_str!("app/quick_fix.rs"),
-            include_str!("app/save_lint.rs"),
-            include_str!("app/search_panel.rs"),
-            include_str!("app/settings.rs"),
-            include_str!("app/split_commit.rs"),
-            include_str!("app/commit_plan.rs"),
-            include_str!("app/debugger.rs"),
-            include_str!("view_bar.rs"),
-            include_str!("editor_view.rs"),
-            include_str!("history.rs"),
-            include_str!("sidebar.rs"),
-            include_str!("terminal.rs"),
-            include_str!("search.rs"),
-            include_str!("commands.rs"),
-            include_str!("icons.rs"),
-            include_str!("logo.rs"),
-            include_str!("symbols.rs"),
-        ];
+        // every source file of Florm (a list kept by hand forgot some: 🧪 of the Docker view
+        // showed as a box)
+        let mut files = Vec::new();
+        let mut dirs = vec![std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src")];
+        while let Some(d) = dirs.pop() {
+            for e in std::fs::read_dir(&d).unwrap().flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    dirs.push(p);
+                } else if p.extension().is_some_and(|x| x == "rs") {
+                    let text = std::fs::read_to_string(&p).unwrap();
+                    // the tests at the end of a file: their texts are data, never shown
+                    let shown = text.find("#[cfg(test)]").map_or(text.as_str(), |i| &text[..i]).to_string();
+                    files.push(shown);
+                }
+            }
+        }
+        assert!(files.len() > 50);
+        let sources: Vec<&str> = files.iter().map(String::as_str).collect();
         let mut missing = std::collections::BTreeSet::new();
         for src in sources {
             for line in src.lines().filter(|l| !l.trim_start().starts_with("//")) {

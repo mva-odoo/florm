@@ -135,9 +135,9 @@ impl Summary {
 
     pub fn text(&self) -> String {
         if self.ok() {
-            tf!("✓ {} test(s) réussi(s)", "✓ {} test(s) passed", self.total)
+            tf!("✔ {} test(s) réussi(s)", "✔ {} test(s) passed", self.total)
         } else {
-            tf!("✗ {} échec(s), {} erreur(s) sur {} test(s)", "✗ {} failure(s), {} error(s) out of {} test(s)", self.failed, self.errors, self.total)
+            tf!("✖ {} échec(s), {} erreur(s) sur {} test(s)", "✖ {} failure(s), {} error(s) out of {} test(s)", self.failed, self.errors, self.total)
         }
     }
 }
