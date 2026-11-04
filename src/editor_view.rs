@@ -233,7 +233,15 @@ fn text_area(
         Some(w) => wraps.update(doc, w),
         None => wraps = Wraps::default(),
     }
-    let rm = RowMap::with_folds(if inline_diff { &doc.hunks } else { &[] }, &hidden).with_wraps(wraps.extra_rows());
+    // one change shown in the text (its gutter mark clicked, Ctrl+K Ctrl+D, Alt+F5), or all of
+    // them with the inline diff on
+    let peek_hunk = if inline_diff { None } else { doc.peek.and_then(|pl| doc.hunks.iter().position(|h| h.contains(pl))) };
+    let shown_hunks: &[crate::diff::Hunk] = match peek_hunk {
+        _ if inline_diff => &doc.hunks,
+        Some(i) => std::slice::from_ref(&doc.hunks[i]),
+        None => &[],
+    };
+    let rm = RowMap::with_folds(shown_hunks, &hidden).with_wraps(wraps.extra_rows());
     let folded: HashSet<usize> = hidden.iter().map(|&(s, _)| s - 1).collect();
     let focused = ui.memory(|m| m.has_focus(id));
 
@@ -590,9 +598,12 @@ fn text_area(
 
         // Inline git diff: added/modified lines in green, deleted HEAD lines as red phantom rows.
         let mut revert_clicked = None;
-        if inline_diff {
+        if inline_diff || peek_hunk.is_some() {
             let text_w = vp.width();
             for (hi, h) in doc.hunks.iter().enumerate() {
+                if !inline_diff && Some(hi) != peek_hunk {
+                    continue;
+                }
                 if h.new_end < first || h.new_start > last + 1 || rm.is_hidden(h.new_start) {
                     continue;
                 }
@@ -945,7 +956,7 @@ fn text_area(
         }
 
         // gutter markers of phantom rows (drawn after the gutter background)
-        if inline_diff {
+        if inline_diff || peek_hunk.is_some() {
             for &(line, count) in rm.blocks() {
                 let top_row = rm.row(line) - count;
                 for k in 0..count {
@@ -996,9 +1007,11 @@ fn text_area(
                 None => doc.peek = None,
                 Some(hi) => {
                     let h = &doc.hunks[hi];
-                    let y = line_y(h.new_end.max(h.mark_lines().end));
-                    if y >= origin.y + vp.min.y && y <= origin.y + vp.max.y {
-                        let action = diff_peek(ui, doc.uid, hi, doc.hunks.len(), h, Pos2::new(gx + gutter_w, y), (vp.width() - gutter_w - 24.0).max(240.0), font, rh, &c);
+                    // the change is in the text: its actions in a small bar at the right of its
+                    // first row (the removed lines shown above the line come first)
+                    let top = origin.y + (rm.row(h.new_start) - h.old_lines.len()) as f32 * rh;
+                    if top + rh >= origin.y + vp.min.y && top <= origin.y + vp.max.y {
+                        let action = diff_peek(ui, doc.uid, hi, doc.hunks.len(), h, Pos2::new(gx + vp.width() - 18.0, top.max(origin.y + vp.min.y)));
                         match action {
                             Some(Peek::Revert) => doc.revert_hunk(hi),
                             Some(Peek::Close) => doc.peek = None,
@@ -1043,77 +1056,35 @@ enum Peek {
 
 /// VS Code-like inline diff of one hunk, floating under the changed lines.
 #[allow(clippy::too_many_arguments)]
-fn diff_peek(
-    ui: &Ui,
-    uid: u64,
-    index: usize,
-    count: usize,
-    h: &crate::diff::Hunk,
-    pos: Pos2,
-    width: f32,
-    font: &FontId,
-    rh: f32,
-    c: &crate::highlight::Colors,
-) -> Option<Peek> {
+fn diff_peek(ui: &Ui, uid: u64, index: usize, count: usize, h: &crate::diff::Hunk, right_top: Pos2) -> Option<Peek> {
     let mut action = None;
     let kind = match h.kind() {
         GitMark::Added => t!("Ajouté", "Added"),
         GitMark::Deleted => t!("Supprimé", "Deleted"),
         GitMark::Modified => t!("Modifié", "Changed"),
     };
-    let removed_bg = Color32::from_rgba_unmultiplied(0xe0, 0x6c, 0x75, 45);
-    let added_bg = Color32::from_rgba_unmultiplied(0x98, 0xc3, 0x79, 40);
-    egui::Area::new(Id::new(("diff_peek", uid)))
-        .fixed_pos(pos)
-        .order(egui::Order::Foreground)
-        .constrain(false)
-        .show(ui.ctx(), |ui| {
-            egui::Frame::popup(ui.style()).fill(c.bg).inner_margin(6.0).show(ui, |ui| {
-                ui.set_width(width);
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(tf!("{kind} depuis le dernier commit", "{kind} since the last commit")).strong());
-                    ui.label(RichText::new(tf!("changement {}/{count}", "change {}/{count}", index + 1)).weak());
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("×").on_hover_text(t!("Fermer (Échap)", "Close (Escape)")).clicked() {
-                            action = Some(Peek::Close);
-                        }
-                        if ui.button("⏷").on_hover_text(t!("Changement suivant (Alt+F5)", "Next change (Alt+F5)")).clicked() {
-                            action = Some(Peek::Next);
-                        }
-                        if ui.button("⏶").on_hover_text(t!("Changement précédent (Alt+Maj+F5)", "Previous change (Alt+Shift+F5)")).clicked() {
-                            action = Some(Peek::Prev);
-                        }
-                        if ui.button(t!("Dans l'éditeur", "In the editor")).on_hover_text(t!("Afficher tous les changements dans l'éditeur, en vert et rouge (Ctrl+Alt+D)", "Show all the changes in the editor, in green and red (Ctrl+Alt+D)")).clicked() {
-                            action = Some(Peek::Inline);
-                        }
-                        if ui
-                            .button(RichText::new(t!("↺ Revenir en arrière", "↺ Revert")).color(c.fg))
-                            .on_hover_text(t!("Remettre la version du dernier commit pour ce bloc (annulable avec Ctrl+Z)", "Put back the version of the last commit for this block (can be undone with Ctrl+Z)"))
-                            .clicked()
-                        {
-                            action = Some(Peek::Revert);
-                        }
-                    });
-                });
-                ui.separator();
-                egui::ScrollArea::both().max_height(rh * 16.0).auto_shrink([false, true]).show(ui, |ui| {
-                    ui.spacing_mut().item_spacing.y = 0.0;
-                    let mut row = |sign: char, text: &str, bg: Color32| {
-                        let t = format!("{sign} {}", text.trim_end_matches(['\n', '\r']).replace('\t', "    "));
-                        egui::Frame::none().fill(bg).show(ui, |ui| {
-                            ui.set_min_width(ui.available_width());
-                            ui.add(egui::Label::new(RichText::new(t).font(font.clone()).color(c.fg)).extend());
-                        });
-                    };
-                    for l in &h.old_lines {
-                        row('-', l, removed_bg);
-                    }
-                    for l in &h.new_lines {
-                        row('+', l, added_bg);
-                    }
-                });
+    egui::Area::new(Id::new(("diff_peek", uid))).fixed_pos(right_top).pivot(Align2::RIGHT_TOP).order(egui::Order::Foreground).show(ui.ctx(), |ui| {
+        egui::Frame::popup(ui.style()).inner_margin(egui::Margin::symmetric(6.0, 2.0)).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(tf!("{kind} · {}/{count}", "{kind} · {}/{count}", index + 1)).small().weak());
+                if ui.small_button("⏶").on_hover_text(t!("Changement précédent (Alt+Maj+F5)", "Previous change (Alt+Shift+F5)")).clicked() {
+                    action = Some(Peek::Prev);
+                }
+                if ui.small_button("⏷").on_hover_text(t!("Changement suivant (Alt+F5)", "Next change (Alt+F5)")).clicked() {
+                    action = Some(Peek::Next);
+                }
+                if ui.small_button(t!("↺ Annuler", "↺ Revert")).on_hover_text(t!("Remettre la version du dernier commit pour ce bloc (Ctrl+K Ctrl+Z ; annulable avec Ctrl+Z)", "Put back the version of the last commit for this block (Ctrl+K Ctrl+Z; can be undone with Ctrl+Z)")).clicked() {
+                    action = Some(Peek::Revert);
+                }
+                if ui.small_button(t!("Tous", "All")).on_hover_text(t!("Afficher tous les changements dans l'éditeur (Ctrl+Alt+D)", "Show all the changes in the editor (Ctrl+Alt+D)")).clicked() {
+                    action = Some(Peek::Inline);
+                }
+                if ui.small_button("×").on_hover_text(t!("Masquer (Échap, Ctrl+K Ctrl+D, ou clic sur la marque)", "Hide (Escape, Ctrl+K Ctrl+D, or click on the mark)")).clicked() {
+                    action = Some(Peek::Close);
+                }
             });
         });
+    });
     action
 }
 

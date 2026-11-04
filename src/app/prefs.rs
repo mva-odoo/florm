@@ -509,7 +509,7 @@ impl App {
                 pref_row(ui, rc, t!("Branche et remote dans l'arborescence", "Branch and remote in the tree"), t!("Sur le dossier de chaque dépôt git : sa branche, la branche distante suivie (↑ à pousser, ↓ à récupérer) et le nombre de fichiers modifiés ; survol : les remotes.", "On the folder of each git repository: its branch, the tracked remote branch (↑ to push, ↓ to pull) and the number of changed files; hover: the remotes."), |ui| {
                     toggle_switch(ui, &mut s.tree_git_info);
                 });
-                pref_row(ui, rc, t!("Diff dans l'éditeur", "Diff in the editor"), t!("Lignes ajoutées en vert et anciennes lignes en rouge directement dans le code (Ctrl+Alt+D).", "Added lines in green and old lines in red right in the code (Ctrl+Alt+D)."), |ui| {
+                pref_row(ui, rc, t!("Diff dans l'éditeur", "Diff in the editor"), t!("Tous les changements en permanence : lignes ajoutées en vert, anciennes en rouge, dans le code (Ctrl+Alt+D). Sans elle, un clic sur la marque de la marge (ou Ctrl+K Ctrl+D) en montre un seul.", "All the changes all the time: added lines in green, old ones in red, in the code (Ctrl+Alt+D). Without it, a click on the mark in the gutter (or Ctrl+K Ctrl+D) shows one."), |ui| {
                     toggle_switch(ui, &mut s.inline_diff);
                 });
                 let mut blame = self.blame_mode;

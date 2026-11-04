@@ -140,6 +140,13 @@ The `.gitignore` is respected.
 Florm goes through the `git` command (your configuration, your credentials). Without `git`, the view
 explains how to install it (the system is detected) and comes back by itself as soon as it is found.
 
+- **The changes in the editor**: a colored mark in the gutter shows each block changed since the
+  last commit. **A click on the mark** (or **Ctrl+K Ctrl+D** on the line) shows that change
+  alone, in the text: the removed lines in red above, the new ones in green, and a small bar
+  (previous, next, ↺ revert, All, ×). Another click, Escape or Ctrl+K Ctrl+D hides it.
+  **Alt+F5 / Alt+Shift+F5** go to the next / previous change and show it; **Ctrl+K Ctrl+Z**
+  reverts the one of the line. **Ctrl+Alt+D** (or the “Diff in the editor” preference) shows
+  all of them all the time.
 - **Ctrl+Shift+G** (or click the branch in the status bar): Git view. At the top the repository (large, a click lists them when the project has several), the branch (**🔀 name ▾**: switch or create one),
   pull / push / fetch and the commit message (Ctrl+Enter); below it the graph, whose first
   rows are the changes to stage / staged.

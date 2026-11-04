@@ -572,7 +572,12 @@ impl App {
             ShowChange => {
                 if let Some(d) = self.docs.get_mut(self.active) {
                     let line = d.rope.char_to_line(d.primary_sel().head);
-                    d.peek = d.hunks.iter().find(|h| h.contains(line)).map(|h| h.mark_lines().start);
+                    let here = d.hunks.iter().find(|h| h.contains(line)).map(|h| h.mark_lines().start);
+                    // the same again: hidden
+                    d.peek = if here.is_some() && d.peek == here { None } else { here };
+                    if here.is_none() {
+                        self.set_status(t!("Pas de changement sur cette ligne (Alt+F5 : le suivant)", "No change on this line (Alt+F5: the next one)"));
+                    }
                 }
             }
             ClearSearchHistory => {

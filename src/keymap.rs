@@ -238,6 +238,7 @@ const CHORDS: &[(&str, &str)] = &[
     ("ctrl+m", "toggle_minimap"),
     ("ctrl+0", "fold_all"),
     ("ctrl+z", "git_revert_change"),
+    ("ctrl+d", "show_change"),
     ("ctrl+shift+z", "git_revert_file"),
     ("v", "markdown_preview_side"),
     ("ctrl+j", "unfold_all"),

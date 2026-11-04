@@ -141,6 +141,13 @@ Le `.gitignore` est respecté.
 Florm passe par la commande `git` (votre configuration, vos identifiants). Sans `git`, la vue
 explique comment l'installer (le système est détecté) et reprend toute seule dès qu'elle est trouvée.
 
+- **Les changements dans l'éditeur** : une marque colorée dans la marge montre chaque bloc changé
+  depuis le dernier commit. **Un clic sur la marque** (ou **Ctrl+K Ctrl+D** sur la ligne) affiche
+  ce changement seul, dans le texte : les lignes supprimées en rouge au-dessus, les nouvelles en
+  vert, et une petite barre (précédent, suivant, ↺ annuler, Tous, ×). Un nouveau clic, Échap ou
+  Ctrl+K Ctrl+D le masque. **Alt+F5 / Alt+Maj+F5** passent au changement suivant / précédent en
+  l'affichant ; **Ctrl+K Ctrl+Z** annule celui de la ligne. **Ctrl+Alt+D** (ou la préférence
+  « Diff dans l'éditeur ») les affiche tous en permanence.
 - **Ctrl+Shift+G** (ou clic sur la branche dans la barre d'état) : vue Git. En haut le dépôt (en grand : le
   nom est cliquable quand le projet en a plusieurs), la branche (**🔀 nom ▾** : changer de branche ou en créer une),
   pull / push / fetch et le message du commit (Ctrl+Entrée) ; en dessous le graphe, dont les
