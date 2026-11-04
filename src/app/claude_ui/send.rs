@@ -249,6 +249,7 @@ impl App {
             let ctx = self.egui_ctx.clone();
             // a conversation of before (restart of Florm, process stopped): continued with its
             // context; after going back, from the message gone back to
+            self.claude_sync_account();
             self.claude_session_to_account();
             let resume = self.claude.session_id.clone();
             let at = self.claude.resume_at.clone().filter(|_| resume.is_some());

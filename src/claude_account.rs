@@ -61,6 +61,23 @@ fn expand(dir: &str) -> PathBuf {
     }
 }
 
+/// The account of the conversations of folder `dir`, from the rules "folder=account" of the
+/// settings: the rule of the longest folder that holds it.
+pub fn for_folder(rules: &[String], dir: &Path) -> Option<String> {
+    rules
+        .iter()
+        .filter_map(|r| r.rsplit_once('='))
+        .map(|(f, a)| (expand(f.trim()), a.trim()))
+        .filter(|(f, a)| !a.is_empty() && dir.starts_with(f))
+        .max_by_key(|(f, _)| f.as_os_str().len())
+        .map(|(_, a)| a.to_string())
+}
+
+/// "folder=account" of the settings.
+pub fn folder_rule(dir: &Path, account: &str) -> String {
+    format!("{}={}", dir.display(), account.trim())
+}
+
 /// The configuration folder Claude Code uses for `dir` (None: the usual one).
 pub fn config_dir(dir: Option<&Path>) -> PathBuf {
     dir.map(Path::to_path_buf)
@@ -153,6 +170,18 @@ mod tests {
         assert_eq!(find(&a, "?").name, "Pro");
         assert_eq!(spec("Perso", Some(Path::new("/h/.c"))), "Perso=/h/.c");
         assert_eq!(folder_for("Mon Perso"), home.join(".claude-mon-perso"));
+    }
+
+    #[test]
+    fn the_account_of_a_folder() {
+        let rules = vec!["/src=Pro".to_string(), "/src/florm=Perso".to_string(), "/x=".to_string()];
+        assert_eq!(for_folder(&rules, Path::new("/src/florm/src")).as_deref(), Some("Perso"));
+        assert_eq!(for_folder(&rules, Path::new("/src/internal")).as_deref(), Some("Pro"));
+        // a folder of the same beginning is not inside
+        assert_eq!(for_folder(&rules, Path::new("/src/florm2")).as_deref(), Some("Pro"));
+        assert_eq!(for_folder(&rules, Path::new("/x/y")), None);
+        assert_eq!(for_folder(&rules, Path::new("/home")), None);
+        assert_eq!(folder_rule(Path::new("/src/florm"), "Perso"), "/src/florm=Perso");
     }
 
     #[test]

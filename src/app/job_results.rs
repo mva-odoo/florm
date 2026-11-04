@@ -451,12 +451,17 @@ impl App {
                         crate::os::Pick::Folder => Some(Prompt::OpenFolder),
                         crate::os::Pick::File => Some(Prompt::OpenFile),
                         crate::os::Pick::SaveAs => Some(Prompt::SaveAs),
-                        crate::os::Pick::Image | crate::os::Pick::ClaudeDir => None,
+                        crate::os::Pick::Image | crate::os::Pick::ClaudeDir | crate::os::Pick::AccountProject | crate::os::Pick::AccountConfig => None,
                     };
                     match prompt {
                         Some(prompt) => {
                             if let Some(p) = paths.first() {
                                 self.submit_prompt(prompt, p.display().to_string());
+                            }
+                        }
+                        None if matches!(kind, crate::os::Pick::AccountProject | crate::os::Pick::AccountConfig) => {
+                            if let Some(p) = paths.first() {
+                                self.claude_account_picked(kind, p.clone());
                             }
                         }
                         None if kind == crate::os::Pick::ClaudeDir => {

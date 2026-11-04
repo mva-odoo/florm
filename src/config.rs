@@ -61,6 +61,9 @@ pub struct Settings {
     pub claude_accounts: Vec<String>,
     /// The account of new conversations and of the other calls (commit messages…); empty: the first.
     pub claude_account: String,
+    /// Folders whose conversations use an account: "folder=account name" (the longest that
+    /// holds the folder of the conversation).
+    pub claude_account_folders: Vec<String>,
     /// Branch and upstream of git repositories on their folder in the tree.
     /// The toolbar of formatting buttons above a Markdown source (the source stays editable).
     pub markdown_toolbar: bool,
@@ -186,6 +189,7 @@ impl Default for Settings {
             claude_deny: Vec::new(),
             claude_accounts: Vec::new(),
             claude_account: String::new(),
+            claude_account_folders: Vec::new(),
             markdown_toolbar: true,
             tree_git_info: true,
             inline_diff: false,
@@ -285,6 +289,8 @@ claude_deny = []
 # ["Pro=", "Perso=~/.claude-perso"] ; compte des nouvelles conversations et des messages de commit…
 claude_accounts = []
 claude_account = ""
+# dossiers dont les conversations utilisent un compte : "dossier=nom du compte"
+claude_account_folders = []
 # vues qui s'ouvrent dans un onglet plutôt que dans le panneau du bas ("git", "pulls", "docker", "debug") ;
 # ⇱ / ⇲ dans l'en-tête d'une vue changent ce choix
 views_in_tab = ["git", "pulls", "docker", "debug"]

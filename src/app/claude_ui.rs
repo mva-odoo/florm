@@ -164,6 +164,8 @@ pub(super) struct ClaudeUi {
     /// (`session_id`) was made with: another one, it is copied there before going on.
     pub(super) account: String,
     pub(super) session_account: String,
+    /// The account was chosen by hand (👤): the folders of the accounts no longer choose it.
+    pub(super) account_chosen: bool,
 }
 
 /// The configuration folder of the account chosen by default in `s`.
@@ -565,7 +567,8 @@ impl App {
             mode: c.mode,
             with_context: c.with_context,
             add_dirs: c.add_dirs.clone(),
-            account: c.account.clone(),
+            // the default one; its folder may choose another (`claude_sync_account`)
+            account: self.settings.claude_account.clone(),
             focus: true,
             ..Default::default()
         }
@@ -574,6 +577,21 @@ impl App {
     /// The Claude accounts of the settings.
     pub(in crate::app) fn claude_accounts(&self) -> Vec<claude_account::Account> {
         claude_account::accounts(&self.settings.claude_accounts)
+    }
+
+    /// A conversation not started yet takes the account of its folder (Préférences → Comptes
+    /// Claude → its folders), unless one was chosen by hand.
+    pub(in crate::app) fn claude_sync_account(&mut self) {
+        let c = &self.claude;
+        if c.account_chosen || c.session_id.is_some() || c.session.is_some() {
+            return;
+        }
+        let Some(dir) = c.dir.as_deref() else { return };
+        if let Some(a) = claude_account::for_folder(&self.settings.claude_account_folders, dir) {
+            if self.claude_accounts().iter().any(|x| x.name == a) {
+                self.claude.account = a;
+            }
+        }
     }
 
     /// The key of the quotas of account `name`: empty for the first one.
@@ -594,12 +612,11 @@ impl App {
         if self.claude.account == name {
             return;
         }
+        self.claude.account_chosen = true;
         if self.claude.session.is_some() {
             self.claude.restart = true;
         }
-        self.claude.account = name.clone();
-        self.settings.claude_account = name.clone();
-        self.persist("claude_account", config::toml_str(&name));
+        self.claude.account = name;
         self.claude_save();
     }
 
@@ -655,6 +672,7 @@ impl App {
     /// The conversation of `tab` (None: the bottom panel), made the current one, and shown.
     pub(super) fn claude_show(&mut self, ui: &mut egui::Ui, tab: Option<u64>) {
         self.claude_restore_last();
+        self.claude_sync_account();
         if self.claude.tab != tab {
             if let Some(k) = self.claude_others.iter().position(|o| o.tab == tab) {
                 std::mem::swap(&mut self.claude, &mut self.claude_others[k]);
@@ -2131,6 +2149,7 @@ mod tests {
             worktree: None,
             account: "Perso".into(),
             session_account: "Pro".into(),
+            account_chosen: true,
         };
         let back: Vec<SavedConv> = serde_json::from_str(&serde_json::to_string(&vec![s]).unwrap()).unwrap();
         assert_eq!((back[0].key, back[0].session_id.as_deref(), back[0].items.len()), (7, Some("abc"), 3));

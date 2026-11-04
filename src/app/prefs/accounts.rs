@@ -14,6 +14,8 @@ pub(in crate::app) struct AccountsUi {
     rename: Option<(usize, String)>,
     /// The terminal of a login running, and the account.
     login: Option<(u64, String)>,
+    /// The account a folder is being chosen for (in the chooser of the system).
+    picking: Option<String>,
 }
 
 /// What was clicked in the list of the accounts.
@@ -24,6 +26,10 @@ enum AccAct {
     Rename(usize, String),
     Add(String),
     Refresh,
+    /// Choose a folder for the account: one whose conversations use it, or its configuration.
+    Pick(usize, crate::os::Pick),
+    /// The folder rule (index in `claude_account_folders`) taken away.
+    Unfolder(usize),
 }
 
 impl App {
@@ -132,7 +138,29 @@ impl App {
                         }
                     }
                     let folder = claude_account::config_dir(a.dir.as_deref());
-                    ui.label(RichText::new(folder.display().to_string()).small().weak().monospace());
+                    ui.label(RichText::new(folder.display().to_string()).small().weak().monospace())
+                        .on_hover_text(t!("Le dossier de configuration de ce compte (sa connexion, ses sessions)", "The configuration folder of this account (its login, its sessions)"));
+                    if ui.small_button("📁").on_hover_text(t!("Choisir un autre dossier de configuration (un dossier déjà connecté, par exemple)", "Choose another configuration folder (one already logged in, for instance)")).clicked() {
+                        act = Some(AccAct::Pick(k, crate::os::Pick::AccountConfig));
+                    }
+                });
+                // the folders whose conversations use this account
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(RichText::new(t!("Utilisé dans :", "Used in:")).small().weak());
+                    for (r, rule) in self.settings.claude_account_folders.iter().enumerate() {
+                        let Some((f, name)) = rule.rsplit_once('=') else { continue };
+                        if name.trim() != a.name {
+                            continue;
+                        }
+                        let short = Path::new(f.trim()).file_name().map_or(f.to_string(), |n| n.to_string_lossy().into_owned());
+                        ui.label(RichText::new(format!("📁 {short}")).small().color(accent)).on_hover_text(f.trim());
+                        if ui.small_button("×").on_hover_text(t!("Ce dossier n'utilise plus ce compte", "This folder no longer uses this account")).clicked() {
+                            act = Some(AccAct::Unfolder(r));
+                        }
+                    }
+                    if ui.small_button(t!("+ Dossier…", "+ Folder…")).on_hover_text(t!("Les nouvelles conversations de ce dossier (et de ses sous-dossiers) utilisent ce compte", "New conversations of this folder (and of its subfolders) use this account")).clicked() {
+                        act = Some(AccAct::Pick(k, crate::os::Pick::AccountProject));
+                    }
                 });
             });
             ui.add_space(4.0);
@@ -153,6 +181,16 @@ impl App {
         match act {
             AccAct::Refresh => {
                 self.claude_accounts_refresh();
+                return;
+            }
+            AccAct::Pick(k, kind) => {
+                self.prefs.accounts.picking = Some(accounts[k].name.clone());
+                self.file_dialog(kind);
+                return;
+            }
+            AccAct::Unfolder(r) => {
+                self.settings.claude_account_folders.remove(r);
+                self.persist("claude_account_folders", config::toml_str_array(&self.settings.claude_account_folders));
                 return;
             }
             AccAct::Login(k) => {
@@ -179,6 +217,9 @@ impl App {
             }
             AccAct::Remove(k) => {
                 specs.remove(k);
+                let gone = accounts[k].name.clone();
+                self.settings.claude_account_folders.retain(|r| r.rsplit_once('=').is_none_or(|(_, a)| a.trim() != gone));
+                self.persist("claude_account_folders", config::toml_str_array(&self.settings.claude_account_folders));
             }
             AccAct::Rename(k, name) => {
                 self.prefs.accounts.rename = None;
@@ -200,6 +241,13 @@ impl App {
                     self.settings.claude_account = name.clone();
                     self.persist("claude_account", config::toml_str(&name));
                 }
+                // its folders follow
+                for r in self.settings.claude_account_folders.iter_mut() {
+                    if let Some((f, _)) = r.rsplit_once('=').filter(|(_, a)| a.trim() == old) {
+                        *r = format!("{f}={name}");
+                    }
+                }
+                self.persist("claude_account_folders", config::toml_str_array(&self.settings.claude_account_folders));
                 if let Some(s) = self.prefs.accounts.status.remove(&old) {
                     self.prefs.accounts.status.insert(name, s);
                 }
@@ -212,5 +260,30 @@ impl App {
         self.settings.claude_accounts = specs;
         self.persist("claude_accounts", config::toml_str_array(&self.settings.claude_accounts));
         crate::claude_account::set_default(super::claude_ui::default_account_dir(&self.settings));
+    }
+}
+
+impl App {
+    /// A folder chosen for an account: one whose conversations use it, or its configuration.
+    pub(in crate::app) fn claude_account_picked(&mut self, kind: crate::os::Pick, path: PathBuf) {
+        let Some(name) = self.prefs.accounts.picking.take() else { return };
+        if kind == crate::os::Pick::AccountProject {
+            // one account per folder: its rule of before goes
+            let rules = &mut self.settings.claude_account_folders;
+            rules.retain(|r| r.rsplit_once('=').is_none_or(|(f, _)| Path::new(f.trim()) != path));
+            rules.push(claude_account::folder_rule(&path, &name));
+            self.persist("claude_account_folders", config::toml_str_array(&self.settings.claude_account_folders));
+            self.set_status(tf!("Les conversations de {} utilisent le compte {name}", "The conversations of {} use the account {name}", path.display()));
+            return;
+        }
+        let accounts = self.claude_accounts();
+        let specs: Vec<String> = accounts
+            .iter()
+            .map(|a| if a.name == name { claude_account::spec(&a.name, Some(&path)) } else { claude_account::spec(&a.name, a.dir.as_deref()) })
+            .collect();
+        self.settings.claude_accounts = specs;
+        self.persist("claude_accounts", config::toml_str_array(&self.settings.claude_accounts));
+        crate::claude_account::set_default(super::claude_ui::default_account_dir(&self.settings));
+        self.claude_accounts_refresh();
     }
 }

@@ -450,7 +450,9 @@ command and your login: no key to set up.
   folder, `~/.claude-personal` for instance). The **👤** menu at the top of a conversation
   chooses its account: changed along the way, it applies from the next message and the
   conversation keeps its context. The “default” account is used by new conversations and by
-  the commit messages, PR descriptions and reviews. The quota gauges follow the account of the
+  the commit messages, PR descriptions and reviews. **+ Folder…** on an account: the new
+  conversations of that folder (and its subfolders) use it; **📁** changes its configuration
+  folder. The quota gauges follow the account of the
   conversation shown.
 - **Output of a running command**: **▸ Output** next to a command that runs (tests…) or was
   sent to the background shows what it prints, updated live, with a button to copy it.

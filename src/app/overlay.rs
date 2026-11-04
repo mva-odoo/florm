@@ -1123,6 +1123,8 @@ impl App {
                     Pick::Folder => d.set_title(t!("Ouvrir un dossier (les projets WSL : \\\\wsl.localhost\\…)", "Open a folder (WSL projects: \\\\wsl.localhost\\…)")).pick_folder().into_iter().collect(),
                     Pick::File => d.set_title(t!("Ouvrir un fichier", "Open a file")).pick_file().into_iter().collect(),
                     Pick::ClaudeDir => d.set_title(t!("Le dossier où Claude travaille", "The folder Claude works in")).pick_folder().into_iter().collect(),
+                    Pick::AccountProject => d.set_title(t!("Un dossier dont les conversations utilisent ce compte", "A folder whose conversations use this account")).pick_folder().into_iter().collect(),
+                    Pick::AccountConfig => d.set_title(t!("Le dossier de configuration de ce compte Claude", "The configuration folder of this Claude account")).pick_folder().into_iter().collect(),
                     Pick::Image => d.set_title(t!("Des images ou des PDF pour Claude", "Images or PDFs for Claude")).add_filter("Images, PDF", &["png", "jpg", "jpeg", "gif", "webp", "bmp", "pdf"]).pick_files().unwrap_or_default(),
                     Pick::SaveAs => {
                         let d = d.set_title(t!("Enregistrer sous", "Save as"));
