@@ -1320,7 +1320,8 @@ fn definitions_popup(ui: &Ui, doc: &mut Document, id: Id, new: Option<(TipAt, St
     let mut clicked = None;
     let area = egui::Area::new(pid.with("area")).order(egui::Order::Foreground).fixed_pos(at.0).pivot(at.1).show(&ctx, |ui| {
         egui::Frame::popup(ui.style()).show(ui, |ui| {
-            ui.set_max_width(640.0);
+            // wide enough for the paths of the definitions (enterprise/18.0/…/portal.py:143)
+            ui.set_max_width(900.0);
             if !tip.is_empty() {
                 ui.label(tip);
                 ui.separator();
@@ -1336,7 +1337,12 @@ fn definitions_popup(ui: &Ui, doc: &mut Document, id: Id, new: Option<(TipAt, St
                 ctx.data_mut(|d| d.insert_temp(fid, filter.clone()));
             }
             let f = filter.to_lowercase();
-            egui::ScrollArea::vertical().max_height(320.0).auto_shrink([false, true]).show(ui, |ui| {
+            let shown_rows = defs.iter().filter(|(_, _, what, place)| f.is_empty() || place.to_lowercase().contains(&f) || what.to_lowercase().contains(&f)).count();
+            let row_h = ui.spacing().interact_size.y + ui.spacing().item_spacing.y;
+            // the height of its rows: the area of the popup would otherwise keep the small
+            // height of one shown before (2 rows and a half of 12)
+            let h = (shown_rows as f32 * row_h).min(420.0);
+            egui::ScrollArea::vertical().max_height(420.0).min_scrolled_height(h).auto_shrink([false, true]).show(ui, |ui| {
                 for (k, (_, _, what, place)) in defs.iter().enumerate() {
                     if !f.is_empty() && !place.to_lowercase().contains(&f) && !what.to_lowercase().contains(&f) {
                         continue;
@@ -1391,4 +1397,32 @@ fn tooltip_by_line(ui: &Ui, resp: &egui::Response, at: TipAt, text: String) {
             ui.label(text);
         });
     });
+}
+
+#[cfg(test)]
+mod defs_popup_tests {
+    use super::*;
+
+    /// 12 definitions after a popup of 2: all the rows show (up to its height), not the 2 and a
+    /// half of the popup before.
+    #[test]
+    fn the_list_takes_the_height_of_its_rows() {
+        let ctx = egui::Context::default();
+        let mut doc = Document::new(1, 4, true);
+        let id = Id::new("ed");
+        let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1600.0, 1000.0))), ..Default::default() };
+        let defs = |n: usize| (0..n).map(|k| (PathBuf::from(format!("/p/{k}.py")), k, "m subscription".to_string(), format!("enterprise/18.0/sale_subscription_{k}/controllers/portal.py:{k}"))).collect::<Vec<_>>();
+        let mut height = |doc: &mut Document, n: usize| {
+            doc.hover_defs = Some(((n, 0), defs(n), 0));
+            for _ in 0..3 {
+                let _ = ctx.run(input.clone(), |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| definitions_popup(ui, doc, id, Some(((Pos2::new(50.0, 50.0), Align2::LEFT_TOP), String::new()))));
+                });
+            }
+            ctx.memory(|m| m.area_rect(id.with("defs_popup").with("area"))).expect("the popup is shown").height()
+        };
+        let small = height(&mut doc, 2);
+        let big = height(&mut doc, 12);
+        assert!(big > small * 3.0 && big > 300.0, "{small} then {big}");
+    }
 }

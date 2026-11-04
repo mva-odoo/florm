@@ -384,7 +384,6 @@ mod tests {
 
 #[cfg(test)]
 mod glyph_tests {
-
     use eframe::egui;
 
     /// The symbols of the list are in the fonts built into Florm (a missing one shows as a box).
