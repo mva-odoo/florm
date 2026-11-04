@@ -515,6 +515,7 @@ impl App {
             .filter(|_| self.repo == self.history.repo)
             .and_then(|st| st.operation.map(|o| (o, st.entries.iter().filter(|e| e.conflicted()).count())));
         let mut op_cmd: Option<Vec<String>> = None;
+        let mut open_conflicts = false;
         let (mut menu_act, mut clear_notice, mut resume, mut abort_rebase) = (None, false, false, false);
         let (mut wip_pick, mut wip_ops): (Option<bool>, Vec<Vec<String>>) = (None, Vec::new());
         let split_hidden = self.split.as_ref().map(|s| s.info.short.clone());
@@ -596,6 +597,9 @@ impl App {
                     }
                     if ui.button(t!("Abandonner", "Abort")).on_hover_text(t!("Remet la branche comme avant l'opération", "Puts the branch back as before the operation")).clicked() {
                         op_cmd = Some(op.abort_args().iter().map(|s| s.to_string()).collect());
+                    }
+                    if n > 0 && ui.add(filled_button(t!("⇄ Assistant de conflits", "⇄ Conflicts assistant"), accent)).on_hover_text(t!("Les fichiers en conflit et leurs blocs côte à côte, avec le vrai nom de chaque côté ; résoudre bloc par bloc ou avec Claude", "The conflicting files and their blocks side by side, with the real name of each side; resolve block by block or with Claude")).clicked() {
+                        open_conflicts = true;
                     }
                     if op == git::Operation::Rebase && ui.button(t!("Reprendre le découpage", "Resume the splitting")).clicked() {
                         resume = true;
@@ -1190,6 +1194,9 @@ impl App {
                 (a, Some(repo)) => self.hist_git_act(a, repo),
                 _ => {}
             }
+        }
+        if open_conflicts {
+            self.show_tab(document::View::Conflicts);
         }
         if let Some(args) = op_cmd {
             if let Some(repo) = self.history.repo.clone() {

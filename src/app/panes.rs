@@ -179,6 +179,10 @@ impl App {
                 egui::CentralPanel::default().show_inside(ui, |ui| self.line_history_ui(ui));
                 None
             }
+            document::View::Conflicts => {
+                egui::CentralPanel::default().show_inside(ui, |ui| self.conflicts_ui(ui));
+                None
+            }
             document::View::Split => {
                 egui::CentralPanel::default().show_inside(ui, |ui| {
                     if self.split.is_some() {

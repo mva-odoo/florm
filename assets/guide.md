@@ -205,6 +205,29 @@ explique comment l'installer (le système est détecté) et reprend toute seule 
   droite, chaque ligne remplacée en face de la nouvelle, avec les mots changés plus foncés.
   **≡ Une colonne** revient à l'affichage habituel. Le choix vaut pour tous les diffs et est retenu.
 
+### Résoudre des conflits (rebase, merge, cherry-pick)
+
+Quand un rebase, une fusion, un cherry-pick ou un revert s'arrête sur des conflits, l'onglet
+**⇄ Conflits** s'ouvre (ou **⇄ Assistant de conflits** dans le bandeau de la vue Git).
+
+- En haut : ce qui se passe (« Rebase de feature sur master — commit 3 sur 7 »), le commit
+  appliqué, et **le vrai nom de chaque côté**. Dans un rebase, le côté 1 est la base sur
+  laquelle tes commits sont rejoués (ce que git appelle « ours »), le côté 2 ton commit.
+- À gauche, les fichiers en conflit : nombre de blocs restants, ou « prêt à marquer ».
+- À droite, chaque bloc avec ses deux côtés l'un à côté de l'autre, et la version d'origine
+  (d'avant les deux) dépliable : **Garder le côté 1**, **Garder le côté 2**, **Garder les deux**,
+  ou **Éditer à la main…**. **Tout du côté 1 / 2** prend tout le fichier d'un côté. Un fichier
+  supprimé d'un côté se garde ou se supprime.
+- **✔ Marquer résolu** (git add) quand il n'y a plus de marqueurs.
+- **✳ Résoudre avec Claude** : une conversation reçoit les fichiers, les deux côtés et ce que
+  le commit y change ; Claude combine les deux et retire les marqueurs, sans toucher à git. Tu
+  relis dans sa revue, puis tu marques résolu.
+- **Continuer le rebase ▶** passe au commit suivant (l'assistant revient s'il y a d'autres
+  conflits), **Passer ce commit** ou **Abandonner**.
+
+Les opérations lancées depuis Florm mettent la version d'origine entre les deux côtés
+(`merge.conflictStyle=diff3`).
+
 ### Découper un commit
 
 Clic droit sur un commit → **Découper ce commit en plusieurs…**, ou dans le **rebase

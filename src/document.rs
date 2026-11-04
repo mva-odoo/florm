@@ -245,6 +245,8 @@ pub enum View {
     Split,
     /// The history of lines, of a file, a search in the commits or the reflog.
     History,
+    /// The assistant of a merge, rebase or cherry-pick stopped on conflicts.
+    Conflicts,
 }
 
 /// Files shown as images rather than text.

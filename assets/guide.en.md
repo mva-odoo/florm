@@ -201,6 +201,29 @@ explains how to install it (the system is detected) and comes back by itself as 
   the right, each replaced line facing its new version, with the changed words darker.
   **≡ One column** goes back to the usual display. The choice applies to every diff and is kept.
 
+### Resolve conflicts (rebase, merge, cherry-pick)
+
+When a rebase, a merge, a cherry-pick or a revert stops on conflicts, the **⇄ Conflicts** tab
+opens (or **⇄ Conflicts assistant** in the banner of the Git view).
+
+- At the top: what is going on (“Rebase of feature onto master — commit 3 of 7”), the commit
+  being applied, and **the real name of each side**. In a rebase, side 1 is the base your
+  commits are replayed onto (what git calls “ours”), side 2 your commit.
+- On the left, the conflicting files: blocks left, or “ready to mark”.
+- On the right, each block with its two sides next to each other, and the original version
+  (from before both) to unfold: **Keep side 1**, **Keep side 2**, **Keep both**, or **Edit by
+  hand…**. **All from side 1 / 2** takes the whole file from one side. A file removed on one
+  side is kept or removed.
+- **✔ Mark resolved** (git add) once no marker is left.
+- **✳ Resolve with Claude**: a conversation gets the files, both sides and what the commit
+  changes in them; Claude combines them and removes the markers, without touching git. You
+  check in its review, then mark resolved.
+- **Continue the rebase ▶** goes to the next commit (the assistant comes back if there are
+  other conflicts), **Skip this commit** or **Abort**.
+
+The operations started from Florm put the original version between the two sides
+(`merge.conflictStyle=diff3`).
+
 ### Split a commit
 
 Right click on a commit → **Split this commit into several…**, or in the **interactive rebase**

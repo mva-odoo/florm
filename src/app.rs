@@ -38,6 +38,7 @@ mod view_tabs;
 mod remote_ui;
 mod install_guide;
 mod odoo_tests;
+mod conflicts;
 mod pr_claude;
 mod pr_links;
 mod claude_ui;
@@ -1046,6 +1047,8 @@ pub struct App {
     /// Python linter actually used for the last lint ("flake8", "ruff"… or "syntaxe").
     python_linter: Option<String>,
     prefs: PrefsUi,
+    /// The conflicts assistant.
+    conflicts: conflicts::ConflictsUi,
     /// Templates (snippets) offered by "insérer un modèle", loaded when the list opens.
     templates: Vec<crate::templates::Template>,
     /// Last `git::stamp` of each repository: a change made outside Florm (commit in a terminal…)
@@ -1275,6 +1278,7 @@ impl App {
             lint_inflight: HashSet::new(),
             python_linter: None,
             prefs: PrefsUi::default(),
+            conflicts: Default::default(),
             nav: NavState::default(),
             index: Indexes::default(),
             lsp: LspUi::default(),
@@ -1649,7 +1653,7 @@ fn doc_tab(d: &Document) -> (TabIcon<'_>, String) {
         View::Docker => Some(ViewIcon::Docker),
         View::Sql => Some(ViewIcon::Sql),
         View::Debug => Some(ViewIcon::Debug),
-        View::Git | View::History => Some(ViewIcon::Git),
+        View::Git | View::History | View::Conflicts => Some(ViewIcon::Git),
         View::Settings => Some(ViewIcon::Settings),
         View::Split => Some(ViewIcon::Split),
         View::Claude => Some(ViewIcon::Claude),
@@ -2427,6 +2431,63 @@ mod font_tests {
         assert_eq!((app.claude.session_id.as_deref(), app.claude.session_account.as_str()), (Some("s1"), "Perso"));
         // the quotas of each account apart
         assert_eq!((app.claude_limits_key("Pro"), app.claude_limits_key("Perso")), (String::new(), "Perso".to_string()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A rebase stopped on a conflict: the assistant shows it, a block is resolved from a side,
+    /// the file marked, the rebase goes on to its end. `FLORM_TEST_APP=1`.
+    #[test]
+    fn conflicts_assistant() {
+        if std::env::var_os("FLORM_TEST_APP").is_none() {
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("florm_conflicts_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (conf, proj) = (dir.join("conf"), dir.join("proj"));
+        std::fs::create_dir_all(&conf).unwrap();
+        std::fs::create_dir_all(&proj).unwrap();
+        std::fs::write(conf.join("settings.toml"), "check_updates = false\nlsp = false\n").unwrap();
+        let g = |args: &[&str]| git::run(&proj, args);
+        g(&["init", "-q", "-b", "master"]).unwrap();
+        for (k, v) in [("user.name", "t"), ("user.email", "t@t"), ("commit.gpgsign", "false")] {
+            g(&["config", k, v]).unwrap();
+        }
+        std::fs::write(proj.join("f.py"), "a = 1\nb = 1\n").unwrap();
+        g(&["add", "f.py"]).unwrap();
+        g(&["commit", "-qm", "base"]).unwrap();
+        g(&["checkout", "-qb", "feature"]).unwrap();
+        std::fs::write(proj.join("f.py"), "a = 2\nb = 1\n").unwrap();
+        g(&["commit", "-qam", "mine"]).unwrap();
+        g(&["checkout", "-q", "master"]).unwrap();
+        std::fs::write(proj.join("f.py"), "a = 3\nb = 1\n").unwrap();
+        g(&["commit", "-qam", "theirs"]).unwrap();
+        g(&["checkout", "-q", "feature"]).unwrap();
+        assert!(g(&["-c", "merge.conflictStyle=diff3", "rebase", "master"]).is_err());
+        let _lock = config::TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("FLORM_CONFIG", &conf);
+        let ctx = egui::Context::default();
+        let mut app = App::with_ctx(&ctx, Some(proj.clone()));
+        app.repo = Some(proj.clone());
+        app.git.status = git::status(&proj).ok();
+        app.show_tab(document::View::Conflicts);
+        let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 800.0))), ..Default::default() };
+        for _ in 0..3 {
+            let _ = ctx.run(input.clone(), |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| app.conflicts_ui(ui));
+            });
+        }
+        let info = app.conflicts.info.clone().expect("the rebase is read").1;
+        assert_eq!((info.branch.as_str(), info.onto.as_str(), info.step), ("feature", "master", Some((1, 1))));
+        // your commit's side (2) kept
+        let blocks = app.conflict_blocks(&proj, "f.py");
+        assert_eq!(blocks.len(), 1);
+        app.conflict_resolve(&proj, "f.py", &blocks[0], document::Resolution::Theirs);
+        assert_eq!(std::fs::read_to_string(proj.join("f.py")).unwrap(), "a = 2\nb = 1\n");
+        assert!(app.conflict_blocks(&proj, "f.py").is_empty());
+        g(&["add", "f.py"]).unwrap();
+        g(&["-c", "core.editor=true", "rebase", "--continue"]).unwrap();
+        assert_eq!(git::operation(&proj), None);
+        assert_eq!(g(&["log", "--format=%s"]).unwrap().lines().collect::<Vec<_>>(), ["mine", "theirs", "base"]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

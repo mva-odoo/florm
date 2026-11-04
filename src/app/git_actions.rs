@@ -337,7 +337,11 @@ impl App {
     }
 
     pub(super) fn git_job_at(&mut self, repo: PathBuf, label: &str, args: &[&str]) {
-        let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+        let mut args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+        // conflicts with the common ancestor between the two sides (for the conflicts assistant)
+        if crate::conflict::may_conflict(args.iter().map(String::as_str).collect::<Vec<_>>().as_slice()) {
+            args.splice(0..0, crate::conflict::STYLE.map(String::from));
+        }
         self.log(format!("$ git {}", args.join(" ")));
         self.set_status(format!("git {label}…"));
         self.git.busy += 1;

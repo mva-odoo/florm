@@ -167,6 +167,19 @@ impl App {
                                     self.git.map.insert(abs, e.label());
                                 }
                                 if repo == selected {
+                                    // found stopped on conflicts (a rebase started in a terminal…): the
+                                    // assistant opens, once for that operation
+                                    let stop = st.operation.filter(|_| st.entries.iter().any(|e| e.conflicted())).map(|op| (repo.clone(), op));
+                                    if stop.is_some() && stop != self.conflicts.seen {
+                                        self.conflicts.seen = stop.clone();
+                                        self.conflicts.stale = true;
+                                        if !self.has_tab(document::View::Conflicts) {
+                                            self.show_tab(document::View::Conflicts);
+                                        }
+                                    }
+                                    if st.operation.is_none() {
+                                        self.conflicts.seen = None;
+                                    }
                                     self.git.status = Some(st);
                                 }
                             }
@@ -354,6 +367,12 @@ impl App {
                         self.resume_split();
                     }
                     self.git_refresh();
+                    // stopped on conflicts: the assistant opens on them
+                    self.conflicts.stale = true;
+                    let stopped = self.git.status.as_ref().is_some_and(|st| st.operation.is_some() && st.entries.iter().any(|e| e.conflicted()));
+                    if stopped && !self.has_tab(document::View::Conflicts) {
+                        self.show_tab(document::View::Conflicts);
+                    }
                     // staging, unstaging or discarding does not move branches: keep the selection
                     let refs = !matches!(label.as_str(), "add" | "restore" | "apply" | "rm");
                     if self.git_shown() && refs {
