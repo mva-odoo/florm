@@ -38,6 +38,7 @@ mod view_tabs;
 mod remote_ui;
 mod install_guide;
 mod odoo_tests;
+mod pr_claude;
 mod pr_links;
 mod claude_ui;
 mod claude_queue;

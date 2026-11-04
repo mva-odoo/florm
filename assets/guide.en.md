@@ -362,6 +362,11 @@ palette).
 - A PR you just created opens as soon as GitHub knows it (a few seconds).
 - **Conversation**: the description, the **comments on the code** (clickable file:line, the
   commented code, the replies) then the discussion and the reviews.
+- **Handle the comments with Claude**: tick the unresolved comments to handle (box on the
+  left of each, in Conversation or Files; “All” at the top), then **✳ Send to Claude**. A
+  Claude conversation opens in the repository with each comment (file:line, commented code,
+  replies) and changes the code; you check it in its review. You first need **⤵ Checkout** of
+  the branch of the PR.
 - **Apply the suggestion**: a comment with a `suggestion` block replaces the lines in your file
   and saves it (Ctrl+Z in the file to undo). You first need **⤵ Checkout** to have the branch
   of the PR.

@@ -6,6 +6,7 @@
 use super::*;
 use crate::github::{self, Part};
 use history::{DiffAct, DiffClick, DiffKind};
+use super::pr_claude::{to_claude_bar, to_claude_tick};
 
 /// `gh pr list --state` values and their labels (French, English).
 pub(super) const STATES: [(&str, &str, &str); 4] = [("open", "Ouvertes", "Open"), ("merged", "Fusionnées", "Merged"), ("closed", "Fermées", "Closed"), ("all", "Toutes", "All")];
@@ -62,7 +63,7 @@ pub(super) struct PrUi {
     who: usize,
     filter: String,
     selected: Option<u64>,
-    detail: Option<Result<github::PrDetail, String>>,
+    pub(super) detail: Option<Result<github::PrDetail, String>>,
     detail_loading: bool,
     section: PrSection,
     show_resolved: bool,
@@ -73,6 +74,8 @@ pub(super) struct PrUi {
     commit_diff: PrDiff,
     /// Comments being written: on the pull request, on a line, or replies (key: thread id).
     drafts: HashMap<String, String>,
+    /// The conversations on lines ticked to be handled by Claude (their id).
+    pub(super) to_claude: HashSet<String>,
     /// Line of the diff being commented: (file, line, "RIGHT" new / "LEFT" old, index in the diff).
     new_line: Option<(String, usize, &'static str, usize)>,
     /// Comments whose suggestion was applied.
@@ -115,7 +118,7 @@ impl PrUi {
 }
 
 /// What the pull request view asked for during the frame.
-enum PrAct {
+pub(super) enum PrAct {
     Reload,
     /// `gh auth login` typed in a terminal.
     Login,
@@ -151,6 +154,8 @@ enum PrAct {
     Copied(String),
     /// The files of the pull request opened together, in a group of tabs.
     OpenGroup,
+    /// The conversations ticked sent to Claude, to handle them in the code.
+    ToClaude,
 }
 
 impl App {
@@ -644,6 +649,9 @@ impl App {
                             if resolved > 0 {
                                 ui.checkbox(&mut p.show_resolved, RichText::new(tf!("afficher les {resolved} conversation(s) résolue(s)", "show the {resolved} resolved conversation(s)")).small());
                             }
+                            if open_threads > 0 && crate::features::on(crate::features::Feature::Claude) {
+                                to_claude_bar(ui, d, &mut p.to_claude, checked_out, accent, &mut act);
+                            }
                             let mut day_shown = String::new();
                             for (date, ev) in timeline(d, p.show_resolved) {
                                 if day(&date) != day_shown {
@@ -685,7 +693,14 @@ impl App {
                                         let who = t.comments.first().map_or("", |c| c.author.as_str());
                                         tracking(ui, who, &date, &tf!("a commenté {}", "commented {}", t.path.rsplit('/').next().unwrap_or(&t.path)), accent);
                                         ui.horizontal_top(|ui| {
-                                            ui.add_space(34.0);
+                                            // ticked: handled by Claude (« Envoyer à Claude »)
+                                            if !t.resolved && crate::features::on(crate::features::Feature::Claude) {
+                                                ui.add_space(8.0);
+                                                to_claude_tick(ui, &mut p.to_claude, &t.id);
+                                                ui.add_space(4.0);
+                                            } else {
+                                                ui.add_space(34.0);
+                                            }
                                             ui.vertical(|ui| {
                                                 let draft = p.drafts.entry(t.id.clone()).or_default();
                                                 thread_ui(ui, t, cache, &p.applied, &p.shifts, checked_out, p.busy, draft, &mut p.editing, accent, false, &mut act);
@@ -788,11 +803,14 @@ impl App {
                         }
                         let new_at = p.new_line.as_ref().map(|n| n.3);
                         let lines: HashSet<usize> = at.keys().chain(ai_at.keys()).copied().chain(new_at).collect();
-                        let (drafts, applied, shifts, new_line, ai_notes, editing) = (&mut p.drafts, &p.applied, &p.shifts, &mut p.new_line, &mut p.ai.notes, &mut p.editing);
+                        let (drafts, applied, shifts, new_line, ai_notes, editing, to_claude) = (&mut p.drafts, &p.applied, &p.shifts, &mut p.new_line, &mut p.ai.notes, &mut p.editing, &mut p.to_claude);
                         let mut line_act = None;
                         let mut show = |ui: &mut egui::Ui, i: usize| {
                             for &k in at.get(&i).map_or(&[][..], |v| &v[..]) {
                                 let t = &d.threads[k];
+                                if !t.resolved && crate::features::on(crate::features::Feature::Claude) {
+                                    to_claude_tick(ui, to_claude, &t.id);
+                                }
                                 let draft = drafts.entry(t.id.clone()).or_default();
                                 thread_ui(ui, t, cache, applied, shifts, checked_out, busy, draft, editing, accent, true, &mut line_act);
                             }
@@ -990,6 +1008,7 @@ impl App {
             }
             Some(PrAct::Copied(what)) => self.set_status(tf!("Copié : {what}", "Copied: {what}")),
             Some(PrAct::OpenGroup) => self.pr_open_group(repo, n),
+            Some(PrAct::ToClaude) => self.pr_to_claude(repo),
             None => {}
         }
     }

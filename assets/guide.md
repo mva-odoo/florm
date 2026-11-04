@@ -367,6 +367,11 @@ avec `gh auth login` (connexion par le navigateur). Sans `gh`, la vue explique c
 - Une PR que tu viens de créer s'ouvre dès que GitHub la connaît (quelques secondes).
 - **Conversation** : la description, les **commentaires sur le code** (fichier:ligne
   cliquable, le code commenté, les réponses) puis la discussion et les revues.
+- **Traiter les commentaires avec Claude** : coche les commentaires non résolus à traiter
+  (case à gauche de chacun, dans Conversation ou Fichiers ; « Tous » en haut), puis
+  **✳ Envoyer à Claude**. Une conversation Claude s'ouvre dans le dépôt avec chaque
+  commentaire (fichier:ligne, code commenté, réponses) et change le code ; tu relis dans sa
+  revue. Il faut d'abord **⤵ Checkout** la branche de la PR.
 - **Appliquer la suggestion** : un commentaire avec un bloc `suggestion` remplace les lignes
   dans ton fichier et l'enregistre (Ctrl+Z dans le fichier pour annuler). Il faut d'abord
   **⤵ Checkout** pour avoir la branche de la PR.
