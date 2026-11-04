@@ -127,6 +127,8 @@ pub(super) enum PrAct {
     Checkout(u64),
     Web(u64),
     Commit(String),
+    /// The commit shown in the Git view (fetched first when it is not in the repository).
+    CommitInGit(String),
     Open(String, usize),
     Apply { id: String, path: String, start: usize, end: usize, text: String },
     /// Send the draft of this key.
@@ -738,9 +740,23 @@ impl App {
                                 egui::ScrollArea::vertical().id_salt("pr_commits").auto_shrink([false, false]).show(ui, |ui| {
                                     ui.spacing_mut().item_spacing.y = 0.0;
                                     for c in d.commits.iter().rev() {
-                                        if commit_row(ui, c, p.commit.as_deref() == Some(c.oid.as_str()), accent).clicked() {
+                                        let r = commit_row(ui, c, p.commit.as_deref() == Some(c.oid.as_str()), accent);
+                                        if r.double_clicked() {
+                                            act = Some(PrAct::CommitInGit(c.oid.clone()));
+                                        } else if r.clicked() {
                                             act = Some(PrAct::Commit(c.oid.clone()));
                                         }
+                                        r.context_menu(|ui| {
+                                            if ui.button(t!("Voir dans la vue Git", "Show in the Git view")).clicked() {
+                                                act = Some(PrAct::CommitInGit(c.oid.clone()));
+                                                ui.close_menu();
+                                            }
+                                            if ui.button(t!("Copier le hash", "Copy the hash")).clicked() {
+                                                ui.ctx().copy_text(c.oid.clone());
+                                                act = Some(PrAct::Copied(c.oid[..c.oid.len().min(8)].to_string()));
+                                                ui.close_menu();
+                                            }
+                                        });
                                     }
                                 });
                             });
@@ -750,11 +766,30 @@ impl App {
                                 ui.vertical_centered(|ui| ui.label(RichText::new(t!("Choisis un commit : ses changements à lui seul s'affichent ici", "Choose a commit: its changes alone show here")).weak()));
                                 return;
                             };
-                            let headline = d.commits.iter().find(|c| &c.oid == sha).map_or("", |c| c.message_headline.as_str());
-                            ui.horizontal(|ui| {
+                            let commit = d.commits.iter().find(|c| &c.oid == sha);
+                            let headline = commit.map_or("", |c| c.message_headline.as_str());
+                            ui.horizontal_wrapped(|ui| {
                                 ui.label(RichText::new(&sha[..sha.len().min(8)]).monospace().color(accent));
                                 ui.label(RichText::new(headline).strong());
+                                if let Some(c) = commit {
+                                    ui.label(RichText::new(format!("{} · {}", c.author(), ago(&c.committed_date))).small().weak());
+                                }
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    if ui.button(t!("Voir dans la vue Git ↗", "Show in the Git view ↗")).on_hover_text(t!("Le commit sélectionné dans le graphe de la vue Git (aussi : double-clic dans la liste)", "The commit selected in the graph of the Git view (also: double-click in the list)")).clicked() {
+                                        act = Some(PrAct::CommitInGit(sha.clone()));
+                                    }
+                                });
                             });
+                            // the whole message, not only its first line
+                            if let Some(body) = commit.map(|c| c.message_body.trim()).filter(|b| !b.is_empty()) {
+                                egui::Frame::none().fill(ui.visuals().faint_bg_color).rounding(4.0).inner_margin(egui::Margin::symmetric(10.0, 6.0)).show(ui, |ui| {
+                                    ui.set_width(ui.available_width());
+                                    egui::ScrollArea::vertical().id_salt(("pr_commit_body", sha)).max_height(180.0).show(ui, |ui| {
+                                        ui.add(egui::Label::new(RichText::new(body).monospace().size(12.5)).wrap());
+                                    });
+                                });
+                                ui.add_space(4.0);
+                            }
                             if let Some(DiffClick::File(i, _) | DiffClick::Line(i) | DiffClick::Hunk(i, _)) = diff_area(ui, "pr_commit", &mut p.commit_diff, &d.threads, None, None, &mut act) {
                                 if let Some(diff) = &p.commit_diff.diff {
                                     if let Some(path) = history::file_at(&diff.text, i) {
@@ -892,6 +927,7 @@ impl App {
                 self.pr.commit_diff = PrDiff { loading: true, ..Default::default() };
                 self.jobs.spawn(move || JobResult::PrCommitDiff(sha.clone(), github::commit_diff(&repo, &sha)));
             }
+            Some(PrAct::CommitInGit(sha)) => self.pr_commit_in_git(repo, n, sha),
             Some(PrAct::Open(path, line)) => self.pr_open_file(&path, line),
             Some(PrAct::Apply { id, path, start, end, text }) => self.apply_suggestion(id, &path, start, end, &text),
             Some(PrAct::Send(key)) => {
@@ -1621,7 +1657,8 @@ fn commit_row(ui: &mut egui::Ui, c: &github::Commit, selected: bool, accent: Col
         egui::FontId::proportional(13.5),
         v.strong_text_color(),
     );
-    resp.on_hover_text(t!("Voir les changements de ce commit seul", "See the changes of this commit alone"))
+    let full = if c.message_body.trim().is_empty() { c.message_headline.clone() } else { format!("{}\n\n{}", c.message_headline, c.message_body.trim()) };
+    resp.on_hover_text(format!("{full}\n\n{}", t!("Clic : ses changements · double-clic : dans la vue Git", "Click: its changes · double-click: in the Git view")))
 }
 
 pub(super) fn state_badge(state: &str, draft: bool) -> (&'static str, Color32) {
@@ -1969,6 +2006,7 @@ mod tests {
         let commit = |oid: &str, date: &str, who: &str| github::Commit {
             oid: oid.into(),
             message_headline: oid.into(),
+            message_body: String::new(),
             authors: vec![github::CommitAuthor { login: who.into(), name: String::new() }],
             committed_date: date.into(),
         };
@@ -2120,5 +2158,53 @@ mod render_check {
         // the note right after "+b = 3", then the next line of code
         let (note, after) = (t.find("NOTE sous 6").expect(&t), t.find("c = 4").expect(&t));
         assert!(t.find("b = 3").unwrap() < note && note < after, "{t}");
+    }
+}
+
+/// The remote of `repo` that points to the GitHub repository `full` ("odoo/odoo"), else origin.
+fn remote_of(repo: &Path, full: &str) -> String {
+    let remotes = git::stdout(repo, &["remote"]).unwrap_or_default();
+    remotes
+        .lines()
+        .find(|r| git::stdout(repo, &["remote", "get-url", r]).ok().and_then(|u| git::parse_github(u.trim())).is_some_and(|(o, n)| format!("{o}/{n}").eq_ignore_ascii_case(full)))
+        .unwrap_or("origin")
+        .to_string()
+}
+
+impl App {
+    /// Commit `sha` of pull request `n` in the Git view; not in the repository yet, the commits
+    /// of the pull request are fetched first (in `<remote>/pr/<n>`, which the graph shows).
+    pub(super) fn pr_commit_in_git(&mut self, repo: PathBuf, n: u64, sha: String) {
+        if git::run(&repo, &["cat-file", "-e", &format!("{sha}^{{commit}}")]).is_ok() {
+            self.git_show_commit(repo, sha);
+            return;
+        }
+        let full = self.pr.detail.as_ref().and_then(|d| d.as_ref().ok()).and_then(|d| d.url.split("github.com/").nth(1)).map(|r| r.split("/pull/").next().unwrap_or("").to_string()).unwrap_or_default();
+        let remote = remote_of(&repo, &full);
+        self.set_status(tf!("git fetch {remote} : les commits de la PR #{n}…", "git fetch {remote}: the commits of PR #{n}…"));
+        self.jobs.spawn(move || {
+            let spec = format!("pull/{n}/head:refs/remotes/{remote}/pr/{n}");
+            let r = git::run(&repo, &["fetch", &remote, &spec]);
+            JobResult::PrCommitFetched(repo, sha, r)
+        });
+    }
+}
+
+#[cfg(test)]
+mod remote_tests {
+    /// The commits of a pull request are fetched from the remote of its repository.
+    #[test]
+    fn the_remote_of_the_repository() {
+        let d = std::env::temp_dir().join(format!("florm-remote-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        let g = |a: &[&str]| crate::git::run(&d, a).unwrap();
+        g(&["init", "-q"]);
+        g(&["remote", "add", "dev", "git@github.com:odoo-dev/odoo.git"]);
+        g(&["remote", "add", "odoo", "https://github.com/odoo/odoo.git"]);
+        assert_eq!(super::remote_of(&d, "odoo/odoo"), "odoo");
+        assert_eq!(super::remote_of(&d, "Odoo-Dev/odoo"), "dev");
+        assert_eq!(super::remote_of(&d, "x/y"), "origin");
+        let _ = std::fs::remove_dir_all(&d);
     }
 }

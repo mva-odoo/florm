@@ -400,7 +400,10 @@ avec `gh auth login` (connexion par le navigateur). Sans `gh`, la vue explique c
   **⤵ Checkout** pour avoir la branche de la PR.
 - Branche de la PR active : les commentaires non résolus sont **dans l'éditeur**, une petite
   bulle dans la marge, le texte au survol.
-- **Commits** : un clic montre les changements de ce commit seul ; **Fichiers** : tout le
+- **Commits** : un clic montre le message complet du commit et ses changements à lui seul ;
+  **double-clic** (ou **Voir dans la vue Git ↗**, ou clic droit) l'ouvre sélectionné dans le
+  graphe de la vue Git (les commits de la PR sont d'abord récupérés dans `remote/pr/N` s'ils ne
+  sont pas dans ton dépôt). **Fichiers** : tout le
   diff de la PR, les conversations **sous les lignes commentées** comme sur GitHub (répondre,
   résoudre, appliquer une suggestion), et **double-clic sur une ligne** pour la commenter.
 - Une case avant chaque fichier le marque **vu** : il se replie et GitHub s'en souvient pour

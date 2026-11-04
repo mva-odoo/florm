@@ -294,15 +294,20 @@ impl App {
         }
         if let Some(h) = show_graph {
             let Some(r) = self.line_history.as_ref().map(|l| l.repo.clone()) else { return };
-            self.select_repo(r);
-            self.show_tab(document::View::Git);
-            self.history.all = true;
-            // the filter could hide it
-            self.history.filter.clear();
-            self.history.select_hash = Some(h);
-            self.history.seek = true;
-            self.load_history();
+            self.git_show_commit(r, h);
         }
+    }
+
+    /// The Git view on commit `hash` of `repo`, selected in the graph (of all the branches).
+    pub(super) fn git_show_commit(&mut self, repo: PathBuf, hash: String) {
+        self.select_repo(repo);
+        self.show_tab(document::View::Git);
+        self.history.all = true;
+        // the filter could hide it
+        self.history.filter.clear();
+        self.history.select_hash = Some(hash);
+        self.history.seek = true;
+        self.load_history();
     }
 
     /// Key of what is selected in the graph: a commit hash, or "INDEX" / "WORKTREE" for the

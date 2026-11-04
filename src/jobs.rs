@@ -33,6 +33,9 @@ pub enum JobResult {
     ClaudeCommits(u64, String),
     /// What `claude auth status` says of the Claude account named so.
     ClaudeAuth(String, Result<crate::claude_account::Status, String>),
+    /// The commits of a pull request fetched to show one of them in the Git view: repository,
+    /// commit, and what git said.
+    PrCommitFetched(std::path::PathBuf, String, Result<String, String>),
     /// A worktree made for a new Claude conversation: its folder, its branch, the main repository.
     ClaudeWorktree(Result<(std::path::PathBuf, String, std::path::PathBuf), String>),
     /// The changes not committed split by Claude into commits: the blocks, then each commit's

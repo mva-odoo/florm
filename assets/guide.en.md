@@ -395,7 +395,10 @@ palette).
   of the PR.
 - Branch of the PR checked out: the unresolved comments are **in the editor**, a small bubble in
   the margin, the text on hover.
-- **Commits**: a click shows the changes of that commit alone; **Files**: the whole diff of the
+- **Commits**: a click shows the whole message of the commit and its changes alone;
+  **double-click** (or **Show in the Git view ↗**, or right click) opens it selected in the
+  graph of the Git view (the commits of the PR are first fetched into `remote/pr/N` when they
+  are not in your repository). **Files**: the whole diff of the
   PR, the conversations **under the commented lines** like on GitHub (reply, resolve, apply a
   suggestion), and **double-click a line** to comment on it.
 - A box before each file marks it **viewed**: it folds and GitHub remembers it for your review

@@ -114,6 +114,9 @@ pub fn list(dir: &Path, state: &str, search: &str) -> Result<Vec<PrSummary>, Str
 pub struct Commit {
     pub oid: String,
     pub message_headline: String,
+    /// The rest of the message, after the first line.
+    #[serde(default)]
+    pub message_body: String,
     #[serde(default)]
     pub authors: Vec<CommitAuthor>,
     #[serde(default)]
@@ -925,6 +928,15 @@ mod tests {
         let h = "@@ -1,4 +1,4 @@\n a\n-b\n+c\n d";
         assert_eq!(commented_lines(h, 2), ["c", "d"]);
         assert_eq!(commented_lines(h, 9), ["a", "c", "d"]);
+    }
+
+    #[test]
+    fn commits_with_their_whole_message() {
+        let c: Commit = serde_json::from_str(r#"{"oid":"abc","messageHeadline":"[FIX] x","messageBody":"Why it was wrong.\n\ntask-1","authors":[{"login":"me"}],"committedDate":"2026-11-04T10:00:00Z"}"#).unwrap();
+        assert_eq!((c.message_headline.as_str(), c.message_body.as_str(), c.author()), ("[FIX] x", "Why it was wrong.\n\ntask-1", "me".to_string()));
+        // without a body (older answers)
+        let c: Commit = serde_json::from_str(r#"{"oid":"abc","messageHeadline":"x"}"#).unwrap();
+        assert!(c.message_body.is_empty());
     }
 
     #[test]
