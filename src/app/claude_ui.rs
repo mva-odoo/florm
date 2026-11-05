@@ -843,7 +843,7 @@ impl App {
         egui::TopBottomPanel::top(bar_id)
             .frame(egui::Frame::none().fill(fill).inner_margin(egui::Margin { left: 10.0, right: 10.0, top: 8.0, bottom: 6.0 }))
             .show_inside(ui, |ui| {
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     ui.label(RichText::new("✳ Claude").strong().size(15.0).color(accent));
                     let running = c.session.is_some();
                     ui.add_enabled_ui(!running, |ui| {
@@ -971,6 +971,9 @@ impl App {
                     }
                     if c.cost > 0.0 {
                         ui.label(RichText::new(format!("{:.2} $", c.cost)).weak().small()).on_hover_text(t!("Coût estimé de la conversation", "Estimated cost of the conversation"));
+                    }
+                    if ui.available_width() < 380.0 {
+                        ui.end_row();
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if let Some(crate::view_bar::BarAct::Move(b)) = crate::view_bar::controls(ui, in_tab, None, None) {
@@ -1236,7 +1239,7 @@ impl App {
                         egui::Frame::none().fill(icons::mix(fill, accent, 0.08)).rounding(6.0).inner_margin(8.0).show(ui, |ui| {
                             match &hold.suggestion {
                                 None => {
-                                    ui.horizontal(|ui| {
+                                    ui.horizontal_wrapped(|ui| {
                                         spinner(ui);
                                         ui.label(RichText::new(t!("Je regarde si la demande demande un autre modèle…", "Checking whether the request needs another model…")).weak());
                                     });
@@ -1246,7 +1249,7 @@ impl App {
                                     if !why.is_empty() {
                                         ui.label(RichText::new(why.as_str()).weak());
                                     }
-                                    ui.horizontal(|ui| {
+                                    ui.horizontal_wrapped(|ui| {
                                         if ui.button(tf!("Passer à {}", "Switch to {}", claude::label(claude::MODELS[*m].1))).clicked() {
                                             hold_act = Some(HoldAct::Switch(*m));
                                         }
@@ -1266,7 +1269,7 @@ impl App {
                         egui::Frame::none().fill(icons::mix(fill, accent, 0.08)).rounding(6.0).inner_margin(8.0).show(ui, |ui| {
                             ui.label(RichText::new(tf!("Retenir : « {note} »", "Remember: “{note}”")).strong());
                             ui.label(RichText::new(t!("Une ligne ajoutée au CLAUDE.md, que Claude lit au début de chaque conversation.", "A line added to the CLAUDE.md, which Claude reads at the start of every conversation.")).small().weak());
-                            ui.horizontal(|ui| {
+                            ui.horizontal_wrapped(|ui| {
                                 if ui.button(t!("CLAUDE.md du projet", "CLAUDE.md of the project")).on_hover_text(t!("Pour ce projet, partagé avec ceux qui l'ont", "For this project, shared with whoever has it")).clicked() {
                                     mem_act = Some(Some(false));
                                 }
@@ -1283,7 +1286,7 @@ impl App {
                     let mut hide_context = false;
                     if c.context_high && !c.context_hidden && !c.busy {
                         egui::Frame::none().fill(icons::mix(fill, accent, 0.08)).rounding(6.0).inner_margin(8.0).show(ui, |ui| {
-                            ui.horizontal(|ui| {
+                            ui.horizontal_wrapped(|ui| {
                                 ui.label(RichText::new(t!("Contexte rempli à plus de 60 %", "Context over 60% full")).strong());
                                 if ui.button("/compact").on_hover_text(t!("Claude résume la conversation pour libérer du contexte", "Claude summarizes the conversation to free up context")).clicked() {
                                     compact = true;
@@ -1441,7 +1444,7 @@ impl App {
                             ui.data_mut(|d| d.insert_temp(choice_id, choice));
                             egui::Frame::none().fill(icons::mix(fill, accent, 0.05)).rounding(6.0).inner_margin(4.0).show(ui, |ui| {
                                 for (k, (name, hint)) in matching.iter().enumerate() {
-                                    ui.horizontal(|ui| {
+                                    ui.horizontal_wrapped(|ui| {
                                         if ui.selectable_label(k == choice, format!("/{name}")).on_hover_text(t!("↑ ↓ pour choisir, Tab ou Entrée : compléter", "↑ ↓ to choose, Tab or Enter: complete")).clicked() {
                                             pick = Some(name.clone());
                                         }
@@ -1483,7 +1486,7 @@ impl App {
                         send = true;
                         later = ui.input(|i| i.modifiers.shift);
                     }
-                    ui.horizontal(|ui| {
+                    ui.horizontal_wrapped(|ui| {
                         let has_text = !c.input.trim().is_empty();
                         // a pasted text (or another context) alone can be sent too
                         let can_send = has_text || !c.attach.is_empty();
@@ -2231,6 +2234,42 @@ mod tests {
         assert!(!d.contains("a.txt") && d.contains("new.txt"), "{d}");
         // the real index was not touched
         assert_eq!(git::run(&dir, &["diff", "--cached", "--name-only"]).unwrap(), "");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// On a small screen the conversation stays in the window: the bars wrap instead of
+    /// pushing the messages past its right edge (where nothing scrolls to them).
+    #[test]
+    fn conversation_fits_a_small_window() {
+        let dir = std::env::temp_dir().join(format!("florm_claude_narrow_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (conf, proj) = (dir.join("conf"), dir.join("proj"));
+        std::fs::create_dir_all(&conf).unwrap();
+        std::fs::create_dir_all(&proj).unwrap();
+        std::fs::write(conf.join("settings.toml"), "check_updates = false\nlsp = false\n").unwrap();
+        let _lock = config::TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("FLORM_CONFIG", &conf);
+        let ctx = egui::Context::default();
+        let mut app = App::with_ctx(&ctx, Some(proj.clone()));
+        let width = 560.0;
+        let mut right = 0.0_f32;
+        for frame in 0..4 {
+            if frame == 1 {
+                // working, with a long request typed: the bottom row has all its buttons
+                app.claude.items.push(Item::User("Corrige le bug".into(), Vec::new(), Vec::new(), Vec::new()));
+                app.claude.items.push(Item::Text("Un texte assez long pour passer à la ligne plusieurs fois dans une fenêtre étroite. ".repeat(4)));
+                app.claude.busy = true;
+                app.claude.activity = Some("Lecture de src/app/claude_ui.rs".into());
+                app.claude.input = "Une demande".into();
+            }
+            let _ = ctx.run(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 700.0))), ..Default::default() }, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    app.claude_show(ui, None);
+                    right = ui.min_rect().right();
+                });
+            });
+        }
+        assert!(right <= width + 0.5, "the conversation goes to x = {right}, past the window ({width})");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
