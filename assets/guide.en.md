@@ -538,11 +538,16 @@ command and your login: no key to set up.
 - **What Claude is doing**: when nothing new shows, a line at the end of the conversation says it
   (“Claude is thinking…”, “Claude is preparing Write…”, “Claude has an agent at work: …”, “is
   waiting for the API, retry 2/10”), with the time without news past 15 s. Its **Thinking** is
-  kept folded above its answer, and the steps of an agent folded under its call.
+  kept folded above its answer.
+- **Subagents**: each one has its purple “⇉ Subagent” card (its kind, running / done, its time,
+  what it is doing), its last steps and its **Report** folded. It works in the background: it
+  may end after Claude's answer.
 - **Question by question**: the **▾** in front of one of your messages folds the answer to that
   question (one line stays: “N steps · N files changed”); right click on the ▾: fold all but the
   last one, or unfold all. **±** on the message shows on the right the file changes of that
   question alone (**× Whole review** to go back to the review).
+  A colored band on the left ties each question to its whole answer: a click on it folds or
+  unfolds it.
 - **↶ Go back**: before each message, Florm keeps the state of the files (in git, no commit and
   nothing staged). **↶** on a message (or **/rewind** for the last one) offers to put **the files
   and the conversation** back as before that message, **the conversation only** or **the files

@@ -48,11 +48,26 @@ pub(super) enum Item {
         /// When it started and ended (unix milliseconds; end 0: still running, start 0: unknown).
         #[serde(default)]
         time: (u64, u64),
+        /// A subagent run in the background: its state and report (None: another tool, or an
+        /// agent of before).
+        #[serde(default)]
+        agent: Option<AgentRun>,
     },
     Info(String),
     Error(String),
     /// What the last answer cost: tokens in (`cached` of them read from the cache), out, dollars.
     Usage { input: u64, cached: u64, output: u64, cost: f64 },
+}
+
+/// A subagent at work (Claude Code runs them in the background: the turn may end before it).
+#[derive(Clone, Default, Serialize, Deserialize, Hash)]
+pub(super) struct AgentRun {
+    /// Its kind (`general-purpose`, `Explore`…), its state ("running", "completed", "failed"…),
+    /// what it is doing, and its report (what it wrote, or the summary given at its end).
+    pub(super) kind: String,
+    pub(super) status: String,
+    pub(super) doing: String,
+    pub(super) report: String,
 }
 
 #[derive(Default)]
@@ -204,6 +219,114 @@ fn working_label(activity: Option<&str>, news: Option<Instant>) -> String {
     }
 }
 
+/// The color of the subagents' cards, apart from the accent of the questions.
+fn agent_color(dark: bool) -> Color32 {
+    let (s, v) = if dark { (0.45, 0.90) } else { (0.60, 0.60) };
+    egui::ecolor::Hsva::new(0.78, s, v, 1.0).into()
+}
+
+/// A subagent: what it was asked, its state (it runs in the background, the turn may end
+/// before it), the last tools it used, and its report folded. `alive`: the conversation still
+/// runs (else an agent never ended was stopped with it).
+#[allow(clippy::too_many_arguments)]
+fn agent_card(
+    ui: &mut egui::Ui,
+    k: usize,
+    what: &str,
+    result: Option<&(String, bool)>,
+    steps: &[(String, String)],
+    time: (u64, u64),
+    agent: Option<&AgentRun>,
+    alive: bool,
+    cache: &mut egui_commonmark::CommonMarkCache,
+    hl: &crate::highlight::Highlighting,
+    fill: Color32,
+) {
+    let color = agent_color(ui.visuals().dark_mode);
+    let status = match (agent.map(|a| a.status.as_str()), result) {
+        (Some(st), _) if !st.is_empty() => st.to_string(),
+        (_, None) => "running".into(),
+        (_, Some((_, true))) => "failed".into(),
+        _ => "completed".into(),
+    };
+    let running = status == "running" && alive;
+    egui::Frame::none()
+        .fill(icons::mix(fill, color, 0.07))
+        .stroke(egui::Stroke::new(1.0_f32, icons::mix(fill, color, 0.45)))
+        .rounding(6.0)
+        .inner_margin(egui::Margin::symmetric(10.0, 6.0))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new(t!("⇉ Sous-agent", "⇉ Subagent")).small().strong().color(color))
+                    .on_hover_text(t!("Une autre instance de Claude, lancée par Claude pour une recherche ou une tâche à part ; elle travaille en arrière-plan et lui rend un rapport", "Another instance of Claude, started by Claude for a search or a task apart; it works in the background and hands it a report"));
+                if let Some(kind) = agent.map(|a| a.kind.as_str()).filter(|k| !k.is_empty()) {
+                    ui.label(RichText::new(kind).small().weak());
+                }
+                match status.as_str() {
+                    _ if running => {
+                        spinner(ui);
+                        ui.label(RichText::new(t!("en cours", "running")).small().color(color));
+                    }
+                    "running" => {
+                        ui.label(RichText::new(t!("arrêté", "stopped")).small().weak());
+                    }
+                    "completed" => {
+                        ui.label(RichText::new(t!("✔ terminé", "✔ done")).small().color(ok()));
+                    }
+                    "failed" => {
+                        ui.label(RichText::new(t!("✖ échoué", "✖ failed")).small().color(err()));
+                    }
+                    other => {
+                        ui.label(RichText::new(other).small().weak());
+                    }
+                }
+                let ms = match time {
+                    (0, _) => None,
+                    (a, 0) if running => Some(now_ms().saturating_sub(a)),
+                    (a, b) if b >= a && b > 0 => Some(b - a),
+                    _ => None,
+                };
+                if let Some(ms) = ms {
+                    ui.label(RichText::new(duration(ms)).small().weak());
+                }
+            });
+            if !what.is_empty() {
+                ui.add(egui::Label::new(RichText::new(what).strong()).wrap());
+            }
+            if let Some(doing) = agent.map(|a| a.doing.as_str()).filter(|d| running && !d.is_empty()) {
+                ui.add(egui::Label::new(RichText::new(doing).small().italics().weak()).wrap());
+            }
+            // the last steps in sight, all of them folded
+            let step = |ui: &mut egui::Ui, (name, what): &(String, String)| {
+                ui.add(egui::Label::new(RichText::new(format!("· {name}  {what}")).monospace().size(11.5).weak()).wrap());
+            };
+            let shown = 3;
+            if steps.len() > shown {
+                egui::CollapsingHeader::new(RichText::new(tf!("{} étapes", "{} steps", steps.len())).small().weak()).id_salt(("agent_steps", k)).show(ui, |ui| {
+                    for s in &steps[..steps.len() - shown] {
+                        step(ui, s);
+                    }
+                });
+            }
+            for s in &steps[steps.len().saturating_sub(shown)..] {
+                step(ui, s);
+            }
+            let report = agent.map(|a| a.report.as_str()).filter(|r| !r.trim().is_empty());
+            match (report, result) {
+                (Some(r), _) => {
+                    egui::CollapsingHeader::new(RichText::new(t!("Rapport de l'agent", "Report of the agent")).small().color(color)).id_salt(("agent_report", k)).show(ui, |ui| {
+                        super::md::markdown(ui, cache, Some(hl), r);
+                    });
+                }
+                (None, Some((e, true))) if !e.trim().is_empty() => {
+                    ui.add(egui::Label::new(RichText::new(e.lines().take(20).collect::<Vec<_>>().join("\n")).monospace().size(11.5).color(err())).wrap());
+                }
+                _ => {}
+            }
+        });
+}
+
 fn item_key(it: &Item, claude_said: bool, busy: bool, last_turn: bool, extra: u8, width: f32, ppp: f32) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -211,7 +334,7 @@ fn item_key(it: &Item, claude_said: bool, busy: bool, last_turn: bool, extra: u8
     match it {
         Item::User(t, given, notes, images) => (t, given, notes, images).hash(&mut h),
         Item::Text(t) | Item::Streaming(t) | Item::Thinking(t) | Item::Info(t) | Item::Error(t) => t.hash(&mut h),
-        Item::Tool { name, summary, result, steps, .. } => (name, summary, result, steps).hash(&mut h),
+        Item::Tool { name, summary, result, steps, agent, .. } => (name, summary, result, steps, agent).hash(&mut h),
         Item::Usage { input, cached, output, cost } => (input, cached, output, cost.to_bits()).hash(&mut h),
     }
     (claude_said, busy, last_turn, extra, width.to_bits(), ppp.to_bits()).hash(&mut h);
@@ -344,6 +467,32 @@ impl App {
                         }
                     }
                 }
+                Event::SubText { parent, text } => {
+                    if let Some(Item::Tool { agent, .. }) = items.iter_mut().rev().find(|i| matches!(i, Item::Tool { id, .. } if *id == parent)) {
+                        agent.get_or_insert_with(Default::default).report = text;
+                    }
+                }
+                Event::Task { call, kind, status, text } => {
+                    if let Some(Item::Tool { name, agent, time, .. }) = items.iter_mut().rev().find(|i| matches!(i, Item::Tool { id, .. } if *id == call)) {
+                        // only an agent (a command sent to the background is a task too)
+                        if matches!(name.as_str(), "Agent" | "Task") {
+                            let a = agent.get_or_insert_with(Default::default);
+                            if !kind.is_empty() {
+                                a.kind = kind;
+                            }
+                            if status == "running" {
+                                a.doing = text;
+                            } else {
+                                time.1 = now_ms();
+                                a.doing.clear();
+                                if a.report.is_empty() {
+                                    a.report = text;
+                                }
+                            }
+                            a.status = status;
+                        }
+                    }
+                }
                 Event::Note(t) => items.push(Item::Info(t)),
                 // its session: continued after a restart of Florm
                 Event::Init { session, version, commands, terminal, .. } => {
@@ -389,15 +538,18 @@ impl App {
                     if name == "Read" && claude::is_image(&summary) {
                         items.push(Item::Info(tf!("— Claude a ouvert une image ({summary}) : elle coûte beaucoup de tokens, à chaque message suivant —", "— Claude opened an image ({summary}): it costs many tokens, with every next message —")));
                     }
-                    items.push(Item::Tool { id, name, summary, result: None, steps: Vec::new(), time: (now_ms(), 0) });
+                    items.push(Item::Tool { id, name, summary, result: None, steps: Vec::new(), time: (now_ms(), 0), agent: None });
                 }
                 Event::ToolResult { id, text, error } => {
                     for it in items.iter_mut().rev() {
-                        if let Item::Tool { id: i, name, result, time, .. } = it {
+                        if let Item::Tool { id: i, name, result, time, agent, .. } = it {
                             if *i == id {
                                 reload |= claude::changes_files(name);
                                 *result = Some((text, error));
-                                time.1 = now_ms();
+                                // an agent in the background goes on after it: its end comes later
+                                if !agent.as_ref().is_some_and(|a| a.status == "running") {
+                                    time.1 = now_ms();
+                                }
                                 break;
                             }
                         }
@@ -1633,6 +1785,21 @@ impl App {
                     c.heights.resize(c.items.len(), (0, 0.0, false));
                     // a folded question: only its message is shown
                     let mut hidden = false;
+                    // a band on the left from each question to the end of its answer, in the color of
+                    // the questions: what goes with it, and what folds with it (a click folds it)
+                    let mut turn: Option<(usize, f32)> = None;
+                    let band_x = ui.max_rect().left();
+                    // true: clicked
+                    let band = |ui: &mut egui::Ui, u: usize, from: f32, to: f32| -> bool {
+                        if to <= from + 1.0 {
+                            return false;
+                        }
+                        let r = egui::Rect::from_min_max(egui::pos2(band_x, from), egui::pos2(band_x + 4.0, to));
+                        let resp = ui.interact(r.expand2(egui::vec2(3.0, 0.0)), ui.id().with(("turn_band", u)), Sense::click());
+                        let color = if resp.hovered() { accent } else { icons::mix(fill, accent, 0.40) };
+                        ui.painter().rect_filled(r, 2.0, color);
+                        resp.on_hover_text(t!("Replier / déplier cette question et sa réponse", "Fold / unfold this question and its answer")).clicked()
+                    };
                     let n_items = c.items.len();
                     for (k, it) in c.items.iter().enumerate() {
                         // a thinking with nothing to read (not shown by the model): not a line of
@@ -1659,12 +1826,24 @@ impl App {
                         let last_turn = last_user.is_none_or(|u| k > u);
                         let key = item_key(it, claude_said, c.busy && last_turn, last_turn, extra, ui.available_width(), ppp);
                         let top = ui.cursor().top();
+                        if matches!(it, Item::User(..)) {
+                            if let Some((u, from)) = turn.take() {
+                                if band(ui, u, from, top - 6.0) {
+                                    fold = Some(u);
+                                }
+                            }
+                            // from under its card (set once it is laid out)
+                            turn = Some((k, top));
+                        }
                         let (known, h, stable) = c.heights[k];
                         // only a height measured twice the same stands for the message: one still
                         // changing (an output unfolding, an image loading) would make the
                         // conversation jump each time the message goes in and out of sight
                         if known == key && stable && (top + h < sight.top() || top > sight.bottom()) {
                             ui.allocate_space(egui::vec2(ui.available_width(), h));
+                            if let (Item::User(..), Some(t)) = (it, turn.as_mut()) {
+                                t.1 = ui.cursor().top() - ui.spacing().item_spacing.y;
+                            }
                             match it {
                                 Item::User(..) => claude_said = false,
                                 Item::Text(_) | Item::Streaming(_) => claude_said = true,
@@ -1672,7 +1851,9 @@ impl App {
                             }
                             continue;
                         }
-                        ui.push_id(k, |ui| match it {
+                        // the answer a little to the right: the band of its question runs on its left
+                        let inset = if matches!(it, Item::User(..)) { 0.0 } else { 14.0 };
+                        egui::Frame::none().inner_margin(egui::Margin { left: inset, ..Default::default() }).show(ui, |ui| ui.push_id(k, |ui| match it {
                             Item::User(t, given, notes, images) => {
                                 claude_said = false;
                                 ui.add_space(6.0);
@@ -1803,7 +1984,11 @@ impl App {
                                     answer = c.answers.as_ref().map(|a| a.message(&questions));
                                 }
                             }
-                            Item::Tool { id: tool_id, name, summary, result, steps, time } => {
+                            // a subagent: a card of its own, its steps and its report inside
+                            Item::Tool { name, summary, result, steps, time, agent, .. } if matches!(name.as_str(), "Agent" | "Task") => {
+                                agent_card(ui, k, summary, result.as_ref(), steps, *time, agent.as_ref(), c.busy || c.session.is_some(), cache, hl, fill);
+                            }
+                            Item::Tool { id: tool_id, name, summary, result, steps, time, .. } => {
                                 // how long it took, or has been running
                                 let took = match *time {
                                     (0, _) => None,
@@ -1921,10 +2106,19 @@ impl App {
                                     "What this answer cost: the tokens read and written for it, and its estimated cost."
                                 ));
                             }
-                        });
+                        }));
                         // allocate_space adds the spacing after it again
                         let new_h = ui.cursor().top() - top - ui.spacing().item_spacing.y;
                         c.heights[k] = (key, new_h, known == key && (new_h - h).abs() < 0.5);
+                        if let (Item::User(..), Some(t)) = (it, turn.as_mut()) {
+                            t.1 = top + new_h;
+                        }
+                    }
+                    if let Some((u, from)) = turn.take() {
+                        let to = ui.cursor().top() - ui.spacing().item_spacing.y;
+                        if band(ui, u, from, to) {
+                            fold = Some(u);
+                        }
                     }
                     // working without anything new in sight (thinking, a subagent, a tool running):
                     // said at the end of the conversation, where the eye is
@@ -2186,7 +2380,7 @@ mod tests {
             updated: 1,
             items: vec![
                 Item::User("Corrige".into(), vec!["a.py".into()], vec![], vec![]),
-                Item::Tool { id: "t".into(), name: "Bash".into(), summary: "ls".into(), result: Some(("ok".into(), false)), steps: Vec::new(), time: (0, 0) },
+                Item::Tool { id: "t".into(), name: "Bash".into(), summary: "ls".into(), result: Some(("ok".into(), false)), steps: Vec::new(), time: (0, 0), agent: None },
                 Item::Text("Fait.".into()),
             ],
             queue: {
@@ -2311,6 +2505,15 @@ mod tests {
                 app.claude.items.push(Item::Thinking(String::new()));
                 app.claude.items.push(Item::Text("Un texte assez long pour passer à la ligne plusieurs fois dans une fenêtre étroite. ".repeat(4)));
                 app.claude.items.push(Item::Text(format!("Voici :\n```python\ndef f(x):\n    return {}\n```\n", "x + ".repeat(60))));
+                app.claude.items.push(Item::Tool {
+                    id: "toolu_a".into(),
+                    name: "Agent".into(),
+                    summary: "Trouver où la fonction b est définie dans tout le projet, avec ses appels".into(),
+                    result: Some(("Async agent launched successfully".into(), false)),
+                    steps: (0..5).map(|n| ("Bash".to_string(), format!("grep -rn 'def b' . --include=*.py # {n} {}", "x".repeat(80)))).collect(),
+                    time: (now_ms() - 4000, 0),
+                    agent: Some(AgentRun { kind: "general-purpose".into(), status: "running".into(), doing: "Running Search for function b".into(), report: "b est dans `b.py`.".into() }),
+                });
                 app.claude.items.push(Item::Thinking("Je regarde le fichier".into()));
                 app.claude.busy = true;
                 app.claude.activity = Some("Lecture de src/app/claude_ui.rs".into());

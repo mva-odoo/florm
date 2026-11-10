@@ -214,6 +214,12 @@ pub enum Event {
     /// A step of a subagent: the id of the tool call that started it (`Agent` / `Task`), the tool
     /// it uses and what about.
     SubTool { parent: String, name: String, summary: String },
+    /// What a subagent wrote (its report, at its end): the id of the call that started it.
+    SubText { parent: String, text: String },
+    /// A subagent (run in the background by Claude Code) started, moved on or ended: the id of
+    /// the call that started it, its kind (`general-purpose`…, empty when not said), its state
+    /// ("running", then "completed", "failed", "stopped"…) and what it does or its summary.
+    Task { call: String, kind: String, status: String, text: String },
     /// A note of Claude Code itself: the API called again after an error, the conversation summarized.
     Note(String),
     /// End of the answer: error or not, its cost in dollars, the size of the model's context
@@ -252,6 +258,18 @@ pub fn parse_line(line: &str) -> Vec<Event> {
         Some("system") => match v["subtype"].as_str() {
             Some("status") if v["status"] == "compacting" => vec![Event::Activity(t!("résume la conversation", "is summarizing the conversation").into())],
             Some("compact_boundary") => vec![Event::Note(t!("— conversation résumée pour libérer du contexte —", "— conversation summarized to free some context —").into())],
+            // the subagents run in the background: their state comes apart from their steps
+            Some(st @ ("task_started" | "task_progress" | "task_notification")) if v["tool_use_id"].is_string() => {
+                let status = match st {
+                    "task_notification" => s(&v["status"]),
+                    _ => "running".into(),
+                };
+                let text = match st {
+                    "task_notification" => s(&v["summary"]),
+                    _ => s(&v["description"]),
+                };
+                vec![Event::Task { call: s(&v["tool_use_id"]), kind: s(&v["subagent_type"]), status, text }]
+            }
             Some("api_retry") => {
                 let (n, max) = (v["attempt"].as_u64().unwrap_or(0), v["max_retries"].as_u64().unwrap_or(0));
                 let why = v["error_status"].as_u64().map(|c| format!(" ({c})")).unwrap_or_default();
@@ -309,12 +327,15 @@ pub fn parse_line(line: &str) -> Vec<Event> {
                 .as_array()
                 .map(|a| {
                     a.iter()
-                        .filter(|c| c["type"] == "tool_use")
-                        .flat_map(|c| {
-                            let name = s(&c["name"]);
-                            let summary = tool_summary(&name, &c["input"]);
-                            let doing = tf!("fait travailler un agent : {name} {summary}", "has an agent at work: {name} {summary}").trim_end().to_string();
-                            [Event::SubTool { parent: parent.clone(), name, summary }, Event::Activity(doing)]
+                        .flat_map(|c| match c["type"].as_str() {
+                            Some("tool_use") => {
+                                let name = s(&c["name"]);
+                                let summary = tool_summary(&name, &c["input"]);
+                                let doing = tf!("fait travailler un agent : {name} {summary}", "has an agent at work: {name} {summary}").trim_end().to_string();
+                                vec![Event::SubTool { parent: parent.clone(), name, summary }, Event::Activity(doing)]
+                            }
+                            Some("text") if !s(&c["text"]).trim().is_empty() => vec![Event::SubText { parent: parent.clone(), text: s(&c["text"]) }],
+                            _ => Vec::new(),
                         })
                         .collect()
                 })
@@ -1234,8 +1255,8 @@ mod tests {
             parse_line(a),
             vec![Event::Text("Je regarde.".into()), Event::Tool { id: "t1".into(), name: "Edit".into(), summary: "src/app/main.rs".into() }]
         );
-        // what a subagent writes is not shown
-        assert!(parse_line(r#"{"type":"assistant","parent_tool_use_id":"t9","message":{"content":[{"type":"text","text":"x"}]}}"#).is_empty());
+        // what a subagent writes is not a message of the conversation: it is its report
+        assert_eq!(parse_line(r#"{"type":"assistant","parent_tool_use_id":"t9","message":{"content":[{"type":"text","text":"x"}]}}"#), vec![Event::SubText { parent: "t9".into(), text: "x".into() }]);
         let u = r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":[{"type":"text","text":"ok"}],"is_error":true}]}}"#;
         assert_eq!(parse_line(u), vec![Event::ToolResult { id: "t1".into(), text: "ok".into(), error: true }]);
         assert_eq!(
@@ -1324,6 +1345,15 @@ mod tests {
             }
             e => panic!("{}", e.len()),
         }
+        // a subagent in the background: its state, its steps and its report, under its call
+        let started = r#"{"type":"system","subtype":"task_started","task_id":"a1","tool_use_id":"toolu_9","description":"Find b","subagent_type":"general-purpose","is_backgrounded":true}"#;
+        assert!(matches!(parse_line(started).as_slice(), [Event::Task { call, kind, status, text }] if call == "toolu_9" && kind == "general-purpose" && status == "running" && text == "Find b"));
+        let done = r#"{"type":"system","subtype":"task_notification","task_id":"a1","tool_use_id":"toolu_9","status":"completed","summary":"b is in b.py"}"#;
+        assert!(matches!(parse_line(done).as_slice(), [Event::Task { status, text, .. }] if status == "completed" && text == "b is in b.py"));
+        let said = r#"{"type":"assistant","parent_tool_use_id":"toolu_9","message":{"content":[{"type":"text","text":"Found it."},{"type":"tool_use","id":"t2","name":"Grep","input":{"pattern":"def b"}}]}}"#;
+        let e = parse_line(said);
+        assert!(matches!(&e[0], Event::SubText { parent, text } if parent == "toolu_9" && text == "Found it."));
+        assert!(matches!(&e[1], Event::SubTool { parent, name, .. } if parent == "toolu_9" && name == "Grep"));
         // the other requests (interrupt answered…) are not asks
         assert!(parse_line(r#"{"type":"control_request","request_id":"r2","request":{"subtype":"interrupt"}}"#).is_empty());
     }

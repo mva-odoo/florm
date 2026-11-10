@@ -550,12 +550,16 @@ panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en
 - **Ce que fait Claude** : quand rien de nouveau ne s'affiche, une ligne en bas de la conversation
   le dit (« Claude réfléchit… », « Claude prépare Write… », « Claude fait travailler un agent : … »,
   « attend l'API, nouvel essai 2/10 »), avec le temps passé sans nouvelles au-delà de 15 s. Sa
-  **Réflexion** est gardée repliée au-dessus de sa réponse, et les étapes d'un agent repliées sous
-  son appel.
+  **Réflexion** est gardée repliée au-dessus de sa réponse.
+- **Sous-agents** : chacun a sa carte violette « ⇉ Sous-agent » (son type, en cours / terminé,
+  sa durée, ce qu'il fait), ses dernières étapes et son **Rapport** replié. Il travaille en
+  arrière-plan : il peut finir après la réponse de Claude.
 - **Question par question** : le **▾** devant un de tes messages replie la réponse à cette
   question (il reste une ligne « N étapes · N fichiers modifiés ») ; clic droit sur le ▾ : tout
   replier sauf la dernière, ou tout déplier. **±** sur le message montre à droite les seuls
   changements de fichiers de cette question (**× Revue complète** pour revenir à la revue).
+  Une bande de couleur à gauche relie chaque question à toute sa réponse : un clic dessus la
+  replie ou la déplie.
 - **↶ Revenir en arrière** : avant chaque message, Florm garde l'état des fichiers (dans git, sans
   commit ni rien d'indexé). **↶** sur un message (ou **/rewind** pour le dernier) propose de
   remettre **les fichiers et la conversation** comme avant ce message, **la conversation
