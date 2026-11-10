@@ -152,7 +152,7 @@ pub(super) fn note_card(ui: &mut egui::Ui, cache: &mut egui_commonmark::CommonMa
             }
             for part in github::parts(&n.note.body) {
                 match part {
-                    github::Part::Text(t) => super::md::markdown(ui, cache, &t),
+                    github::Part::Text(t) => super::md::markdown(ui, cache, None, &t),
                     github::Part::Suggestion(code) => suggestion(ui, &code),
                 }
             }

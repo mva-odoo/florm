@@ -32,11 +32,26 @@ struct Row {
     id: u64,
     tab: Option<u64>,
     title: String,
+    /// The project (repository or folder) it works in, then its worktree and account if any.
+    project: String,
     place: String,
     state: ConvState,
     since: Option<Duration>,
     cost: f64,
     can_fork: bool,
+}
+
+/// A color of its own for each project, the same everywhere (list, header of the conversation):
+/// two conversations of two projects are not mistaken for each other.
+pub(in crate::app) fn project_color(name: &str, dark: bool) -> Color32 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    name.hash(&mut h);
+    // hues far enough apart to be told apart at a glance
+    const HUES: [f32; 8] = [0.58, 0.08, 0.36, 0.83, 0.0, 0.48, 0.70, 0.14];
+    let hue = HUES[(h.finish() % HUES.len() as u64) as usize];
+    let (sat, val) = if dark { (0.55, 0.92) } else { (0.75, 0.62) };
+    egui::ecolor::Hsva::new(hue, sat, val, 1.0).into()
 }
 
 pub(in crate::app) fn conv_state(c: &ClaudeUi) -> ConvState {
@@ -176,19 +191,21 @@ impl App {
         let mut rows: Vec<Row> = self
             .all_convs()
             .map(|c| {
-                let base = c.dir.as_deref().map(|d| self.repo_label(d)).unwrap_or_default();
+                let project = c.dir.as_deref().map(|d| self.repo_label(d)).unwrap_or_default();
                 let mut place = match &c.worktree {
                     Some(w) => format!("🌿 {}", w.branch),
-                    None => base,
+                    None => String::new(),
                 };
                 if accounts.len() > 1 {
-                    place = format!("👤 {} · {place}", crate::claude_account::find(&accounts, &c.account).name);
+                    let who = format!("👤 {}", crate::claude_account::find(&accounts, &c.account).name);
+                    place = if place.is_empty() { who } else { format!("{who} · {place}") };
                 }
                 let title = if c.forked { format!("⇉ {}", conv_title(c)) } else { conv_title(c) };
                 Row {
                     id: c.id,
                     tab: c.tab,
                     title,
+                    project,
                     place,
                     state: conv_state(c),
                     since: c.busy_since.map(|t| t.elapsed()),
@@ -197,8 +214,14 @@ impl App {
                 }
             })
             .collect();
-        // the newest at the top
-        rows.sort_by_key(|r| std::cmp::Reverse(r.id));
+        // by project, the one used last at the top; in each, the newest at the top
+        let mut latest: HashMap<String, u64> = HashMap::new();
+        for r in &rows {
+            let e = latest.entry(r.project.clone()).or_insert(r.id);
+            *e = (*e).max(r.id);
+        }
+        rows.sort_by_key(|r| (std::cmp::Reverse(latest[&r.project]), std::cmp::Reverse(r.id)));
+        let dark = ui.visuals().dark_mode;
         let mut act = None;
         ui.add_space(6.0);
         ui.horizontal(|ui| {
@@ -211,9 +234,46 @@ impl App {
         });
         ui.add_space(4.0);
         egui::ScrollArea::vertical().id_salt(("claude_list", hub)).auto_shrink([false, false]).show(ui, |ui| {
+            let mut last_project: Option<&str> = None;
             for r in &rows {
+                // the project above its conversations, in its color
+                if last_project != Some(r.project.as_str()) {
+                    if last_project.is_some() {
+                        ui.add_space(6.0);
+                    }
+                    last_project = Some(r.project.as_str());
+                    let color = project_color(&r.project, dark);
+                    let n = rows.iter().filter(|x| x.project == r.project).count();
+                    ui.horizontal(|ui| {
+                        let (dot, _) = ui.allocate_exact_size(egui::vec2(10.0, 10.0), Sense::hover());
+                        ui.painter().circle_filled(dot.center(), 4.5, color);
+                        let name = if r.project.is_empty() { t!("(sans dossier)", "(no folder)").to_string() } else { r.project.clone() };
+                        ui.add(egui::Label::new(RichText::new(name).strong().size(13.5).color(color)).truncate());
+                        ui.label(RichText::new(format!("{n}")).small().color(weak));
+                    });
+                    ui.add_space(2.0);
+                }
                 let shown = r.tab == Some(hub);
-                let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 46.0), Sense::click());
+                // its worktree or account, what it costs; how long it has been working (the
+                // project is above)
+                let mut parts: Vec<String> = Vec::new();
+                if !r.place.is_empty() {
+                    parts.push(r.place.clone());
+                }
+                if let Some(d) = r.since {
+                    parts.push(short_duration(d));
+                }
+                if r.cost > 0.0 {
+                    parts.push(format!("{:.2} $", r.cost));
+                }
+                match r.tab {
+                    Some(LISTED) => {}
+                    Some(u) if u == hub => {}
+                    Some(_) => parts.push(t!("son onglet", "its tab").into()),
+                    None => parts.push(t!("panneau du bas", "bottom panel").into()),
+                }
+                let info = parts.join(" · ");
+                let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), if info.is_empty() { 34.0 } else { 46.0 }), Sense::click());
                 let v = ui.visuals();
                 if shown {
                     // a light tint of the accent: the folder and the cost stay readable on it
@@ -221,6 +281,11 @@ impl App {
                     ui.painter().rect_filled(egui::Rect::from_min_size(rect.min + egui::vec2(0.0, 8.0), egui::vec2(3.0, rect.height() - 16.0)), 1.5, accent);
                 } else if resp.hovered() {
                     ui.painter().rect_filled(rect, 6.0, v.widgets.hovered.weak_bg_fill);
+                }
+                // the edge in the color of its project (the accent bar when shown)
+                if !shown {
+                    let c = project_color(&r.project, dark).gamma_multiply(0.6);
+                    ui.painter().rect_filled(egui::Rect::from_min_size(rect.min + egui::vec2(0.0, 8.0), egui::vec2(3.0, rect.height() - 16.0)), 1.5, c);
                 }
                 let (icon, color) = match r.state {
                     ConvState::Working => ("⟳", accent),
@@ -232,22 +297,10 @@ impl App {
                 p.text(rect.left_top() + egui::vec2(10.0, 8.0), Align2::LEFT_TOP, icon, egui::FontId::proportional(13.0), color);
                 let strong = r.state != ConvState::Idle || shown;
                 let title_color = if strong { v.strong_text_color() } else { v.text_color() };
-                p.text(rect.left_top() + egui::vec2(28.0, 7.0), Align2::LEFT_TOP, &r.title, egui::FontId::proportional(13.5), title_color);
-                // where it is and what it costs; how long it has been working
-                let mut info = r.place.clone();
-                if let Some(d) = r.since {
-                    info = format!("{info} · {}", short_duration(d));
+                p.text(rect.left_top() + egui::vec2(28.0, if info.is_empty() { 9.0 } else { 7.0 }), Align2::LEFT_TOP, &r.title, egui::FontId::proportional(13.5), title_color);
+                if !info.is_empty() {
+                    p.text(rect.left_top() + egui::vec2(28.0, 26.0), Align2::LEFT_TOP, info, egui::FontId::proportional(11.5), weak);
                 }
-                if r.cost > 0.0 {
-                    info = format!("{info} · {:.2} $", r.cost);
-                }
-                match r.tab {
-                    Some(LISTED) => {}
-                    Some(u) if u == hub => {}
-                    Some(_) => info = format!("{info} · {}", t!("son onglet", "its tab")),
-                    None => info = format!("{info} · {}", t!("panneau du bas", "bottom panel")),
-                }
-                p.text(rect.left_top() + egui::vec2(28.0, 26.0), Align2::LEFT_TOP, info, egui::FontId::proportional(11.5), weak);
                 // × on the hovered row: close it
                 let mut on_close = false;
                 if resp.hovered() || shown {
@@ -379,6 +432,16 @@ mod tests {
         assert_eq!(conv_state(&c), ConvState::Working);
         assert_eq!(short_duration(Duration::from_secs(3725)), "1 h 02");
         assert_eq!(short_duration(Duration::from_secs(42)), "42 s");
+    }
+
+    #[test]
+    fn each_project_its_color() {
+        // the same name, the same color; light and dark themes differ
+        assert_eq!(project_color("odoo", true), project_color("odoo", true));
+        assert_ne!(project_color("odoo", true), project_color("odoo", false));
+        let names = ["odoo", "enterprise", "florm", "design-themes", "upgrade", "internal"];
+        let colors: HashSet<[u8; 4]> = names.iter().map(|n| project_color(n, false).to_array()).collect();
+        assert!(colors.len() >= 3, "{}", colors.len());
     }
 }
 

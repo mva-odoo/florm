@@ -319,10 +319,15 @@ impl App {
             if matches!(e, Event::Activity(_) | Event::ThinkingDelta(_) | Event::Thinking(_) | Event::Delta(_) | Event::Tool { .. } | Event::SubTool { .. }) {
                 self.claude.busy = true;
             }
+            // a thinking that stayed empty is not kept once something else comes
+            if !matches!(e, Event::ThinkingDelta(_) | Event::Thinking(_) | Event::Activity(_) | Event::Context(_) | Event::Limits(_) | Event::Uuid(_)) && matches!(items.last(), Some(Item::Thinking(t)) if t.trim().is_empty()) {
+                items.pop();
+            }
             match e {
                 Event::Activity(a) => self.claude.activity = Some(a),
                 Event::ThinkingDelta(t) => match items.last_mut() {
                     Some(Item::Thinking(s)) => s.push_str(&t),
+                    _ if t.trim().is_empty() => {}
                     _ => items.push(Item::Thinking(t)),
                 },
                 Event::Thinking(t) => match items.last_mut() {
@@ -850,6 +855,7 @@ impl App {
         let commands = command_list(&self.claude_commands);
         let c = &mut self.claude;
         let cache = &mut self.md_cache;
+        let hl = &self.hl;
         // ids of their own: two conversations can be shown at once (bottom panel and a tab)
         let conv_id = c.id;
         let cid = |name: &str| egui::Id::new(name).with(conv_id);
@@ -873,7 +879,9 @@ impl App {
                             Some(w) => format!("🌿 {}", w.branch),
                             None => dir_name.clone(),
                         };
-                        let text = RichText::new(name).strong().size(14.0).color(ui.visuals().hyperlink_color);
+                        // in the color of its project, as in the list of the conversations
+                        let color = hub::project_color(&dir_name, ui.visuals().dark_mode);
+                        let text = RichText::new(format!("● {name}")).strong().size(14.0).color(color);
                         match crate::pick::combo(ui, ("claude_dir", conv), text, &labels, current) {
                             Some(k) if k < dirs.len() => chosen_dir = Some(dirs[k].0.clone()),
                             Some(_) => pick_dir = true,
@@ -904,7 +912,7 @@ impl App {
                             ui.selectable_value(&mut c.model, k, claude::label(label));
                         }
                     });
-                    egui::ComboBox::from_id_salt(("claude_mode", conv)).selected_text(claude::label(claude::MODES[c.mode].1)).show_ui(ui, |ui| {
+                    egui::ComboBox::from_id_salt(("claude_mode", conv)).selected_text(tf!("Mode : {}", "Mode: {}", claude::label(claude::MODES[c.mode].1))).show_ui(ui, |ui| {
                         for (k, (_, label, tip)) in claude::MODES.iter().enumerate() {
                             ui.selectable_value(&mut c.mode, k, claude::label(label)).on_hover_text(claude::label(tip));
                         }
@@ -1350,7 +1358,7 @@ impl App {
                                     });
                                 }
                                 Some(Ok(t)) => {
-                                    egui::ScrollArea::vertical().id_salt(input_id.with("side")).max_height(260.0).show(ui, |ui| super::md::markdown(ui, cache, t));
+                                    egui::ScrollArea::vertical().id_salt(input_id.with("side")).max_height(260.0).show(ui, |ui| super::md::markdown(ui, cache, Some(hl), t));
                                 }
                                 Some(Err(e)) => {
                                     ui.label(RichText::new(format!("⚠ {e}")).color(err()));
@@ -1625,7 +1633,13 @@ impl App {
                     c.heights.resize(c.items.len(), (0, 0.0, false));
                     // a folded question: only its message is shown
                     let mut hidden = false;
+                    let n_items = c.items.len();
                     for (k, it) in c.items.iter().enumerate() {
+                        // a thinking with nothing to read (not shown by the model): not a line of
+                        // its own, « Claude réfléchit… » at the end says it while it lasts
+                        if matches!(it, Item::Thinking(t) if t.trim().is_empty()) {
+                            continue;
+                        }
                         if matches!(it, Item::User(..)) {
                             hidden = c.folded.contains(&k);
                         } else if hidden {
@@ -1664,12 +1678,13 @@ impl App {
                                 ui.add_space(6.0);
                                 let folded = c.folded.contains(&k);
                                 let cp = c.checkpoints.iter().find(|p| p.item == k);
-                                // on the left like the answers, set apart by its color and its edge
-                                egui::Frame::none()
-                                    .fill(icons::mix(fill, accent, 0.10))
-                                    .stroke(egui::Stroke::new(1.0_f32, icons::mix(fill, accent, 0.35)))
+                                // on the left like the answers, set apart by its color, its edge and a
+                                // bar of the accent on its left (a light theme washed it out)
+                                let card = egui::Frame::none()
+                                    .fill(icons::mix(fill, accent, 0.16))
+                                    .stroke(egui::Stroke::new(1.0_f32, icons::mix(fill, accent, 0.55)))
                                     .rounding(8.0)
-                                    .inner_margin(egui::Margin::symmetric(12.0, 8.0))
+                                    .inner_margin(egui::Margin { left: 16.0, right: 12.0, top: 8.0, bottom: 8.0 })
                                     .show(ui, |ui| {
                                         ui.set_width(ui.available_width());
                                         ui.horizontal(|ui| {
@@ -1753,6 +1768,9 @@ impl App {
                                             });
                                         }
                                     });
+                                let r = card.response.rect;
+                                let bar = egui::Rect::from_min_max(r.left_top(), egui::pos2(r.left() + 4.0, r.bottom()));
+                                ui.painter().rect_filled(bar, egui::Rounding { nw: 8.0, sw: 8.0, ne: 0.0, se: 0.0 }, accent);
                                 if folded {
                                     let (steps, files) = super::claude_turns::turn_summary(&c.items, k);
                                     let text = tf!("▸ {steps} étape(s) · {files} fichier(s) modifié(s) — clic pour déplier", "▸ {steps} step(s) · {files} file(s) changed — click to unfold");
@@ -1768,10 +1786,10 @@ impl App {
                                 }
                                 let (rest, questions) = claude_ask::parse(t);
                                 if questions.is_empty() {
-                                    super::md::markdown_checks(ui, cache, t, &mut c.checks, k);
+                                    super::md::markdown_checks(ui, cache, hl, t, &mut c.checks, k);
                                     return;
                                 }
-                                super::md::markdown_checks(ui, cache, &rest, &mut c.checks, k);
+                                super::md::markdown_checks(ui, cache, hl, &rest, &mut c.checks, k);
                                 let open = matches!(it, Item::Text(_)) && !c.busy && last_user.is_none_or(|u| k > u);
                                 let answers = if open {
                                     if c.answers.as_ref().map(|a| a.item) != Some(k) {
@@ -1875,8 +1893,9 @@ impl App {
                                 }
                             }
                             Item::Thinking(t) => {
-                                // while it is written, « Claude réfléchit… » is said at the end of the conversation
-                                egui::CollapsingHeader::new(RichText::new(t!("Réflexion", "Thinking")).small().weak()).id_salt(("thinking", k)).show(ui, |ui| {
+                                // while it is written: said in its title
+                                let title = if c.busy && k + 1 == n_items { t!("Réflexion…", "Thinking…") } else { t!("Réflexion", "Thinking") };
+                                egui::CollapsingHeader::new(RichText::new(title).small().weak()).id_salt(("thinking", k)).show(ui, |ui| {
                                     ui.add(egui::Label::new(RichText::new(t.as_str()).weak().italics()).wrap());
                                 });
                             }
@@ -2289,7 +2308,10 @@ mod tests {
             if frame == 1 {
                 // working, with a long request typed: the bottom row has all its buttons
                 app.claude.items.push(Item::User("Corrige le bug".into(), Vec::new(), Vec::new(), Vec::new()));
+                app.claude.items.push(Item::Thinking(String::new()));
                 app.claude.items.push(Item::Text("Un texte assez long pour passer à la ligne plusieurs fois dans une fenêtre étroite. ".repeat(4)));
+                app.claude.items.push(Item::Text(format!("Voici :\n```python\ndef f(x):\n    return {}\n```\n", "x + ".repeat(60))));
+                app.claude.items.push(Item::Thinking("Je regarde le fichier".into()));
                 app.claude.busy = true;
                 app.claude.activity = Some("Lecture de src/app/claude_ui.rs".into());
                 app.claude.input = "Une demande".into();

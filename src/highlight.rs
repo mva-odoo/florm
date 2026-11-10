@@ -358,6 +358,54 @@ impl Highlighting {
         spans
     }
 
+    /// Colors of a block of code whose language is given as in Markdown (```python, ```sh, ```rs…):
+    /// (color, byte range) spans over the whole text, its lines parsed one after the other (a
+    /// string over several lines stays a string). None: language unknown or not given.
+    pub fn code_spans(&self, lang: &str, code: &str) -> Option<Vec<(Color32, Range<usize>)>> {
+        let lang = lang.split([' ', ',', '{']).next().unwrap_or("").trim().to_lowercase();
+        let name = match lang.as_str() {
+            "" | "text" | "txt" | "plain" | "plaintext" | "output" => return None,
+            "sh" | "shell" | "console" | "zsh" | "fish" | "bash" | "terminal" | "toml" | "ini" | "env" => "Bourne Again Shell (bash)",
+            "ts" | "typescript" | "tsx" | "jsx" | "mjs" | "javascript" | "js" => "JavaScript",
+            "vue" | "svelte" | "jinja" | "jinja2" | "j2" | "html" => "HTML",
+            "jsonc" | "json5" | "json" => "JSON",
+            "py" | "python" | "python3" => "Python",
+            "xml" | "qweb" | "svg" => "XML",
+            _ => "",
+        };
+        let syn = if name.is_empty() { self.ss.find_syntax_by_token(&lang)? } else { self.ss.find_syntax_by_name(name)? };
+        if code.len() > 200_000 {
+            return None;
+        }
+        let highlighter = Highlighter::new(&self.theme);
+        let mut ps = ParseState::new(syn);
+        let mut hs = HighlightState::new(&highlighter, ScopeStack::new());
+        let mut spans = Vec::new();
+        let mut start = 0;
+        for line in code.split_inclusive('\n') {
+            // syntect wants the end of line
+            let owned;
+            let text = if line.ends_with('\n') {
+                line
+            } else {
+                owned = format!("{line}\n");
+                &owned
+            };
+            let ops = ps.parse_line(text, &self.ss).ok()?;
+            let mut off = start;
+            for (style, t) in HighlightIterator::new(&mut hs, &ops, text, &highlighter) {
+                let f = style.foreground;
+                let end = (off + t.len()).min(start + line.len());
+                if off < end {
+                    spans.push((self.code_color(Color32::from_rgb(f.r, f.g, f.b)), off..end));
+                }
+                off += t.len();
+            }
+            start += line.len();
+        }
+        Some(spans)
+    }
+
     pub fn syntax_names(&self) -> Vec<String> {
         let mut v: Vec<String> = self.ss.syntaxes().iter().filter(|s| !s.hidden).map(|s| s.name.clone()).collect();
         v.sort();
@@ -578,6 +626,15 @@ mod tests {
         assert_eq!(at(0), rgb(0xcf222e));
         assert_eq!(at(8), rgb(0x0a3069));
         assert_eq!(spans.last().unwrap().1.end, "return 'a'".len());
+        // a block of an answer of Claude: its language as in Markdown, lines parsed together
+        let code = "x = \"\"\"un\ndeux\"\"\"\nreturn x";
+        let spans = hl.code_spans("py", code).unwrap();
+        let at = |i: usize| spans.iter().find(|(_, r)| r.contains(&i)).map(|(c, _)| *c).unwrap();
+        assert_eq!(at(code.find("deux").unwrap()), rgb(0x0a3069));
+        assert_eq!(at(code.find("return").unwrap()), rgb(0xcf222e));
+        assert_eq!(spans.last().unwrap().1.end, code.len());
+        assert!(hl.code_spans("sh", "ls -la").is_some() && hl.code_spans("rust", "fn f() {}").is_some());
+        assert!(hl.code_spans("", "x").is_none() && hl.code_spans("text", "x").is_none() && hl.code_spans("nope", "x").is_none());
     }
 
     #[test]

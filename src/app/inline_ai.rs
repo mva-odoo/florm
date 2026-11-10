@@ -70,6 +70,7 @@ impl App {
     pub(super) fn inline_ai_ui(&mut self, ctx: &egui::Context) {
         let accent = self.hl.colors.accent;
         let cache = &mut self.md_cache;
+        let hl = &self.hl;
         let Some(st) = self.inline.as_mut() else { return };
         let mut act = None;
         let mut open = true;
@@ -120,7 +121,7 @@ impl App {
                     Some(Ok(Inline::Explain(text))) => {
                         ui.separator();
                         egui::ScrollArea::vertical().max_height(420.0).show(ui, |ui| {
-                            super::md::markdown(ui, cache, text);
+                            super::md::markdown(ui, cache, Some(hl), text);
                         });
                     }
                     Some(Ok(Inline::Code(code))) => {

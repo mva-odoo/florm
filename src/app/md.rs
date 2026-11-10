@@ -117,13 +117,14 @@ pub(super) fn autolink(text: &str) -> String {
     out
 }
 
-pub(super) fn markdown(ui: &mut egui::Ui, cache: &mut egui_commonmark::CommonMarkCache, text: &str) {
+/// `hl`: to color the code blocks (None: plain).
+pub(super) fn markdown(ui: &mut egui::Ui, cache: &mut egui_commonmark::CommonMarkCache, hl: Option<&Highlighting>, text: &str) {
     for part in parts(text) {
         match part {
             MdPart::Text(t) => {
                 egui_commonmark::CommonMarkViewer::new().show(ui, cache, &autolink(&t));
             }
-            MdPart::Code { lang, code } => code_block(ui, &lang, &code),
+            MdPart::Code { lang, code } => code_block(ui, hl, &lang, &code),
         }
     }
 }
@@ -131,12 +132,12 @@ pub(super) fn markdown(ui: &mut egui::Ui, cache: &mut egui_commonmark::CommonMar
 /// Markdown whose tasks (`- [ ]`, `- [x]`) have a checkbox to tick them off; the other lines are plain markdown. `checks`
 /// keeps the boxes changed by a click, by message (`msg`) and item text: a box starts as its
 /// marker says (`[x]`: ticked).
-pub(super) fn markdown_checks(ui: &mut egui::Ui, cache: &mut egui_commonmark::CommonMarkCache, text: &str, checks: &mut HashSet<(usize, String)>, msg: usize) {
+pub(super) fn markdown_checks(ui: &mut egui::Ui, cache: &mut egui_commonmark::CommonMarkCache, hl: &Highlighting, text: &str, checks: &mut HashSet<(usize, String)>, msg: usize) {
     for part in parts(text) {
         let t = match part {
             MdPart::Text(t) => autolink(&t),
             MdPart::Code { lang, code } => {
-                code_block(ui, &lang, &code);
+                code_block(ui, Some(hl), &lang, &code);
                 continue;
             }
         };
@@ -211,8 +212,53 @@ fn list_item(line: &str) -> Option<ListItem<'_>> {
     Some(ListItem { checked, text: text.trim() })
 }
 
-/// A block of code: its language and the copy button on top, the code below (scrolls sideways).
-pub(super) fn code_block(ui: &mut egui::Ui, lang: &str, code: &str) {
+thread_local! {
+    /// The colored code blocks already laid out: (key of language, code, theme and size) →
+    /// (text, frame it was last drawn). Those not drawn for a while go.
+    static CODE_JOBS: std::cell::RefCell<HashMap<u64, (egui::text::LayoutJob, u64)>> = Default::default();
+}
+
+/// The code colored for its language (as in the editor, with its theme), or None when the
+/// language is not known.
+fn code_job(ui: &egui::Ui, hl: &Highlighting, lang: &str, code: &str, font: &egui::FontId) -> Option<egui::text::LayoutJob> {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    (lang, code, hl.generation, &hl.theme_name, font.size.to_bits()).hash(&mut h);
+    let key = h.finish();
+    let frame = ui.ctx().cumulative_pass_nr();
+    if let Some(job) = CODE_JOBS.with(|c| c.borrow_mut().get_mut(&key).map(|(j, f)| {
+        *f = frame;
+        j.clone()
+    })) {
+        return Some(job);
+    }
+    let spans = hl.code_spans(lang, code)?;
+    let mut job = egui::text::LayoutJob::default();
+    let format = |color| egui::TextFormat { font_id: font.clone(), color, ..Default::default() };
+    let mut at = 0;
+    for (color, r) in spans {
+        if r.start > at {
+            job.append(&code[at..r.start], 0.0, format(hl.colors.fg));
+        }
+        job.append(&code[r.clone()], 0.0, format(color));
+        at = r.end;
+    }
+    if at < code.len() {
+        job.append(&code[at..], 0.0, format(hl.colors.fg));
+    }
+    CODE_JOBS.with(|c| {
+        let mut c = c.borrow_mut();
+        if c.len() > 300 {
+            c.retain(|_, (_, f)| frame.saturating_sub(*f) < 120);
+        }
+        c.insert(key, (job.clone(), frame));
+    });
+    Some(job)
+}
+
+/// A block of code: its language and the copy button on top, the code below, colored for its
+/// language (scrolls sideways).
+pub(super) fn code_block(ui: &mut egui::Ui, hl: Option<&Highlighting>, lang: &str, code: &str) {
     let v = ui.visuals().clone();
     ui.add_space(4.0);
     egui::Frame::none()
@@ -236,7 +282,11 @@ pub(super) fn code_block(ui: &mut egui::Ui, lang: &str, code: &str) {
             ui.scope(|ui| {
                 ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
                 egui::ScrollArea::horizontal().id_salt(id).show(ui, |ui| {
-                    ui.add(egui::Label::new(RichText::new(code).monospace().size(12.5)).extend());
+                    let font = egui::FontId::monospace(12.5);
+                    match hl.and_then(|hl| code_job(ui, hl, lang, code, &font)) {
+                        Some(job) => ui.add(egui::Label::new(job).extend()),
+                        None => ui.add(egui::Label::new(RichText::new(code).font(font)).extend()),
+                    };
                 });
             });
         });
