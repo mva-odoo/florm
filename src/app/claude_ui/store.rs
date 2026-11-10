@@ -38,6 +38,9 @@ pub(in crate::app) struct SavedConv {
     pub(super) session_account: String,
     #[serde(default)]
     pub(super) account_chosen: bool,
+    /// Florm was closed while Claude was at work in it: at the next start, offered to go on.
+    #[serde(default)]
+    pub(super) interrupted: bool,
 }
 
 /// The options of the messages: what goes with each one, and the questions and model checks.
@@ -302,6 +305,7 @@ impl App {
             account: c.account.clone(),
             session_account: c.session_account.clone(),
             account_chosen: c.account_chosen,
+            interrupted: c.interrupted,
         };
         self.claude.saved_key = key;
         self.claude_saved.retain(|s| s.key != key);
@@ -331,9 +335,49 @@ impl App {
         c.add_dirs = s.add_dirs.clone();
         c.worktree = s.worktree.clone();
         (c.account, c.session_account, c.account_chosen) = (s.account.clone(), s.session_account.clone(), s.account_chosen);
+        c.interrupted = s.interrupted;
         (c.with_context, c.ask_first, c.model_first, c.no_defs) = (s.options.with_context, s.options.ask_first, s.options.model_first, s.options.no_defs);
         c.items.push(Item::Info(t!("— conversation reprise : le prochain message continue avec son contexte —", "— conversation resumed: the next message goes on with its context —").into()));
         c
+    }
+
+    /// The conversations where Claude is at work (closing Florm would cut them).
+    pub(in crate::app) fn claude_working(&self) -> usize {
+        std::iter::once(&self.claude).chain(&self.claude_others).filter(|c| c.busy && c.session.is_some()).count()
+    }
+
+    /// Florm closes: the conversations where Claude was at work are kept as cut, so that the
+    /// next start offers to go on.
+    pub(in crate::app) fn claude_mark_interrupted(&mut self) {
+        let working = |c: &ClaudeUi| c.busy && c.session.is_some();
+        if working(&self.claude) {
+            self.claude.interrupted = true;
+            self.claude_save();
+        }
+        for k in 0..self.claude_others.len() {
+            if working(&self.claude_others[k]) {
+                std::mem::swap(&mut self.claude, &mut self.claude_others[k]);
+                self.claude.interrupted = true;
+                self.claude_save();
+                std::mem::swap(&mut self.claude, &mut self.claude_others[k]);
+            }
+        }
+    }
+
+    /// « Florm se fermera quand Claude aura fini », with a button to stay.
+    pub(in crate::app) fn quit_when_idle_ui(&mut self, ctx: &egui::Context) {
+        let accent = self.hl.colors.accent;
+        egui::Area::new(egui::Id::new("quit_when_idle")).order(egui::Order::Foreground).anchor(Align2::RIGHT_BOTTOM, [-16.0, -36.0]).show(ctx, |ui| {
+            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    spinner(ui);
+                    ui.label(RichText::new(tf!("Florm se fermera quand Claude aura fini ({})", "Florm will close when Claude is done ({})", self.claude_working())).color(accent));
+                    if ui.button(t!("Ne pas fermer", "Don't close")).clicked() {
+                        self.quit_when_idle = false;
+                    }
+                });
+            });
+        });
     }
 
     /// At the first showing of Claude after a start: the last conversation is back.

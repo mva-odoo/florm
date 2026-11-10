@@ -531,6 +531,8 @@ impl StatusMsg {
 enum Confirm {
     CloseTab(u64),
     Quit,
+    /// Closing Florm while Claude works in this many conversations.
+    QuitClaude(usize),
     Delete(PathBuf),
     SwitchProject(PathBuf),
     ReplaceInFiles,
@@ -969,6 +971,10 @@ pub struct App {
     term_enter: Option<Instant>,
     last_line_copy: Option<String>,
     quit_confirmed: bool,
+    /// Closing while Claude works was accepted (the unsaved files may still be asked about), or
+    /// Florm closes once no Claude works any more.
+    claude_quit_ok: bool,
+    quit_when_idle: bool,
     closed: Vec<PathBuf>,
     last_title: String,
     visuals_dirty: bool,
@@ -1230,6 +1236,8 @@ impl App {
             term_enter: None,
             last_line_copy: None,
             quit_confirmed: false,
+            claude_quit_ok: false,
+            quit_when_idle: false,
             closed: Vec::new(),
             last_title: String::new(),
             visuals_dirty: false,
@@ -1498,6 +1506,8 @@ impl App {
 
 impl eframe::App for App {
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        // a Claude still at work is stopped with Florm: its conversation says so at the next start
+        self.claude_mark_interrupted();
         // the Claude conversations being written are written before Florm stops
         claude_ui::wait_saved();
         if let Some(exe) = self.restart.take() {
@@ -1523,7 +1533,8 @@ impl eframe::App for App {
         }
         self.process_jobs();
         // the update is installed and nothing is unsaved: Florm restarts by itself, without asking
-        if self.update_ready.is_some() && self.restart.is_none() && !self.docs.iter().any(|d| d.is_dirty()) {
+        // (not while Claude works: it would be cut in the middle of its task)
+        if self.update_ready.is_some() && self.restart.is_none() && !self.docs.iter().any(|d| d.is_dirty()) && self.claude_working() == 0 {
             self.restart_for_update(ctx);
         }
         self.sync_decorations(ctx);

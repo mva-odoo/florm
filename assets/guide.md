@@ -560,6 +560,11 @@ panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en
   changements de fichiers de cette question (**× Revue complète** pour revenir à la revue).
   Une bande de couleur à gauche relie chaque question à toute sa réponse : un clic dessus la
   replie ou la déplie.
+- **Fermer Florm pendant que Claude travaille** : Florm le dit et propose **Fermer quand il aura
+  fini** (Florm se ferme tout seul à la fin ; « Ne pas fermer » pour rester) ou **Fermer
+  maintenant**. Coupée ainsi, la conversation affiche à la réouverture un bandeau **▶ Reprendre** :
+  Claude reprend sa session et continue là où il s'était arrêté. Une mise à jour attend aussi
+  que Claude ait fini pour redémarrer Florm.
 - **↶ Revenir en arrière** : avant chaque message, Florm garde l'état des fichiers (dans git, sans
   commit ni rien d'indexé). **↶** sur un message (ou **/rewind** pour le dernier) propose de
   remettre **les fichiers et la conversation** comme avant ce message, **la conversation

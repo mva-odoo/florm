@@ -548,6 +548,10 @@ command and your login: no key to set up.
   question alone (**× Whole review** to go back to the review).
   A colored band on the left ties each question to its whole answer: a click on it folds or
   unfolds it.
+- **Closing Florm while Claude works**: Florm says so and offers **Close when it is done** (Florm
+  closes by itself at the end; “Don't close” to stay) or **Close now**. Cut that way, the
+  conversation shows a **▶ Go on** band at the next start: Claude resumes its session and goes on
+  where it stopped. An update also waits for Claude to be done before restarting Florm.
 - **↶ Go back**: before each message, Florm keeps the state of the files (in git, no commit and
   nothing staged). **↶** on a message (or **/rewind** for the last one) offers to put **the files
   and the conversation** back as before that message, **the conversation only** or **the files

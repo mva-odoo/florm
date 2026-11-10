@@ -137,6 +137,8 @@ pub(super) struct ClaudeUi {
     pub(super) model_hold: Option<ModelHold>,
     /// Mode « Demander avant »: the changes and commands waiting for the user.
     pub(super) asks: Vec<asks::Ask>,
+    /// Florm was closed while Claude was at work here: a band offers to go on.
+    pub(super) interrupted: bool,
     /// The choices made for the questions of the last answer.
     pub(super) answers: Option<claude_ask::Answers>,
     /// Last commits of its folder for « + Contexte → Un commit »: (hash, short hash, subject, when).
@@ -968,6 +970,7 @@ impl App {
         let (mut send, mut stop, mut new_conv, mut review_click, mut all) = (false, false, false, None, None);
         let (mut later, mut hold_act, mut compact) = (false, None, false);
         let mut ask_act = None;
+        let mut resume: Option<bool> = None;
         let (mut chosen_dir, mut move_to, mut ctx_add, mut pick_dir) = (None, None, None, false);
         let (mut queue_act, mut queued, mut read_commits) = (None, None, false);
         let (mut image_add, mut open_image): (Option<(Vec<u8>, String)>, Option<PathBuf>) = (None, None);
@@ -1415,6 +1418,23 @@ impl App {
                         (false, true) => 3,
                         (false, false) => 2,
                     };
+                    // cut by the closing of Florm: to go on where it stopped
+                    if c.interrupted && !c.busy {
+                        egui::Frame::none().fill(icons::mix(fill, warn(), 0.12)).stroke(egui::Stroke::new(1.0_f32, icons::mix(fill, warn(), 0.5))).rounding(6.0).inner_margin(8.0).show(ui, |ui| {
+                            ui.set_width(ui.available_width());
+                            ui.add(egui::Label::new(RichText::new(t!("⚠ Florm a été fermé pendant que Claude travaillait : sa tâche a été coupée en cours.", "⚠ Florm was closed while Claude was working: its task was cut midway.")).strong()).wrap());
+                            ui.label(RichText::new(t!("Ce qu'il avait déjà fait est gardé ; seule l'étape en cours (une commande, une modification) est perdue.", "What it had already done is kept; only the step in progress (a command, a change) is lost.")).small().weak());
+                            ui.horizontal_wrapped(|ui| {
+                                if ui.add(filled_button(t!("▶ Reprendre", "▶ Go on"), accent)).on_hover_text(t!("Claude reprend la session et continue là où il s'était arrêté", "Claude resumes the session and goes on where it stopped")).clicked() {
+                                    resume = Some(true);
+                                }
+                                if ui.button(t!("Laisser comme ça", "Leave it")).clicked() {
+                                    resume = Some(false);
+                                }
+                            });
+                        });
+                        ui.add_space(4.0);
+                    }
                     // « Demander avant »: what Claude proposes, waiting for the user
                     if !c.asks.is_empty() {
                         ask_act = asks::asks_ui(ui, &mut c.asks, c.dir.as_deref(), fill, accent);
@@ -2295,6 +2315,18 @@ impl App {
         if let Some(a) = ask_act {
             self.claude_ask_act(a);
         }
+        if let Some(go_on) = resume {
+            self.claude.interrupted = false;
+            if go_on {
+                let msg = t!(
+                    "Florm a été fermé pendant que tu travaillais, et ta dernière étape a été coupée. Reprends là où tu t'es arrêté (vérifie d'abord l'état des fichiers si besoin).",
+                    "Florm was closed while you were working, and your last step was cut. Go on where you stopped (check the state of the files first if needed)."
+                );
+                self.claude_send_text(msg.into(), false);
+            } else {
+                self.claude_save();
+            }
+        }
         if compact {
             // a command of Claude Code: it goes alone, as the other commands
             self.claude_send_text("/compact".into(), false);
@@ -2397,10 +2429,15 @@ mod tests {
             account: "Perso".into(),
             session_account: "Pro".into(),
             account_chosen: true,
+            interrupted: true,
         };
         let back: Vec<SavedConv> = serde_json::from_str(&serde_json::to_string(&vec![s]).unwrap()).unwrap();
         assert_eq!((back[0].key, back[0].session_id.as_deref(), back[0].items.len()), (7, Some("abc"), 3));
         assert!(back[0].options.ask_first && !back[0].options.model_first);
+        // cut by the closing of Florm: said again at the next start; an older file has no such field
+        assert!(back[0].interrupted);
+        let old: SavedConv = serde_json::from_str(&serde_json::to_string(&back[0]).unwrap().replace(",\"interrupted\":true", "")).unwrap();
+        assert!(!old.interrupted);
         assert_eq!((back[0].account.as_str(), back[0].session_account.as_str()), ("Perso", "Pro"));
         assert_eq!((back[0].checkpoints[0].tree.as_deref(), back[0].last_uuid.as_deref()), (Some("abc"), Some("u")));
         assert!(matches!(&back[0].items[1], Item::Tool { result: Some((r, false)), .. } if r == "ok"));
@@ -2523,6 +2560,11 @@ mod tests {
                 let long = format!("y = {}\n", "1 + ".repeat(80));
                 app.claude.asks.push(asks::Ask::new("r1".into(), "Edit".into(), serde_json::json!({"file_path": proj.join("a.py"), "old_string": "x = 1\n", "new_string": long})));
                 app.claude.asks.push(asks::Ask::new("r2".into(), "Bash".into(), serde_json::json!({"command": "cargo test --all-features -- --nocapture", "description": "Lancer les tests"})));
+            }
+            if frame == 3 {
+                // cut by the closing of Florm, at the next start: the band to go on
+                app.claude.busy = false;
+                app.claude.interrupted = true;
             }
             let _ = ctx.run(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 700.0))), ..Default::default() }, |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {

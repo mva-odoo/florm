@@ -284,13 +284,27 @@ impl App {
         self.tests_check();
         // with hot exit, unsaved changes are kept in the session: no question
         let keeps = self.settings.hot_exit && self.root.is_some();
-        if ctx.input(|i| i.viewport().close_requested())
+        let working = self.claude_working();
+        // Claude at work: closing would cut it; asked first (closing once it is done is offered)
+        if ctx.input(|i| i.viewport().close_requested()) && !self.claude_quit_ok && working > 0 {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.confirm = Some(Confirm::QuitClaude(working));
+        } else if ctx.input(|i| i.viewport().close_requested())
             && !self.quit_confirmed
             && !keeps
             && self.docs.iter().any(|d| d.is_dirty())
         {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.confirm = Some(Confirm::Quit);
+        }
+        // « Fermer quand il aura fini »: the last Claude at work is done
+        if self.quit_when_idle && working == 0 {
+            self.quit_when_idle = false;
+            self.claude_quit_ok = true;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+        if self.quit_when_idle {
+            self.quit_when_idle_ui(ctx);
         }
         if ctx.input(|i| i.viewport().close_requested()) || self.last_session_save.elapsed() > Duration::from_secs(30) {
             self.save_session();

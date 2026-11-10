@@ -843,6 +843,10 @@ impl App {
                 (t!("Fichier modifié", "File changed"), tf!("Enregistrer les modifications de « {name} » ?", "Save the changes of “{name}”?"))
             }
             Confirm::Quit => (t!("Quitter", "Quit"), t!("Des fichiers ne sont pas enregistrés.", "Some files are not saved.").to_string()),
+            Confirm::QuitClaude(n) => (
+                t!("Claude travaille", "Claude is working"),
+                tf!("Claude travaille dans {n} conversation(s). Fermer Florm maintenant le coupe au milieu de sa tâche ; à la réouverture, tu pourras lui demander de reprendre.", "Claude is working in {n} conversation(s). Closing Florm now cuts it in the middle of its task; when you open it again, you can ask it to go on."),
+            ),
             Confirm::Delete(p) => (t!("Supprimer", "Delete"), tf!("Mettre « {} » à la corbeille ?", "Move “{}” to the trash?", p.display())),
             Confirm::SwitchProject(p) => {
                 (t!("Changer de projet", "Switch project"), tf!("Des fichiers ne sont pas enregistrés. Ouvrir « {} » ?", "Some files are not saved. Open “{}”?", p.display()))
@@ -902,6 +906,7 @@ impl App {
         let (yes, no) = match c {
             Confirm::CloseTab(_) => (t!("Enregistrer", "Save"), Some(t!("Ne pas enregistrer", "Don't save"))),
             Confirm::Quit => (t!("Tout enregistrer et quitter", "Save all and quit"), Some(t!("Quitter sans enregistrer", "Quit without saving"))),
+            Confirm::QuitClaude(_) => (t!("Fermer quand il aura fini", "Close when it is done"), Some(t!("Fermer maintenant", "Close now"))),
             Confirm::Delete(_) => (t!("Mettre à la corbeille", "Move to the trash"), Some(t!("Supprimer définitivement", "Delete for good"))),
             Confirm::SwitchProject(_) => (t!("Tout enregistrer et changer", "Save all and switch"), Some(t!("Changer sans enregistrer", "Switch without saving"))),
             Confirm::ReplaceInFiles => (t!("Remplacer", "Replace"), None),
@@ -916,7 +921,7 @@ impl App {
         // the main action filled (red when it loses something); the other choice in red text
         // when it is the one that loses something (unsaved changes, a file for good)
         let yes_loses = matches!(c, Confirm::DropStash(..) | Confirm::DiffOp { .. } | Confirm::ReplaceInFiles | Confirm::Overwrite(_) | Confirm::Git { .. } | Confirm::Gh { .. });
-        let no_loses = matches!(c, Confirm::CloseTab(_) | Confirm::Quit | Confirm::Delete(_) | Confirm::SwitchProject(_));
+        let no_loses = matches!(c, Confirm::CloseTab(_) | Confirm::Quit | Confirm::QuitClaude(_) | Confirm::Delete(_) | Confirm::SwitchProject(_));
         let accent = self.hl.colors.accent;
         let (icon, icon_color) = if careful || no_loses { ("⚠", warn()) } else { ("?", accent) };
         egui::Window::new(title)
@@ -1042,7 +1047,19 @@ impl App {
                 }
                 self.do_switch(p);
             }
-            (Confirm::Quit, _) => self.restart = None,
+            (Confirm::Quit, _) => {
+                self.restart = None;
+                self.claude_quit_ok = false;
+            }
+            (Confirm::QuitClaude(_), 1) => {
+                self.quit_when_idle = true;
+                self.set_status(t!("Florm se fermera quand Claude aura fini", "Florm will close when Claude is done"));
+            }
+            (Confirm::QuitClaude(_), 2) => {
+                self.claude_quit_ok = true;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+            (Confirm::QuitClaude(_), _) => self.restart = None,
             (Confirm::SwitchProject(p), 2) => self.do_switch(p),
             (Confirm::Overwrite(uid), 1 | 2) => {
                 if let Some(i) = self.docs.iter().position(|d| d.uid == uid) {

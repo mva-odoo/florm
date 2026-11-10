@@ -174,6 +174,8 @@ impl App {
     /// Code reads it only at the start of the message. While Claude works, the message goes into
     /// the answer being written (Claude Code reads it between two steps).
     pub(in crate::app) fn claude_send_text(&mut self, text: String, ask_first: bool) -> bool {
+        // a message goes on after the closing that cut it: the band goes
+        self.claude.interrupted = false;
         let Some(dir) = self.claude.dir.clone() else {
             self.set_status(t!("Aucun dossier ouvert", "No folder open"));
             return false;
