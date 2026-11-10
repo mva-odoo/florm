@@ -20,11 +20,13 @@ pub fn not_installed() -> String {
 pub const MODELS: [(&str, &str); 5] = [("", "Modèle par défaut"), ("opus", "Opus 5.5"), ("sonnet", "Sonnet 5.5"), ("haiku", "Haiku 5.5 (rapide)"), ("fable", "Fable 5.1")];
 
 /// Permission modes: (value of --permission-mode, label, explanation). "custom": what is checked
-/// in the permissions.
-pub const MODES: [(&str, &str, &str); 3] = [
+/// in the permissions; "ask": each change and command waits for the user (applied as it is,
+/// changed, or refused). Their index is kept with the conversations: a new one goes at the end.
+pub const MODES: [(&str, &str, &str); 4] = [
     ("custom", "Selon les permissions", "Claude fait seulement ce qui est coché dans 🔒 Permissions ; tu gardes ou rejettes ses changements dans la revue"),
     ("plan", "Plan seulement", "Claude lit et propose un plan, sans rien modifier"),
     ("bypassPermissions", "Tout autoriser", "Claude peut tout faire sans demander (le bac à sable, s'il est coché, isole quand même ses commandes)"),
+    ("ask", "Demander avant", "Claude ne change rien de lui-même : chaque modification de fichier et chaque commande te sont proposées, tu les appliques telles quelles, les modifies ou les refuses"),
 ];
 
 /// The permissions that can be checked: (key in the settings, label, explanation).
@@ -54,6 +56,10 @@ pub fn label(fr: &'static str) -> &'static str {
         "Tout autoriser" => "Allow everything",
         "Claude peut tout faire sans demander (le bac à sable, s'il est coché, isole quand même ses commandes)" => {
             "Claude may do anything without asking (the sandbox, if ticked, still isolates its commands)"
+        }
+        "Demander avant" => "Ask first",
+        "Claude ne change rien de lui-même : chaque modification de fichier et chaque commande te sont proposées, tu les appliques telles quelles, les modifies ou les refuses" => {
+            "Claude changes nothing by itself: each file change and each command is put to you, you apply it as it is, change it or refuse it"
         }
         "Modifier les fichiers" => "Edit files",
         "Créer et modifier des fichiers (tu gardes ou rejettes chaque bloc dans la revue)" => "Create and edit files (you keep or reject each block in the review)",
@@ -92,6 +98,7 @@ fn perm_tools(perm: &str) -> (&'static [&'static str], &'static [&'static str]) 
 pub fn mode_value(mode: usize) -> &'static str {
     match MODES.get(mode).map_or("custom", |m| m.0) {
         "custom" => "dontAsk",
+        "ask" => "manual",
         m => m,
     }
 }
@@ -100,12 +107,39 @@ pub fn mode_value(mode: usize) -> &'static str {
 /// of `/permissions` (`allow`, `deny`: `Bash(git *)`, `Edit(src/**)`, `mcp__github`…) and the
 /// budget (0: none). Nothing is ever asked: what is not allowed is refused. A rule allowing a
 /// part of a tool not checked (`Bash(git *)` without « Lancer des commandes ») allows that part.
+/// Mode "ask" is the exception: what is not allowed (the changes, the commands…) is asked to
+/// Florm (`Event::Ask`), which answers with `Session::answer`.
 pub fn permission_args(mode: usize, perms: &[String], allow: &[String], deny: &[String], budget: f64) -> Vec<String> {
     let has = |p: &str| perms.iter().any(|x| x == p);
     let ruled = |tool: &str| allow.iter().any(|r| r.starts_with(&format!("{tool}(")));
-    let mut a: Vec<String> = vec!["--permission-prompts".into(), "none".into()];
+    let kind = MODES.get(mode).map_or("custom", |m| m.0);
+    let mut a: Vec<String> = match kind {
+        "ask" => ["--permission-prompts", "host", "--permission-prompt-tool", "stdio"].map(String::from).to_vec(),
+        _ => vec!["--permission-prompts".into(), "none".into()],
+    };
     let rules = |list: &mut Vec<String>, extra: &[String]| list.extend(extra.iter().map(|r| r.trim().to_string()).filter(|r| !r.is_empty()));
-    match MODES.get(mode).map_or("custom", |m| m.0) {
+    match kind {
+        // reading is free; internet and the subagents as ticked; the rest is asked
+        "ask" => {
+            let (mut allowed, mut denied): (Vec<String>, Vec<String>) = (vec!["Read".into(), "Grep".into(), "Glob".into()], Vec::new());
+            for p in ["web", "agents"] {
+                let names = perm_tools(p).0.iter().map(|n| n.to_string());
+                if has(p) {
+                    allowed.extend(names);
+                } else {
+                    denied.extend(names);
+                }
+            }
+            rules(&mut allowed, allow);
+            rules(&mut denied, deny);
+            a.extend(["--permission-mode".into(), "manual".into(), "--allowedTools".into(), allowed.join(",")]);
+            if !denied.is_empty() {
+                a.extend(["--disallowedTools".into(), denied.join(",")]);
+            }
+            if has("confine") {
+                a.push("--restricted".into());
+            }
+        }
         "custom" => {
             let (mut allowed, mut denied, mut tools): (Vec<String>, Vec<String>, Vec<String>) = (vec!["Read".into(), "Grep".into(), "Glob".into()], Vec::new(), vec!["Read".into(), "Grep".into(), "Glob".into()]);
             for p in ["edit", "bash", "web", "agents"] {
@@ -190,6 +224,9 @@ pub enum Event {
     /// Use of the plan's quotas: (window "five_hour" / "seven_day", fraction used, reset time in
     /// unix seconds).
     Limits(Vec<(String, f32, i64)>),
+    /// Mode "ask": Claude waits for the user before using a tool (a change, a command…): the id
+    /// of the request (for `Session::answer`), the tool, its input and the id of its call.
+    Ask { request: String, tool: String, input: Value, call: String },
     /// The process ended (its error output, if any).
     Exited(String),
 }
@@ -223,6 +260,10 @@ pub fn parse_line(line: &str) -> Vec<Event> {
             _ => Vec::new(),
         },
         Some("conversation_reset") => vec![Event::Reset],
+        Some("control_request") if v["request"]["subtype"] == "can_use_tool" => {
+            let r = &v["request"];
+            vec![Event::Ask { request: s(&v["request_id"]), tool: s(&r["tool_name"]), input: r["input"].clone(), call: s(&r["tool_use_id"]) }]
+        }
         Some("stream_event") if v["parent_tool_use_id"].is_null() => {
             let e = &v["event"];
             match (e["type"].as_str(), e["delta"]["type"].as_str(), e["content_block"]["type"].as_str()) {
@@ -447,6 +488,16 @@ impl Session {
     /// Stops the answer being written (the conversation goes on).
     pub fn interrupt(&mut self) -> Result<(), String> {
         self.write(json!({"type": "control_request", "request_id": format!("stop-{}", std::process::id()), "request": {"subtype": "interrupt"}}))
+    }
+
+    /// Answer to `Event::Ask`: the tool runs with this input (the one proposed, or changed by the
+    /// user), or it is refused with this message (Claude reads it).
+    pub fn answer(&mut self, request: &str, decision: Result<Value, String>) -> Result<(), String> {
+        let response = match decision {
+            Ok(input) => json!({"behavior": "allow", "updatedInput": input}),
+            Err(message) => json!({"behavior": "deny", "message": message}),
+        };
+        self.write(json!({"type": "control_response", "response": {"subtype": "success", "request_id": request, "response": response}}))
     }
 
     /// The permission mode changed while Claude works (`mode_value`).
@@ -1256,7 +1307,66 @@ mod tests {
         assert!(a.contains("--tools Read,Grep,Glob,Edit,Write,Bash"), "{a}");
         let a = permission_args(1, &[], &[], &p(&["Bash(rm *)"]), 0.0).join(" ");
         assert!(a.ends_with("--permission-mode plan --disallowedTools Bash(rm *)"), "{a}");
-        assert_eq!((mode_value(0), mode_value(1), mode_value(2)), ("dontAsk", "plan", "bypassPermissions"));
+        assert_eq!((mode_value(0), mode_value(1), mode_value(2), mode_value(3)), ("dontAsk", "plan", "bypassPermissions", "manual"));
+        // "ask": the changes and the commands go to Florm, even when ticked; reading is free
+        let a = permission_args(3, &p(&["edit", "bash", "web"]), &[], &[], 0.0).join(" ");
+        assert!(a.starts_with("--permission-prompts host --permission-prompt-tool stdio --permission-mode manual --allowedTools Read,Grep,Glob,WebFetch,WebSearch "), "{a}");
+        assert!(!a.contains("Edit") && !a.contains("Bash") && a.contains("--disallowedTools Agent,Task"), "{a}");
+    }
+
+    #[test]
+    fn a_tool_waits_for_the_user() {
+        let line = r#"{"type":"control_request","request_id":"r1","request":{"subtype":"can_use_tool","tool_name":"Edit","input":{"file_path":"/p/a.py","old_string":"x = 1","new_string":"x = 2"},"tool_use_id":"toolu_1"}}"#;
+        match parse_line(line).as_slice() {
+            [Event::Ask { request, tool, input, call }] => {
+                assert_eq!((request.as_str(), tool.as_str(), call.as_str()), ("r1", "Edit", "toolu_1"));
+                assert_eq!(input["new_string"], "x = 2");
+            }
+            e => panic!("{}", e.len()),
+        }
+        // the other requests (interrupt answered…) are not asks
+        assert!(parse_line(r#"{"type":"control_request","request_id":"r2","request":{"subtype":"interrupt"}}"#).is_empty());
+    }
+
+    /// With the real `claude` (Haiku, a few cents of a cent): in mode "ask" the change waits,
+    /// goes in as changed by the user, and the refused command does not run. `FLORM_TEST_CLAUDE=1`.
+    #[test]
+    fn ask_mode_with_claude() {
+        if std::env::var_os("FLORM_TEST_CLAUDE").is_none() {
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("florm_ask_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.py"), "x = 1\n").unwrap();
+        let perms = permission_args(3, &["edit".into(), "bash".into()], &[], &[], 0.0);
+        let mut s = Session::start(&dir, None, "haiku", &perms, None, None, &[], || {}).unwrap();
+        s.send("Change x = 1 to x = 2 in a.py with the Edit tool. Then run `touch made.txt` with Bash. Then say done.").unwrap();
+        let (mut asked, until) = (Vec::new(), std::time::Instant::now() + std::time::Duration::from_secs(120));
+        'run: loop {
+            assert!(std::time::Instant::now() < until, "too long: {asked:?}");
+            for e in s.poll() {
+                match e {
+                    Event::Ask { request, tool, mut input, .. } => {
+                        let answer = if tool == "Bash" {
+                            Err("No.".to_string())
+                        } else {
+                            input["new_string"] = "x = 3".into();
+                            Ok(input)
+                        };
+                        asked.push(tool);
+                        s.answer(&request, answer).unwrap();
+                    }
+                    Event::Done { .. } | Event::Exited(_) => break 'run,
+                    _ => {}
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        assert!(asked.contains(&"Edit".to_string()), "{asked:?}");
+        assert_eq!(std::fs::read_to_string(dir.join("a.py")).unwrap(), "x = 3\n");
+        assert!(!dir.join("made.txt").exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

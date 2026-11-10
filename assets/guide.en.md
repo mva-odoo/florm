@@ -431,7 +431,11 @@ bottom panel (**in a tab** to give it a whole editor tab, **at the bottom** to p
 command and your login: no key to set up.
 
 - At the top: the repository, the model, and what Claude is allowed to do (**Edit files**,
-  **Plan only**, **Allow everything** so that it also runs commands).
+  **Plan only**, **Allow everything** so that it also runs commands, **Ask first**).
+- **Ask first** mode: Claude changes nothing by itself. Each file change (as a diff) and each
+  command shows above the field: **✔ Apply** / **▶ Run** it as it is, **✏ Edit** the text or the
+  command first (Claude is told about your version), or **✖ Refuse**, with an optional reason
+  Claude reads. It can read the project without asking.
   The folder name is chosen before the first message: a repository of the project, a recent
   project, or **📁 Another folder…** for any folder.
   The model and the mode can change in the middle of a conversation: at once if Claude is

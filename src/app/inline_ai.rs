@@ -227,7 +227,7 @@ impl App {
 }
 
 /// The selection and the proposal line by line: removed in red, added in green.
-fn diff_lines(ui: &mut egui::Ui, old: &str, new: &str) {
+pub(super) fn diff_lines(ui: &mut egui::Ui, old: &str, new: &str) {
     let v = ui.visuals().clone();
     let base = v.extreme_bg_color;
     let font = egui::FontId::monospace(12.5);

@@ -14,6 +14,7 @@ use super::claude_model::{HoldAct, ModelHold};
 use super::claude_turns::{Checkpoint, Rewind, TurnDiff};
 use super::claude_tools::{ToolAct, ToolsUi, Worktree};
 
+mod asks;
 mod context;
 mod hub;
 mod live;
@@ -119,6 +120,8 @@ pub(super) struct ClaudeUi {
     model_first: bool,
     /// The message held while its model is checked, then the model suggested for it.
     pub(super) model_hold: Option<ModelHold>,
+    /// Mode « Demander avant »: the changes and commands waiting for the user.
+    pub(super) asks: Vec<asks::Ask>,
     /// The choices made for the questions of the last answer.
     pub(super) answers: Option<claude_ask::Answers>,
     /// Last commits of its folder for « + Contexte → Un commit »: (hash, short hash, subject, when).
@@ -353,6 +356,7 @@ impl App {
                 Event::Uuid(id) => self.claude.last_uuid = Some(id),
                 Event::Reset => {
                     items.clear();
+                    self.claude.asks.clear();
                     self.claude.checkpoints.clear();
                     self.claude.folded.clear();
                     self.claude.turn_diff = None;
@@ -394,6 +398,18 @@ impl App {
                         }
                     }
                 }
+                Event::Ask { request, tool, input, call: _ } => {
+                    if claude::MODES[self.claude.mode].0 == "ask" {
+                        self.claude.asks.push(asks::Ask::new(request, tool, input));
+                        self.claude.activity = Some(t!("attend ta réponse", "is waiting for your answer").into());
+                        // not shown: its tab blinks, as at the end of an answer
+                        self.claude.unseen = true;
+                        self.claude.done_at = Some(Instant::now());
+                    } else if let Some(s) = self.claude.session.as_mut() {
+                        // started in « Demander avant », switched since: nothing is asked any more
+                        let _ = s.answer(&request, Err(t!("Refusé : ce mode ne le permet pas.", "Refused: this mode does not allow it.").into()));
+                    }
+                }
                 Event::Context(tokens) => self.claude.context.0 = tokens,
                 Event::Limits(l) => {
                     let key = self.claude_limits_key(&self.claude.account);
@@ -404,6 +420,7 @@ impl App {
                 }
                 Event::Done { error, text, cost, window, tokens } => {
                     self.claude.busy = false;
+                    self.claude.asks.clear();
                     self.claude.unseen = true;
                     // a real answer (not a /usage…): its tab blinks, the sound chosen plays
                     if error || tokens.input + tokens.output > 0 {
@@ -440,6 +457,7 @@ impl App {
                 }
                 Event::Exited(err) => {
                     self.claude.busy = false;
+                    self.claude.asks.clear();
                     self.claude.unseen = true;
                     self.claude.session = None;
                     if !self.claude.started && self.claude.session_id.is_some() {
@@ -792,6 +810,7 @@ impl App {
         }
         let (mut send, mut stop, mut new_conv, mut review_click, mut all) = (false, false, false, None, None);
         let (mut later, mut hold_act, mut compact) = (false, None, false);
+        let mut ask_act = None;
         let (mut chosen_dir, mut move_to, mut ctx_add, mut pick_dir) = (None, None, None, false);
         let (mut queue_act, mut queued, mut read_commits) = (None, None, false);
         let (mut image_add, mut open_image): (Option<(Vec<u8>, String)>, Option<PathBuf>) = (None, None);
@@ -898,7 +917,9 @@ impl App {
                         if running {
                             ui.label(RichText::new(t!("S'applique au prochain message : Claude redémarre en gardant la conversation", "Applies from the next message: Claude starts again, the conversation kept")).small().color(warn()));
                         }
-                        if c.mode != 0 {
+                        if claude::MODES[c.mode].0 == "ask" {
+                            ui.label(RichText::new(t!("Mode « Demander avant » : modifier les fichiers et lancer des commandes te sont toujours demandés ; les autres cases comptent", "“Ask first” mode: editing files and running commands are always asked; the other boxes count")).small().weak());
+                        } else if c.mode != 0 {
                             ui.label(RichText::new(tf!("Mode « {} » : seules les deux dernières cases comptent", "“{}” mode: only the last two boxes count", claude::label(claude::MODES[c.mode].1))).small().weak());
                         }
                         ui.add_enabled(false, egui::Checkbox::new(&mut true, t!("Lire les fichiers du projet", "Read the project files"))).on_disabled_hover_text(t!("Toujours : Claude doit lire pour aider", "Always: Claude has to read to help"));
@@ -1234,6 +1255,10 @@ impl App {
                         (false, true) => 3,
                         (false, false) => 2,
                     };
+                    // « Demander avant »: what Claude proposes, waiting for the user
+                    if !c.asks.is_empty() {
+                        ask_act = asks::asks_ui(ui, &mut c.asks, c.dir.as_deref(), fill, accent);
+                    }
                     // the message held while its model is checked, then the model suggested for it
                     if let Some(hold) = &c.model_hold {
                         egui::Frame::none().fill(icons::mix(fill, accent, 0.08)).rounding(6.0).inner_margin(8.0).show(ui, |ui| {
@@ -2031,6 +2056,8 @@ impl App {
                 self.claude.busy = false;
                 self.claude.activity = None;
             }
+            // what waited for an answer is dropped with the answer stopped
+            self.claude.asks.clear();
             if let Some(s) = self.claude.session.as_mut() {
                 let _ = s.interrupt();
             }
@@ -2051,6 +2078,9 @@ impl App {
         }
         if let Some(a) = hold_act {
             self.claude_hold_act(a);
+        }
+        if let Some(a) = ask_act {
+            self.claude_ask_act(a);
         }
         if compact {
             // a command of Claude Code: it goes alone, as the other commands
@@ -2078,7 +2108,8 @@ impl App {
         let c = &mut self.claude;
         let Some(s) = c.session.as_mut() else { return };
         if c.busy {
-            if mode {
+            // « Demander avant » needs Claude started for it: from the next message
+            if mode && claude::MODES[c.mode].0 != "ask" {
                 let _ = s.set_mode(claude::mode_value(c.mode));
             }
             if model {
@@ -2238,7 +2269,8 @@ mod tests {
     }
 
     /// On a small screen the conversation stays in the window: the bars wrap instead of
-    /// pushing the messages past its right edge (where nothing scrolls to them).
+    /// pushing the messages past its right edge (where nothing scrolls to them), and so do the
+    /// changes and commands waiting for an answer.
     #[test]
     fn conversation_fits_a_small_window() {
         let dir = std::env::temp_dir().join(format!("florm_claude_narrow_{}", std::process::id()));
@@ -2261,6 +2293,11 @@ mod tests {
                 app.claude.busy = true;
                 app.claude.activity = Some("Lecture de src/app/claude_ui.rs".into());
                 app.claude.input = "Une demande".into();
+                // « Demander avant »: a change with a long line, and a command, waiting
+                app.claude.mode = claude::MODES.iter().position(|m| m.0 == "ask").unwrap();
+                let long = format!("y = {}\n", "1 + ".repeat(80));
+                app.claude.asks.push(asks::Ask::new("r1".into(), "Edit".into(), serde_json::json!({"file_path": proj.join("a.py"), "old_string": "x = 1\n", "new_string": long})));
+                app.claude.asks.push(asks::Ask::new("r2".into(), "Bash".into(), serde_json::json!({"command": "cargo test --all-features -- --nocapture", "description": "Lancer les tests"})));
             }
             let _ = ctx.run(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 700.0))), ..Default::default() }, |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {

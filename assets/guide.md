@@ -436,7 +436,11 @@ avec `gh auth login` (connexion par le navigateur). Sans `gh`, la vue explique c
 panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en bas** pour l'y remettre). Florm utilise la commande `claude` et ta connexion : pas de clé à configurer.
 
 - En haut : le dépôt, le modèle, et ce que Claude a le droit de faire (**Modifie les fichiers**,
-  **Plan seulement**, **Tout autoriser** pour qu'il lance aussi des commandes).
+  **Plan seulement**, **Tout autoriser** pour qu'il lance aussi des commandes, **Demander avant**).
+- Mode **Demander avant** : Claude ne change rien de lui-même. Chaque modification de fichier
+  (en diff) et chaque commande s'affichent au-dessus du champ : **✔ Appliquer** / **▶ Lancer**
+  telle quelle, **✏ Modifier** le texte ou la commande avant (Claude est prévenu de ta version),
+  ou **✖ Refuser**, avec une raison facultative que Claude lit. Il peut lire le projet sans demander.
   Le nom du dossier se choisit avant le premier message : un dépôt du projet, un projet récent,
   ou **📁 Un autre dossier…** pour n'importe quel dossier.
   Le modèle et le mode se changent en pleine conversation : tout de suite si Claude travaille,
