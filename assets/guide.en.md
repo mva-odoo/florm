@@ -440,7 +440,9 @@ command and your login: no key to set up.
   project, or **📁 Another folder…** for any folder.
   The model and the mode can change in the middle of a conversation: at once if Claude is
   working, else from the next message, the conversation kept. **Shift+Tab** in the field: next
-  mode, as in Claude Code.
+  mode, as in Claude Code. Each model (Opus, Sonnet, Haiku, Fable) is its latest version: when
+  a new one comes out, Claude Code takes it, and the menu shows the one answering ("Opus 5.5")
+  from the first message.
 - **End of an answer**: if the conversation is not shown, its tab (or, in the bottom panel, the
   ✳ ● next to its name and ✔ in the status bar) blinks a few seconds (the whole tab lights up) then stays green until you look at
   it, and a sound plays. **Preferences → Claude**: blink or not, and the sound (Chime, Bell,

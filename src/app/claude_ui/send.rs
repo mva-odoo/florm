@@ -71,7 +71,9 @@ impl App {
                 let line = |k: &str, v: &str| format!("- **{k}** : {v}\n");
                 let mut s = String::new();
                 s += &line("Claude Code", if version.is_empty() { "?" } else { version });
-                s += &line(t!("Modèle", "Model"), claude::MODELS[c.model].1);
+                let model = claude::label(claude::MODELS[c.model].1);
+                let model = if c.model_id.is_empty() { model.to_string() } else { format!("{model} ({})", c.model_id) };
+                s += &line(t!("Modèle", "Model"), &model);
                 s += &line(t!("Mode", "Mode"), claude::MODES[c.mode].1);
                 s += &line(t!("Permissions", "Permissions"), &self.settings.claude_perms.join(", "));
                 s += &line(t!("Dossier", "Folder"), &dir.display().to_string());

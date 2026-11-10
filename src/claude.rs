@@ -16,8 +16,41 @@ pub fn not_installed() -> String {
     .to_string()
 }
 
-/// Models offered: (value of --model, label). Empty: the default of Claude Code.
-pub const MODELS: [(&str, &str); 5] = [("", "Modèle par défaut"), ("opus", "Opus 5.5"), ("sonnet", "Sonnet 5.5"), ("haiku", "Haiku 5.5 (rapide)"), ("fable", "Fable 5.1")];
+/// Models offered: (value of --model, label). Empty: the default of Claude Code. The values are
+/// aliases: Claude Code takes the latest version of each family, its real name comes with the
+/// answers (`Event::Init`, `Event::Model`, shown by `model_name`), so no version is written here.
+pub const MODELS: [(&str, &str); 5] = [("", "Modèle par défaut"), ("opus", "Opus"), ("sonnet", "Sonnet"), ("haiku", "Haiku (rapide)"), ("fable", "Fable")];
+
+/// The name of a model given by Claude Code: "claude-opus-5-5" → "Opus 5.5",
+/// "claude-haiku-4-5-20251001" → "Haiku 4.5", "claude-3-5-sonnet-20241022" → "Sonnet 3.5". Left as
+/// it is when it does not look like one.
+pub fn model_name(id: &str) -> String {
+    let base = id.split('[').next().unwrap_or(id).trim();
+    let base = base.strip_prefix("claude-").unwrap_or(base);
+    let (mut words, mut nums) = (Vec::new(), Vec::new());
+    for part in base.split('-').filter(|p| !p.is_empty()) {
+        if part.chars().all(|c| c.is_ascii_digit()) {
+            // a date (20251001) is not part of the version
+            if part.len() <= 2 {
+                nums.push(part);
+            }
+        } else {
+            let mut c = part.chars();
+            words.push(c.next().map(|f| f.to_uppercase().chain(c).collect::<String>()).unwrap_or_default());
+        }
+    }
+    if words.is_empty() {
+        return id.to_string();
+    }
+    let name = words.join(" ");
+    if nums.is_empty() { name } else { format!("{name} {}", nums.join(".")) }
+}
+
+/// Whether the model `id` given by Claude Code is of the family `alias` of `MODELS` (any for the
+/// default one).
+pub fn model_is(id: &str, alias: &str) -> bool {
+    !id.is_empty() && (alias.is_empty() || id.to_lowercase().contains(alias))
+}
 
 /// Permission modes: (value of --permission-mode, label, explanation). "custom": what is checked
 /// in the permissions; "ask": each change and command waits for the user (applied as it is,
@@ -46,7 +79,7 @@ pub fn label(fr: &'static str) -> &'static str {
     }
     match fr {
         "Modèle par défaut" => "Default model",
-        "Haiku 5.5 (rapide)" => "Haiku 5.5 (fast)",
+        "Haiku (rapide)" => "Haiku (fast)",
         "Selon les permissions" => "By permissions",
         "Claude fait seulement ce qui est coché dans 🔒 Permissions ; tu gardes ou rejettes ses changements dans la revue" => {
             "Claude only does what is ticked in 🔒 Permissions; you keep or reject its changes in the review"
@@ -233,6 +266,9 @@ pub enum Event {
     /// Mode "ask": Claude waits for the user before using a tool (a change, a command…): the id
     /// of the request (for `Session::answer`), the tool, its input and the id of its call.
     Ask { request: String, tool: String, input: Value, call: String },
+    /// The model that wrote the last message (its id, "claude-opus-5-5"): it may change during
+    /// the conversation (`Session::set_model`).
+    Model(String),
     /// The process ended (its error output, if any).
     Exited(String),
 }
@@ -312,6 +348,10 @@ pub fn parse_line(line: &str) -> Vec<Event> {
                 .unwrap_or_default();
             if let Some(id) = v["uuid"].as_str().filter(|i| !i.is_empty()) {
                 events.push(Event::Uuid(id.to_string()));
+            }
+            // "<synthetic>": a message of Claude Code itself (an error, an interruption)
+            if let Some(m) = v["message"]["model"].as_str().filter(|m| !m.is_empty() && !m.starts_with('<')) {
+                events.push(Event::Model(m.to_string()));
             }
             let u = &v["message"]["usage"];
             let tokens: u64 = ["input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens", "output_tokens"].iter().filter_map(|k| u[*k].as_u64()).sum();
@@ -904,19 +944,19 @@ pub fn model_check(dir: &Path, message: &str, current: usize) -> Result<Option<(
     let label = MODELS[current.min(MODELS.len() - 1)].1;
     let prompt = tf!(
         "Tu choisis le modèle de Claude Code pour une demande, avant qu'il commence. Modèles :\n\
-         - opus : Opus 5.5, pour les travaux difficiles (bug subtil, architecture, grosse refactorisation).\n\
-         - sonnet : Sonnet 5.5, équilibré, pour la plupart des modifications.\n\
-         - haiku : Haiku 5.5, rapide et économique, pour les petites tâches simples (renommer, une ligne, expliquer).\n\
-         - fable : Fable 5.1, le plus capable, pour les tâches très longues ou très difficiles.\n\
+         - opus : pour les travaux difficiles (bug subtil, architecture, grosse refactorisation).\n\
+         - sonnet : équilibré, pour la plupart des modifications.\n\
+         - haiku : rapide et économique, pour les petites tâches simples (renommer, une ligne, expliquer).\n\
+         - fable : le plus capable, pour les tâches très longues ou très difficiles.\n\
          Le modèle actuel est {label}. La demande est sur l'entrée standard. Si le modèle actuel convient, réponds seulement \
          par : MODELE: garder. Sinon réponds sur deux lignes, sans rien d'autre :\n\
          MODELE: <opus, sonnet, haiku ou fable>\n\
          RAISON: <une phrase courte, en français, pourquoi>",
         "You choose the Claude Code model for a request, before it starts. Models:\n\
-         - opus: Opus 5.5, for hard work (subtle bug, architecture, large refactoring).\n\
-         - sonnet: Sonnet 5.5, balanced, for most changes.\n\
-         - haiku: Haiku 5.5, fast and cheap, for small simple tasks (rename, one line, explain).\n\
-         - fable: Fable 5.1, the most capable, for very long or very hard tasks.\n\
+         - opus: for hard work (subtle bug, architecture, large refactoring).\n\
+         - sonnet: balanced, for most changes.\n\
+         - haiku: fast and cheap, for small simple tasks (rename, one line, explain).\n\
+         - fable: the most capable, for very long or very hard tasks.\n\
          The current model is {label}. The request is on the standard input. If the current model suits, answer only \
          with: MODELE: garder. Otherwise answer on two lines, nothing else:\n\
          MODELE: <opus, sonnet, haiku or fable>\n\
@@ -1420,6 +1460,22 @@ mod tests {
         assert_eq!(parse_inline("EXPLICATION: Ça trie la liste."), Inline::Explain("Ça trie la liste.".into()));
         assert_eq!(parse_review("Rien à redire (voir [R12]) : []").unwrap(), vec![]);
         assert!(parse_review("désolé").is_err());
+    }
+
+    #[test]
+    fn the_names_of_the_models_come_from_claude_code() {
+        assert_eq!(model_name("claude-opus-5-5"), "Opus 5.5");
+        assert_eq!(model_name("claude-haiku-4-5-20251001"), "Haiku 4.5");
+        assert_eq!(model_name("claude-3-5-sonnet-20241022"), "Sonnet 3.5");
+        assert_eq!(model_name("claude-opus-4-6[1m]"), "Opus 4.6");
+        assert_eq!(model_name("claude-fable-6"), "Fable 6");
+        assert_eq!(model_name("42"), "42");
+        assert!(model_is("claude-opus-5-5", "opus") && model_is("claude-opus-5-5", ""));
+        assert!(!model_is("claude-opus-5-5", "haiku") && !model_is("", ""));
+        let a = r#"{"type":"assistant","parent_tool_use_id":null,"message":{"model":"claude-sonnet-5-5","content":[]}}"#;
+        assert_eq!(parse_line(a), vec![Event::Model("claude-sonnet-5-5".into())]);
+        let synthetic = r#"{"type":"assistant","parent_tool_use_id":null,"message":{"model":"<synthetic>","content":[]}}"#;
+        assert_eq!(parse_line(synthetic), Vec::<Event>::new());
     }
 
     #[test]

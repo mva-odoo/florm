@@ -102,6 +102,8 @@ pub(super) struct ClaudeUi {
     /// The message waiting for its files to be noted before it leaves.
     pub(super) outgoing: Option<send::Outgoing>,
     pub(super) model: usize,
+    /// The model really at work, as Claude Code names it ("claude-opus-5-5"; empty: not known yet).
+    pub(super) model_id: String,
     mode: usize,
     cost: f64,
     /// Tokens of the conversation read by the model for its last message, and its window.
@@ -497,9 +499,12 @@ impl App {
                 }
                 Event::Note(t) => items.push(Item::Info(t)),
                 // its session: continued after a restart of Florm
-                Event::Init { session, version, commands, terminal, .. } => {
+                Event::Init { session, model, version, commands, terminal } => {
                     if !session.is_empty() {
                         self.claude.session_id = Some(session);
+                    }
+                    if !model.is_empty() {
+                        self.claude.model_id = model;
                     }
                     self.claude.started = true;
                     let known = Commands { message: commands, terminal, version };
@@ -508,6 +513,7 @@ impl App {
                         self.claude_commands = known;
                     }
                 }
+                Event::Model(m) => self.claude.model_id = m,
                 Event::Session(id) => self.claude.session_id = Some(id),
                 Event::Uuid(id) => self.claude.last_uuid = Some(id),
                 Event::Reset => {
@@ -1062,11 +1068,29 @@ impl App {
                             .response
                             .on_hover_text(t!("Le compte Claude de cette conversation (son abonnement et ses quotas) ; changé, il s'applique au prochain message, la conversation continue", "The Claude account of this conversation (its subscription and quotas); changed, it applies from the next message, the conversation goes on"));
                     }
-                    egui::ComboBox::from_id_salt(("claude_model", conv)).selected_text(claude::label(claude::MODELS[c.model].1)).show_ui(ui, |ui| {
-                        for (k, (_, label)) in claude::MODELS.iter().enumerate() {
-                            ui.selectable_value(&mut c.model, k, claude::label(label));
-                        }
-                    });
+                    // the alias chosen, with the version Claude Code really runs once it is known
+                    let (alias, label) = claude::MODELS[c.model];
+                    let shown = if !claude::model_is(&c.model_id, alias) {
+                        claude::label(label).to_string()
+                    } else if alias.is_empty() {
+                        tf!("Défaut ({})", "Default ({})", claude::model_name(&c.model_id))
+                    } else {
+                        claude::model_name(&c.model_id)
+                    };
+                    let tip = if c.model_id.is_empty() {
+                        t!("La dernière version de chaque modèle, choisie par Claude Code", "The latest version of each model, chosen by Claude Code").to_string()
+                    } else {
+                        tf!("Modèle utilisé : {}", "Model in use: {}", c.model_id)
+                    };
+                    egui::ComboBox::from_id_salt(("claude_model", conv))
+                        .selected_text(shown)
+                        .show_ui(ui, |ui| {
+                            for (k, (_, label)) in claude::MODELS.iter().enumerate() {
+                                ui.selectable_value(&mut c.model, k, claude::label(label));
+                            }
+                        })
+                        .response
+                        .on_hover_text(tip);
                     egui::ComboBox::from_id_salt(("claude_mode", conv)).selected_text(tf!("Mode : {}", "Mode: {}", claude::label(claude::MODES[c.mode].1))).show_ui(ui, |ui| {
                         for (k, (_, label, tip)) in claude::MODES.iter().enumerate() {
                             ui.selectable_value(&mut c.mode, k, claude::label(label)).on_hover_text(claude::label(tip));
