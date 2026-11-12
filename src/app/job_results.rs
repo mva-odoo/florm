@@ -215,6 +215,7 @@ impl App {
                 JobResult::QueueCommit(id, r) => self.queue_commit_loaded(id, r),
                 JobResult::AiReview(key, r) => self.ai_review_loaded(key, r),
                 JobResult::InlineAi(n, r) => self.inline_ai_loaded(n, r),
+                JobResult::AiComplete(n, r) => self.ai_complete_loaded(n, r),
                 JobResult::GhBase(repo, r) => self.gh_base_loaded(repo, r),
                 JobResult::GhBranchPrs(repo, branch, r) => self.gh_branch_prs_loaded(repo, branch, r),
                 JobResult::GhCommitPrs(sha, r) => self.gh_commit_prs_loaded(sha, r),

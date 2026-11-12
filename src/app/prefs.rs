@@ -221,6 +221,22 @@ impl App {
     fn prefs_section(&mut self, ui: &mut egui::Ui, sec: PrefSection, rc: &mut RowCtx) {
         let before = self.settings.clone();
         let mut actions: Vec<Cmd> = Vec::new();
+        // the Claude accounts, with their plan when known (for the AI completion)
+        if sec == PrefSection::Editor && self.claude_accounts().len() > 1 && self.claude_accounts().iter().any(|a| !self.prefs.accounts.status.contains_key(&a.name)) {
+            self.claude_accounts_refresh();
+        }
+        let accounts: Vec<(String, String)> = self
+            .claude_accounts()
+            .into_iter()
+            .map(|a| {
+                let plan = match self.prefs.accounts.status.get(&a.name) {
+                    Some(Some(Ok(st))) if st.logged_in && !st.plan.is_empty() => format!(" · {}", st.plan),
+                    _ => String::new(),
+                };
+                let label = format!("👤 {}{plan}", a.name);
+                (a.name, label)
+            })
+            .collect();
         let s = &mut self.settings;
         // to write in the log once the settings are no longer borrowed
         let mut note: Option<String> = None;
@@ -418,6 +434,24 @@ impl App {
                 });
                 pref_row(ui, rc, t!("Fermeture automatique", "Auto-close brackets"), t!("Ferme automatiquement ( [ { \" ' ` et entoure la sélection.", "Closes ( [ { \" ' ` automatically and surrounds the selection."), |ui| {
                     toggle_switch(ui, &mut s.auto_pair);
+                });
+                pref_row(ui, rc, t!("Complétion par IA", "AI completion"), t!("Quand tu t'arrêtes de taper en fin de ligne, Claude (Haiku) propose la suite en gris : Tab la prend, Échap ou une autre touche l'ignore. Peu de tokens : seulement les lignes autour du curseur. Alt+\\ demande une proposition à tout moment, même désactivée.", "When you stop typing at the end of a line, Claude (Haiku) suggests what follows in grey: Tab takes it, Escape or another key ignores it. Few tokens: only the lines around the cursor. Alt+\\ asks for a suggestion at any time, even when turned off."), |ui| {
+                    toggle_switch(ui, &mut s.ai_complete);
+                    // the subscription that pays for it, when there are several accounts
+                    if accounts.len() > 1 {
+                        let default = t!("Compte par défaut", "Default account");
+                        let shown = accounts.iter().find(|a| a.0 == s.ai_complete_account).map_or(default.to_string(), |a| a.1.clone());
+                        egui::ComboBox::from_id_salt("ai_complete_account")
+                            .selected_text(shown)
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut s.ai_complete_account, String::new(), default);
+                                for (name, label) in &accounts {
+                                    ui.selectable_value(&mut s.ai_complete_account, name.clone(), label);
+                                }
+                            })
+                            .response
+                            .on_hover_text(t!("Le compte Claude (son abonnement) dont le quota paie les propositions", "The Claude account (its subscription) whose quota pays for the suggestions"));
+                    }
                 });
                 pref_row(ui, rc, t!("Supprimer les espaces en fin de ligne", "Trim trailing whitespace"), t!("À chaque enregistrement.", "On every save."), |ui| {
                     toggle_switch(ui, &mut s.trim_trailing_whitespace_on_save);
@@ -1023,6 +1057,7 @@ impl App {
             ("claude", s.claude, before.claude),
             ("tree_git_info", s.tree_git_info, before.tree_git_info),
             ("auto_pair", s.auto_pair, before.auto_pair),
+            ("ai_complete", s.ai_complete, before.ai_complete),
             ("trim_trailing_whitespace_on_save", s.trim_trailing_whitespace_on_save, before.trim_trailing_whitespace_on_save),
             ("hot_exit", s.hot_exit, before.hot_exit),
             ("lsp", s.lsp, before.lsp),
@@ -1040,6 +1075,9 @@ impl App {
             self.apply_features();
         }
         let mut lint_changed = s.python_linter != before.python_linter || s.python_lint_args != before.python_lint_args || s.lint_live != before.lint_live;
+        if s.ai_complete_account != before.ai_complete_account {
+            self.persist("ai_complete_account", config::toml_str(&s.ai_complete_account));
+        }
         if s.claude_done_sound != before.claude_done_sound {
             self.persist("claude_done_sound", config::toml_str(&s.claude_done_sound));
         }

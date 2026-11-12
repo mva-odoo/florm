@@ -537,6 +537,13 @@ panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en
   (`SaleOrder`, `_compute_total`, `foo()`…) partent avec lui, leurs premières lignes comprises,
   trouvées dans l'index de Florm : Claude n'a pas à les chercher (moins de tokens). Un nom
   défini à plus de deux endroits n'est pas donné.
+- **Complétion par IA** (Préférences → Éditeur, ou la palette : « complétion par IA pendant la
+  frappe ») : quand tu t'arrêtes de taper en fin de ligne, Claude (Haiku) propose la suite en
+  gris après le curseur. **Tab** la prend, **Échap** ou une autre touche l'ignore ; taper ses
+  premières lettres garde le reste. **Alt+\\** demande une proposition tout de suite, même
+  désactivée. Peu de tokens : seulement les lignes autour du curseur, sans outils ni CLAUDE.md
+  (environ un dixième de centime la proposition) ; il faut une à deux secondes pour qu'elle arrive. Avec plusieurs comptes Claude, le menu 👤 à côté
+  de l'option choisit celui dont l'abonnement paie les propositions (par défaut : le compte par défaut).
 - **Donner des lignes ou des fichiers à Claude** : au survol d'un numéro de ligne, clic sur le
   **✳** à sa gauche (la ligne, ou les lignes sélectionnées) ; clic droit dans l'éditeur →
   **Demander à Claude à propos de la sélection…** (**Ctrl+Alt+K**) ou **Ajouter … au contexte** ;

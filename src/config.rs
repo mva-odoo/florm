@@ -71,6 +71,10 @@ pub struct Settings {
     /// Show git changes inside the editor (deleted lines in red, added in green).
     pub inline_diff: bool,
     pub auto_pair: bool,
+    /// AI completion: Haiku suggests the rest of the line after a pause in typing (Tab takes it).
+    pub ai_complete: bool,
+    /// The Claude account (its subscription) the AI completion uses; empty: the default one.
+    pub ai_complete_account: String,
     pub lint_on_save: bool,
     /// Lint Python while typing (not only on save).
     pub lint_live: bool,
@@ -194,6 +198,8 @@ impl Default for Settings {
             tree_git_info: true,
             inline_diff: false,
             auto_pair: true,
+            ai_complete: false,
+            ai_complete_account: String::new(),
             lint_on_save: true,
             lint_live: true,
             python_linter: "auto".into(),
@@ -301,6 +307,10 @@ tree_git_info = true
 # diff git dans l'éditeur : lignes supprimées en rouge, ajoutées en vert (Ctrl+Alt+D)
 inline_diff = false
 auto_pair = true
+# Complétion par IA : Haiku propose la suite de la ligne après une pause dans la frappe (Tab la prend)
+ai_complete = false
+# Le compte Claude (son abonnement) de la complétion par IA ; vide : le compte par défaut
+ai_complete_account = ""
 lint_on_save = true
 # Lint Python pendant la frappe
 lint_live = true

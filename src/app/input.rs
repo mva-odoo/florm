@@ -388,6 +388,8 @@ impl App {
             ClaudeAddSelection => self.claude_attach_selection(false),
             ClaudeAsk => self.claude_attach_selection(true),
             ClaudeInline => self.inline_ai_open(),
+            AiComplete => self.ai_complete_now(),
+            ToggleAiComplete => self.ai_complete_toggle(),
             ClaudeNextWaiting => self.claude_next_waiting(),
             ClaudeResumeFile => self.claude_resume_file(),
             ClaudeAddFile => {

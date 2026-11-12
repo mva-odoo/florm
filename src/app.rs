@@ -29,6 +29,7 @@ use std::time::{Duration, Instant};
 mod git_view;
 mod ai_review;
 mod inline_ai;
+mod ai_complete;
 mod md;
 mod quick_fix;
 mod pulls;
@@ -996,6 +997,9 @@ pub struct App {
     md_cache: egui_commonmark::CommonMarkCache,
     /// Claude on the selection, in a small window over the editor (Ctrl+I).
     inline: Option<inline_ai::InlineAsk>,
+    /// AI completion while typing (see ai_complete.rs).
+    ai: ai_complete::AiComplete,
+    /// The window of a new git repository (right click on a folder in the tree).
     /// Corrections rapides (Ctrl+.) of the cursor, while their list is open.
     quick_fix: Option<quick_fix::QuickFix>,
     /// GitHub pull requests tab.
@@ -1252,6 +1256,7 @@ impl App {
             pending_focus: false,
             md_cache: egui_commonmark::CommonMarkCache::default(),
             inline: None,
+            ai: Default::default(),
             quick_fix: None,
             pr: {
                 let mut pr = pulls::PrUi::default();
@@ -1565,9 +1570,11 @@ impl eframe::App for App {
         self.debug_frame();
         self.update_hover(ctx);
         self.completion_keys(ctx);
+        self.ai_complete_keys(ctx);
         self.quick_fix_keys(ctx);
         self.handle_keys(ctx);
         self.editor_input(ctx);
+        self.ai_complete_frame(ctx);
         self.update_blame();
         self.update_live_lint(ctx);
         self.update_find();

@@ -857,6 +857,23 @@ fn text_area(
         }
         doc.caret_screen = caret_screen;
 
+        // suggestion of the AI completion, in grey after the cursor (Tab takes it); its next lines
+        // cover the code below until it is taken or dropped
+        if let Some((pos, text)) = doc.ghost.as_ref().filter(|(p, _)| focused && *p == prim.head) {
+            let (l, col) = doc.line_col(*pos);
+            if (first..=last).contains(&l) {
+                let p0 = at(l, doc.vcol(l, col));
+                let color = c.fg.gamma_multiply(0.4);
+                for (k, line) in text.replace('\t', "    ").split('\n').enumerate() {
+                    let p = if k == 0 { p0 } else { Pos2::new(text_x, p0.y + k as f32 * rh) };
+                    if k > 0 {
+                        painter.rect_filled(Rect::from_min_size(p, egui::vec2(10_000.0, rh)), 0.0, c.bg);
+                    }
+                    painter.text(p, Align2::LEFT_TOP, line, font.clone(), color);
+                }
+            }
+        }
+
         // gutter
         let gutter = Rect::from_min_size(Pos2::new(gx, origin.y + vp.min.y), egui::vec2(gutter_w, vp.height()));
         painter.rect_filled(gutter, 0.0, c.bg);

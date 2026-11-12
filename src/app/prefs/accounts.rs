@@ -7,7 +7,7 @@ use crate::claude_account::{self, Status};
 #[derive(Default)]
 pub(in crate::app) struct AccountsUi {
     /// What `claude auth status` said of each account (by name; None: being asked).
-    status: HashMap<String, Option<Result<Status, String>>>,
+    pub(super) status: HashMap<String, Option<Result<Status, String>>>,
     /// The name of the account being added.
     new_name: String,
     /// The account being renamed: its index and its new name.
@@ -34,7 +34,7 @@ enum AccAct {
 
 impl App {
     /// The state of each account asked again (at the first showing, after a login).
-    fn claude_accounts_refresh(&mut self) {
+    pub(super) fn claude_accounts_refresh(&mut self) {
         for a in self.claude_accounts() {
             self.prefs.accounts.status.insert(a.name.clone(), None);
             let (name, dir) = (a.name, a.dir);

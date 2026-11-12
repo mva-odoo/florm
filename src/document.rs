@@ -206,6 +206,9 @@ pub struct Document {
     pub zoom: f32,
     /// Screen position (x, bottom) of the primary cursor when drawn (completion popup).
     pub caret_screen: Option<(f32, f32)>,
+    /// Suggestion of the AI completion shown in grey after the cursor: its place (char) and its
+    /// text, not part of the file until Tab takes it.
+    pub ghost: Option<(usize, String)>,
 }
 
 pub const NO_PANE: u8 = u8::MAX;
@@ -483,6 +486,7 @@ impl Document {
             view: View::Text,
             zoom: 0.0,
             caret_screen: None,
+            ghost: None,
         }
     }
 

@@ -525,6 +525,13 @@ command and your login: no key to set up.
   (`SaleOrder`, `_compute_total`, `foo()`…) go with it, their first lines included, found in
   Florm's index: Claude does not have to look for them (fewer tokens). A name defined in more
   than two places is not given.
+- **AI completion** (Preferences → Editor, or the palette: “AI completion while typing”): when
+  you stop typing at the end of a line, Claude (Haiku) suggests what follows in grey after the
+  cursor. **Tab** takes it, **Escape** or another key ignores it; typing its first letters keeps
+  the rest. **Alt+\\** asks for a suggestion at once, even when turned off. Few tokens: only the
+  lines around the cursor, without tools or CLAUDE.md (about a tenth of a cent per suggestion);
+  it takes one to two seconds to come. With several Claude accounts, the 👤 menu next to the
+  option chooses the one whose subscription pays for the suggestions (by default: the default account).
 - **Give lines or files to Claude**: when hovering a line number, click the **✳** on its left
   (the line, or the selected lines); right click in the editor → **Ask Claude about the
   selection…** (**Ctrl+Alt+K**) or **Add … to Claude's context**; right click on a file or a

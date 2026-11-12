@@ -51,6 +51,8 @@ pub enum JobResult {
     AiReview(String, Result<Vec<crate::claude::ReviewNote>, String>),
     /// Answer of Claude on a selection in the editor (number of the question).
     InlineAi(u64, Result<crate::claude::Inline, String>),
+    /// Suggestion of the AI completion (number of the request); empty: nothing to suggest.
+    AiComplete(u64, Result<String, String>),
     /// The repository pull requests go to, and its default branch.
     GhBase(PathBuf, Result<(String, String), String>),
     /// Pull requests of a branch (repository, branch).
