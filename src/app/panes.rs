@@ -354,10 +354,30 @@ impl App {
                 let pad = ((ui.available_width() - w) / 2.0).max(16.0);
                 egui::Frame::none().inner_margin(egui::Margin { left: pad, right: pad, top: 16.0, bottom: 40.0 }).show(ui, |ui| {
                     ui.set_max_width(w);
-                    egui_commonmark::CommonMarkViewer::new()
-                        .default_implicit_uri_scheme(base)
-                        .max_image_width(Some(w as usize))
-                        .show(ui, cache, text);
+                    // the Mermaid diagrams drawn apart, the rest (HTML written in Markdown) in pieces between
+                    let mut pending = String::new();
+                    let flush = |ui: &mut egui::Ui, cache: &mut egui_commonmark::CommonMarkCache, md: &mut String| {
+                        if !md.trim().is_empty() {
+                            egui_commonmark::CommonMarkViewer::new().default_implicit_uri_scheme(base.clone()).max_image_width(Some(w as usize)).show(ui, cache, &md::html_to_md(md));
+                        }
+                        md.clear();
+                    };
+                    for part in md::parts(text) {
+                        match part {
+                            md::MdPart::Code { lang, code } if lang.eq_ignore_ascii_case("mermaid") && super::mermaid::parse_sequence(&code).is_some() => {
+                                flush(ui, cache, &mut pending);
+                                ui.add_space(6.0);
+                                super::mermaid::show(ui, &code);
+                                ui.add_space(10.0);
+                            }
+                            md::MdPart::Code { lang, code } => {
+                                let fence = if code.contains("```") { "~~~~" } else { "```" };
+                                pending.push_str(&format!("{fence}{lang}\n{code}\n{fence}\n"));
+                            }
+                            md::MdPart::Text(t) => pending.push_str(&t),
+                        }
+                    }
+                    flush(ui, cache, &mut pending);
                 });
             });
         });

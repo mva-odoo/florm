@@ -30,6 +30,7 @@ mod git_view;
 mod ai_review;
 mod inline_ai;
 mod ai_complete;
+mod mermaid;
 mod md;
 mod quick_fix;
 mod pulls;

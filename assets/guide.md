@@ -618,6 +618,12 @@ sur les lignes sélectionnées ; un second clic enlève le préfixe. Le texte re
 Pour masquer la barre : `markdown_toolbar = false` dans `settings.toml`. L'aperçu rendu reste
 Ctrl+Shift+V (onglet) ou Ctrl+K V (à côté).
 
+Dans l'aperçu (et dans les réponses de Claude), les **diagrammes de séquence Mermaid**
+(` ```mermaid ` puis `sequenceDiagram`) sont dessinés par Florm : participants, acteurs, messages,
+notes, `loop` / `alt` / `opt`, `autonumber`. Les autres types de diagrammes restent affichés en code.
+Le **HTML** courant s'affiche aussi : `<br>`, `<b>`, `<i>`, `<kbd>`, `<img>`, `<a href>`,
+`<details>` / `<summary>`, `<h1>`…, `<p align>` ; les commentaires `<!-- -->` sont masqués.
+
 ## Apparence
 
 **Préférences → Apparence** : langue (Français / English), thème (aperçus cliquables : Florm et

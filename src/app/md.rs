@@ -54,6 +54,117 @@ pub(super) fn parts(text: &str) -> Vec<MdPart> {
     out
 }
 
+/// The HTML of `text` written in Markdown, as the viewer leaves HTML out: `<br>`, `<b>`, `<img>`,
+/// `<a href>`, `<details>` / `<summary>`, `<kbd>`…; the tags only around text (`<p align>`, `<div>`…)
+/// taken away, the comments too. Code (blocks and `…`) is left as it is.
+pub(super) fn html_to_md(text: &str) -> String {
+    if !text.contains('<') {
+        return text.to_string();
+    }
+    let mut out = String::with_capacity(text.len());
+    for part in parts(text) {
+        match part {
+            MdPart::Text(t) => out.push_str(&html_text(&t)),
+            MdPart::Code { lang, code } => {
+                let fence = if code.contains("```") { "~~~~" } else { "```" };
+                out.push_str(&format!("{fence}{lang}\n{code}\n{fence}\n"));
+            }
+        }
+    }
+    // `parts` ends each piece with a new line
+    if !text.ends_with('\n') && out.ends_with('\n') {
+        out.pop();
+    }
+    out
+}
+
+fn html_text(t: &str) -> String {
+    use std::sync::OnceLock;
+    struct Res {
+        comment: regex::Regex,
+        br: regex::Regex,
+        img: regex::Regex,
+        src: regex::Regex,
+        alt: regex::Regex,
+        link: regex::Regex,
+        summary: regex::Regex,
+        heading: regex::Regex,
+        hr: regex::Regex,
+        pairs: Vec<(regex::Regex, &'static str)>,
+        strip: regex::Regex,
+    }
+    static RES: OnceLock<Res> = OnceLock::new();
+    let r = RES.get_or_init(|| {
+        let re = |s: &str| regex::Regex::new(s).unwrap();
+        Res {
+            comment: re(r"(?s)<!--.*?-->"),
+            br: re(r"(?i)<br\s*/?>"),
+            img: re(r"(?i)<img\b[^>]*>"),
+            src: re(r#"(?i)\bsrc\s*=\s*["']([^"']+)["']"#),
+            alt: re(r#"(?i)\balt\s*=\s*["']([^"']*)["']"#),
+            link: re(r#"(?is)<a\b[^>]*?\bhref\s*=\s*["']([^"']+)["'][^>]*>(.*?)</a\s*>"#),
+            summary: re(r"(?is)<summary\b[^>]*>(.*?)</summary\s*>"),
+            heading: re(r"(?i)^\s*<h([1-6])\b[^>]*>(.*?)</h[1-6]\s*>\s*$"),
+            hr: re(r"(?i)^\s*<hr\s*/?>\s*$"),
+            pairs: vec![
+                (re(r"(?i)</?(b|strong)\s*>"), "**"),
+                (re(r"(?i)</?(i|em)\s*>"), "*"),
+                (re(r"(?i)</?(code|kbd|tt|samp)\s*>"), "`"),
+                (re(r"(?i)</?(s|del|strike)\s*>"), "~~"),
+            ],
+            strip: re(r"(?i)</?(p|div|span|details|center|sup|sub|u|ins|mark|small|big|font|section|article|header|footer|picture|source|a|nobr|wbr|abbr|cite|q|dl|dt|dd|figure|figcaption)\b[^>]*>"),
+        }
+    });
+    let t = r.comment.replace_all(t, "");
+    let mut out = String::with_capacity(t.len());
+    for (n, line) in t.split('\n').enumerate() {
+        if n > 0 {
+            out.push('\n');
+        }
+        if !line.contains('<') {
+            out.push_str(line);
+            continue;
+        }
+        if r.hr.is_match(line) {
+            out.push_str("---");
+            continue;
+        }
+        let line = match r.heading.captures(line) {
+            Some(c) => format!("{} {}", "#".repeat(c[1].parse().unwrap_or(1)), &c[2]),
+            None => line.to_string(),
+        };
+        let in_table = line.trim_start().starts_with('|');
+        // the code spans (between `) stay as they are
+        for (k, seg) in line.split('`').enumerate() {
+            if k > 0 {
+                out.push('`');
+            }
+            if k % 2 == 1 {
+                out.push_str(seg);
+                continue;
+            }
+            let mut s = r.br.replace_all(seg, if in_table { " " } else { "  \n" }).into_owned();
+            s = r
+                .img
+                .replace_all(&s, |c: &regex::Captures| {
+                    let tag = &c[0];
+                    let src = r.src.captures(tag).map(|m| m[1].to_string()).unwrap_or_default();
+                    let alt = r.alt.captures(tag).map(|m| m[1].to_string()).unwrap_or_default();
+                    if src.is_empty() { String::new() } else { format!("![{alt}]({src})") }
+                })
+                .into_owned();
+            s = r.link.replace_all(&s, "[$2]($1)").into_owned();
+            s = r.summary.replace_all(&s, "**▸ $1**").into_owned();
+            for (re, md) in &r.pairs {
+                s = re.replace_all(&s, *md).into_owned();
+            }
+            s = r.strip.replace_all(&s, "").into_owned();
+            out.push_str(&s);
+        }
+    }
+    out
+}
+
 /// Markdown cut at its `## ` headings: the text before the first one, then each section as
 /// (its title, its text with the heading). A `## ` inside a code block is not a heading.
 pub(super) fn sections(text: &str) -> (String, Vec<(String, String)>) {
@@ -122,8 +233,9 @@ pub(super) fn markdown(ui: &mut egui::Ui, cache: &mut egui_commonmark::CommonMar
     for part in parts(text) {
         match part {
             MdPart::Text(t) => {
-                egui_commonmark::CommonMarkViewer::new().show(ui, cache, &autolink(&t));
+                egui_commonmark::CommonMarkViewer::new().show(ui, cache, &autolink(&html_text(&t)));
             }
+            MdPart::Code { lang, code } if lang.eq_ignore_ascii_case("mermaid") && super::mermaid::show(ui, &code) => {}
             MdPart::Code { lang, code } => code_block(ui, hl, &lang, &code),
         }
     }
@@ -327,6 +439,20 @@ mod list_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_html_is_written_in_markdown() {
+        assert_eq!(html_to_md("a<br/>b"), "a  \nb");
+        assert_eq!(html_to_md("| a<br>b | c |"), "| a b | c |");
+        assert_eq!(html_to_md("<b>gras</b> et <em>penché</em>, <kbd>Ctrl</kbd>"), "**gras** et *penché*, `Ctrl`");
+        assert_eq!(html_to_md(r#"<p align="center"><img src="logo.png" alt="Logo" width="80"></p>"#), "![Logo](logo.png)");
+        assert_eq!(html_to_md(r#"voir <a href="https://x.io">le site</a>"#), "voir [le site](https://x.io)");
+        assert_eq!(html_to_md("<details>\n<summary>Plus</summary>\n\ncaché\n</details>"), "\n**▸ Plus**\n\ncaché\n");
+        assert_eq!(html_to_md("<h2>Titre</h2>\n<!-- note\nsur deux lignes -->fin\n<hr>"), "## Titre\nfin\n---");
+        // code and text that is not HTML stay as they are
+        assert_eq!(html_to_md("`<br>` et Vec<String>"), "`<br>` et Vec<String>");
+        assert_eq!(html_to_md("```html\n<b>x</b>\n```\n"), "```html\n<b>x</b>\n```\n");
+    }
 
     #[test]
     fn bare_addresses_become_links() {

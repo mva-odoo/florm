@@ -604,6 +604,12 @@ a second click removes the prefix. The text stays editable by hand. To hide the 
 `markdown_toolbar = false` in `settings.toml`. The rendered preview stays Ctrl+Shift+V (tab) or
 Ctrl+K V (side).
 
+In the preview (and in Claude's answers), **Mermaid sequence diagrams** (` ```mermaid ` then
+`sequenceDiagram`) are drawn by Florm: participants, actors, messages, notes, `loop` / `alt` /
+`opt`, `autonumber`. The other kinds of diagrams stay shown as code. Common **HTML** shows too:
+`<br>`, `<b>`, `<i>`, `<kbd>`, `<img>`, `<a href>`, `<details>` / `<summary>`, `<h1>`…, `<p align>`;
+`<!-- -->` comments are hidden.
+
 ## Appearance
 
 **Preferences → Appearance**: language (Français / English), theme (clickable previews: Florm and
