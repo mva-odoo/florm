@@ -51,7 +51,11 @@ sidebar shown or not.
 - The sidebar only shows the tree: the views (Search, Terminal, Claude, Git…) are in the bottom
   panel and the status bar (see below).
 - **Copy / paste files**: right click → **Copy** puts the file or folder on the system clipboard; **Paste** (or Ctrl+C / Ctrl+V in the tree) drops the files copied from your PC's file manager, or from the tree. A name already taken becomes “name (copy).ext”: nothing is replaced.
-- Right click on a folder → **Initialize a git repository here** (`git init`), for a new project.
+- Right click on a folder outside any repository → **Initialize a git repository here…**, for a
+  new project: a window asks for the **remote** to add (“origin”, empty: none), the branch
+  (`main`), then **add everything** (`git add .`) and make the first commit, or an **empty
+  commit** without any file, or nothing. With a remote, the commit is pushed (`git push -u`). If a
+  step fails, the window stays open with the error (the steps before stay done).
 
 ## Bottom panel and status bar
 

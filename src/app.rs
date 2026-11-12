@@ -31,6 +31,7 @@ mod ai_review;
 mod inline_ai;
 mod ai_complete;
 mod mermaid;
+mod repo_init;
 mod md;
 mod quick_fix;
 mod pulls;
@@ -1001,6 +1002,7 @@ pub struct App {
     /// AI completion while typing (see ai_complete.rs).
     ai: ai_complete::AiComplete,
     /// The window of a new git repository (right click on a folder in the tree).
+    repo_init: Option<repo_init::RepoInitUi>,
     /// Corrections rapides (Ctrl+.) of the cursor, while their list is open.
     quick_fix: Option<quick_fix::QuickFix>,
     /// GitHub pull requests tab.
@@ -1258,6 +1260,7 @@ impl App {
             md_cache: egui_commonmark::CommonMarkCache::default(),
             inline: None,
             ai: Default::default(),
+            repo_init: None,
             quick_fix: None,
             pr: {
                 let mut pr = pulls::PrUi::default();
@@ -1624,6 +1627,7 @@ impl eframe::App for App {
         }
         self.local_history_ui(ctx);
         self.pr_create_ui(ctx);
+        self.repo_init_ui(ctx);
         self.inline_ai_ui(ctx);
         self.overlay_ui(ctx);
         self.confirm_ui(ctx);

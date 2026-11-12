@@ -752,9 +752,10 @@ fn menu(ui: &mut Ui, path: &Path, is_dir: bool, excluded: Option<bool>, act: &mu
     if ui.button(t!("Rafraîchir", "Refresh")).clicked() {
         pick(TreeAction::Refresh, ui);
     }
-    if is_dir && !path.join(".git").exists() {
+    // only outside any repository (a folder of a repository is already in it)
+    if is_dir && !path.ancestors().any(|a| a.join(".git").exists()) {
         ui.separator();
-        if ui.button(t!("Initialiser un dépôt git ici", "Initialize a git repository here")).on_hover_text(t!("git init dans ce dossier", "git init in this folder")).clicked() {
+        if ui.button(t!("Initialiser un dépôt git ici…", "Initialize a git repository here…")).on_hover_text(t!("git init, le remote à ajouter, puis tout committer (git add .) ou un commit vide, et pousser", "git init, the remote to add, then commit everything (git add .) or an empty commit, and push")).clicked() {
             pick(TreeAction::InitRepo(path.to_path_buf()), ui);
         }
     }

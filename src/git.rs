@@ -809,3 +809,94 @@ mod status_tests {
         let _ = std::fs::remove_dir_all(&repo);
     }
 }
+
+/// The first commit of a new repository (`init_repo`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FirstCommit {
+    /// `git add .` then a commit of everything.
+    All,
+    /// An empty commit (to push the branch without any file).
+    Empty,
+    /// No commit (and so nothing pushed).
+    Nothing,
+}
+
+/// A new repository in `dir`: `git init` on `branch`, `origin` set to `remote` (empty: none), the
+/// first commit, and the branch pushed when there is a remote and a commit. What git said, or
+/// where it stopped (the steps before stay done).
+pub fn init_repo(dir: &Path, remote: &str, branch: &str, first: FirstCommit, message: &str) -> Result<String, String> {
+    let mut log = Vec::new();
+    let mut step = |label: String, args: &[&str]| -> Result<(), String> {
+        log.push(format!("$ git {}", args.join(" ")));
+        match run(dir, args) {
+            Ok(out) => {
+                if !out.is_empty() {
+                    log.push(out);
+                }
+                Ok(())
+            }
+            Err(e) => Err(format!("{}\n{label} : {e}", log.join("\n"))),
+        }
+    };
+    let branch = if branch.trim().is_empty() { "main" } else { branch.trim() };
+    // `-b` needs git 2.28: before, the branch is named after the init
+    if step(t!("git init", "git init").into(), &["init", "-b", branch]).is_err() {
+        step(t!("git init", "git init").into(), &["init"])?;
+        step(t!("nommer la branche", "naming the branch").into(), &["symbolic-ref", "HEAD", &format!("refs/heads/{branch}")])?;
+    }
+    let remote = remote.trim();
+    if !remote.is_empty() {
+        step(t!("ajouter le remote", "adding the remote").into(), &["remote", "add", "origin", remote])?;
+    }
+    let message = if message.trim().is_empty() { "Initial commit" } else { message.trim() };
+    match first {
+        FirstCommit::All => {
+            step(t!("git add", "git add").into(), &["add", "-A", "."])?;
+            step(t!("le premier commit", "the first commit").into(), &["commit", "-m", message])?;
+        }
+        FirstCommit::Empty => step(t!("le commit vide", "the empty commit").into(), &["commit", "--allow-empty", "-m", message])?,
+        FirstCommit::Nothing => {}
+    }
+    if !remote.is_empty() && first != FirstCommit::Nothing {
+        step(t!("git push", "git push").into(), &["push", "-u", "origin", branch])?;
+    }
+    Ok(log.join("\n"))
+}
+
+#[cfg(test)]
+mod init_tests {
+    use super::*;
+
+    /// A new repository, everything committed and pushed to a remote (a bare repository here),
+    /// then an empty one: the remote gets the branch with its commit.
+    #[test]
+    fn a_new_repository_is_pushed() {
+        // a commit needs a git identity (not set here for the whole test process: other tests read the author)
+        if run(&std::env::temp_dir(), &["config", "user.email"]).is_err() {
+            return;
+        }
+        let base = std::env::temp_dir().join(format!("florm-init-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let (remote, work, empty) = (base.join("remote.git"), base.join("work"), base.join("empty"));
+        for d in [&remote, &work, &empty] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        run(&remote, &["init", "--bare"]).unwrap();
+        std::fs::write(work.join("a.txt"), "a\n").unwrap();
+        let url = remote.display().to_string();
+        init_repo(&work, &url, "main", FirstCommit::All, "Premier commit").unwrap();
+        assert_eq!(run(&remote, &["log", "--format=%s", "main"]).unwrap(), "Premier commit");
+        assert_eq!(run(&remote, &["ls-tree", "--name-only", "main"]).unwrap(), "a.txt");
+        // an empty commit on another branch, no file
+        init_repo(&empty, &url, "vide", FirstCommit::Empty, "").unwrap();
+        assert_eq!(run(&remote, &["ls-tree", "--name-only", "vide"]).unwrap(), "");
+        assert_eq!(run(&remote, &["log", "--format=%s", "vide"]).unwrap(), "Initial commit");
+        // a remote that does not exist: it stops at the push, the repository stays
+        let bad = base.join("bad");
+        std::fs::create_dir_all(&bad).unwrap();
+        let e = init_repo(&bad, "/nowhere/x.git", "main", FirstCommit::Empty, "x").unwrap_err();
+        assert!(e.contains("push"), "{e}");
+        assert!(bad.join(".git").exists());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+}

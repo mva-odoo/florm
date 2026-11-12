@@ -52,7 +52,11 @@ bas ouvert et la barre latérale affichée ou non.
 - La barre latérale ne montre que l'arborescence : les vues (Recherche, Terminal, Claude, Git…) se
   trouvent dans le panneau du bas et la barre d'état (voir plus bas).
 - **Copier / coller des fichiers** : clic droit → **Copier** met le fichier ou le dossier sur le presse-papiers du système ; **Coller** (ou Ctrl+C / Ctrl+V dans l'arborescence) y dépose les fichiers copiés depuis le gestionnaire de fichiers de ton PC, ou depuis l'arborescence. Un nom déjà pris devient « nom (copie).ext » : rien n'est remplacé.
-- Clic droit sur un dossier → **Initialiser un dépôt git ici** (`git init`), pour un nouveau projet.
+- Clic droit sur un dossier hors de tout dépôt → **Initialiser un dépôt git ici…**, pour un nouveau
+  projet : une fenêtre demande le **remote** à ajouter (« origin », vide : aucun), la branche
+  (`main`), puis **tout ajouter** (`git add .`) et faire le premier commit, ou un **commit vide**
+  sans aucun fichier, ou rien. Avec un remote, le commit est poussé (`git push -u`). Si une étape
+  échoue, la fenêtre reste ouverte avec l'erreur (les étapes d'avant restent faites).
 
 ## Panneau du bas et barre d'état
 

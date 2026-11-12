@@ -509,9 +509,20 @@ impl App {
                     match result {
                         Ok(out) => {
                             self.log(out);
+                            self.repo_init = None;
                             self.set_status(tf!("Dépôt git créé dans {}", "Git repository created in {}", dir.display()));
                         }
-                        Err(e) => self.set_error(tf!("git init a échoué : {e}", "git init failed: {e}")),
+                        // the window stays, with what went wrong (the steps before stay done)
+                        Err(e) => {
+                            self.log(e.clone());
+                            match self.repo_init.as_mut() {
+                                Some(st) => st.error = Some(e),
+                                None => self.set_error(tf!("Dépôt git : {}", "Git repository: {}", e.lines().last().unwrap_or(""))),
+                            }
+                        }
+                    }
+                    if let Some(st) = self.repo_init.as_mut() {
+                        st.busy = false;
                     }
                     self.apply_repos(root, repos);
                     self.exec_refresh_tree();

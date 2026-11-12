@@ -381,17 +381,6 @@ impl App {
         }
     }
 
-    /// `git init` in a folder of the tree, then it is known as a repository of the project.
-    pub(super) fn init_repo(&mut self, dir: PathBuf) {
-        let Some(root) = self.root.clone() else { return };
-        self.log("$ git init".to_string());
-        self.set_status(t!("git init…", "git init…"));
-        self.jobs.spawn(move || {
-            let result = git::run(&dir, &["init"]);
-            JobResult::RepoInit { root: root.clone(), dir, result, repos: git::find_repos(&root, 3) }
-        });
-    }
-
     /// The repositories found in the opened folder: the one of the active file (else the first) is selected.
     pub(super) fn apply_repos(&mut self, root: PathBuf, repos: Vec<PathBuf>) {
         if self.root.as_ref() != Some(&root) {
