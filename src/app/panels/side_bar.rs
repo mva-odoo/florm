@@ -126,6 +126,7 @@ impl App {
             TreeAction::Paste(d) => self.paste_into(d),
             TreeAction::InitRepo(d) => self.init_repo(d),
             TreeAction::AddVersion(d) => self.open_add_version(d),
+            TreeAction::Versions(d) => self.open_versions(d),
         }
     }
 

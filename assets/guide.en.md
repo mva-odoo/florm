@@ -64,8 +64,20 @@ sidebar shown or not.
   each one gets its folder (`odoo/20.0`, `enterprise/20.0`…) on that branch, tracking the remote
   branch. A branch no remote knows yet is fetched first. If a repository fails, the others are still
   done and the window shows what went wrong.
+- **The Versions window** (click **Version 20.0** in the status bar, right click on `odoo/` →
+  **Versions side by side…**, or the Git menu) shows everything at once: a row per version
+  (`master`, then the newest at the top), a column per repository. Each cell says whether the
+  folder is **✔ up to date**, behind (**↓3** commits to pull, since the last fetch), ahead (**↑1**
+  to push), with **● changed files**, or on another branch (its name in grey); **—**: the version
+  is missing in this repository, **+** adds it there. For each version: **Work on it** (see
+  below), **Update** (`git pull --ff-only` in each repository, never a merge commit), and in
+  **⋯**: a terminal in one of its folders, add it where it is missing, or **remove** it (`git
+  worktree remove`: the folders go, the branches stay; with changed files, Florm says so and asks
+  to confirm). **⟳ Check the server** runs `git fetch --all` to count the ↓ again; **+ New
+  version…** opens the window to add one.
 - **Current version**: with versions side by side in the opened folder, the status bar shows
-  **Version 20.0** (or **Versions: all**). A click chooses the version you work on: only that one is
+  **Version 20.0** (or **Versions: all**). In the Versions window, **Work on it** chooses the version you work on (**Stop filtering**
+  puts them all back): only that one is
   in the index (go to file, F12, completion, search), in every repository at once (`odoo/20.0`,
   `enterprise/20.0`…). The others stay in the tree, dimmed, and still open. The choice is kept for
   the folder; **Exclude from the index** works as before, separately. To find a file in another

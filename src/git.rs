@@ -254,6 +254,63 @@ pub fn add_version(v: &Versions, branch: &str) -> Result<String, String> {
     Ok(format!("{fetched}\n{out}").trim().to_string())
 }
 
+/// The state of the folder of a version: its branch and what it tracks, the commits to push /
+/// to pull (since the last fetch), the files changed (not counting the untracked ones).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct VersionState {
+    pub branch: String,
+    pub upstream: String,
+    pub ahead: usize,
+    pub behind: usize,
+    pub changes: usize,
+}
+
+/// `git status` of a version's folder, read as a `VersionState`.
+pub fn version_state(dir: &Path) -> Result<VersionState, String> {
+    Ok(parse_version_state(&stdout(dir, &["status", "--porcelain=v1", "-b", "--untracked-files=no"])?))
+}
+
+fn parse_version_state(out: &str) -> VersionState {
+    let mut s = VersionState::default();
+    let mut lines = out.lines();
+    if let Some(head) = lines.next().and_then(|l| l.strip_prefix("## ")) {
+        let (refs, counts) = head.split_once(" [").map_or((head, ""), |(r, c)| (r, c.trim_end_matches(']')));
+        let (branch, upstream) = refs.split_once("...").unwrap_or((refs, ""));
+        s.branch = branch.trim_start_matches("No commits yet on ").to_string();
+        s.upstream = upstream.to_string();
+        for part in counts.split(", ") {
+            if let Some(n) = part.strip_prefix("ahead ") {
+                s.ahead = n.parse().unwrap_or(0);
+            } else if let Some(n) = part.strip_prefix("behind ") {
+                s.behind = n.parse().unwrap_or(0);
+            }
+        }
+    }
+    s.changes = lines.filter(|l| !l.trim().is_empty()).count();
+    s
+}
+
+/// A version brought up to date: `git pull --ff-only` (never a merge commit).
+pub fn pull_version(dir: &Path) -> Result<String, String> {
+    run(dir, &["pull", "--ff-only"])
+}
+
+/// The version `name` taken out of `v`: its folder removed (`git worktree remove`; `force`: even
+/// with changed files). The folder of the repository itself is never removed; the branch stays.
+pub fn remove_version(v: &Versions, name: &str, force: bool) -> Result<String, String> {
+    let dir = v.dir.join(name);
+    if dir == v.main {
+        return Err(t!("C'est le dépôt lui-même : il ne se supprime pas d'ici", "It is the repository itself: it cannot be removed from here").into());
+    }
+    let dir = dir.to_string_lossy().into_owned();
+    let mut args = vec!["worktree", "remove"];
+    if force {
+        args.push("--force");
+    }
+    args.push(&dir);
+    run(&v.main, &args)
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Status {
     pub branch: String,
@@ -1077,6 +1134,50 @@ mod init_tests {
         run(&v.main, &["branch", "17.0-fix", "odoo/17.0"]).unwrap();
         add_version(&v, "17.0-fix").unwrap();
         assert!(odoo.join("17.0-fix/.git").is_file());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+}
+
+#[cfg(test)]
+mod version_tests {
+    use super::*;
+
+    #[test]
+    fn the_state_of_a_version_is_read() {
+        let s = parse_version_state("## 20.0...odoo/20.0 [ahead 1, behind 3]\n M a.py\nM  b.py\n");
+        assert_eq!(s, VersionState { branch: "20.0".into(), upstream: "odoo/20.0".into(), ahead: 1, behind: 3, changes: 2 });
+        let s = parse_version_state("## master...origin/master\n");
+        assert_eq!((s.ahead, s.behind, s.changes, s.upstream.as_str()), (0, 0, 0, "origin/master"));
+        assert_eq!(parse_version_state("## HEAD (no branch)\n").branch, "HEAD (no branch)");
+        assert_eq!(parse_version_state("## 17.0-fix\n").upstream, "");
+    }
+
+    /// A version added from a repository, then removed: refused with a changed file unless forced;
+    /// the repository itself is never removed.
+    #[test]
+    fn a_version_is_removed() {
+        if run(&std::env::temp_dir(), &["config", "user.email"]).is_err() {
+            return;
+        }
+        let base = std::env::temp_dir().join(format!("florm-version-remove-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let main = base.join("proj/master");
+        std::fs::create_dir_all(&main).unwrap();
+        run(&main, &["init", "-b", "master"]).unwrap();
+        std::fs::write(main.join("a.txt"), "a\n").unwrap();
+        run(&main, &["add", "."]).unwrap();
+        run(&main, &["commit", "-m", "a"]).unwrap();
+        run(&main, &["branch", "17.0"]).unwrap();
+        let v = Versions { dir: base.join("proj"), main: main.clone(), names: vec!["master".into()] };
+        add_version(&v, "17.0").unwrap();
+        let v = versions(&base.join("proj")).unwrap();
+        assert!(v.names.contains(&"17.0".to_string()) && v.names.contains(&"master".to_string()), "{:?}", v.names);
+        assert_eq!(version_state(&base.join("proj/17.0")).unwrap().branch, "17.0");
+        std::fs::write(base.join("proj/17.0/a.txt"), "changed\n").unwrap();
+        assert!(remove_version(&v, "17.0", false).is_err());
+        remove_version(&v, "17.0", true).unwrap();
+        assert!(!base.join("proj/17.0").exists());
+        assert!(remove_version(&v, "master", true).is_err());
         let _ = std::fs::remove_dir_all(&base);
     }
 }

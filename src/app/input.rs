@@ -722,6 +722,10 @@ impl App {
                 Some(root) => self.open_add_version(root),
                 None => self.set_status(t!("Aucun dossier ouvert", "No folder open")),
             },
+            GitVersions => match self.root.clone() {
+                Some(root) => self.open_versions(root),
+                None => self.set_status(t!("Aucun dossier ouvert", "No folder open")),
+            },
             GitDiffFile => {
                 let path = self.docs.get(self.active).and_then(|d| d.path.clone());
                 match path.as_deref().and_then(|p| Some((p, self.repo_for(p)?))) {

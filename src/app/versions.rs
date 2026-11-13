@@ -281,6 +281,7 @@ impl App {
         }
         self.apply_repos(root, repos);
         self.exec_refresh_tree();
+        self.versions_view_refresh();
     }
 }
 

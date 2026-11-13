@@ -529,6 +529,8 @@ impl App {
                 }
                 JobResult::VersionBranches { branches, error } => self.version_branches_loaded(branches, error),
                 JobResult::VersionAdded { root, results, repos } => self.version_added(root, results, repos),
+                JobResult::VersionState(dir, r) => self.version_state_loaded(dir, r),
+                JobResult::VersionsDone { root, key, title, results, repos } => self.versions_done(root, key, title, results, repos),
                 JobResult::Update { manual, result } => match result {
                     Ok(Some(u)) => {
                         self.log(tf!("Florm {} est disponible : {}", "Florm {} is available: {}", u.version, u.page));

@@ -32,6 +32,7 @@ mod inline_ai;
 mod ai_complete;
 mod mermaid;
 mod repo_init;
+mod versions_view;
 mod versions;
 mod md;
 mod quick_fix;
@@ -1010,6 +1011,8 @@ pub struct App {
     repo_init: Option<repo_init::RepoInitUi>,
     /// The window to add a version as worktrees (`odoo/20.0`, `enterprise/20.0`…).
     version_add: Option<versions::AddVersionUi>,
+    /// The window of the versions side by side (state of each, update, remove…).
+    versions_view: Option<versions_view::VersionsView>,
     /// Versions side by side in the opened folder (`odoo/17.0`, `odoo/20.0`…, see `git::Versions`).
     versions: Vec<git::Versions>,
     /// The one worked on (`20.0`): the others are left out of the index. Empty: all of them.
@@ -1273,6 +1276,7 @@ impl App {
             ai: Default::default(),
             repo_init: None,
             version_add: None,
+            versions_view: None,
             versions: Vec::new(),
             version: String::new(),
             quick_fix: None,
@@ -1644,6 +1648,7 @@ impl eframe::App for App {
         self.local_history_ui(ctx);
         self.pr_create_ui(ctx);
         self.repo_init_ui(ctx);
+        self.versions_view_ui(ctx);
         self.version_add_ui(ctx);
         self.inline_ai_ui(ctx);
         self.overlay_ui(ctx);

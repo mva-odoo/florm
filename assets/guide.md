@@ -65,9 +65,20 @@ bas ouvert et la barre latérale affichée ou non.
   dépôts : chacun reçoit son dossier (`odoo/20.0`, `enterprise/20.0`…) sur cette branche, qui suit
   la branche distante. Une branche qu'aucun remote ne connaît encore est d'abord récupérée. Si un
   dépôt échoue, les autres sont faits quand même et la fenêtre montre ce qui n'a pas marché.
+- **La fenêtre Versions** (clic sur **Version 20.0** dans la barre d'état, clic droit sur `odoo/` →
+  **Versions côte à côte…**, ou menu Git) montre tout d'un coup : une ligne par version (`master`,
+  puis la plus récente en haut), une colonne par dépôt. Chaque case dit si le dossier est **✔ à
+  jour**, en retard (**↓3** commits à récupérer, depuis le dernier fetch), en avance (**↑1** à
+  pousser), avec des **● fichiers modifiés**, ou sur une autre branche (son nom en gris) ; **—** :
+  la version manque dans ce dépôt, **+** l'y ajoute. Pour chaque version : **Travailler dessus**
+  (voir ci-dessous), **Mettre à jour** (`git pull --ff-only` dans chaque dépôt, jamais de commit de
+  merge), et dans **⋯** : un terminal dans un de ses dossiers, l'ajouter là où elle manque, ou la
+  **supprimer** (`git worktree remove` : les dossiers partent, les branches restent ; avec des
+  fichiers modifiés, Florm le dit et demande de confirmer). **⟳ Vérifier sur le serveur** lance
+  `git fetch --all` pour recompter les ↓ ; **+ Nouvelle version…** ouvre la fenêtre d'ajout.
 - **Version courante** : avec des versions côte à côte dans le dossier ouvert, la barre d'état
-  montre **Version 20.0** (ou **Versions : toutes**). Un clic choisit la version sur laquelle tu
-  travailles : elle seule est dans l'index (Ctrl+P, F12, complétion, recherche), dans tous les
+  montre **Version 20.0** (ou **Versions : toutes**). Dans la fenêtre Versions, **Travailler dessus**
+  choisit la version sur laquelle tu travailles (**Ne plus filtrer** les remet toutes) : elle seule est dans l'index (Ctrl+P, F12, complétion, recherche), dans tous les
   dépôts à la fois (`odoo/20.0`, `enterprise/20.0`…). Les autres restent dans l'arborescence,
   grisées, et s'ouvrent toujours. Le choix est gardé pour le dossier ; **Exclure de l'index** marche
   comme avant, à part. Pour retrouver un fichier dans une autre version, coche **+ autres versions**
