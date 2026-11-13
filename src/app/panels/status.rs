@@ -47,6 +47,7 @@ impl App {
 
     pub(in crate::app) fn status_bar(&mut self, ctx: &egui::Context) {
         let (mut toggle_spaces, mut convert_utf8) = (false, false);
+        let mut pick_version: Option<String> = None;
         let panel = ctx.style().visuals.panel_fill;
         egui::TopBottomPanel::bottom("status")
             .exact_height(26.0)
@@ -234,6 +235,31 @@ impl App {
                             self.open_claude();
                         }
                     }
+                    // versions side by side (odoo/17.0, odoo/20.0…): the one in the index
+                    if !self.versions.is_empty() {
+                        let text = if self.version.is_empty() { t!("Versions : toutes", "Versions: all").to_string() } else { tf!("Version {}", "Version {}", self.version) };
+                        let names = self.version_names();
+                        let current = self.version.clone();
+                        ui.menu_button(text, |ui| {
+                            ui.visuals_mut().override_text_color = None;
+                            ui.label(RichText::new(t!("Version dans l'index (Ctrl+P, F12, recherche) ; les autres restent dans l'arborescence, grisées", "Version in the index (go to file, F12, search); the others stay in the tree, dimmed")).small().weak());
+                            if ui.selectable_label(current.is_empty(), t!("Toutes les versions", "All the versions")).clicked() {
+                                pick_version = Some(String::new());
+                                ui.close_menu();
+                            }
+                            for n in names {
+                                if ui.selectable_label(current == n, &n).clicked() {
+                                    pick_version = Some(n);
+                                    ui.close_menu();
+                                }
+                            }
+                            ui.separator();
+                            if ui.button(t!("Ajouter une version (worktrees)…", "Add a version (worktrees)…")).clicked() {
+                                self.pending.push(Cmd::GitAddVersion);
+                                ui.close_menu();
+                            }
+                        });
+                    }
                     if let Some(st) = &self.git.status {
                         let mut label = match (&self.repo, self.repos.len() > 1) {
                             (Some(r), true) => format!("🔀 {} · {}", self.repo_label(r), st.branch),
@@ -264,6 +290,9 @@ impl App {
                 });
             });
         });
+        if let Some(v) = pick_version {
+            self.set_version(v);
+        }
         if toggle_spaces {
             if let Some(d) = self.docs.get_mut(self.active) {
                 d.use_spaces = !d.use_spaces;

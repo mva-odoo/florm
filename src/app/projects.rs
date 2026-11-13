@@ -70,6 +70,8 @@ impl App {
         self.root = None;
         self.repo = None;
         self.repos.clear();
+        self.versions.clear();
+        self.version.clear();
         self.history = HistoryUi::default();
         self.tree = None;
         self.index.files = Default::default();
@@ -129,6 +131,7 @@ impl App {
             split: self.is_split().then(|| if self.split_dir == SplitDir::Down { "down" } else { "right" }.to_string()),
             bottom: self.bottom.map(|b| b.key()),
             sidebar_hidden: !self.show_sidebar,
+            version: self.version.clone(),
             sql_conn: crate::sql::split_password(&self.sql.conn()).0,
             sql_query: self.sql.query.clone(),
             claude_listed: self.claude_listed_keys(),
@@ -302,6 +305,7 @@ impl App {
         let still = crate::walk::Exclusions::new(&root, &self.settings.exclude).excludes_here_or_above(path, true);
         self.set_status(match (on, still) {
             (true, _) => tf!("{} exclu de l'index ({pattern})", "{} excluded from the index ({pattern})", rel.display()),
+            (false, _) if self.in_other_version(path) => tf!("Pas la version courante ({}) : choisis-la dans la barre d'état", "Not the current version ({}): choose it in the status bar", self.version),
             (false, false) => tf!("{} remis dans l'index", "{} put back in the index", rel.display()),
             (false, true) => t!("Toujours exclu par une autre règle : Préférences → Avancé → Fichiers exclus", "Still excluded by another rule: Preferences → Advanced → Excluded files").to_string(),
         });
@@ -403,7 +407,7 @@ impl App {
     pub(super) fn refresh_index(&mut self) {
         let Some(root) = self.root.clone() else { return };
         self.index.files_at = Some(Instant::now());
-        let ex = crate::walk::Exclusions::new(&root, &self.settings.exclude);
+        let ex = crate::walk::Exclusions::new(&root, &self.index_exclude());
         let current = self.index.files.clone();
         self.jobs.spawn(move || {
             let mut v = Vec::new();

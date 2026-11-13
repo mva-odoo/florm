@@ -35,7 +35,75 @@ fn suggestions<'a>(branches: &'a [String], typed: &str) -> Vec<&'a String> {
     v
 }
 
+/// The versions inside `root` (not the ones next to it when `root` is one of them).
+fn versions_in(root: &Path) -> Vec<Versions> {
+    git::versions_near(root).into_iter().filter(|v| v.dir.starts_with(root)).collect()
+}
+
+/// The folders of the versions other than `current` (none when it is empty: all of them).
+fn other_versions(versions: &[Versions], current: &str) -> Vec<PathBuf> {
+    if current.is_empty() {
+        return Vec::new();
+    }
+    versions.iter().flat_map(|g| g.names.iter().filter(|n| *n != current).map(|n| g.dir.join(n))).collect()
+}
+
+/// The folders of the other versions as anchored exclusions ("/odoo/17.0/").
+fn version_patterns(root: &Path, versions: &[Versions], current: &str) -> Vec<String> {
+    other_versions(versions, current)
+        .iter()
+        .filter_map(|p| p.strip_prefix(root).ok().map(|r| format!("/{}/", r.to_string_lossy().replace('\\', "/"))))
+        .collect()
+}
+
 impl App {
+    /// The versions of the opened folder, and the one of its session (still there) as current.
+    pub(super) fn load_versions(&mut self) {
+        let Some(root) = self.root.clone() else { return };
+        self.versions = versions_in(&root);
+        let saved = project::load_session(&root).map(|s| s.version).unwrap_or_default();
+        self.version = if self.version_names().contains(&saved) { saved } else { String::new() };
+    }
+
+    /// Every version name of the opened folder, once, sorted.
+    pub(super) fn version_names(&self) -> Vec<String> {
+        let mut v: Vec<String> = self.versions.iter().flat_map(|g| g.names.iter().cloned()).collect();
+        v.sort();
+        v.dedup();
+        v
+    }
+
+    /// The exclusions of the settings, and the folders of the other versions: what the index, go
+    /// to file and find in files leave out.
+    pub(super) fn index_exclude(&self) -> Vec<String> {
+        let mut v = self.settings.exclude.clone();
+        if let Some(root) = &self.root {
+            v.extend(version_patterns(root, &self.versions, &self.version));
+        }
+        v
+    }
+
+    /// `path` is in a version other than the current one.
+    pub(super) fn in_other_version(&self, path: &Path) -> bool {
+        other_versions(&self.versions, &self.version).iter().any(|d| path.starts_with(d))
+    }
+
+    /// The version worked on (empty: all of them): the index is made again without the others.
+    pub(super) fn set_version(&mut self, version: String) {
+        if version == self.version {
+            return;
+        }
+        self.version = version;
+        self.index.symbols_for = None;
+        self.refresh_index();
+        self.save_session();
+        self.set_status(if self.version.is_empty() {
+            t!("Toutes les versions dans l'index", "All the versions in the index").to_string()
+        } else {
+            tf!("Version {} : les autres sortent de l'index (Ctrl+P, F12, recherche)", "Version {}: the others leave the index (Ctrl+P, F12, search)", self.version)
+        });
+    }
+
     /// The window to add a version, for the repositories with versions around `dir`.
     pub(super) fn open_add_version(&mut self, dir: PathBuf) {
         let groups = git::versions_near(&dir);
@@ -203,6 +271,11 @@ impl App {
                 None => self.set_error(tf!("Version : échec dans {failed} dépôt(s)", "Version: failed in {failed} repositories")),
             }
         }
+        // the new version in the list of the status bar
+        if let Some(r) = self.root.clone().filter(|r| *r == root) {
+            self.versions = versions_in(&r);
+            self.refresh_index();
+        }
         self.apply_repos(root, repos);
         self.exec_refresh_tree();
     }
@@ -211,6 +284,22 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// With a current version, the other versions of every repository are left out; all of
+    /// them stay without one.
+    #[test]
+    fn current_version_leaves_the_others_out() {
+        let root = PathBuf::from("/src");
+        let group = |name: &str| Versions { dir: root.join(name), main: root.join(name).join("master"), names: vec!["17.0".into(), "20.0".into(), "master".into()] };
+        let versions = [group("odoo"), group("enterprise")];
+        assert!(version_patterns(&root, &versions, "").is_empty());
+        assert_eq!(version_patterns(&root, &versions, "20.0"), ["/odoo/17.0/", "/odoo/master/", "/enterprise/17.0/", "/enterprise/master/"]);
+        // the opened folder is the one of the versions
+        assert_eq!(version_patterns(&root.join("odoo"), &versions[..1], "master"), ["/17.0/", "/20.0/"]);
+        let others = other_versions(&versions, "20.0");
+        assert!(others.iter().any(|d| root.join("enterprise/17.0/addons").starts_with(d)));
+        assert!(!others.iter().any(|d| root.join("odoo/20.0/addons").starts_with(d)));
+    }
 
     #[test]
     fn branch_suggestions_start_with_what_is_typed() {

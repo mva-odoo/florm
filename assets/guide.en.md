@@ -64,6 +64,11 @@ sidebar shown or not.
   each one gets its folder (`odoo/20.0`, `enterprise/20.0`…) on that branch, tracking the remote
   branch. A branch no remote knows yet is fetched first. If a repository fails, the others are still
   done and the window shows what went wrong.
+- **Current version**: with versions side by side in the opened folder, the status bar shows
+  **Version 20.0** (or **Versions: all**). A click chooses the version you work on: only that one is
+  in the index (go to file, F12, completion, search), in every repository at once (`odoo/20.0`,
+  `enterprise/20.0`…). The others stay in the tree, dimmed, and still open. The choice is kept for
+  the folder; **Exclude from the index** works as before, separately.
 
 ## Bottom panel and status bar
 

@@ -69,7 +69,7 @@ impl App {
                         // the repositories being worked on first
                         let mut first: Vec<PathBuf> = self.docs.iter().filter_map(|d| d.path.as_deref()).filter_map(|p| self.repo_for(p)).collect();
                         first.extend(self.repo.clone());
-                        let ex = crate::walk::Exclusions::new(&root, &self.settings.exclude);
+                        let ex = crate::walk::Exclusions::new(&root, &self.index_exclude());
                         let max = self.settings.index_max_files;
                         let send = self.jobs.sender();
                         self.jobs.spawn(move || {

@@ -1006,6 +1006,10 @@ pub struct App {
     repo_init: Option<repo_init::RepoInitUi>,
     /// The window to add a version as worktrees (`odoo/20.0`, `enterprise/20.0`…).
     version_add: Option<versions::AddVersionUi>,
+    /// Versions side by side in the opened folder (`odoo/17.0`, `odoo/20.0`…, see `git::Versions`).
+    versions: Vec<git::Versions>,
+    /// The one worked on (`20.0`): the others are left out of the index. Empty: all of them.
+    version: String,
     /// Corrections rapides (Ctrl+.) of the cursor, while their list is open.
     quick_fix: Option<quick_fix::QuickFix>,
     /// GitHub pull requests tab.
@@ -1265,6 +1269,8 @@ impl App {
             ai: Default::default(),
             repo_init: None,
             version_add: None,
+            versions: Vec::new(),
+            version: String::new(),
             quick_fix: None,
             pr: {
                 let mut pr = pulls::PrUi::default();
@@ -1483,6 +1489,8 @@ impl App {
             let repos = git::find_repos(&r, 3);
             JobResult::Repos(r, repos)
         });
+        // before the index: it leaves out the versions other than the current one
+        self.load_versions();
         self.index.files = Default::default();
         self.refresh_index();
         // the symbol index starts once the file list is done (they would compete for the disk)

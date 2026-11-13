@@ -46,6 +46,10 @@ pub struct Session {
     pub bottom: Option<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub sidebar_hidden: bool,
+    /// The version worked on, among versions side by side (`20.0`): the others are left out of the
+    /// index. Empty: all of them.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub version: String,
     /// The connection and the query of the SQL view.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub sql_conn: String,

@@ -49,6 +49,8 @@ impl App {
             // what is drawn inside (sticky folders, icons) on the same background
             ui.visuals_mut().panel_fill = panel;
             self.sidebar_mac_buttons(ui);
+            // the other versions dimmed too
+            let pats = self.index_exclude();
             // only the tree: the views are reached from the status bar, the bottom panel's ▾ and the palette
             match self.tree.as_mut() {
                 Some(tree) => {
@@ -56,9 +58,9 @@ impl App {
                     let empty = HashMap::new();
                     let info = if self.settings.tree_git_info { &self.repo_info } else { &empty };
                     let projects: Vec<(String, PathBuf)> = self.projects.iter().filter(|p| p.path.is_dir()).map(|p| (p.name.clone(), p.path.clone())).collect();
-                    if !self.tree_ex.as_ref().is_some_and(|(r, pats, _)| *r == tree.path && *pats == self.settings.exclude) {
-                        let ex = crate::walk::Exclusions::new(&tree.path, &self.settings.exclude);
-                        self.tree_ex = Some((tree.path.clone(), self.settings.exclude.clone(), ex));
+                    if !self.tree_ex.as_ref().is_some_and(|(r, p, _)| *r == tree.path && *p == pats) {
+                        let ex = crate::walk::Exclusions::new(&tree.path, &pats);
+                        self.tree_ex = Some((tree.path.clone(), pats, ex));
                     }
                     let ex = &self.tree_ex.as_ref().expect("just set").2;
                     tree_action = sidebar::show(ui, tree, &projects, ex, active.as_deref(), &self.git.map, info, &mut self.tree_scroll, &mut self.tree_nav);

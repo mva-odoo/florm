@@ -65,6 +65,12 @@ bas ouvert et la barre latérale affichée ou non.
   dépôts : chacun reçoit son dossier (`odoo/20.0`, `enterprise/20.0`…) sur cette branche, qui suit
   la branche distante. Une branche qu'aucun remote ne connaît encore est d'abord récupérée. Si un
   dépôt échoue, les autres sont faits quand même et la fenêtre montre ce qui n'a pas marché.
+- **Version courante** : avec des versions côte à côte dans le dossier ouvert, la barre d'état
+  montre **Version 20.0** (ou **Versions : toutes**). Un clic choisit la version sur laquelle tu
+  travailles : elle seule est dans l'index (Ctrl+P, F12, complétion, recherche), dans tous les
+  dépôts à la fois (`odoo/20.0`, `enterprise/20.0`…). Les autres restent dans l'arborescence,
+  grisées, et s'ouvrent toujours. Le choix est gardé pour le dossier ; **Exclure de l'index** marche
+  comme avant, à part.
 
 ## Panneau du bas et barre d'état
 

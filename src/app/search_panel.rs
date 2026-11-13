@@ -43,7 +43,7 @@ impl App {
         let (q, current) = (self.search.q.clone(), self.search.gen.clone());
         self.search.done = q.clone();
         self.search.running = true;
-        let ex = crate::walk::Exclusions::new(&root, &self.settings.exclude);
+        let ex = crate::walk::Exclusions::new(&root, &self.index_exclude());
         self.jobs.spawn(move || JobResult::Search(gen, search::run(&root, &q, &ex, gen, &current)));
     }
 
