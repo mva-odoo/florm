@@ -57,6 +57,14 @@ bas ouvert et la barre latérale affichée ou non.
   (`main`), puis **tout ajouter** (`git add .`) et faire le premier commit, ou un **commit vide**
   sans aucun fichier, ou rien. Avec un remote, le commit est poussé (`git push -u`). Si une étape
   échoue, la fenêtre reste ouverte avec l'erreur (les étapes d'avant restent faites).
+- **Versions côte à côte** (worktrees git, comme pour Odoo : `odoo/master` contient le dépôt,
+  `odoo/17.0`, `odoo/18.0`… sont ses worktrees, pareil pour `enterprise/` et `design-themes/`) :
+  clic droit sur `odoo/`, sur une de ses versions ou sur le dossier au-dessus → **Ajouter une
+  version (worktrees)…** (aussi dans le menu Git). Tape la branche (`20.0`, `saas-18.3`…, les
+  branches connues sont proposées ; ⟳ lance `git fetch --all` pour voir les récentes) et coche les
+  dépôts : chacun reçoit son dossier (`odoo/20.0`, `enterprise/20.0`…) sur cette branche, qui suit
+  la branche distante. Une branche qu'aucun remote ne connaît encore est d'abord récupérée. Si un
+  dépôt échoue, les autres sont faits quand même et la fenêtre montre ce qui n'a pas marché.
 
 ## Panneau du bas et barre d'état
 

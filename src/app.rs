@@ -32,6 +32,7 @@ mod inline_ai;
 mod ai_complete;
 mod mermaid;
 mod repo_init;
+mod versions;
 mod md;
 mod quick_fix;
 mod pulls;
@@ -1003,6 +1004,8 @@ pub struct App {
     ai: ai_complete::AiComplete,
     /// The window of a new git repository (right click on a folder in the tree).
     repo_init: Option<repo_init::RepoInitUi>,
+    /// The window to add a version as worktrees (`odoo/20.0`, `enterprise/20.0`…).
+    version_add: Option<versions::AddVersionUi>,
     /// Corrections rapides (Ctrl+.) of the cursor, while their list is open.
     quick_fix: Option<quick_fix::QuickFix>,
     /// GitHub pull requests tab.
@@ -1261,6 +1264,7 @@ impl App {
             inline: None,
             ai: Default::default(),
             repo_init: None,
+            version_add: None,
             quick_fix: None,
             pr: {
                 let mut pr = pulls::PrUi::default();
@@ -1628,6 +1632,7 @@ impl eframe::App for App {
         self.local_history_ui(ctx);
         self.pr_create_ui(ctx);
         self.repo_init_ui(ctx);
+        self.version_add_ui(ctx);
         self.inline_ai_ui(ctx);
         self.overlay_ui(ctx);
         self.confirm_ui(ctx);

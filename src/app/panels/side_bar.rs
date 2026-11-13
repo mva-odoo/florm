@@ -123,6 +123,7 @@ impl App {
             TreeAction::CopyFile(p) => self.copy_entry(&p),
             TreeAction::Paste(d) => self.paste_into(d),
             TreeAction::InitRepo(d) => self.init_repo(d),
+            TreeAction::AddVersion(d) => self.open_add_version(d),
         }
     }
 

@@ -29,6 +29,8 @@ pub enum TreeAction {
     Paste(PathBuf),
     /// `git init` in this folder (new project).
     InitRepo(PathBuf),
+    /// A new version as worktrees, next to the versions around this folder (see `git::Versions`).
+    AddVersion(PathBuf),
     /// Leave the folder out of go to file, the symbol index and find in files (`true`), or
     /// take it back.
     Exclude(PathBuf, bool),
@@ -757,6 +759,14 @@ fn menu(ui: &mut Ui, path: &Path, is_dir: bool, excluded: Option<bool>, act: &mu
         ui.separator();
         if ui.button(t!("Initialiser un dépôt git ici…", "Initialize a git repository here…")).on_hover_text(t!("git init, le remote à ajouter, puis tout committer (git add .) ou un commit vide, et pousser", "git init, the remote to add, then commit everything (git add .) or an empty commit, and push")).clicked() {
             pick(TreeAction::InitRepo(path.to_path_buf()), ui);
+        }
+    }
+    // versions side by side (odoo/master, odoo/17.0…): from their folder, one of them or the folder
+    // above; not deeper in a repository (its folders are not looked through)
+    if is_dir && !path.ancestors().skip(1).any(|a| a.join(".git").exists()) && !crate::git::versions_near(path).is_empty() {
+        ui.separator();
+        if ui.button(t!("Ajouter une version (worktrees)…", "Add a version (worktrees)…")).on_hover_text(t!("Un worktree git par dépôt (odoo/20.0, enterprise/20.0…) sur la branche choisie, qui suit la branche distante", "One git worktree per repository (odoo/20.0, enterprise/20.0…) on the chosen branch, tracking the remote one")).clicked() {
+            pick(TreeAction::AddVersion(path.to_path_buf()), ui);
         }
     }
     match excluded {

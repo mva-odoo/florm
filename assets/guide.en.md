@@ -56,6 +56,14 @@ sidebar shown or not.
   (`main`), then **add everything** (`git add .`) and make the first commit, or an **empty
   commit** without any file, or nothing. With a remote, the commit is pushed (`git push -u`). If a
   step fails, the window stays open with the error (the steps before stay done).
+- **Versions side by side** (git worktrees, as for Odoo: `odoo/master` holds the repository,
+  `odoo/17.0`, `odoo/18.0`… are its worktrees, same for `enterprise/` and `design-themes/`): right
+  click on `odoo/`, on one of its versions or on the folder above → **Add a version
+  (worktrees)…** (also in the Git menu). Type the branch (`20.0`, `saas-18.3`…, the known branches
+  are suggested; ⟳ runs `git fetch --all` to see the recent ones) and tick the repositories:
+  each one gets its folder (`odoo/20.0`, `enterprise/20.0`…) on that branch, tracking the remote
+  branch. A branch no remote knows yet is fetched first. If a repository fails, the others are still
+  done and the window shows what went wrong.
 
 ## Bottom panel and status bar
 

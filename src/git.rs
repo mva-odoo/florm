@@ -129,6 +129,131 @@ pub fn find_repos(root: &Path, max_depth: usize) -> Vec<PathBuf> {
     out
 }
 
+/// Versions of a project side by side ("multiverse"): `odoo/master` holds the repository and
+/// `odoo/17.0`, `odoo/18.0`… are its worktrees, one folder per branch.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Versions {
+    /// The folder of the versions (`odoo`).
+    pub dir: PathBuf,
+    /// The folder with the repository itself (`odoo/master`): new worktrees are added from it.
+    pub main: PathBuf,
+    /// Folder names of the versions, sorted.
+    pub names: Vec<String>,
+}
+
+fn subdirs(dir: &Path) -> Vec<PathBuf> {
+    let Ok(rd) = std::fs::read_dir(dir) else { return Vec::new() };
+    let mut v: Vec<PathBuf> = rd.flatten().map(|e| e.path()).filter(|p| p.is_dir() && !p.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.'))).collect();
+    v.sort();
+    v
+}
+
+fn folder_name(p: &Path) -> String {
+    p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+}
+
+/// `dir` holds versions side by side: a single repository in a subfolder, and worktrees of it next
+/// to it (or none yet, when the repository's folder is named after its branch: `odoo/master`).
+pub fn versions(dir: &Path) -> Option<Versions> {
+    let subs = subdirs(dir);
+    let mut mains = subs.iter().filter(|s| s.join(".git").is_dir());
+    let main = mains.next()?.clone();
+    if mains.next().is_some() {
+        // several repositories (`internal/`, `upgrade/`…): not versions of one project
+        return None;
+    }
+    let worktrees = crate::os::canon(&main.join(".git").join("worktrees"));
+    let mut names = vec![folder_name(&main)];
+    for s in &subs {
+        let gitdir = std::fs::read_to_string(s.join(".git")).ok();
+        let Some(p) = gitdir.as_deref().and_then(|t| t.trim().strip_prefix("gitdir:")) else { continue };
+        if crate::os::canon(&s.join(p.trim())).starts_with(&worktrees) {
+            names.push(folder_name(s));
+        }
+    }
+    let head = std::fs::read_to_string(main.join(".git/HEAD")).unwrap_or_default();
+    let on_own_branch = head.trim().strip_prefix("ref: refs/heads/") == Some(names[0].as_str());
+    if names.len() == 1 && !on_own_branch {
+        return None;
+    }
+    names.sort();
+    Some(Versions { dir: dir.to_path_buf(), main, names })
+}
+
+/// The versions around `dir`: when it holds versions (`odoo`) or is one of them (`odoo/17.0`), those
+/// and the ones next to them (`enterprise`, `design-themes`); else the ones inside it.
+pub fn versions_near(dir: &Path) -> Vec<Versions> {
+    let all_in = |d: &Path| subdirs(d).iter().filter_map(|s| versions(s)).collect::<Vec<_>>();
+    let parent = dir.parent();
+    if versions(dir).is_some() {
+        return parent.map(all_in).unwrap_or_default();
+    }
+    if let Some(p) = parent.filter(|p| versions(p).is_some()) {
+        return p.parent().map(all_in).unwrap_or_default();
+    }
+    all_in(dir)
+}
+
+/// Branches a new version can come from: the local ones and the remote ones without their remote
+/// (`odoo/saas-18.3` → `saas-18.3`), each once, sorted.
+pub fn version_branches(repo: &Path) -> Result<Vec<String>, String> {
+    let out = stdout(repo, &["for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes"])?;
+    let mut v: Vec<String> = out
+        .lines()
+        .filter_map(|r| r.strip_prefix("refs/heads/").or_else(|| r.strip_prefix("refs/remotes/").and_then(|r| r.split_once('/')).map(|(_, b)| b)))
+        .filter(|b| *b != "HEAD")
+        .map(str::to_string)
+        .collect();
+    v.sort();
+    v.dedup();
+    Ok(v)
+}
+
+/// Folder of the version of `branch` (a "/" in its name would make a subfolder).
+pub fn version_folder(branch: &str) -> String {
+    branch.trim().replace(['/', '\\'], "-")
+}
+
+/// A remote with `branch`: the one named like the folder of the versions (`odoo`), else `origin`,
+/// else the first.
+fn remote_with(repo: &Path, branch: &str, prefer: &str) -> Option<String> {
+    let remotes = stdout(repo, &["remote"]).ok()?;
+    let mut has: Vec<&str> = remotes
+        .lines()
+        .map(str::trim)
+        .filter(|r| !r.is_empty() && exec(repo, &["show-ref", "--verify", "--quiet", &format!("refs/remotes/{r}/{branch}")]).is_ok())
+        .collect();
+    has.sort_by_key(|r| (*r != prefer, *r != "origin"));
+    has.first().map(|r| r.to_string())
+}
+
+/// The version `branch` added to `v`: a worktree `<v.dir>/<branch>` on the local branch, else on a
+/// new one tracking the remote branch (fetched first when no remote knows it yet). What git said.
+pub fn add_version(v: &Versions, branch: &str) -> Result<String, String> {
+    let branch = branch.trim();
+    let dest = v.dir.join(version_folder(branch));
+    if dest.exists() {
+        return Err(tf!("{} existe déjà", "{} already exists", dest.display()));
+    }
+    let dest = dest.to_string_lossy().into_owned();
+    if exec(&v.main, &["show-ref", "--verify", "--quiet", &format!("refs/heads/{branch}")]).is_ok() {
+        return run(&v.main, &["worktree", "add", &dest, branch]);
+    }
+    let prefer = folder_name(&v.dir);
+    let mut fetched = String::new();
+    let mut remote = remote_with(&v.main, branch, &prefer);
+    if remote.is_none() {
+        // a remote that cannot be reached does not stop the others
+        fetched = run(&v.main, &["fetch", "--all"]).unwrap_or_else(|e| e);
+        remote = remote_with(&v.main, branch, &prefer);
+    }
+    let Some(remote) = remote else {
+        return Err(format!("{fetched}\n{}", tf!("Branche {branch} introuvable, ni en local ni sur les remotes", "Branch {branch} not found, neither locally nor on the remotes")).trim().to_string());
+    };
+    let out = run(&v.main, &["worktree", "add", "--track", "-b", branch, &dest, &format!("{remote}/{branch}")])?;
+    Ok(format!("{fetched}\n{out}").trim().to_string())
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Status {
     pub branch: String,
@@ -897,6 +1022,61 @@ mod init_tests {
         let e = init_repo(&bad, "/nowhere/x.git", "main", FirstCommit::Empty, "x").unwrap_err();
         assert!(e.contains("push"), "{e}");
         assert!(bad.join(".git").exists());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// Versions side by side: `odoo/master` cloned from a remote named `odoo`, then 17.0 and
+    /// saas-18.3 added as worktrees tracking it; a branch pushed later is fetched when added.
+    #[test]
+    fn versions_side_by_side() {
+        let base = crate::os::canon(&std::env::temp_dir()).join(format!("florm-versions-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let (remote, work, src) = (base.join("remote.git"), base.join("work"), base.join("src"));
+        for d in [&remote, &work, &src.join("odoo"), &src.join("internal/a"), &src.join("upgrade/b")] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let id = ["-c", "user.name=Florm", "-c", "user.email=florm@example.com"];
+        let commit = |msg: &str| run(&work, &[&id[..], &["commit", "--allow-empty", "-m", msg]].concat()).unwrap();
+        run(&remote, &["init", "--bare"]).unwrap();
+        run(&work, &["init", "-b", "master"]).unwrap();
+        commit("m");
+        run(&work, &["remote", "add", "origin", &remote.display().to_string()]).unwrap();
+        for b in ["17.0", "saas-18.3"] {
+            run(&work, &["checkout", "-b", b]).unwrap();
+            commit(b);
+        }
+        run(&work, &["push", "origin", "master", "17.0", "saas-18.3"]).unwrap();
+        let odoo = src.join("odoo");
+        run(&odoo, &["clone", "-o", "odoo", "-b", "master", &remote.display().to_string(), "master"]).unwrap();
+        // a fresh clone in a folder named after its branch: already versions
+        let v = versions(&odoo).unwrap();
+        assert_eq!((v.main.clone(), v.names.clone()), (odoo.join("master"), vec!["master".to_string()]));
+        // several repositories side by side are not versions
+        run(&src.join("internal"), &["init", "a"]).unwrap();
+        run(&src.join("internal"), &["init", "b"]).unwrap();
+        assert!(versions(&src.join("internal")).is_none());
+        assert!(version_branches(&v.main).unwrap().contains(&"saas-18.3".to_string()));
+        add_version(&v, "17.0").unwrap();
+        add_version(&v, " saas-18.3 ").unwrap();
+        assert_eq!(run(&odoo.join("17.0"), &["rev-parse", "--abbrev-ref", "@{u}"]).unwrap(), "odoo/17.0");
+        assert_eq!(run(&odoo.join("saas-18.3"), &["log", "-1", "--format=%s"]).unwrap(), "saas-18.3");
+        assert_eq!(versions(&odoo).unwrap().names, ["17.0", "master", "saas-18.3"]);
+        // from the folder, a version or the folder above: the same versions
+        for d in [odoo.clone(), odoo.join("17.0"), src.clone()] {
+            assert_eq!(versions_near(&d).iter().map(|v| v.dir.clone()).collect::<Vec<_>>(), [odoo.clone()], "{d:?}");
+        }
+        // already there, unknown, then pushed after the clone: fetched when added
+        assert!(add_version(&v, "17.0").unwrap_err().contains("17.0"));
+        assert!(add_version(&v, "20.0").is_err());
+        run(&work, &["checkout", "-b", "20.0"]).unwrap();
+        commit("20");
+        run(&work, &["push", "origin", "20.0"]).unwrap();
+        add_version(&v, "20.0").unwrap();
+        assert_eq!(run(&odoo.join("20.0"), &["log", "-1", "--format=%s"]).unwrap(), "20");
+        // a local branch: checked out as it is
+        run(&v.main, &["branch", "17.0-fix", "odoo/17.0"]).unwrap();
+        add_version(&v, "17.0-fix").unwrap();
+        assert!(odoo.join("17.0-fix/.git").is_file());
         let _ = std::fs::remove_dir_all(&base);
     }
 }

@@ -134,6 +134,11 @@ pub enum JobResult {
     Repos(PathBuf, Vec<PathBuf>),
     /// `git init` in a folder of the tree: its output, then the repositories of the project again.
     RepoInit { root: PathBuf, dir: PathBuf, result: Result<String, String>, repos: Vec<PathBuf> },
+    /// Branches a new version can come from (see `git::Versions`), and why a fetch failed.
+    VersionBranches { branches: Vec<String>, error: Option<String> },
+    /// A version added in each repository chosen: its name and what git said, then the
+    /// repositories of the project again.
+    VersionAdded { root: PathBuf, results: Vec<(String, Result<String, String>)>, repos: Vec<PathBuf> },
     /// Symbols of the whole project (go to definition, completion).
     /// `bool`: only the repositories being worked on so far, the whole index follows.
     SymbolIndex(PathBuf, crate::index::Index, bool),
