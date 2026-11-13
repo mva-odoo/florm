@@ -43,7 +43,8 @@ impl App {
         let (q, current) = (self.search.q.clone(), self.search.gen.clone());
         self.search.done = q.clone();
         self.search.running = true;
-        let ex = crate::walk::Exclusions::new(&root, &self.index_exclude());
+        let pats = if self.search.all_versions { self.settings.exclude.clone() } else { self.index_exclude() };
+        let ex = crate::walk::Exclusions::new(&root, &pats);
         self.jobs.spawn(move || JobResult::Search(gen, search::run(&root, &q, &ex, gen, &current)));
     }
 
@@ -140,8 +141,9 @@ impl App {
         let accent = self.hl.colors.accent;
         let st = &self.state;
         let hl = &self.hl;
+        let version = &self.version;
         let s = &mut self.search;
-        let enter = |r: &egui::Response, ui: &egui::Ui| r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+        let enter =|r: &egui::Response, ui: &egui::Ui| r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
         // the fields take the width there is (minus the buttons around them)
         let field_w = (ui.available_width() - 470.0).clamp(240.0, 900.0);
         let filter_w = ((ui.available_width() - 330.0) / 2.0).clamp(160.0, 560.0);
@@ -271,6 +273,14 @@ impl App {
                 ));
                 go |= history_menu(ui, &st.exclude_history, &mut s.q.exclude, t!("Exclusions récentes", "Recent exclusions"));
                 go |= enter(&inc, ui) || enter(&exc, ui);
+                // versions side by side: the current one only, unless asked
+                if !version.is_empty() {
+                    ui.add_space(8.0);
+                    go |= ui
+                        .toggle_value(&mut s.all_versions, t!("+ autres versions", "+ other versions"))
+                        .on_hover_text(tf!("Chercher aussi dans les versions autres que {version} (choisie dans la barre d'état)", "Search the versions other than {version} too (chosen in the status bar)"))
+                        .changed();
+                }
             });
 
             // --- summary

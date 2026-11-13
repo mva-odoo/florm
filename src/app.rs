@@ -606,6 +606,8 @@ enum FindAction {
 #[derive(Default)]
 struct SearchUi {
     q: search::Query,
+    /// Searches the versions other than the current one too.
+    all_versions: bool,
     replacement: String,
     show_replace: bool,
     files: Vec<FileHits>,
@@ -889,6 +891,8 @@ struct Indexes {
     /// Files of the project, relative and sorted (recent files are found by binary search);
     /// shared with the job that lists them again, which compares without the interface.
     files: Arc<crate::filelist::FileList>,
+    /// Go to file lists the versions other than the current one too (its "+ other versions").
+    all_versions: bool,
     /// When the file list was last asked for (Ctrl+P rebuilds it, at most every few seconds).
     files_at: Option<Instant>,
     /// Project symbols (go to definition / completion without a language server).

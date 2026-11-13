@@ -68,7 +68,9 @@ sidebar shown or not.
   **Version 20.0** (or **Versions: all**). A click chooses the version you work on: only that one is
   in the index (go to file, F12, completion, search), in every repository at once (`odoo/20.0`,
   `enterprise/20.0`…). The others stay in the tree, dimmed, and still open. The choice is kept for
-  the folder; **Exclude from the index** works as before, separately.
+  the folder; **Exclude from the index** works as before, separately. To find a file in another
+  version, tick **+ other versions** at the top of go to file (Ctrl+P) or next to the filters of the
+  search (unticked whenever the version changes).
 
 ## Bottom panel and status bar
 

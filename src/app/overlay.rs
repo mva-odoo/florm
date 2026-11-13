@@ -296,6 +296,9 @@ impl App {
         let mut submit = false;
         let mut goto_only: Option<String> = None;
         let indexing = files_mode && self.index.files.is_empty() && self.root.is_some();
+        // versions side by side: go to file lists the current one only, unless asked
+        let version = if files_mode { self.version.clone() } else { String::new() };
+        let mut all_versions = self.index.all_versions;
         // at most one background scoring started per frame
         let mut send = files_mode.then(|| self.jobs.sender());
         let area = egui::Area::new(egui::Id::new("overlay"))
@@ -308,6 +311,12 @@ impl App {
                         ui.label(RichText::new(&title).small().weak());
                         if ov.pending {
                             spinner_sized(ui, 10.0);
+                        }
+                        if !version.is_empty() {
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                ui.toggle_value(&mut all_versions, RichText::new(t!("+ autres versions", "+ other versions")).small())
+                                    .on_hover_text(tf!("Lister aussi les versions autres que {version} (choisie dans la barre d'état)", "List the versions other than {version} too (chosen in the status bar)"));
+                            });
                         }
                         if dialog_kind.is_some() {
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -528,6 +537,12 @@ impl App {
         if let Some(kind) = dialog_kind.filter(|_| browse) {
             self.file_dialog(kind);
             return;
+        }
+        if all_versions != self.index.all_versions {
+            // the list is made again; it replaces the one shown when it is ready
+            self.index.all_versions = all_versions;
+            self.refresh_index();
+            ov.focus = true;
         }
         let outside = ctx.input(|i| i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|p| !area.response.rect.contains(p)));
         if outside && chosen.is_none() && goto_only.is_none() && !submit {

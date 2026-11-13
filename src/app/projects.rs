@@ -407,7 +407,8 @@ impl App {
     pub(super) fn refresh_index(&mut self) {
         let Some(root) = self.root.clone() else { return };
         self.index.files_at = Some(Instant::now());
-        let ex = crate::walk::Exclusions::new(&root, &self.index_exclude());
+        let pats = if self.index.all_versions { self.settings.exclude.clone() } else { self.index_exclude() };
+        let ex = crate::walk::Exclusions::new(&root, &pats);
         let current = self.index.files.clone();
         self.jobs.spawn(move || {
             let mut v = Vec::new();

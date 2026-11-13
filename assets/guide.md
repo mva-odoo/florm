@@ -70,7 +70,8 @@ bas ouvert et la barre latérale affichée ou non.
   travailles : elle seule est dans l'index (Ctrl+P, F12, complétion, recherche), dans tous les
   dépôts à la fois (`odoo/20.0`, `enterprise/20.0`…). Les autres restent dans l'arborescence,
   grisées, et s'ouvrent toujours. Le choix est gardé pour le dossier ; **Exclure de l'index** marche
-  comme avant, à part.
+  comme avant, à part. Pour retrouver un fichier dans une autre version, coche **+ autres versions**
+  en haut de Ctrl+P ou à côté des filtres de la recherche (décoché à chaque changement de version).
 
 ## Panneau du bas et barre d'état
 

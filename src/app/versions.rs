@@ -94,6 +94,9 @@ impl App {
             return;
         }
         self.version = version;
+        // the new version alone, until asked otherwise
+        self.index.all_versions = false;
+        self.search.all_versions = false;
         self.index.symbols_for = None;
         self.refresh_index();
         self.save_session();
