@@ -76,6 +76,10 @@ bas ouvert et la barre latérale affichée ou non.
   **supprimer** (`git worktree remove` : les dossiers partent, les branches restent ; avec des
   fichiers modifiés, Florm le dit et demande de confirmer). **⟳ Vérifier sur le serveur** lance
   `git fetch --all` pour recompter les ↓ ; **+ Nouvelle version…** ouvre la fenêtre d'ajout.
+- Dans l'arborescence, chaque dossier de version qui est un worktree porte un petit **WT** (pas
+  `master`, qui est le dépôt lui-même), et la version sur laquelle tu travailles est marquée
+  **● courante**, dans chaque dépôt. Clic droit sur une version → **● Travailler sur la version
+  20.0** (ou **Ne plus filtrer les versions** sur la courante).
 - **Version courante** : avec des versions côte à côte dans le dossier ouvert, la barre d'état
   montre **Version 20.0** (ou **Versions : toutes**). Dans la fenêtre Versions, **Travailler dessus**
   choisit la version sur laquelle tu travailles (**Ne plus filtrer** les remet toutes) : elle seule est dans l'index (Ctrl+P, F12, complétion, recherche), dans tous les

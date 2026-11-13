@@ -33,7 +33,7 @@ enum Act {
 }
 
 /// The order of the rows: `master` first, then the newest versions (`20.0`, `saas-19.1`, `19.0`…).
-fn version_key(name: &str) -> (bool, i64, String) {
+pub(super) fn version_key(name: &str) -> (bool, i64, String) {
     let digits: String = name.chars().skip_while(|c| !c.is_ascii_digit()).take_while(|c| c.is_ascii_digit() || *c == '.').collect();
     let (major, minor) = digits.split_once('.').unwrap_or((&digits, "0"));
     let n = major.parse::<i64>().unwrap_or(-1) * 100 + minor.parse::<i64>().unwrap_or(0);

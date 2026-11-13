@@ -51,6 +51,16 @@ impl App {
             self.sidebar_mac_buttons(ui);
             // the other versions dimmed too
             let pats = self.index_exclude();
+            // the folders of the versions side by side: « WT », the current one
+            let marks: HashMap<PathBuf, sidebar::VersionMark> = self
+                .versions
+                .iter()
+                .flat_map(|g| g.names.iter().map(move |n| (g.dir.join(n), g.main.clone(), n.clone())))
+                .map(|(dir, main, name)| {
+                    let current = name == self.version;
+                    (dir.clone(), sidebar::VersionMark { worktree: dir != main, current, name })
+                })
+                .collect();
             // only the tree: the views are reached from the status bar, the bottom panel's ▾ and the palette
             match self.tree.as_mut() {
                 Some(tree) => {
@@ -63,7 +73,7 @@ impl App {
                         self.tree_ex = Some((tree.path.clone(), pats, ex));
                     }
                     let ex = &self.tree_ex.as_ref().expect("just set").2;
-                    tree_action = sidebar::show(ui, tree, &projects, ex, active.as_deref(), &self.git.map, info, &mut self.tree_scroll, &mut self.tree_nav);
+                    tree_action = sidebar::show(ui, tree, &projects, ex, active.as_deref(), &self.git.map, info, &marks, &mut self.tree_scroll, &mut self.tree_nav);
                 }
                 None => {
                     ui.label(t!("Aucun dossier ouvert.", "No folder open."));
@@ -127,6 +137,7 @@ impl App {
             TreeAction::InitRepo(d) => self.init_repo(d),
             TreeAction::AddVersion(d) => self.open_add_version(d),
             TreeAction::Versions(d) => self.open_versions(d),
+            TreeAction::WorkOnVersion(n) => self.set_version(n),
         }
     }
 

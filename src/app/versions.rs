@@ -30,7 +30,8 @@ fn suggestions<'a>(branches: &'a [String], typed: &str) -> Vec<&'a String> {
         return Vec::new();
     }
     let mut v: Vec<&String> = branches.iter().filter(|b| b.to_lowercase().contains(&typed)).collect();
-    v.sort_by_key(|b| !b.to_lowercase().starts_with(&typed));
+    // the ones starting with what is typed, then the newest first (saas-19.4 before saas-10)
+    v.sort_by_key(|b| (!b.to_lowercase().starts_with(&typed), super::versions_view::version_key(b)));
     v.truncate(30);
     v
 }
@@ -142,6 +143,7 @@ impl App {
             .collapsible(false)
             .resizable(false)
             .default_width(560.0)
+            .max_width(680.0)
             .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
             .show(ctx, |ui| {
                 egui::Grid::new("version_add_grid").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
@@ -161,12 +163,19 @@ impl App {
                     let found = suggestions(&st.branches, &st.branch);
                     if !found.is_empty() && !found.iter().any(|b| **b == st.branch.trim()) {
                         ui.label("");
-                        egui::ScrollArea::vertical().max_height(150.0).id_salt("version_add_branches").show(ui, |ui| {
-                            for b in found {
-                                if ui.selectable_label(false, RichText::new(b).monospace()).clicked() {
-                                    st.branch = b.clone();
-                                }
-                            }
+                        // one under the other (a grid cell lays things out in a row: the window grew wider
+                        // than the screen and its buttons went out of sight)
+                        ui.vertical(|ui| {
+                            ui.set_max_width(320.0);
+                            egui::ScrollArea::vertical().max_height(150.0).id_salt("version_add_branches").show(ui, |ui| {
+                                ui.vertical(|ui| {
+                                    for b in found {
+                                        if ui.selectable_label(false, RichText::new(b).monospace()).clicked() {
+                                            st.branch = b.clone();
+                                        }
+                                    }
+                                });
+                            });
                         });
                         ui.end_row();
                     }
@@ -309,6 +318,8 @@ mod tests {
     fn branch_suggestions_start_with_what_is_typed() {
         let b: Vec<String> = ["17.0", "17.0-fix-mva", "saas-17.2", "18.0"].iter().map(|s| s.to_string()).collect();
         assert_eq!(suggestions(&b, "17"), ["17.0", "17.0-fix-mva", "saas-17.2"]);
+        let saas: Vec<String> = ["saas-10", "saas-19.4", "saas-11.3", "saas-18.3"].iter().map(|s| s.to_string()).collect();
+        assert_eq!(suggestions(&saas, "saas"), ["saas-19.4", "saas-18.3", "saas-11.3", "saas-10"]);
         assert_eq!(suggestions(&b, " SAAS"), ["saas-17.2"]);
         assert!(suggestions(&b, "").is_empty());
     }

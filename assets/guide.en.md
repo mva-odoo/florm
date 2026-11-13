@@ -75,6 +75,10 @@ sidebar shown or not.
   worktree remove`: the folders go, the branches stay; with changed files, Florm says so and asks
   to confirm). **⟳ Check the server** runs `git fetch --all` to count the ↓ again; **+ New
   version…** opens the window to add one.
+- In the tree, each version folder that is a worktree carries a small **WT** (not `master`, which
+  is the repository itself), and the version you work on is marked **● current**, in each
+  repository. Right click on a version → **● Work on version 20.0** (or **Stop filtering the
+  versions** on the current one).
 - **Current version**: with versions side by side in the opened folder, the status bar shows
   **Version 20.0** (or **Versions: all**). In the Versions window, **Work on it** chooses the version you work on (**Stop filtering**
   puts them all back): only that one is
