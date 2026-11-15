@@ -1600,35 +1600,73 @@ fn comment_body(
     });
 }
 
-/// A pull request in the list: number and title, then author, branch, date and review state.
+/// A pull request in the list (as in Atom): the author's initials, the title on up to two lines,
+/// then number, branch and age; on the right the state of the checks and of the review.
 fn pr_row(ui: &mut egui::Ui, pr: &github::PrSummary, selected: bool, accent: Color32) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 46.0), Sense::click());
-    let v = ui.visuals();
+    let v = ui.visuals().clone();
+    let width = ui.available_width();
+    let text_x = 40.0;
+    let right_w = 26.0;
+    let title_w = width - text_x - right_w - 8.0;
+    let mut job = egui::text::LayoutJob::single_section(pr.title.clone(), egui::TextFormat::simple(egui::FontId::proportional(13.5), v.strong_text_color()));
+    job.wrap = egui::text::TextWrapping { max_width: title_w.max(40.0), max_rows: 2, break_anywhere: false, overflow_character: Some('…') };
+    let title = ui.fonts(|f| f.layout_job(job));
+    let h = title.size().y + 30.0;
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(width, h), Sense::click());
     if selected {
-        ui.painter().rect_filled(rect, 5.0, v.selection.bg_fill);
+        ui.painter().rect_filled(rect, 6.0, v.selection.bg_fill);
     } else if resp.hovered() {
-        ui.painter().rect_filled(rect, 5.0, v.widgets.hovered.weak_bg_fill);
+        ui.painter().rect_filled(rect, 6.0, v.widgets.hovered.weak_bg_fill);
     }
-    let p = ui.painter().with_clip_rect(rect.shrink(2.0));
-    let (_, color) = state_badge(&pr.state, pr.is_draft);
-    p.circle_filled(egui::pos2(rect.left() + 10.0, rect.top() + 14.0), 4.0, color);
-    let r = p.text(egui::pos2(rect.left() + 20.0, rect.top() + 6.0), Align2::LEFT_TOP, format!("#{}", pr.number), egui::FontId::proportional(13.5), v.weak_text_color());
-    p.text(egui::pos2(r.right() + 6.0, rect.top() + 6.0), Align2::LEFT_TOP, &pr.title, egui::FontId::proportional(13.5), v.strong_text_color());
-    let mut info = format!("{} · {} → {} · {}", pr.author.login, pr.head_ref_name, pr.base_ref_name, ago(&pr.updated_at));
+    let p = ui.painter().with_clip_rect(rect);
+    // the author: a round badge with the initials, its color from the login, the state of the pull
+    // request in a small dot on it
+    let login = &pr.author.login;
+    let hue = login.bytes().fold(7u32, |h, b| h.wrapping_mul(31).wrapping_add(b as u32)) % 360;
+    let avatar = egui::ecolor::Hsva::new(hue as f32 / 360.0, 0.45, if v.dark_mode { 0.55 } else { 0.75 }, 1.0);
+    let c = egui::pos2(rect.left() + 18.0, rect.top() + 18.0);
+    p.circle_filled(c, 12.0, Color32::from(avatar));
+    let initials: String = login.split(['-', '_']).filter_map(|w| w.chars().next()).take(2).collect::<String>().to_uppercase();
+    p.text(c, Align2::CENTER_CENTER, initials, egui::FontId::proportional(10.5), Color32::WHITE);
+    let (_, state) = state_badge(&pr.state, pr.is_draft);
+    let dot = c + egui::vec2(9.0, 9.0);
+    p.circle_filled(dot, 4.5, if selected { v.selection.bg_fill } else { v.panel_fill });
+    p.circle_filled(dot, 3.2, state);
+    p.galley(egui::pos2(rect.left() + text_x, rect.top() + 6.0), title.clone(), v.strong_text_color());
+    let mut info = format!("#{} · {} · {}", pr.number, pr.head_ref_name, ago(&pr.updated_at));
     if pr.is_draft {
         info.push_str(t!(" · brouillon", " · draft"));
     }
-    let r = p.text(egui::pos2(rect.left() + 20.0, rect.top() + 26.0), Align2::LEFT_TOP, info, egui::FontId::proportional(11.5), v.weak_text_color());
+    let info = crate::history::elided(ui, &info, egui::FontId::proportional(11.5), v.weak_text_color(), title_w);
+    p.galley(egui::pos2(rect.left() + text_x, rect.top() + 9.0 + title.size().y), info, v.weak_text_color());
+    // on the right: the checks, then the review
+    let rx = rect.right() - right_w / 2.0 - 4.0;
+    let (ci, ci_tip) = match pr.ci() {
+        Some(github::Ci::Success) => (Some(("✔", ok())), t!("CI : tout est passé", "CI: everything passed")),
+        Some(github::Ci::Failure) => (Some(("✖", err())), t!("CI : au moins un échec", "CI: at least one failure")),
+        Some(github::Ci::Pending) => (Some(("●", warn())), t!("CI : en cours", "CI: running")),
+        None => (None, ""),
+    };
+    if let Some((g, color)) = ci {
+        p.text(egui::pos2(rx, rect.top() + 14.0), Align2::CENTER_CENTER, g, egui::FontId::proportional(13.0), color);
+    }
     let review = match pr.review_decision.as_deref() {
-        Some("APPROVED") => Some((t!("✔ approuvée", "✔ approved"), ok())),
-        Some("CHANGES_REQUESTED") => Some((t!("✖ à corriger", "✖ to fix"), err())),
-        Some("REVIEW_REQUIRED") => Some((t!("revue demandée", "review requested"), accent)),
+        Some("APPROVED") => Some(("👍", ok(), t!("Approuvée", "Approved"))),
+        Some("CHANGES_REQUESTED") => Some(("✖", err(), t!("Des changements sont demandés", "Changes requested"))),
+        Some("REVIEW_REQUIRED") => Some(("👁", accent, t!("Revue demandée", "Review requested"))),
         _ => None,
     };
-    if let Some((t, c)) = review {
-        p.text(egui::pos2(r.right() + 8.0, rect.top() + 26.0), Align2::LEFT_TOP, t, egui::FontId::proportional(11.5), c);
+    if let Some((g, color, _)) = review {
+        p.text(egui::pos2(rx, rect.top() + 34.0), Align2::CENTER_CENTER, g, egui::FontId::proportional(12.0), color);
     }
-    resp.on_hover_text(&pr.title)
+    let mut tip = format!("{}\n{} · {} → {}", pr.title, login, pr.head_ref_name, pr.base_ref_name);
+    if !ci_tip.is_empty() {
+        tip.push_str(&format!("\n{ci_tip}"));
+    }
+    if let Some((_, _, t)) = review {
+        tip.push_str(&format!("\n{t}"));
+    }
+    resp.on_hover_text(tip)
 }
 
 /// A commit of the pull request: hash, message, author and date.

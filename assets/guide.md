@@ -430,7 +430,11 @@ avec `gh auth login` (connexion par le navigateur). Sans `gh`, la vue explique c
 
 **Ctrl+Alt+R** (ou Git → Pull requests GitHub, **⋯ → Pull requests GitHub** dans la vue Git, la palette).
 
-- À gauche, les PR du dépôt (ouvertes, fusionnées, fermées, les tiennes), filtrables. Au départ,
+- À gauche, les PR du dépôt (ouvertes, fusionnées, fermées, les tiennes), filtrables. Chaque
+  ligne : les initiales de l'auteur (le point dessus dit si la PR est ouverte, brouillon, fusionnée
+  ou fermée), le titre sur deux lignes au plus, `#numéro · branche · âge`, et à droite l'état de
+  la CI (**✔** passée, **✖** un échec, **●** en cours) puis de la revue (**👍** approuvée,
+  **✖** à corriger, **👁** revue demandée). Au départ,
   **les tiennes** (préférence « Auteur affiché au départ » pour voir toutes les PR).
 - Une PR que tu viens de créer s'ouvre dès que GitHub la connaît (quelques secondes).
 - **Conversation** : la description, les **commentaires sur le code** (fichier:ligne

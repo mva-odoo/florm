@@ -425,6 +425,10 @@ it (your system is detected) and comes back by itself as soon as it is found.
 **Ctrl+Alt+R** (or Git → GitHub pull requests, **⋯ → GitHub pull requests** in the Git view, the
 palette).
 
+- Each row of the list: the author's initials (the dot on them says whether the pull request is
+  open, a draft, merged or closed), the title on two lines at most, `#number · branch · age`, and on
+  the right the state of the CI (**✔** passed, **✖** a failure, **●** running) then of the review
+  (**👍** approved, **✖** to fix, **👁** review requested).
 - On the left, the PRs of the repository (open, merged, closed, yours), with a filter. At the
   start, **yours** (preference “Author shown at the start” to see all of them).
 - A PR you just created opens as soon as GitHub knows it (a few seconds).
