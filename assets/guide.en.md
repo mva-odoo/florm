@@ -184,7 +184,10 @@ explains how to install it (the system is detected) and comes back by itself as 
   all of them all the time.
 - **Ctrl+Shift+G** (or click the branch in the status bar): Git view. At the top the repository (large, a click lists them when the project has several), the branch (**🔀 name ▾**: switch or create one),
   pull / push / fetch and the commit message (Ctrl+Enter); below it the graph, whose first
-  rows are the changes to stage / staged.
+  rows are the changes to stage / staged, with their files one per row (as in Atom): the state
+  letter (**M** modified, **A** added, **D** deleted, **U** new), the name, the folder in grey and
+  the +/− lines; on hover, **+** stages the file, **−** unstages it. Under the message, the length of
+  its first line (orange past 50, red past 72).
   A click on a file opens its changes in the commits view.
 - **Ctrl+Alt+G**: the commits view. At the top the list (with the unstaged and staged
   changes), below it **all the files of the commit and their changes, one under the other**,

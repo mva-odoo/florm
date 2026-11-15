@@ -250,8 +250,15 @@ pub fn paint_refs(ui: &Ui, mut x: f32, y: f32, refs: &[String], font: &FontId) -
 }
 
 /// One clickable list row: graph, refs, subject, author/date/hash on the right.
+/// `text` on one line, ended with "…" when it is wider than `max_w`.
+pub fn elided(ui: &Ui, text: &str, font: FontId, color: egui::Color32, max_w: f32) -> std::sync::Arc<egui::Galley> {
+    let mut job = egui::text::LayoutJob::single_section(text.to_string(), egui::TextFormat::simple(font, color));
+    job.wrap = egui::text::TextWrapping { max_width: max_w.max(10.0), max_rows: 1, break_anywhere: true, overflow_character: Some('…') };
+    ui.fonts(|f| f.layout_job(job))
+}
+
 pub fn row_ui(ui: &mut Ui, c: &Commit, row: &Row, graph_w: f32, selected: bool, with_lines: bool) -> egui::Response {
-    let h = 22.0;
+    let h = 24.0;
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), h), Sense::click());
     if selected {
         ui.painter().rect_filled(rect, 0.0, ui.visuals().selection.bg_fill);
@@ -262,18 +269,26 @@ pub fn row_ui(ui: &mut Ui, c: &Commit, row: &Row, graph_w: f32, selected: bool, 
     let font = FontId::proportional(13.0);
     let small = FontId::proportional(11.0);
     let weak = ui.visuals().weak_text_color();
-    let right = format!("{}   {}   {}", c.author, c.date, &c.hash[..c.hash.len().min(8)]);
-    let right_galley = ui.painter().layout_no_wrap(right, small.clone(), weak);
-    let right_w = right_galley.size().x + 12.0;
-    ui.painter().galley(
-        Pos2::new(rect.right() - right_w + 4.0, rect.center().y - right_galley.size().y / 2.0),
-        right_galley,
-        weak,
-    );
-    let clip = Rect::from_min_max(rect.min, Pos2::new(rect.right() - right_w, rect.bottom()));
-    let painter = ui.painter().with_clip_rect(clip);
-    let x = paint_refs(ui, rect.left() + graph_w + 6.0, rect.center().y, &c.refs, &small);
-    painter.text(Pos2::new(x + 2.0, rect.center().y), Align2::LEFT_CENTER, &c.subject, font, ui.visuals().text_color());
+    // on the right, in aligned columns: the author (shortened), the date, the short hash; fewer
+    // of them when the view is narrow
+    let mono = FontId::monospace(11.0);
+    let cy = rect.center().y;
+    let (hash_w, date_w, author_w) = (64.0, 112.0, 130.0);
+    let wide = rect.width() > graph_w + 520.0;
+    let mut right = rect.right() - 8.0;
+    let hash = &c.hash[..c.hash.len().min(7)];
+    ui.painter().text(Pos2::new(right, cy), Align2::RIGHT_CENTER, hash, mono, weak);
+    right -= hash_w;
+    if wide {
+        ui.painter().text(Pos2::new(right, cy), Align2::RIGHT_CENTER, &c.date, small.clone(), weak);
+        right -= date_w;
+        let a = elided(ui, &c.author, small.clone(), weak, author_w - 12.0);
+        ui.painter().galley(Pos2::new(right - a.size().x, cy - a.size().y / 2.0), a, weak);
+        right -= author_w;
+    }
+    let x = paint_refs(ui, rect.left() + graph_w + 6.0, cy, &c.refs, &small);
+    let subject = elided(ui, &c.subject, font, ui.visuals().text_color(), right - x - 12.0);
+    ui.painter().galley(Pos2::new(x + 2.0, cy - subject.size().y / 2.0), subject, ui.visuals().text_color());
     resp
 }
 

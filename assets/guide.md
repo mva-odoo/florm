@@ -185,7 +185,11 @@ explique comment l'installer (le système est détecté) et reprend toute seule 
 - **Ctrl+Shift+G** (ou clic sur la branche dans la barre d'état) : vue Git. En haut le dépôt (en grand : le
   nom est cliquable quand le projet en a plusieurs), la branche (**🔀 nom ▾** : changer de branche ou en créer une),
   pull / push / fetch et le message du commit (Ctrl+Entrée) ; en dessous le graphe, dont les
-  premières lignes sont les modifications à indexer / indexées.
+  premières lignes sont les modifications à indexer / indexées, avec leurs fichiers un par ligne
+  (comme dans Atom) : la lettre de l'état (**M** modifié, **A** ajouté, **D** supprimé, **U**
+  nouveau), le nom, le dossier en gris et les lignes +/− ; au survol, **+** indexe le fichier,
+  **−** le retire de l'index. Sous le message, la longueur de sa première ligne (orange après 50,
+  rouge après 72).
   Un clic sur un fichier ouvre ses changements dans la vue des commits.
 - **Ctrl+Alt+G** : la vue des commits. En haut la liste (avec les modifications non indexées
   et indexées), en dessous **tous les fichiers du commit et leurs changements, l'un sous l'autre**,

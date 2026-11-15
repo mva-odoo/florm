@@ -523,6 +523,8 @@ impl App {
         let mut open_conflicts = false;
         let (mut menu_act, mut clear_notice, mut resume, mut abort_rebase) = (None, false, false, false);
         let (mut wip_pick, mut wip_ops): (Option<bool>, Vec<Vec<String>>) = (None, Vec::new());
+        // a file staged / unstaged from its row, and a file clicked (its diff shown)
+        let (mut file_ops, mut file_jump): (Vec<Vec<String>>, Option<String>) = (Vec::new(), None);
         let split_hidden = self.split.as_ref().map(|s| s.info.short.clone());
         let accent = self.hl.colors.accent;
         // working tree status (same repository as the graph)
@@ -687,6 +689,63 @@ impl App {
                     if resp.on_hover_text(t!("Voir les changements, indexer / désindexer", "See the changes, stage / unstage")).clicked() {
                         wip_pick = Some(is_staged);
                     }
+                    // its files, one per row (as in Atom): the state letter, the name, the folder,
+                    // + / − to stage or unstage this one
+                    const SHOWN: usize = 12;
+                    for e in list.iter().take(SHOWN) {
+                        let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 22.0), Sense::click());
+                        if resp.hovered() {
+                            ui.painter().rect_filled(rect, 4.0, ui.visuals().widgets.hovered.weak_bg_fill);
+                        }
+                        let p = ui.painter().with_clip_rect(rect);
+                        let cy = rect.center().y;
+                        let letter = if is_staged { e.x } else if e.y == '?' { 'U' } else { e.y };
+                        let tint = match letter {
+                            'A' | 'U' => ok(),
+                            'D' => err(),
+                            'R' | 'C' => accent,
+                            _ => warn(),
+                        };
+                        let badge = egui::Rect::from_center_size(egui::pos2(rect.left() + 34.0, cy), egui::vec2(16.0, 16.0));
+                        p.rect_filled(badge, 4.0, tint.gamma_multiply(0.18));
+                        p.text(badge.center(), Align2::CENTER_CENTER, letter, egui::FontId::monospace(10.5), tint);
+                        let (dir, name) = e.path.rsplit_once('/').unwrap_or(("", &e.path));
+                        let r = p.text(egui::pos2(badge.right() + 8.0, cy), Align2::LEFT_CENTER, name, egui::FontId::proportional(13.0), ui.visuals().strong_text_color());
+                        let mut right = rect.right() - 8.0;
+                        if resp.hovered() {
+                            let b = egui::Rect::from_center_size(egui::pos2(right - 10.0, cy), egui::vec2(20.0, 18.0));
+                            let (sign, tip) = if is_staged { ("−", t!("Retirer de l'index", "Unstage")) } else { ("+", t!("Indexer ce fichier", "Stage this file")) };
+                            let br = ui.interact(b, egui::Id::new(("wip_file_op", is_staged, &e.path)), Sense::click()).on_hover_text(tip);
+                            ui.painter().rect_filled(b, 4.0, if br.hovered() { accent.gamma_multiply(0.3) } else { ui.visuals().widgets.inactive.weak_bg_fill });
+                            ui.painter().text(b.center(), Align2::CENTER_CENTER, sign, egui::FontId::monospace(13.0), ui.visuals().strong_text_color());
+                            if br.clicked() {
+                                file_ops.push(if is_staged { vec!["restore".into(), "--staged".into(), "--".into(), e.path.clone()] } else { vec!["add".into(), "--".into(), e.path.clone()] });
+                            }
+                            right -= 26.0;
+                        }
+                        if let Some((a, d)) = stats.get(&e.path) {
+                            let t = format!("+{} −{}", a.map_or("·".into(), |n| n.to_string()), d.map_or("·".into(), |n| n.to_string()));
+                            let g = p.layout_no_wrap(t, egui::FontId::monospace(10.5), ui.visuals().weak_text_color());
+                            right -= g.size().x;
+                            p.galley(egui::pos2(right, cy - g.size().y / 2.0), g, ui.visuals().weak_text_color());
+                            right -= 10.0;
+                        }
+                        if !dir.is_empty() {
+                            let g = history::elided(ui, dir, egui::FontId::proportional(11.5), ui.visuals().weak_text_color(), right - r.right() - 18.0);
+                            p.galley(egui::pos2(r.right() + 8.0, cy - g.size().y / 2.0), g, ui.visuals().weak_text_color());
+                        }
+                        if resp.on_hover_text(&e.path).clicked() {
+                            wip_pick = Some(is_staged);
+                            file_jump = Some(e.path.clone());
+                        }
+                    }
+                    if list.len() > SHOWN {
+                        let more = ui.add(egui::Label::new(RichText::new(tf!("      … et {} autre(s) : voir tout", "      … and {} more: see all", list.len() - SHOWN)).small().weak()).sense(Sense::click()));
+                        if more.clicked() {
+                            wip_pick = Some(is_staged);
+                        }
+                    }
+                    ui.add_space(4.0);
                 }
                 if !st.entries.is_empty() {
                     ui.separator();
@@ -728,7 +787,7 @@ impl App {
                 select = Some(idx[k]);
             }
             let graph_w = g.lanes.clamp(1, 24) as f32 * history::LANE_W + 6.0;
-            let row_h = 22.0;
+            let row_h = 24.0;
             ui.spacing_mut().item_spacing.y = 0.0;
             let mut area = egui::ScrollArea::vertical().id_salt("history_list").auto_shrink([false, false]);
             // a commit chosen from elsewhere ("voir dans le graphe"): in the middle of the list
@@ -1225,6 +1284,15 @@ impl App {
         }
         if let Some(staged) = wip_pick {
             self.show_wip(staged);
+            if file_jump.is_some() {
+                self.history.jump_path = file_jump;
+            }
+        }
+        if let Some(repo) = self.history.repo.clone() {
+            for args in file_ops {
+                let a: Vec<&str> = args.iter().map(String::as_str).collect();
+                self.git_job_at(repo.clone(), if args[0] == "add" { "add" } else { "restore" }, &a);
+            }
         }
         if ai_start {
             self.ai_review_wip();
@@ -1348,6 +1416,15 @@ fn commit_box(ui: &mut egui::Ui, msg: &mut String, amend: &mut bool, pushed: boo
                 .on_hover_text(t!("git commit --amend : remplace le dernier commit (message, et fichiers indexés en plus) au lieu d'en créer un", "git commit --amend: replaces the last commit (message, and staged files added) instead of making a new one"));
             if *amend && pushed {
                 ui.label(RichText::new(t!("⚠ déjà poussé : il faudra ensuite un push --force-with-lease", "⚠ already pushed: a push --force-with-lease will be needed afterwards")).small().color(warn()));
+            }
+            // the length of the subject line (as in Atom): past 72 it is cut in most tools
+            let subject = msg.lines().next().unwrap_or("").chars().count();
+            if subject > 0 {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let color = if subject > 72 { err() } else if subject > 50 { warn() } else { ui.visuals().weak_text_color() };
+                    ui.label(RichText::new(format!("{subject}")).small().monospace().color(color))
+                        .on_hover_text(t!("Longueur de la première ligne : au-delà de 72 caractères elle est coupée dans la plupart des outils", "Length of the first line: past 72 characters most tools cut it"));
+                });
             }
         });
     });
