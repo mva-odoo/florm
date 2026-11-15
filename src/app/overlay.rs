@@ -9,7 +9,8 @@ impl App {
             Mode::Commands => {
                 let mut v: Vec<Item> = commands::ALL
                     .iter()
-                    .filter(|(_, l, c)| !l.is_empty() && crate::features::cmd_on(*c))
+                    // the palette itself: it is already open
+                    .filter(|(_, l, c)| !l.is_empty() && crate::features::cmd_on(*c) && *c != Cmd::CommandPalette)
                     .map(|(id, l, c)| Item { label: commands::label(id, l).to_string(), detail: self.keymap.label(*c), action: Action::Cmd(*c) })
                     .collect();
                 for (k, &(pi, ci)) in self.plugin_cmds.iter().enumerate() {
@@ -497,13 +498,24 @@ impl App {
                                 icons::paint_file(ui.painter(), r, name, bg, light);
                                 text_x += 22.0;
                             }
-                            ui.painter().with_clip_rect(clip).text(
-                                egui::pos2(text_x, rect.center().y),
-                                Align2::LEFT_CENTER,
-                                label,
-                                egui::FontId::proportional(14.0),
-                                text_color,
-                            );
+                            if files_mode {
+                                // the file name first, its folder after it in grey: the name is what
+                                // is looked for, the folder tells two of them apart
+                                let (dir, name) = label.rsplit_once(['/', '\\']).unwrap_or(("", label));
+                                let p = ui.painter().with_clip_rect(clip);
+                                let r = p.text(egui::pos2(text_x, rect.center().y), Align2::LEFT_CENTER, name, egui::FontId::proportional(14.0), v.strong_text_color());
+                                if !dir.is_empty() {
+                                    p.text(egui::pos2(r.right() + 10.0, rect.center().y), Align2::LEFT_CENTER, dir, egui::FontId::proportional(12.5), v.weak_text_color());
+                                }
+                            } else {
+                                ui.painter().with_clip_rect(clip).text(
+                                    egui::pos2(text_x, rect.center().y),
+                                    Align2::LEFT_CENTER,
+                                    label,
+                                    egui::FontId::proportional(14.0),
+                                    text_color,
+                                );
+                            }
                             if row == ov.selected && (up || down) {
                                 r.scroll_to_me(None);
                             }

@@ -392,7 +392,19 @@ impl App {
         }
         self.repos = repos;
         let active = self.docs.get(self.active).and_then(|d| d.path.clone());
-        let pick = active.as_deref().and_then(|p| self.repo_for(p)).or_else(|| self.repos.first().cloned());
+        // no file of a repository open: the version worked on (odoo/20.0), not the first one found
+        // (design-themes/16.0)
+        let of_version = || {
+            let mut found: Vec<PathBuf> = self.versions.iter().filter(|_| !self.version.is_empty()).map(|g| g.dir.join(&self.version)).filter(|d| self.repos.contains(d)).collect();
+            // odoo first, then enterprise, then the others
+            found.sort_by_key(|d| match d.parent().and_then(|p| p.file_name()).and_then(|n| n.to_str()) {
+                Some("odoo") => 0,
+                Some("enterprise") => 1,
+                _ => 2,
+            });
+            found.into_iter().next()
+        };
+        let pick = active.as_deref().and_then(|p| self.repo_for(p)).or_else(of_version).or_else(|| self.repos.first().cloned());
         if let Some(r) = pick {
             self.select_repo(r);
         }

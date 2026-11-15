@@ -109,6 +109,22 @@ fn pref_row(ui: &mut egui::Ui, rc: &mut RowCtx, title: &str, desc: &str, control
     }
     rc.header(ui);
     ui.add_space(10.0);
+    // a narrow page (Florm on half the screen): the control under the text, it would cover it
+    if ui.available_width() < 560.0 {
+        ui.label(RichText::new(title).strong());
+        if !desc.is_empty() {
+            ui.add(egui::Label::new(RichText::new(desc).weak().size(12.5)).wrap());
+        }
+        ui.add_space(4.0);
+        ui.horizontal_wrapped(control);
+        ui.add_space(10.0);
+        let r = ui.available_rect_before_wrap();
+        ui.painter().line_segment(
+            [egui::pos2(r.left(), r.top()), egui::pos2(r.right(), r.top())],
+            egui::Stroke::new(1.0_f32, ui.visuals().widgets.noninteractive.bg_stroke.color),
+        );
+        return;
+    }
     ui.horizontal(|ui| {
         let text_w = (ui.available_width() - 300.0).max(200.0);
         ui.vertical(|ui| {
@@ -283,7 +299,7 @@ impl App {
                 let mut theme_act = None;
                 let mut drop_theme = false;
                 if self.prefs.theme_draft.is_none() {
-                    pref_row(ui, rc, t!("Couleurs du thème", "Theme colors"), t!("Un thème à toi : les couleurs de l'éditeur et du code, à partir du thème choisi, enregistré dans le dossier « themes » de la configuration.", "A theme of your own: the colors of the editor and of the code, starting from the chosen theme, saved in the “themes” folder of the configuration."), |ui| {
+                    pref_row_wide(ui, rc, t!("Couleurs du thème", "Theme colors"), t!("Un thème à toi : les couleurs de l'éditeur et du code, à partir du thème choisi, enregistré dans le dossier « themes » de la configuration.", "A theme of your own: the colors of the editor and of the code, starting from the chosen theme, saved in the “themes” folder of the configuration."), |ui| {
                         if current_is_user && ui.button(t!("Supprimer ce thème", "Delete this theme")).clicked() {
                             drop_theme = true;
                         }

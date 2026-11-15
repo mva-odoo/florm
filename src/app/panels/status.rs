@@ -84,7 +84,8 @@ impl App {
                     self.apply_pick(p, false);
                 }
                 ui.separator();
-                if let Some(d) = self.docs.get(self.active) {
+                // only for a text (not on the welcome page, a diff, the preferences…)
+                if let Some(d) = self.docs.get(self.active).filter(|d| d.view == crate::document::View::Text) {
                     let p = d.primary_sel();
                     let (l, c) = d.line_col(p.head);
                     ui.label(tf!("Ligne {}, Colonne {}", "Line {}, Column {}", l + 1, c + 1));

@@ -457,7 +457,9 @@ fn node_ui(
     let name = painter.layout_no_wrap(node.name.clone(), FontId::proportional(13.5), color);
     let mut name_end = x + name.size().x;
     painter.galley(Pos2::new(x, cy - name.size().y / 2.0), name, color);
-    if own_rule && !parent_excluded {
+    // the other versions are already dimmed and marked WT: no eye on them
+    let a_version = node.is_dir && versions.contains_key(&node.path);
+    if own_rule && !parent_excluded && !a_version {
         icons::paint_eye_off(&painter, Pos2::new(name_end + 12.0, cy), v.weak_text_color());
         name_end += 20.0;
     }

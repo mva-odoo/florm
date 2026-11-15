@@ -19,6 +19,28 @@ pub fn fold(c: char) -> char {
 /// The tightest place where the pattern appears is scored (not the first letters found, which
 /// may be scattered over a long path).
 pub fn score(pattern: &str, cand: &str) -> Option<i32> {
+    raw_score(pattern, cand).map(|s| s + name_bonus(pattern, cand))
+}
+
+/// The file name is what is typed, without its extension (`event_registration` →
+/// `event_registration.py`, before `event_registration_demo.xml`), or starts with it.
+fn name_bonus(pattern: &str, cand: &str) -> i32 {
+    let pat: String = pattern.chars().filter(|c| !c.is_whitespace()).map(fold).collect();
+    if pat.is_empty() {
+        return 0;
+    }
+    let name: String = cand.rsplit(['/', '\\']).next().unwrap_or(cand).chars().map(fold).collect();
+    let stem = name.split('.').next().unwrap_or(&name);
+    if stem == pat || name == pat {
+        80
+    } else if name.starts_with(&pat) {
+        20
+    } else {
+        0
+    }
+}
+
+fn raw_score(pattern: &str, cand: &str) -> Option<i32> {
     if pattern.is_ascii() && cand.is_ascii() {
         // file paths: bytes, without allocating (go to file scores up to a million of them)
         let pat: Vec<u8> = pattern.bytes().filter(|b| !b.is_ascii_whitespace()).map(|b| b.to_ascii_lowercase()).collect();
@@ -147,6 +169,14 @@ mod tests {
         let f = score("app", "src/app.rs").unwrap();
         let d = score("app", "app/src/main.rs").unwrap();
         assert!(f > d);
+    }
+
+    #[test]
+    fn the_exact_file_name_comes_first() {
+        let py = "odoo/20.0/addons/event/models/event_registration.py";
+        let demo = "odoo/20.0/addons/event/data/event_registration_demo.xml";
+        assert!(score("event_registration", py) > score("event_registration", demo));
+        assert!(score("event_registration.py", py) > score("event_registration.py", demo));
     }
 
     #[test]
