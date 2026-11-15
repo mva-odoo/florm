@@ -1052,52 +1052,27 @@ impl App {
                     .response
                     .on_disabled_hover_text(t!("Pour changer : « Nouvelle conversation »", "To change: “New conversation”"))
                     .on_hover_text(t!("Le dossier où Claude travaille : un dépôt du projet, un projet récent ou n'importe quel dossier", "The folder Claude works in: a repository of the project, a recent project or any folder"));
+                    if ui.button(t!("+ Nouvelle", "+ New")).on_hover_text(t!("Dans un nouvel onglet : celle-ci continue dans le sien (l'onglet devient vert quand Claude a fini)", "In a new tab: this one goes on in its own (the tab turns green when Claude is done)")).clicked() {
+                        new_conv = true;
+                    }
+                    // the rest of the settings in one menu: the bar stays on one line, even narrow
+                    ui.menu_button("⋯", |ui| {
+                        ui.set_min_width(240.0);
                     // changed during the conversation: Claude goes on with it (at once while it works,
                     // else from the next message, the conversation kept)
                     // the account it runs with (from the next message, the conversation kept)
                     if accounts.len() > 1 {
-                        egui::ComboBox::from_id_salt(("claude_account", conv))
-                            .selected_text(format!("👤 {account_name}"))
-                            .show_ui(ui, |ui| {
+                        ui.menu_button(format!("👤 {account_name}"), |ui| {
                                 for a in &accounts {
                                     if ui.selectable_label(a.name == account_name, &a.name).clicked() && a.name != account_name {
                                         chosen_account = Some(a.name.clone());
+                                        ui.close_menu();
                                     }
                                 }
                             })
                             .response
                             .on_hover_text(t!("Le compte Claude de cette conversation (son abonnement et ses quotas) ; changé, il s'applique au prochain message, la conversation continue", "The Claude account of this conversation (its subscription and quotas); changed, it applies from the next message, the conversation goes on"));
                     }
-                    // the alias chosen, with the version Claude Code really runs once it is known
-                    let (alias, label) = claude::MODELS[c.model];
-                    let shown = if !claude::model_is(&c.model_id, alias) {
-                        claude::label(label).to_string()
-                    } else if alias.is_empty() {
-                        tf!("Défaut ({})", "Default ({})", claude::model_name(&c.model_id))
-                    } else {
-                        claude::model_name(&c.model_id)
-                    };
-                    let tip = if c.model_id.is_empty() {
-                        t!("La dernière version de chaque modèle, choisie par Claude Code", "The latest version of each model, chosen by Claude Code").to_string()
-                    } else {
-                        tf!("Modèle utilisé : {}", "Model in use: {}", c.model_id)
-                    };
-                    egui::ComboBox::from_id_salt(("claude_model", conv))
-                        .selected_text(shown)
-                        .show_ui(ui, |ui| {
-                            for (k, (_, label)) in claude::MODELS.iter().enumerate() {
-                                ui.selectable_value(&mut c.model, k, claude::label(label));
-                            }
-                        })
-                        .response
-                        .on_hover_text(tip);
-                    egui::ComboBox::from_id_salt(("claude_mode", conv)).selected_text(tf!("Mode : {}", "Mode: {}", claude::label(claude::MODES[c.mode].1))).show_ui(ui, |ui| {
-                        for (k, (_, label, tip)) in claude::MODES.iter().enumerate() {
-                            ui.selectable_value(&mut c.mode, k, claude::label(label)).on_hover_text(claude::label(tip));
-                        }
-                    })
-                    .response
-                    .on_hover_text(t!("Maj+Tab dans le champ : mode suivant", "Shift+Tab in the field: next mode"));
                     let n_perms = perms.iter().filter(|p| claude::PERMS.iter().any(|(k, ..)| k == p)).count();
                     ui.menu_button(format!("🔒 Permissions ({n_perms})"), |ui| {
                         ui.set_min_width(330.0);
@@ -1142,9 +1117,6 @@ impl App {
                     })
                     .response
                     .on_hover_text(t!("Ce que Claude a le droit de faire", "What Claude is allowed to do"));
-                    if ui.button(t!("Nouvelle conversation", "New conversation")).on_hover_text(t!("Dans un nouvel onglet : celle-ci continue dans le sien (l'onglet devient vert quand Claude a fini)", "In a new tab: this one goes on in its own (the tab turns green when Claude is done)")).clicked() {
-                        new_conv = true;
-                    }
                     let in_git = c.dir.as_ref().is_some_and(|d| d.join(".git").exists());
                     if let Some(a) = super::claude_tools::worktree_menu(ui, &mut c.tools, in_git) {
                         tool_act = Some(a);
@@ -1180,7 +1152,11 @@ impl App {
                     if c.cost > 0.0 {
                         ui.label(RichText::new(format!("{:.2} $", c.cost)).weak().small()).on_hover_text(t!("Coût estimé de la conversation", "Estimated cost of the conversation"));
                     }
-                    if ui.available_width() < 380.0 {
+                    })
+                    .response
+                    .on_hover_text(t!("Compte, permissions, worktree, historique, outils (MCP, mémoire…)", "Account, permissions, worktree, history, tools (MCP, memory…)"));
+                    // the gauges, « Revue » and the view buttons need about 300 px: else on a line of their own
+                    if ui.max_rect().right() - ui.cursor().min.x < 300.0 {
                         ui.end_row();
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -1690,8 +1666,13 @@ impl App {
                             }
                         }
                     }
+                    // the field and its buttons in one rounded box (as in Claude Desktop)
+                    let field_bg = ui.visuals().extreme_bg_color;
+                    let edge = ui.visuals().widgets.noninteractive.bg_stroke.color;
+                    egui::Frame::none().fill(field_bg).stroke(egui::Stroke::new(1.0_f32, edge)).rounding(14.0).inner_margin(egui::Margin { left: 12.0, right: 8.0, top: 10.0, bottom: 6.0 }).show(ui, |ui| {
                     let resp = ui.add(
                         egui::TextEdit::multiline(&mut c.input)
+                            .frame(false)
                             .id(field_id)
                             .hint_text(t!("Demande à Claude… (Ctrl+Entrée pour envoyer, / les commandes, @ un fichier, # retenir, Maj+Tab le mode)", "Ask Claude… (Ctrl+Enter to send, / commands, @ a file, # remember, Shift+Tab the mode)"))
                             .desired_rows(rows)
@@ -1719,31 +1700,6 @@ impl App {
                         let has_text = !c.input.trim().is_empty();
                         // a pasted text (or another context) alone can be sent too
                         let can_send = has_text || !c.attach.is_empty();
-                        // a place of its own, always there: the buttons do not move when the estimate appears or changes
-                        ui.allocate_ui_with_layout(egui::vec2(84.0, 18.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                            if has_text {
-                                let tokens = (c.input.chars().count() / 4).max(1);
-                                ui.label(RichText::new(tf!("≈ {} tokens", "≈ {} tokens", tokens)).weak().small()).on_hover_text(t!("Estimation du texte seul (environ 4 caractères par token) ; le contexte joint (fichier, définitions…) s'y ajoute", "Estimate of the text alone (about 4 characters per token); the context joined (file, definitions…) adds to it"));
-                            }
-                        });
-                        if c.busy {
-                            if ui.button(t!("■ Arrêter", "■ Stop")).on_hover_text(t!("Arrêter la réponse en cours (la conversation continue)", "Stop the current answer (the conversation goes on)")).clicked() {
-                                stop = true;
-                            }
-                            let tip = t!("Envoie le message tout de suite : Claude le lit entre deux étapes et en tient compte dans le travail en cours (Ctrl+Entrée)", "Sends the message at once: Claude reads it between two steps and takes it into account in the work going on (Ctrl+Enter)");
-                            if ui.add_enabled(can_send, filled_button(t!("Envoyer", "Send"), accent)).on_hover_text(tip).clicked() {
-                                send = true;
-                            }
-                            let tip = t!("Le message attend dans la file et part quand Claude a fini ce qu'il fait (Ctrl+Maj+Entrée)", "The message waits in the queue and goes when Claude is done with what it does (Ctrl+Shift+Enter)");
-                            if ui.add_enabled(has_text, egui::Button::new(t!("⏭ Après", "⏭ After"))).on_hover_text(tip).clicked() {
-                                send = true;
-                                later = true;
-                            }
-                            spinner(ui);
-                            ui.label(RichText::new(working_label(c.activity.as_deref(), c.news)).weak());
-                        } else if ui.add_enabled(can_send, filled_button(t!("Envoyer", "Send"), accent)).clicked() {
-                            send = true;
-                        }
                         let tip = t!("Ajoute la demande à la file de tâches au lieu de l'envoyer.\nUne liste (- …, * …, 1. …) donne une tâche par élément ; la phrase avant la liste va avec chacune.\n« Lancer » les envoie une à une, chacune quand Claude a fini la précédente.", "Adds the request to the task queue instead of sending it.\nA list (- …, * …, 1. …) gives one task per item; the sentence before the list goes with each.\n“Run” sends them one by one, each when Claude is done with the previous one.");
                         if ui.add_enabled(!c.input.trim().is_empty(), egui::Button::new(t!("+ File", "+ Queue"))).on_hover_text(tip).clicked() {
                             let n = c.queue.add(&c.input);
@@ -1802,8 +1758,76 @@ impl App {
                         })
                         .response
                         .on_hover_text(t!("Ce qui part avec chaque message : le fichier ouvert, les questions d'abord, les définitions citées", "What goes with each message: the open file, questions first, the mentioned definitions"));
+                        if c.busy {
+                            spinner(ui);
+                            ui.label(RichText::new(working_label(c.activity.as_deref(), c.news)).weak().small());
+                        }
+                        // on the right, as in Claude Desktop: the model and the mode, then send (a
+                        // round button) or stop; on a line of their own when the box is narrow
+                        // the room left on this row (in a wrapping row `available_width` is the whole row)
+                        if ui.max_rect().right() - ui.cursor().min.x < 300.0 {
+                            ui.end_row();
+                        }
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let send_btn = |ui: &mut egui::Ui, enabled: bool, glyph: &str, fill: Color32| {
+                                let (rect, resp) = ui.allocate_exact_size(egui::vec2(30.0, 30.0), Sense::click());
+                                let color = if enabled { fill } else { fill.gamma_multiply(0.35) };
+                                let color = if enabled && resp.hovered() { icons::mix(color, Color32::BLACK, 0.12) } else { color };
+                                ui.painter().circle_filled(rect.center(), 15.0, color);
+                                ui.painter().text(rect.center(), Align2::CENTER_CENTER, glyph, egui::FontId::proportional(15.0), Color32::WHITE);
+                                resp.clicked() && enabled
+                            };
+                            if c.busy {
+                                if send_btn(ui, true, "■", ui.visuals().text_color()) {
+                                    stop = true;
+                                }
+                                let tip = t!("Le message attend dans la file et part quand Claude a fini ce qu'il fait (Ctrl+Maj+Entrée)", "The message waits in the queue and goes when Claude is done with what it does (Ctrl+Shift+Enter)");
+                                if ui.add_enabled(has_text, egui::Button::new(t!("⏭ Après", "⏭ After"))).on_hover_text(tip).clicked() {
+                                    send = true;
+                                    later = true;
+                                }
+                                let tip = t!("Envoie le message tout de suite : Claude le lit entre deux étapes et en tient compte dans le travail en cours (Ctrl+Entrée)", "Sends the message at once: Claude reads it between two steps and takes it into account in the work going on (Ctrl+Enter)");
+                                if ui.add_enabled(can_send, egui::Button::new(t!("Envoyer", "Send"))).on_hover_text(tip).clicked() {
+                                    send = true;
+                                }
+                            } else if send_btn(ui, can_send, "↑", accent) {
+                                send = true;
+                            }
+                            ui.add_space(4.0);
+                            // the alias chosen, with the version Claude Code really runs once it is known
+                            let (alias, label) = claude::MODELS[c.model];
+                            let shown = if !claude::model_is(&c.model_id, alias) {
+                                claude::label(label).to_string()
+                            } else if alias.is_empty() {
+                                tf!("Défaut ({})", "Default ({})", claude::model_name(&c.model_id))
+                            } else {
+                                claude::model_name(&c.model_id)
+                            };
+                            let tip = if c.model_id.is_empty() {
+                                t!("La dernière version de chaque modèle, choisie par Claude Code", "The latest version of each model, chosen by Claude Code").to_string()
+                            } else {
+                                tf!("Modèle utilisé : {}", "Model in use: {}", c.model_id)
+                            };
+                            egui::ComboBox::from_id_salt(("claude_model", conv))
+                                .selected_text(shown)
+                                .show_ui(ui, |ui| {
+                                    for (k, (_, label)) in claude::MODELS.iter().enumerate() {
+                                        ui.selectable_value(&mut c.model, k, claude::label(label));
+                                    }
+                                })
+                                .response
+                                .on_hover_text(tip);
+                            egui::ComboBox::from_id_salt(("claude_mode", conv)).selected_text(claude::label(claude::MODES[c.mode].1)).show_ui(ui, |ui| {
+                                for (k, (_, label, tip)) in claude::MODES.iter().enumerate() {
+                                    ui.selectable_value(&mut c.mode, k, claude::label(label)).on_hover_text(claude::label(tip));
+                                }
+                            })
+                            .response
+                            .on_hover_text(t!("Maj+Tab dans le champ : mode suivant", "Shift+Tab in the field: next mode"));
+                        });
                     });
-                    ui.add_space(4.0);
+                    });
+                    ui.add_space(6.0);
                 });
                 // "⬇ Dernier message" asked at the previous frame
                 let to_end_id = egui::Id::new(("claude_to_end", chat_id));
@@ -1903,15 +1927,21 @@ impl App {
                                 ui.add_space(6.0);
                                 let folded = c.folded.contains(&k);
                                 let cp = c.checkpoints.iter().find(|p| p.item == k);
-                                // on the left like the answers, set apart by its color, its edge and a
-                                // bar of the accent on its left (a light theme washed it out)
-                                let card = egui::Frame::none()
-                                    .fill(icons::mix(fill, accent, 0.16))
-                                    .stroke(egui::Stroke::new(1.0_f32, icons::mix(fill, accent, 0.55)))
-                                    .rounding(8.0)
-                                    .inner_margin(egui::Margin { left: 16.0, right: 12.0, top: 8.0, bottom: 8.0 })
+                                // a bubble on the right, as in Claude Desktop: as wide as its text (85 % at
+                                // most), a neutral color, the answer below in plain text
+                                let max_w = (ui.available_width() * 0.85).max(240.0);
+                                let natural = ui.fonts(|f| f.layout_no_wrap(t.lines().max_by_key(|l| l.len()).unwrap_or("").to_string(), egui::TextStyle::Body.resolve(ui.style()), Color32::WHITE).size().x);
+                                let roomy = c.confirm_rewind == Some(k) || !notes.is_empty() || !images.is_empty();
+                                let bubble_w = if roomy { max_w } else { (natural + 28.0).clamp(220.0, max_w) };
+                                let text_color = ui.visuals().text_color();
+                                let push = (ui.available_width() - bubble_w).max(0.0);
+                                egui::Frame::none()
+                                    .outer_margin(egui::Margin { left: push, ..Default::default() })
+                                    .fill(icons::mix(fill, text_color, if ui.visuals().dark_mode { 0.10 } else { 0.06 }))
+                                    .rounding(egui::Rounding { nw: 16.0, ne: 16.0, sw: 16.0, se: 4.0 })
+                                    .inner_margin(egui::Margin { left: 14.0, right: 12.0, top: 8.0, bottom: 10.0 })
                                     .show(ui, |ui| {
-                                        ui.set_width(ui.available_width());
+                                        ui.set_width(bubble_w - 26.0);
                                         ui.horizontal(|ui| {
                                             let arrow = ui.add(egui::Label::new(RichText::new(if folded { "▸" } else { "▾" }).color(accent)).sense(Sense::click()));
                                             if arrow.clicked() {
@@ -1928,7 +1958,6 @@ impl App {
                                                 }
                                             });
                                             arrow.on_hover_text(t!("Replier / déplier la réponse à cette question (clic droit : toutes)", "Fold / unfold the answer to this question (right click: all)"));
-                                            ui.label(RichText::new(t!("Toi", "You")).small().strong().color(accent));
                                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                                 super::md::copy_button(ui, t, t!("Copier", "Copy"));
                                                 if cp.is_some() {
@@ -1993,9 +2022,6 @@ impl App {
                                             });
                                         }
                                     });
-                                let r = card.response.rect;
-                                let bar = egui::Rect::from_min_max(r.left_top(), egui::pos2(r.left() + 4.0, r.bottom()));
-                                ui.painter().rect_filled(bar, egui::Rounding { nw: 8.0, sw: 8.0, ne: 0.0, se: 0.0 }, accent);
                                 if folded {
                                     let (steps, files) = super::claude_turns::turn_summary(&c.items, k);
                                     let text = tf!("▸ {steps} étape(s) · {files} fichier(s) modifié(s) — clic pour déplier", "▸ {steps} step(s) · {files} file(s) changed — click to unfold");

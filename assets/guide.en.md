@@ -472,8 +472,13 @@ palette).
 bottom panel (**in a tab** to give it a whole editor tab, **at the bottom** to put it back). Florm uses the `claude`
 command and your login: no key to set up.
 
-- At the top: the repository, the model, and what Claude is allowed to do (**Edit files**,
-  **Plan only**, **Allow everything** so that it also runs commands, **Ask first**).
+- At the top: the folder, **+ New** conversation, and **⋯** for the rest (account, permissions,
+  worktree, history, MCP / memory tools…), then the gauges and **Review**. At the bottom, the field
+  and its buttons in one box: **+ Context**, **Options**, **+ Queue** on the left; on the right the
+  **model**, the **mode** (what Claude is allowed to do: **By permissions**, **Plan only**, **Allow
+  everything**, **Ask first**) and the round **↑** button to send (**■** to stop while it works).
+  Your messages are in a bubble on the right, its answers below. In a narrow tab with a single
+  conversation, their list on the left is hidden.
 - **Ask first** mode: Claude changes nothing by itself. Each file change (as a diff) and each
   command shows above the field: **✔ Apply** / **▶ Run** it as it is, **✏ Edit** the text or the
   command first (Claude is told about your version), or **✖ Refuse**, with an optional reason

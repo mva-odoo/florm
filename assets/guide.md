@@ -477,8 +477,13 @@ avec `gh auth login` (connexion par le navigateur). Sans `gh`, la vue explique c
 **Ctrl+Alt+C** (ou Outils → ✳ Claude, la palette) : une conversation avec Claude Code, dans le
 panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en bas** pour l'y remettre). Florm utilise la commande `claude` et ta connexion : pas de clé à configurer.
 
-- En haut : le dépôt, le modèle, et ce que Claude a le droit de faire (**Modifie les fichiers**,
-  **Plan seulement**, **Tout autoriser** pour qu'il lance aussi des commandes, **Demander avant**).
+- En haut : le dossier, **+ Nouvelle** conversation, et **⋯** pour le reste (compte, permissions,
+  worktree, historique, outils MCP / mémoire…), puis les jauges et **Revue**. En bas, le champ et
+  ses boutons dans une même boîte : **+ Contexte**, **Options**, **+ File** à gauche ; à droite le
+  **modèle**, le **mode** (ce que Claude a le droit de faire : **Selon les permissions**, **Plan
+  seulement**, **Tout autoriser**, **Demander avant**) et le bouton rond **↑** pour envoyer (**■**
+  pour arrêter pendant qu'il travaille). Tes messages sont dans une bulle à droite, ses réponses
+  en dessous. Dans un onglet étroit avec une seule conversation, leur liste à gauche se masque.
 - Mode **Demander avant** : Claude ne change rien de lui-même. Chaque modification de fichier
   (en diff) et chaque commande s'affichent au-dessus du champ : **✔ Appliquer** / **▶ Lancer**
   telle quelle, **✏ Modifier** le texte ou la commande avant (Claude est prévenu de ta version),

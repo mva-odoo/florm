@@ -132,7 +132,9 @@ impl App {
                 let uid = self.docs[i].uid;
                 // one tab for every conversation: their list on the left
                 let mut act = None;
-                if self.settings.claude_one_tab {
+                // narrow with a single conversation: the list would only take room from it
+                let alone = ui.available_width() < 820.0 && self.claude_conversations().len() <= 1;
+                if self.settings.claude_one_tab && !alone {
                     let fill = ui.visuals().panel_fill;
                     egui::SidePanel::left(egui::Id::new("claude_list").with(uid))
                         .resizable(true)
