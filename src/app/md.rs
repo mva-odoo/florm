@@ -213,7 +213,9 @@ pub(super) fn autolink(text: &str) -> String {
                 }
                 url = t;
             }
-            let linked = before.ends_with(['<', '(', '[', '"']) || before.ends_with("](");
+            // already a link: `<…>`, `[…](…)`, the text of a link, an HTML attribute (a lone « ( »
+            // is a sentence in parentheses: « (https://…) » is made a link)
+            let linked = before.ends_with(['<', '[', '"']) || before.ends_with("](");
             if in_code || linked || url.len() <= "https://".len() {
                 out.push_str(url);
             } else {
@@ -440,6 +442,39 @@ mod list_tests {
 mod tests {
     use super::*;
 
+    /// A click on an address of an answer asks to open it in the browser.
+    #[test]
+    fn a_click_on_a_link_opens_it() {
+        let ctx = egui::Context::default();
+        let hl = Highlighting::new("Florm", Path::new("/nonexistent"));
+        let mut cache = egui_commonmark::CommonMarkCache::default();
+        let mut checks = HashSet::new();
+        let screen = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 400.0)));
+        let mut at = None;
+        let mut opened = None;
+        for frame in 0..6 {
+            let mut events = Vec::new();
+            if let Some(p) = at {
+                events.push(egui::Event::PointerMoved(p));
+                if frame >= 4 {
+                    let pressed = frame == 4;
+                    events.push(egui::Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() });
+                }
+            }
+            let out = ctx.run(egui::RawInput { screen_rect: screen, events, ..Default::default() }, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    markdown_checks(ui, &mut cache, &hl, "Publiée : https://github.com/o/r/releases/tag/v1", &mut checks, 0);
+                });
+            });
+            // where the link is: the end of the line
+            if at.is_none() {
+                at = Some(egui::pos2(260.0, 18.0));
+            }
+            opened = opened.or(out.platform_output.open_url.map(|u| u.url));
+        }
+        assert_eq!(opened.as_deref(), Some("https://github.com/o/r/releases/tag/v1"));
+    }
+
     #[test]
     fn the_html_is_written_in_markdown() {
         assert_eq!(html_to_md("a<br/>b"), "a  \nb");
@@ -458,6 +493,8 @@ mod tests {
     fn bare_addresses_become_links() {
         assert_eq!(autolink("Suivi : https://github.com/a/b/runs/1."), "Suivi : <https://github.com/a/b/runs/1>.");
         assert_eq!(autolink("(voir https://x.io/a_(b))"), "(voir <https://x.io/a_(b)>)");
+        // right after a parenthesis, as Claude often writes it
+        assert_eq!(autolink("en cours (https://github.com/o/r/actions/runs/4) ;"), "en cours (<https://github.com/o/r/actions/runs/4>) ;");
         // already links, or code: unchanged
         for t in ["<https://x.io>", "[x](https://x.io)", "[https://x.io](https://x.io)", "`curl https://x.io`", "a `b` https://x.io `c`"] {
             let want = if t.starts_with("a `b`") { "a `b` <https://x.io> `c`".to_string() } else { t.to_string() };

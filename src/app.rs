@@ -2559,6 +2559,62 @@ mod font_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// A click on an address in an answer of Claude opens it, in the real Claude tab, also between
+    /// parentheses. `FLORM_TEST_APP=1`.
+    #[test]
+    fn links_of_claude_open() {
+        if std::env::var_os("FLORM_TEST_APP").is_none() {
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("florm_links_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (conf, proj) = (dir.join("conf"), dir.join("proj"));
+        std::fs::create_dir_all(&conf).unwrap();
+        std::fs::create_dir_all(&proj).unwrap();
+        std::fs::write(conf.join("settings.toml"), "check_updates = false\nlsp = false\n").unwrap();
+        let _lock = config::TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("FLORM_CONFIG", &conf);
+        let ctx = egui::Context::default();
+        let mut app = App::with_ctx(&ctx, Some(proj.clone()));
+        app.claude_restore_tab(0);
+        app.claude.items.push(claude_ui::Item::User("la release ?".into(), Vec::new(), Vec::new(), Vec::new()));
+        app.claude.items.push(claude_ui::Item::Text("En cours (https://github.com/o/r/releases/tag/v1) ; je te préviens.".into()));
+        let screen = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1400.0, 900.0)));
+        // where the address is drawn
+        fn find(s: &egui::Shape, out: &mut Option<egui::Rect>) {
+            match s {
+                egui::Shape::Text(t) if t.galley.text().contains("github.com/o/r") => *out = Some(t.visual_bounding_rect()),
+                egui::Shape::Vec(v) => v.iter().for_each(|x| find(x, out)),
+                _ => {}
+            }
+        }
+        let mut at: Option<egui::Pos2> = None;
+        let mut opened = None;
+        for frame in 0..8 {
+            let mut events = Vec::new();
+            if let Some(p) = at {
+                events.push(egui::Event::PointerMoved(p));
+                if frame >= 5 {
+                    events.push(egui::Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed: frame == 5, modifiers: Default::default() });
+                }
+            }
+            let out = ctx.run(egui::RawInput { screen_rect: screen, events, ..Default::default() }, |ctx| {
+                app.sidebar(ctx);
+                app.central(ctx);
+            });
+            if at.is_none() {
+                let mut r = None;
+                out.shapes.iter().for_each(|c| find(&c.shape, &mut r));
+                // in the address (« En cours ( » is about 70 points wide)
+                at = r.map(|r| egui::pos2(r.left() + 120.0, r.center().y));
+            }
+            opened = opened.or(out.platform_output.open_url.map(|u| u.url));
+        }
+        assert!(at.is_some(), "the address is not drawn");
+        assert_eq!(opened.as_deref(), Some("https://github.com/o/r/releases/tag/v1"), "clicked at {at:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// The screens drawn without a window: the welcome tab when nothing is open, the advanced
     /// preferences, the sidebar with icons hidden. `FLORM_TEST_APP=1`.
     #[test]
