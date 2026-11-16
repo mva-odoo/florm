@@ -43,9 +43,11 @@ impl App {
 
     /// macOS, menus hidden: the round buttons at the top of the sidebar (the top left corner of
     /// the window, as macOS puts them), above the folder.
-    pub(super) fn sidebar_mac_buttons(&self, ui: &mut egui::Ui) {
+    /// The round buttons at the top of the sidebar (macOS, without the menu bar); the room left on
+    /// their right, where the tree puts the name of the folder (a row less).
+    pub(super) fn sidebar_mac_buttons(&self, ui: &mut egui::Ui) -> Option<Rect> {
         if self.settings.show_menu_bar || os::window_controls() != Controls::Mac {
-            return;
+            return None;
         }
         let maximized = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
         egui::TopBottomPanel::top("sidebar_mac_buttons").exact_height(TITLE_H - 6.0).frame(egui::Frame::none()).show_separator_line(false).show_inside(ui, |ui| {
@@ -54,9 +56,12 @@ impl App {
             let drag = ui.interact(bar, egui::Id::new("sidebar_mac_drag"), Sense::click_and_drag());
             drag_window(ui.ctx(), &drag, maximized);
             // from the left edge of the window (the sidebar has a margin)
-            let bar = Rect::from_min_max(Pos2::new(bar.left() - 8.0, bar.top()), bar.right_bottom());
-            strip_buttons(ui, bar, Controls::Mac, maximized);
-        });
+            let left = Rect::from_min_max(Pos2::new(bar.left() - 8.0, bar.top()), bar.right_bottom());
+            strip_buttons(ui, left, Controls::Mac, maximized);
+            Rect::from_min_max(Pos2::new(left.left() + MAC_BUTTONS_W, bar.top()), Pos2::new(bar.right() - 4.0, bar.bottom()))
+        })
+        .inner
+        .into()
     }
 
     /// The window loses (or gets back) the system's title bar when the setting changes.

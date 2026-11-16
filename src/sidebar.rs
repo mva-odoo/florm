@@ -242,8 +242,14 @@ pub fn fit_width(ctx: &egui::Context, root: &Node) -> f32 {
     longest + 10.0 + 8.0 + 12.0
 }
 
+/// The name of the folder, in capitals: a click shows the projects to switch to.
+fn folder_name(root: &Node) -> RichText {
+    RichText::new(root.name.to_uppercase()).size(11.5).strong().extra_letter_spacing(1.6)
+}
+
 /// `scroll_to`: entry to bring into view (cleared once shown); `projects`: (name, folder) offered
-/// by a click on the folder name.
+/// by a click on the folder name; `title_at`: where to put that name (beside the round buttons of
+/// macOS), else at the top of the tree.
 #[allow(clippy::too_many_arguments)]
 pub fn show(
     ui: &mut Ui,
@@ -254,6 +260,7 @@ pub fn show(
     git: &HashMap<PathBuf, char>,
     repos: &HashMap<PathBuf, (String, String)>,
     versions: &HashMap<PathBuf, VersionMark>,
+    title_at: Option<Rect>,
     scroll_to: &mut Option<PathBuf>,
     nav: &mut Nav,
 ) -> Option<TreeAction> {
@@ -302,16 +309,28 @@ pub fn show(
     if let Some(y) = ui.data_mut(|d| d.remove_temp::<f32>(offset_id)) {
         area = area.vertical_scroll_offset(y);
     }
+    // beside the round buttons: centered in the room left, and staying there when the tree scrolls
+    // (drawn by hand: a widget placed there would move the layout of the tree)
+    let in_bar = title_at.map(|rect| {
+        let galley = egui::WidgetText::from(folder_name(root)).into_galley(ui, Some(egui::TextWrapMode::Truncate), rect.width(), egui::TextStyle::Body);
+        let at = Rect::from_center_size(rect.center(), galley.size());
+        let r = ui.interact(at, tree_id().with("folder_name"), Sense::click());
+        ui.painter().with_clip_rect(rect).galley(at.min, galley, ui.visuals().text_color());
+        r
+    });
     area.show(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 0.0;
         // the folder name, centered: a click shows the projects to switch to
-        ui.add_space(4.0);
-        let r = ui
-            .vertical_centered(|ui| {
-                let name = RichText::new(root.name.to_uppercase()).size(11.5).strong().extra_letter_spacing(1.6);
-                ui.add(egui::Label::new(name).sense(Sense::click()))
-            })
-            .inner;
+        let r = match in_bar {
+            Some(r) => {
+                ui.add_space(2.0);
+                r
+            }
+            None => {
+                ui.add_space(4.0);
+                ui.vertical_centered(|ui| ui.add(egui::Label::new(folder_name(root)).sense(Sense::click()))).inner
+            }
+        };
         let r = r.on_hover_cursor(CursorIcon::PointingHand).on_hover_text(t!("Changer de projet (Ctrl+Alt+P)", "Switch project (Ctrl+Alt+P)"));
         let popup = Id::new("project_menu");
         if r.clicked() {
@@ -340,7 +359,9 @@ pub fn show(
             crate::pick::closed(ui, popup);
         }
         // the branch of the folder itself is in the status bar (nested repositories keep theirs below)
-        ui.add_space(6.0);
+        if title_at.is_none() {
+            ui.add_space(6.0);
+        }
         drop_target(ui, &r, &root.path, &mut act);
         r.context_menu(|ui| menu(ui, &root.path, true, None, None, &mut act));
         let rows_top = ui.cursor().top();

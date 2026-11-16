@@ -48,7 +48,7 @@ impl App {
             ui.set_min_size(ui.available_size());
             // what is drawn inside (sticky folders, icons) on the same background
             ui.visuals_mut().panel_fill = panel;
-            self.sidebar_mac_buttons(ui);
+            let title_at = self.sidebar_mac_buttons(ui);
             // the other versions dimmed too
             let pats = self.index_exclude();
             // the folders of the versions side by side: « WT », the current one
@@ -73,7 +73,7 @@ impl App {
                         self.tree_ex = Some((tree.path.clone(), pats, ex));
                     }
                     let ex = &self.tree_ex.as_ref().expect("just set").2;
-                    tree_action = sidebar::show(ui, tree, &projects, ex, active.as_deref(), &self.git.map, info, &marks, &mut self.tree_scroll, &mut self.tree_nav);
+                    tree_action = sidebar::show(ui, tree, &projects, ex, active.as_deref(), &self.git.map, info, &marks, title_at, &mut self.tree_scroll, &mut self.tree_nav);
                 }
                 None => {
                     ui.label(t!("Aucun dossier ouvert.", "No folder open."));
