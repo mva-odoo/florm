@@ -554,7 +554,9 @@ impl App {
                 if cancel_edit {
                     p.head_edit = None;
                 }
-                ui.horizontal(|ui| {
+                // who wants to merge what, on its own line (wrapped when narrow), then the actions:
+                // on one line they ran over the branch names
+                ui.horizontal_wrapped(|ui| {
                     let (label, color) = state_badge(&d.state, d.is_draft);
                     badge(ui, label, color);
                     ui.label(RichText::new(&d.author).strong());
@@ -562,6 +564,9 @@ impl App {
                     ui.label(RichText::new(&d.head).monospace().color(accent));
                     ui.label(RichText::new(t!("dans", "into")).weak());
                     ui.label(RichText::new(&d.base).monospace().color(accent));
+                });
+                ui.add_space(2.0);
+                ui.horizontal(|ui| {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         maximize::button(ui, view, "detail");
                         ui.menu_button("⋯", |ui| quick_menu(ui, d.number, &d.url, false, &mut act));
@@ -1261,8 +1266,24 @@ fn merge_box(ui: &mut egui::Ui, d: &github::PrDetail, method: &mut usize, delete
     let v = ui.visuals().clone();
     let n = d.number;
     let gh = |label: &str, more: &[&str], verb: &str| PrAct::Gh { label: label.into(), cmds: vec![github::pr_args(verb, n, more)], draft: None };
+    // the box in the color of where it stands: red blocked, orange something missing, green ready
+    let failing = d.checks.iter().any(|c| c.state == CheckState::Fail);
+    let tint = match (d.state.as_str(), d.merge_state.as_str(), d.mergeable.as_str()) {
+        ("MERGED", ..) => Some(Color32::from_rgb(0x8a, 0x5c, 0xd8)),
+        ("CLOSED", ..) => Some(err()),
+        (_, _, "CONFLICTING") | (_, "DIRTY", _) => Some(err()),
+        _ if failing => Some(err()),
+        (_, "BEHIND" | "BLOCKED" | "UNSTABLE", _) => Some(warn()),
+        (_, "CLEAN" | "HAS_HOOKS", _) => Some(ok()),
+        _ => None,
+    };
+    let (fill, edge) = match tint {
+        Some(c) => (icons::mix(v.panel_fill, c, 0.06), icons::mix(v.panel_fill, c, 0.45)),
+        None => (Color32::TRANSPARENT, v.widgets.noninteractive.bg_stroke.color),
+    };
     egui::Frame::none()
-        .stroke(egui::Stroke::new(1.0_f32, v.widgets.noninteractive.bg_stroke.color))
+        .fill(fill)
+        .stroke(egui::Stroke::new(1.0_f32, edge))
         .rounding(8.0)
         .inner_margin(egui::Margin::same(10.0))
         .outer_margin(egui::Margin { bottom: 8.0, ..Default::default() })
@@ -1608,7 +1629,18 @@ fn pr_row(ui: &mut egui::Ui, pr: &github::PrSummary, selected: bool, accent: Col
     let text_x = 40.0;
     let right_w = 26.0;
     let title_w = width - text_x - right_w - 8.0;
-    let mut job = egui::text::LayoutJob::single_section(pr.title.clone(), egui::TextFormat::simple(egui::FontId::proportional(13.5), v.strong_text_color()));
+    // the tag of the title ([FIX], [IMP], [ADD]…) in a color of its own: the kind of change at a glance
+    let font = egui::FontId::proportional(13.5);
+    let mut job = egui::text::LayoutJob::default();
+    let rest = match title_tag(&pr.title, accent) {
+        Some((tag, color)) => {
+            let bg = icons::mix(v.panel_fill, color, if v.dark_mode { 0.25 } else { 0.16 });
+            job.append(tag, 0.0, egui::TextFormat { font_id: egui::FontId::proportional(12.0), color, background: bg, ..Default::default() });
+            pr.title[tag.len()..].to_string()
+        }
+        None => pr.title.clone(),
+    };
+    job.append(&rest, 0.0, egui::TextFormat::simple(font, v.strong_text_color()));
     job.wrap = egui::text::TextWrapping { max_width: title_w.max(40.0), max_rows: 2, break_anywhere: false, overflow_character: Some('…') };
     let title = ui.fonts(|f| f.layout_job(job));
     let h = title.size().y + 30.0;
@@ -1619,6 +1651,16 @@ fn pr_row(ui: &mut egui::Ui, pr: &github::PrSummary, selected: bool, accent: Col
         ui.painter().rect_filled(rect, 6.0, v.widgets.hovered.weak_bg_fill);
     }
     let p = ui.painter().with_clip_rect(rect);
+    // a bar on the left in the color of its checks: the failing ones stand out in the list
+    let ci_color = match pr.ci() {
+        Some(github::Ci::Success) => Some(ok()),
+        Some(github::Ci::Failure) => Some(err()),
+        Some(github::Ci::Pending) => Some(warn()),
+        None => None,
+    };
+    if let Some(c) = ci_color {
+        p.rect_filled(egui::Rect::from_min_size(rect.min + egui::vec2(0.0, 6.0), egui::vec2(3.0, rect.height() - 12.0)), 1.5, c);
+    }
     // the author: a round badge with the initials, its color from the login, the state of the pull
     // request in a small dot on it
     let login = &pr.author.login;
@@ -1697,6 +1739,24 @@ fn commit_row(ui: &mut egui::Ui, c: &github::Commit, selected: bool, accent: Col
     );
     let full = if c.message_body.trim().is_empty() { c.message_headline.clone() } else { format!("{}\n\n{}", c.message_headline, c.message_body.trim()) };
     resp.on_hover_text(format!("{full}\n\n{}", t!("Clic : ses changements · double-clic : dans la vue Git", "Click: its changes · double-click: in the Git view")))
+}
+
+/// The tag at the start of a title (« [FIX] », « [IMP] »…, the convention of Odoo) and its color:
+/// red a fix, the accent an improvement, green an addition, orange the others.
+fn title_tag(title: &str, accent: Color32) -> Option<(&str, Color32)> {
+    let end = title.find(']').filter(|_| title.starts_with('['))?;
+    let tag = &title[..=end];
+    let word = tag[1..end].trim().to_uppercase();
+    if word.is_empty() || word.len() > 8 || !word.chars().all(|c| c.is_ascii_alphabetic()) {
+        return None;
+    }
+    let color = match word.as_str() {
+        "FIX" => err(),
+        "IMP" | "PERF" => accent,
+        "ADD" => ok(),
+        _ => warn(),
+    };
+    Some((tag, color))
 }
 
 pub(super) fn state_badge(state: &str, draft: bool) -> (&'static str, Color32) {
@@ -2126,6 +2186,18 @@ mod render_check {
         }
         let t = texts(&shapes);
         assert!(t.contains("Deuxième"), "{t}");
+    }
+
+    #[test]
+    fn tag_of_a_title() {
+        let a = Color32::BLUE;
+        assert_eq!(title_tag("[FIX] oe: hide dropped databases", a), Some(("[FIX]", err())));
+        assert_eq!(title_tag("[IMP] sw: move", a), Some(("[IMP]", a)));
+        assert_eq!(title_tag("[TEST] this commit", a), Some(("[TEST]", warn())));
+        // not a tag: no bracket at the start, or something else in it
+        assert_eq!(title_tag("fix [FIX] later", a), None);
+        assert_eq!(title_tag("[#4644] x", a), None);
+        assert_eq!(title_tag("[FIX", a), None);
     }
 
     #[test]
