@@ -1538,6 +1538,11 @@ impl App {
 }
 
 impl eframe::App for App {
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        // opaque: only the rounded corners are made transparent (title_bar.rs, window_border)
+        self.hl.tab_colors().bar.to_normalized_gamma_f32()
+    }
+
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         // a Claude still at work is stopped with Florm: its conversation says so at the next start
         self.claude_mark_interrupted();

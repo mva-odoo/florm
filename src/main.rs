@@ -122,12 +122,15 @@ fn main() -> eframe::Result<()> {
     // Florm's own title bar (menus and ─ □ ✕ in the window), see app/title_bar.rs
     let settings = config::load().0;
     let own_title_bar = os::draws_title_bar(settings.show_menu_bar);
+    os::TRANSPARENT_WINDOW.store(os::rounded_window(settings.show_menu_bar), std::sync::atomic::Ordering::Relaxed);
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1280.0, 800.0])
             .with_min_inner_size([400.0, 300.0])
             .with_drag_and_drop(true)
             .with_decorations(!own_title_bar)
+            // without system decorations, Florm rounds the corners itself (app/title_bar.rs)
+            .with_transparent(os::rounded_window(settings.show_menu_bar))
             .with_icon(logo::icon(if cfg!(target_os = "macos") { 256 } else { 64 }, logo::ICON_INSET))
             .with_title("Florm"),
         // Under Wayland, with vsync, eglSwapBuffers waits for a frame callback that a hidden window

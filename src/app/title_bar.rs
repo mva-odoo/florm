@@ -6,6 +6,40 @@ use crate::os::{self, Controls};
 use egui::viewport::ResizeDirection;
 use egui::{Color32, Pos2, Rect, Stroke, ViewportCommand};
 
+/// Radius of the window's corners when it does not fill the screen.
+const WINDOW_ROUNDING: f32 = 10.0;
+
+/// Makes the pixels outside the rounded corners transparent (blending cannot erase them: GL
+/// clears, row by row, through the scissor). The border drawn after smooths the edge.
+fn clear_corners(radius: f32) -> eframe::egui_glow::CallbackFn {
+    eframe::egui_glow::CallbackFn::new(move |info, painter| {
+        use eframe::glow::HasContext as _;
+        let gl = painter.gl();
+        let [w, h] = info.screen_size_px;
+        let (w, h) = (w as i32, h as i32);
+        let rad = (radius * info.pixels_per_point).round();
+        unsafe {
+            gl.enable(eframe::glow::SCISSOR_TEST);
+            gl.clear_color(0.0, 0.0, 0.0, 0.0);
+            for dy in 0..rad as i32 {
+                // pixels of this row whose centre is outside the circle
+                let v = rad - (dy as f32 + 0.5);
+                let n = (rad - (rad * rad - v * v).max(0.0).sqrt() - 0.5).ceil().max(0.0) as i32;
+                if n == 0 {
+                    continue;
+                }
+                // GL rows count from the bottom
+                for y in [dy, h - 1 - dy] {
+                    for x in [0, w - n] {
+                        gl.scissor(x, y, n, 1);
+                        gl.clear(eframe::glow::COLOR_BUFFER_BIT);
+                    }
+                }
+            }
+        }
+    })
+}
+
 /// Height of the bar.
 pub(super) const TITLE_H: f32 = 32.0;
 /// Width of a window button (as Windows draws them).
@@ -68,16 +102,27 @@ impl App {
     /// just inside, so the window stands out from what is behind (a light theme on a light desktop,
     /// a tiling window manager without title bars). None in full screen.
     pub(super) fn window_border(&self, ctx: &egui::Context) {
-        if ctx.input(|i| i.viewport().fullscreen.unwrap_or(false)) {
+        let (fullscreen, maximized) = ctx.input(|i| (i.viewport().fullscreen.unwrap_or(false), i.viewport().maximized.unwrap_or(false)));
+        if fullscreen {
             return;
         }
+        // rounded corners when the window does not fill the screen and has no system decorations;
+        // a tiling compositor (Hyprland…) says « maximized » for every window: rounded there too
+        let round = (!maximized || os::window_controls() == Controls::None)
+            && os::rounded_window(self.settings.show_menu_bar)
+            && os::TRANSPARENT_WINDOW.load(std::sync::atomic::Ordering::Relaxed);
+        let radius = if round { WINDOW_ROUNDING } else { 0.0 };
         let tc = self.hl.tab_colors();
         let r = ctx.screen_rect();
-        let p = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("window_border")));
-        let edge = crate::icons::mix(crate::icons::mix(tc.bar, tc.text_inactive, 0.55), tc.accent, 0.30);
-        p.rect_stroke(r.shrink(0.5), 0.0, egui::Stroke::new(1.0_f32, edge));
-        let inner = if self.hl.is_light() { egui::Color32::from_white_alpha(170) } else { egui::Color32::from_white_alpha(18) };
-        p.rect_stroke(r.shrink(1.5), 0.0, egui::Stroke::new(1.0_f32, inner));
+        let p = ctx.layer_painter(egui::LayerId::new(egui::Order::Debug, egui::Id::new("window_border")));
+        if round {
+            p.add(egui::PaintCallback { rect: r, callback: std::sync::Arc::new(clear_corners(radius)) });
+        }
+        let light = self.hl.is_light();
+        let edge = crate::icons::mix(crate::icons::mix(tc.bar, tc.text_inactive, if light { 0.45 } else { 0.7 }), tc.accent, 0.45);
+        p.rect_stroke(r.shrink(0.75), (radius - 0.75).max(0.0), Stroke::new(1.5_f32, edge));
+        let inner = if light { Color32::from_white_alpha(170) } else { Color32::from_white_alpha(22) };
+        p.rect_stroke(r.shrink(2.0), (radius - 2.0).max(0.0), Stroke::new(1.0_f32, inner));
     }
 
     /// The window loses (or gets back) the system's title bar when the setting changes.

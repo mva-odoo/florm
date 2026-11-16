@@ -43,6 +43,15 @@ pub fn draws_title_bar(show_menu_bar: bool) -> bool {
     window_controls() != Controls::None || show_menu_bar
 }
 
+/// Without system decorations (Florm's own title bar, or a tiling compositor that draws none)
+/// the window is transparent, so that Florm can round its corners.
+pub fn rounded_window(show_menu_bar: bool) -> bool {
+    draws_title_bar(show_menu_bar) || window_controls() == Controls::None
+}
+
+/// The window was created transparent: its corners can be rounded.
+pub static TRANSPARENT_WINDOW: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// Gives back to the system the memory freed after a big job (the symbol index: its threads read
 /// hundreds of thousands of files): glibc keeps it in its pools otherwise.
 pub fn release_memory() {
