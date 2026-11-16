@@ -61,7 +61,7 @@ impl App {
                 Some(false)
             }
             "btw" => {
-                let (session, model, id, question) = (c.session_id.clone(), claude::MODELS[c.model].0.to_string(), c.id, rest.to_string());
+                let (session, model, id, question) = (c.session_id.clone(), c.model.clone(), c.id, rest.to_string());
                 self.claude.side = Some((format!("/btw {rest}"), None));
                 self.jobs.spawn(move || JobResult::ClaudeBtw(id, claude::btw(&dir, session.as_deref(), &model, &question)));
                 Some(true)
@@ -71,8 +71,9 @@ impl App {
                 let line = |k: &str, v: &str| format!("- **{k}** : {v}\n");
                 let mut s = String::new();
                 s += &line("Claude Code", if version.is_empty() { "?" } else { version });
-                let model = claude::label(claude::MODELS[c.model].1);
-                let model = if c.model_id.is_empty() { model.to_string() } else { format!("{model} ({})", c.model_id) };
+                let model = model_label(&self.claude_commands.models, &c.model);
+                let model = if c.model_id.is_empty() { model } else { format!("{model} ({})", c.model_id) };
+                let model = if c.effort.is_empty() { model } else { format!("{model}, effort {}", claude::effort_label(&c.effort)) };
                 s += &line(t!("Modèle", "Model"), &model);
                 s += &line(t!("Mode", "Mode"), claude::MODES[c.mode].1);
                 s += &line(t!("Permissions", "Permissions"), &self.settings.claude_perms.join(", "));
@@ -247,7 +248,7 @@ impl App {
             message = format!("{message}\n\n{}", claude_ask::instruction());
         }
         if self.claude.session.is_none() {
-            let model = claude::MODELS[self.claude.model].0;
+            let (model, effort) = (self.claude.model.clone(), self.claude.effort.clone());
             let s = &self.settings;
             let perms = claude::permission_args(self.claude.mode, &s.claude_perms, &s.claude_allow, &s.claude_deny, s.claude_budget);
             let ctx = self.egui_ctx.clone();
@@ -259,7 +260,7 @@ impl App {
             let at = self.claude.resume_at.clone().filter(|_| resume.is_some());
             self.claude.started = false;
             let account = self.claude_account_dir(&self.claude.account);
-            match claude::Session::start(&dir, account.as_deref(), model, &perms, resume.as_deref(), at.as_deref(), &self.claude.add_dirs, move || ctx.request_repaint()) {
+            match claude::Session::start(&dir, account.as_deref(), &model, &effort, &perms, resume.as_deref(), at.as_deref(), &self.claude.add_dirs, move || ctx.request_repaint()) {
                 Ok(s) => {
                     self.claude.session = Some(s);
                     self.claude.resume_at = None;
@@ -490,7 +491,7 @@ impl App {
             }
         }
         // another model: the process starts again, the conversation goes on (--resume)
-        if let Some(m) = model.filter(|m| *m != c.model && *m < claude::MODELS.len()) {
+        if let Some(m) = model.filter(|m| *m != c.model) {
             c.model = m;
             c.session = None;
         }
@@ -514,7 +515,7 @@ impl App {
         match act {
             QueueAct::Start => {
                 q.running = true;
-                q.base_model = Some(self.claude.model);
+                q.base_model = Some(self.claude.model.clone());
                 self.claude_queue_next();
             }
             QueueAct::Pause => q.running = false,

@@ -21,6 +21,81 @@ pub fn not_installed() -> String {
 /// answers (`Event::Init`, `Event::Model`, shown by `model_name`), so no version is written here.
 pub const MODELS: [(&str, &str); 5] = [("", "Modèle par défaut"), ("opus", "Opus"), ("sonnet", "Sonnet"), ("haiku", "Haiku (rapide)"), ("fable", "Fable")];
 
+/// A model offered by Claude Code (asked with `list_models`, nothing written here).
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ModelInfo {
+    /// Value of --model: an alias ("opus", always the latest) or a full name; empty: the default.
+    pub value: String,
+    /// Its name ("Opus 5.5") and what it is for.
+    pub name: String,
+    pub description: String,
+    /// The real model behind an alias ("claude-opus-5-5").
+    pub resolved: String,
+    /// The effort levels it takes (low… max); empty: no effort setting.
+    pub efforts: Vec<String>,
+}
+
+impl ModelInfo {
+    /// An alias that follows the latest version (opus, sonnet…, and the default), not a pinned one.
+    pub fn is_latest(&self) -> bool {
+        !self.value.contains('-')
+    }
+}
+
+/// The models Claude Code offers to `account`, with their effort levels: the answer to the
+/// `initialize` request of its stream protocol (no message sent, nothing used of the plan).
+pub fn list_models(dir: &Path, account: Option<&Path>) -> Result<Vec<ModelInfo>, String> {
+    let init = json!({"type": "control_request", "request_id": "florm-models", "request": {"subtype": "initialize"}}).to_string() + "\n";
+    let args = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--no-session-persistence"];
+    let out = run_with(crate::claude_account::command_for(account), dir, &args, init)?;
+    let models = out
+        .lines()
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .find(|v| v["type"] == "control_response")
+        .map(|v| parse_models(&v["response"]["response"]["models"]))
+        .unwrap_or_default();
+    if models.is_empty() { Err(t!("Claude Code n'a pas donné ses modèles", "Claude Code gave no models").into()) } else { Ok(models) }
+}
+
+/// The `models` of the answer to `initialize`; "default" becomes the empty value (no --model).
+pub fn parse_models(v: &Value) -> Vec<ModelInfo> {
+    let s = |m: &Value, k: &str| m[k].as_str().unwrap_or("").to_string();
+    v.as_array()
+        .into_iter()
+        .flatten()
+        .filter(|m| m["value"].is_string())
+        .map(|m| ModelInfo {
+            value: if m["value"] == "default" { String::new() } else { s(m, "value") },
+            name: s(m, "displayName"),
+            description: s(m, "description"),
+            resolved: s(m, "resolvedModel"),
+            efforts: m["supportedEffortLevels"].as_array().into_iter().flatten().filter_map(|e| e.as_str().map(String::from)).collect(),
+        })
+        .collect()
+}
+
+/// Effort levels known to Florm, with their label: the ones Claude Code gives (`ModelInfo`) are
+/// shown in this order; one Florm does not know keeps its own name.
+pub const EFFORTS: [(&str, &str); 5] = [("low", "bas"), ("medium", "moyen"), ("high", "élevé"), ("xhigh", "très élevé"), ("max", "max")];
+
+/// The label of an effort level (empty: Claude Code chooses).
+pub fn effort_label(e: &str) -> String {
+    if e.is_empty() {
+        return t!("auto", "auto").into();
+    }
+    match EFFORTS.iter().find(|(v, _)| *v == e) {
+        Some((v, _)) if crate::i18n::en() => match *v {
+            "xhigh" => "very high".into(),
+            "medium" => "medium".into(),
+            "low" => "low".into(),
+            "high" => "high".into(),
+            _ => v.to_string(),
+        },
+        Some((_, fr)) => fr.to_string(),
+        None => e.to_string(),
+    }
+}
+
 /// The name of a model given by Claude Code: "claude-opus-5-5" → "Opus 5.5",
 /// "claude-haiku-4-5-20251001" → "Haiku 4.5", "claude-3-5-sonnet-20241022" → "Sonnet 3.5". Left as
 /// it is when it does not look like one.
@@ -471,7 +546,7 @@ impl Session {
     /// message of it after which it goes on (a copy of it, what came after is left out).
     /// `add_dirs`: folders Claude may use besides `dir`; `account`: the configuration folder of
     /// the account it runs with (None: the usual one).
-    pub fn start(dir: &Path, account: Option<&Path>, model: &str, perms: &[String], resume: Option<&str>, at: Option<&str>, add_dirs: &[std::path::PathBuf], repaint: impl Fn() + Send + 'static) -> Result<Session, String> {
+    pub fn start(dir: &Path, account: Option<&Path>, model: &str, effort: &str, perms: &[String], resume: Option<&str>, at: Option<&str>, add_dirs: &[std::path::PathBuf], repaint: impl Fn() + Send + 'static) -> Result<Session, String> {
         let mut args = vec!["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages"];
         args.extend(perms.iter().map(String::as_str));
         if let Some(id) = resume {
@@ -486,6 +561,9 @@ impl Session {
         }
         if !model.is_empty() {
             args.extend(["--model", model]);
+        }
+        if !effort.is_empty() {
+            args.extend(["--effort", effort]);
         }
         let mut child = crate::claude_account::command_for(account)
             .args(&args)
@@ -938,10 +1016,10 @@ pub fn btw(dir: &Path, session: Option<&str>, model: &str, question: &str) -> Re
     run_once(dir, &args, String::new())
 }
 
-/// Before a message starts work: the model that suits it better than `current` (index in `MODELS`),
-/// with the reason; None when the current one does. Haiku reads only the message, without tools.
-pub fn model_check(dir: &Path, message: &str, current: usize) -> Result<Option<(usize, String)>, String> {
-    let label = MODELS[current.min(MODELS.len() - 1)].1;
+/// Before a message starts work: the model that suits it better than `current` (a --model value,
+/// `label` its name), with the reason: an alias (opus…); None when the current one does. Haiku
+/// reads only the message, without tools.
+pub fn model_check(dir: &Path, message: &str, current: &str, label: &str) -> Result<Option<(String, String)>, String> {
     let prompt = tf!(
         "Tu choisis le modèle de Claude Code pour une demande, avant qu'il commence. Modèles :\n\
          - opus : pour les travaux difficiles (bug subtil, architecture, grosse refactorisation).\n\
@@ -966,16 +1044,16 @@ pub fn model_check(dir: &Path, message: &str, current: usize) -> Result<Option<(
     parse_model_answer(&text, current)
 }
 
-/// The answer of `model_check`: the model suggested (index in `MODELS`, and the reason), None when
-/// the current one suits or the answer names no model of the list.
-pub fn parse_model_answer(answer: &str, current: usize) -> Result<Option<(usize, String)>, String> {
+/// The answer of `model_check`: the alias suggested and the reason, None when the current model
+/// (`current`, a --model value or the real name) is of that family or the answer names none.
+pub fn parse_model_answer(answer: &str, current: &str) -> Result<Option<(String, String)>, String> {
     let line = |key: &str| answer.lines().find_map(|l| l.trim().strip_prefix(key)).map(|v| v.trim().to_string());
     let Some(name) = line("MODELE:") else { return Err(answer.trim().to_string()) };
-    let Some(m) = MODELS.iter().position(|(v, _)| !v.is_empty() && *v == name.to_lowercase()) else { return Ok(None) };
-    if m == current {
+    let name = name.to_lowercase();
+    if !["opus", "sonnet", "haiku", "fable"].contains(&name.as_str()) || model_is(current, &name) {
         return Ok(None);
     }
-    Ok(Some((m, line("RAISON:").unwrap_or_default())))
+    Ok(Some((name, line("RAISON:").unwrap_or_default())))
 }
 
 /// Whether a file given to Claude is an image (it costs many tokens to read).
@@ -1462,7 +1540,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("a.py"), "x = 1\n").unwrap();
         let perms = permission_args(3, &["edit".into(), "bash".into()], &[], &[], 0.0);
-        let mut s = Session::start(&dir, None, "haiku", &perms, None, None, &[], || {}).unwrap();
+        let mut s = Session::start(&dir, None, "haiku", "", &perms, None, None, &[], || {}).unwrap();
         s.send("Change x = 1 to x = 2 in a.py with the Edit tool. Then run `touch made.txt` with Bash. Then say done.").unwrap();
         let (mut asked, until) = (Vec::new(), std::time::Instant::now() + std::time::Duration::from_secs(120));
         'run: loop {
@@ -1559,13 +1637,27 @@ mod tests {
     #[test]
     fn the_model_suggested_is_read_from_the_answer() {
         // the current model suits, or the answer says so
-        assert_eq!(parse_model_answer("MODELE: garder", 2).unwrap(), None);
-        // another model: its index, with the reason
-        assert_eq!(parse_model_answer("MODELE: opus\nRAISON: refonte transversale", 2).unwrap(), Some((1, "refonte transversale".into())));
-        // a name that is not in the list, or the default one: no suggestion
-        assert_eq!(parse_model_answer("MODELE: gpt", 2).unwrap(), None);
+        assert_eq!(parse_model_answer("MODELE: garder", "sonnet").unwrap(), None);
+        // another model: its alias, with the reason
+        assert_eq!(parse_model_answer("MODELE: opus\nRAISON: refonte transversale", "sonnet").unwrap(), Some(("opus".into(), "refonte transversale".into())));
+        // the same family as a pinned version: no suggestion
+        assert_eq!(parse_model_answer("MODELE: Opus", "claude-opus-4-8").unwrap(), None);
+        // a name that is not a family: no suggestion
+        assert_eq!(parse_model_answer("MODELE: gpt", "sonnet").unwrap(), None);
         // no MODELE line at all: an error with the answer
-        assert!(parse_model_answer("désolé", 2).is_err());
+        assert!(parse_model_answer("désolé", "sonnet").is_err());
+    }
+
+    #[test]
+    fn the_models_of_claude_code_are_read() {
+        let v: Value = serde_json::from_str(r#"[
+            {"value":"default","resolvedModel":"claude-opus-5-5","displayName":"Default (recommended)","description":"Opus 5.5","supportedEffortLevels":["low","max"]},
+            {"value":"claude-haiku-4-5-20251001","resolvedModel":"claude-haiku-4-5-20251001","displayName":"Haiku 4.5","description":"Fast"}
+        ]"#).unwrap();
+        let m = parse_models(&v);
+        assert_eq!(m.len(), 2);
+        assert_eq!((m[0].value.as_str(), m[0].resolved.as_str(), m[0].efforts.len(), m[0].is_latest()), ("", "claude-opus-5-5", 2, true));
+        assert_eq!((m[1].name.as_str(), m[1].efforts.is_empty(), m[1].is_latest()), ("Haiku 4.5", true, false));
     }
 
     #[test]

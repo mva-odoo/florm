@@ -12,6 +12,7 @@ pub(in crate::app) struct SessionInfo<'a> {
     pub(in crate::app) limits: &'a [(String, f32, i64)],
     pub(in crate::app) commands: usize,
     pub(in crate::app) allow: &'a [String],
+    pub(in crate::app) models: &'a [claude::ModelInfo],
 }
 
 /// A thin bar, `used` (0 to 1) of it filled: in the accent, orange past 70 %, red past 90 %.
@@ -97,9 +98,15 @@ pub(in crate::app) fn session_ui(ui: &mut egui::Ui, c: &mut ClaudeUi, info: &Ses
                 let dirs = c.add_dirs.iter().map(|d| d.display().to_string()).collect::<Vec<_>>().join("\n");
                 row(ui, t!("Dossiers en plus", "Extra folders"), c.add_dirs.len().to_string()).on_hover_text(dirs);
             }
-            let (alias, label) = claude::MODELS[c.model];
-            let model = if c.model_id.is_empty() || !claude::model_is(&c.model_id, alias) { claude::label(label).to_string() } else { claude::model_name(&c.model_id) };
+            let model = if c.model_id.is_empty() || c.model.contains('-') {
+                model_label(info.models, &c.model)
+            } else if c.model.is_empty() {
+                tf!("Défaut ({})", "Default ({})", claude::model_name(&c.model_id))
+            } else {
+                claude::model_name(&c.model_id)
+            };
             row(ui, t!("Modèle", "Model"), model);
+            row(ui, t!("Effort", "Effort"), claude::effort_label(&c.effort));
             row(ui, t!("Mode", "Mode"), claude::label(claude::MODES[c.mode].1));
         });
         card(ui, t!("Claude Code", "Claude Code"), |ui| {

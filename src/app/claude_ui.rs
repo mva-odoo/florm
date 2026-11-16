@@ -102,7 +102,10 @@ pub(super) struct ClaudeUi {
     news: Option<Instant>,
     /// The message waiting for its files to be noted before it leaves.
     pub(super) outgoing: Option<send::Outgoing>,
-    pub(super) model: usize,
+    /// Value of --model ("opus", "claude-opus-4-8"…; empty: the default of Claude Code).
+    pub(super) model: String,
+    /// Value of --effort (empty: Claude Code chooses).
+    pub(super) effort: String,
     /// The model really at work, as Claude Code names it ("claude-opus-5-5"; empty: not known yet).
     pub(super) model_id: String,
     mode: usize,
@@ -544,7 +547,7 @@ impl App {
                         self.claude.model_id = model;
                     }
                     self.claude.started = true;
-                    let known = Commands { message: commands, terminal, version };
+                    let known = Commands { message: commands, terminal, version, models: self.claude_commands.models.clone() };
                     if !known.message.is_empty() && known != self.claude_commands {
                         write_commands(&known);
                         self.claude_commands = known;
@@ -783,7 +786,8 @@ impl App {
             tab,
             checks: HashSet::new(),
             dir: c.dir.clone(),
-            model: c.model,
+            model: c.model.clone(),
+            effort: c.effort.clone(),
             mode: c.mode,
             with_context: c.with_context,
             add_dirs: c.add_dirs.clone(),
@@ -1043,6 +1047,7 @@ impl App {
             })
             .collect();
         let (mut open_saved, mut forget_saved) = (None, None);
+        self.claude_ask_models();
         let accounts = self.claude_accounts();
         let account_name = claude_account::find(&accounts, &self.claude.account).name.clone();
         let limits_key = self.claude_limits_key(&self.claude.account);
@@ -1053,12 +1058,14 @@ impl App {
         let no_limits = Vec::new();
         let limits = self.claude_limits.get(&limits_key).unwrap_or(&no_limits);
         let commands = command_list(&self.claude_commands);
+        let models = &self.claude_commands.models;
         let session_info = session::SessionInfo {
             project: dir_name.clone(),
             branch: self.claude.dir.as_deref().and_then(git::head_branch),
             limits,
             commands: commands.len(),
             allow,
+            models: &self.claude_commands.models,
         };
         let c = &mut self.claude;
         let cache = &mut self.md_cache;
@@ -1069,7 +1076,7 @@ impl App {
         let (bar_id, review_id, input_id, chat_id) = (cid("claude_bar"), cid("claude_review"), cid("claude_input"), cid("claude_chat"));
         let queue_id = cid("claude_queue");
         let conv = c.id;
-        let (model_before, mode_before) = (c.model, c.mode);
+        let (model_before, effort_before, mode_before) = (c.model.clone(), c.effort.clone(), c.mode);
         // the panel on the right shows the review of the changes (else the session)
         let side_id = cid("claude_side_review");
         let mut side_review = ui.data(|d| d.get_temp::<bool>(side_id)).unwrap_or(false);
@@ -1425,7 +1432,7 @@ impl App {
                 egui::TopBottomPanel::bottom(input_id).show_inside(ui, |ui| {
                     ui.add_space(6.0);
                     if !c.queue.tasks.is_empty() {
-                        queue_act = claude_queue::queue_ui(ui, &mut c.queue, c.busy, accent, queue_id);
+                        queue_act = claude_queue::queue_ui(ui, &mut c.queue, c.busy, accent, queue_id, models);
                     }
                     if !c.attach.is_empty() {
                         let (mut remove, mut toggle) = (None, None);
@@ -1535,15 +1542,15 @@ impl App {
                                     });
                                 }
                                 Some((m, why)) => {
-                                    ui.label(RichText::new(tf!("Pour cette demande, {} conviendrait mieux", "For this request, {} would suit better", claude::label(claude::MODELS[*m].1))).strong());
+                                    ui.label(RichText::new(tf!("Pour cette demande, {} conviendrait mieux", "For this request, {} would suit better", model_label(models, m))).strong());
                                     if !why.is_empty() {
                                         ui.label(RichText::new(why.as_str()).weak());
                                     }
                                     ui.horizontal_wrapped(|ui| {
-                                        if ui.button(tf!("Passer à {}", "Switch to {}", claude::label(claude::MODELS[*m].1))).clicked() {
-                                            hold_act = Some(HoldAct::Switch(*m));
+                                        if ui.button(tf!("Passer à {}", "Switch to {}", model_label(models, m))).clicked() {
+                                            hold_act = Some(HoldAct::Switch(m.clone()));
                                         }
-                                        if ui.button(tf!("Garder {}", "Keep {}", claude::label(claude::MODELS[c.model].1))).clicked() {
+                                        if ui.button(tf!("Garder {}", "Keep {}", model_label(models, &c.model))).clicked() {
                                             hold_act = Some(HoldAct::Keep);
                                         }
                                     });
@@ -1896,28 +1903,64 @@ impl App {
                             }
                             ui.add_space(4.0);
                             // the alias chosen, with the version Claude Code really runs once it is known
-                            let (alias, label) = claude::MODELS[c.model];
-                            let shown = if !claude::model_is(&c.model_id, alias) {
-                                claude::label(label).to_string()
-                            } else if alias.is_empty() {
+                            let alias = !c.model.contains('-');
+                            let shown = if c.model_id.is_empty() || !alias || !claude::model_is(&c.model_id, &c.model) {
+                                model_label(models, &c.model)
+                            } else if c.model.is_empty() {
                                 tf!("Défaut ({})", "Default ({})", claude::model_name(&c.model_id))
                             } else {
                                 claude::model_name(&c.model_id)
                             };
                             let tip = if c.model_id.is_empty() {
-                                t!("La dernière version de chaque modèle, choisie par Claude Code", "The latest version of each model, chosen by Claude Code").to_string()
+                                t!("Les modèles proposés par Claude Code : les premiers suivent toujours la dernière version, « Autres versions » en fixe une", "The models Claude Code offers: the first ones always follow the latest version, « Other versions » pins one").to_string()
                             } else {
                                 tf!("Modèle utilisé : {}", "Model in use: {}", c.model_id)
                             };
+                            let choices = model_choices(models);
+                            let describe = |v: &str| models.iter().find(|m| m.value == v).map(|m| m.description.clone()).unwrap_or_default();
                             egui::ComboBox::from_id_salt(("claude_model", conv))
                                 .selected_text(shown)
                                 .show_ui(ui, |ui| {
-                                    for (k, (_, label)) in claude::MODELS.iter().enumerate() {
-                                        ui.selectable_value(&mut c.model, k, claude::label(label));
+                                    ui.set_min_width(200.0);
+                                    for (value, label) in choices.iter().filter(|(v, _)| !v.contains('-')) {
+                                        let r = ui.selectable_value(&mut c.model, value.clone(), label);
+                                        let d = describe(value);
+                                        if !d.is_empty() {
+                                            r.on_hover_text(d);
+                                        }
+                                    }
+                                    let pinned: Vec<_> = choices.iter().filter(|(v, _)| v.contains('-')).collect();
+                                    if !pinned.is_empty() {
+                                        ui.separator();
+                                        let open = pinned.iter().any(|(v, _)| *v == c.model);
+                                        egui::CollapsingHeader::new(t!("Autres versions", "Other versions")).id_salt(("claude_model_pinned", conv)).default_open(open).show(ui, |ui| {
+                                            for (value, label) in pinned {
+                                                ui.selectable_value(&mut c.model, value.clone(), label).on_hover_text(format!("{value}\n{}", describe(value)));
+                                            }
+                                        });
                                     }
                                 })
                                 .response
                                 .on_hover_text(tip);
+                            // the effort levels of this model (none: no setting); one it does not take goes back to auto
+                            let efforts = model_efforts(models, &c.model);
+                            if !c.effort.is_empty() && !efforts.contains(&c.effort) {
+                                c.effort.clear();
+                            }
+                            if !efforts.is_empty() {
+                                let ordered: Vec<String> = claude::EFFORTS.iter().map(|(v, _)| v.to_string()).filter(|v| efforts.contains(v)).chain(efforts.iter().filter(|e| !claude::EFFORTS.iter().any(|(v, _)| v == e)).cloned()).collect();
+                                egui::ComboBox::from_id_salt(("claude_effort", conv))
+                                    .selected_text(tf!("Effort {}", "Effort {}", claude::effort_label(&c.effort)))
+                                    .show_ui(ui, |ui| {
+                                        ui.selectable_value(&mut c.effort, String::new(), claude::effort_label("")).on_hover_text(t!("Claude Code choisit (son réglage habituel)", "Claude Code chooses (its usual setting)"));
+                                        for e in ordered {
+                                            let label = claude::effort_label(&e);
+                                            ui.selectable_value(&mut c.effort, e, label);
+                                        }
+                                    })
+                                    .response
+                                    .on_hover_text(t!("Combien Claude réfléchit avant d'agir : plus d'effort, des réponses plus soignées mais plus lentes et plus de quota", "How much Claude thinks before acting: more effort, more careful answers but slower and more quota"));
+                            }
                             egui::ComboBox::from_id_salt(("claude_mode", conv)).selected_text(claude::label(claude::MODES[c.mode].1)).show_ui(ui, |ui| {
                                 for (k, (_, label, tip)) in claude::MODES.iter().enumerate() {
                                     ui.selectable_value(&mut c.mode, k, claude::label(label)).on_hover_text(claude::label(tip));
@@ -2379,7 +2422,8 @@ impl App {
             self.claude.mode = (self.claude.mode + 1) % claude::MODES.len();
             self.set_status(tf!("Mode : {}", "Mode: {}", claude::label(claude::MODES[self.claude.mode].1)));
         }
-        let (model_changed, mode_changed) = (self.claude.model != model_before, self.claude.mode != mode_before);
+        let model_changed = self.claude.model != model_before || self.claude.effort != effort_before;
+        let mode_changed = self.claude.mode != mode_before;
         if model_changed || mode_changed {
             self.claude_switch(model_changed, mode_changed);
         }
@@ -2511,7 +2555,7 @@ impl App {
                 let _ = s.set_mode(claude::mode_value(c.mode));
             }
             if model {
-                let _ = s.set_model(claude::MODELS[c.model].0);
+                let _ = s.set_model(&c.model);
             }
         }
         c.restart = true;
@@ -2558,6 +2602,8 @@ mod tests {
             title: "Corrige le bug".into(),
             dir: Some("/p".into()),
             model: 1,
+            model_value: None,
+            effort: String::new(),
             mode: 0,
             session_id: Some("abc".into()),
             wish: None,

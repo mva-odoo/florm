@@ -10,7 +10,13 @@ pub(in crate::app) struct SavedConv {
     pub(super) key: u64,
     pub(super) title: String,
     pub(super) dir: Option<PathBuf>,
+    /// Index in `claude::MODELS` (conversations of before `model_value`).
     pub(super) model: usize,
+    /// The --model value, and the --effort one.
+    #[serde(default)]
+    pub(super) model_value: Option<String>,
+    #[serde(default)]
+    pub(super) effort: String,
     pub(super) mode: usize,
     pub(super) session_id: Option<String>,
     pub(super) wish: Option<String>,
@@ -180,6 +186,44 @@ pub(in crate::app) struct Commands {
     pub(super) terminal: Vec<String>,
     /// Version of Claude Code.
     pub(super) version: String,
+    /// The models it offers, with their effort levels (`claude::list_models`).
+    #[serde(default)]
+    pub(in crate::app) models: Vec<claude::ModelInfo>,
+}
+
+/// The name of the model `value` (a --model value): the one Claude Code gives, else the alias of
+/// before, else made from the value ("claude-opus-4-8" → "Opus 4.8").
+pub(in crate::app) fn model_label(models: &[claude::ModelInfo], value: &str) -> String {
+    if let Some(m) = models.iter().find(|m| m.value == value) {
+        return if value.is_empty() {
+            tf!("Défaut ({})", "Default ({})", claude::model_name(&m.resolved))
+        } else {
+            m.name.clone()
+        };
+    }
+    match claude::MODELS.iter().find(|(v, _)| *v == value) {
+        Some((_, label)) => claude::label(label).to_string(),
+        None => claude::model_name(value),
+    }
+}
+
+/// The models to choose from, (value, name): the ones that follow the latest version first, then
+/// the pinned versions; the aliases of before when Claude Code has not given its list yet.
+pub(in crate::app) fn model_choices(models: &[claude::ModelInfo]) -> Vec<(String, String)> {
+    if models.is_empty() {
+        return claude::MODELS.iter().map(|(v, l)| (v.to_string(), claude::label(l).to_string())).collect();
+    }
+    let latest = models.iter().filter(|m| m.is_latest());
+    let pinned = models.iter().filter(|m| !m.is_latest());
+    latest.chain(pinned).map(|m| (m.value.clone(), model_label(models, &m.value))).collect()
+}
+
+/// The effort levels the model `value` takes; all of them when it is not known.
+pub(in crate::app) fn model_efforts(models: &[claude::ModelInfo], value: &str) -> Vec<String> {
+    match models.iter().find(|m| m.value == value) {
+        Some(m) => m.efforts.clone(),
+        None => claude::EFFORTS.iter().map(|(v, _)| v.to_string()).collect(),
+    }
 }
 
 pub(super) fn commands_path() -> PathBuf {
@@ -190,7 +234,7 @@ pub(in crate::app) fn load_commands() -> Commands {
     std::fs::read_to_string(commands_path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
 }
 
-pub(super) fn write_commands(c: &Commands) {
+pub(in crate::app) fn write_commands(c: &Commands) {
     let p = commands_path();
     if let Some(d) = p.parent() {
         let _ = std::fs::create_dir_all(d);
@@ -289,7 +333,9 @@ impl App {
             key,
             title: self.claude_title(),
             dir: c.dir.clone(),
-            model: c.model,
+            model: claude::MODELS.iter().position(|(v, _)| *v == c.model).unwrap_or(0),
+            model_value: Some(c.model.clone()),
+            effort: c.effort.clone(),
             mode: c.mode,
             session_id: c.session_id.clone(),
             wish: c.wish.clone(),
@@ -322,7 +368,8 @@ impl App {
         let mut c = self.claude_fresh(tab);
         c.saved_key = s.key;
         c.dir = s.dir.clone().or(c.dir);
-        c.model = s.model.min(claude::MODELS.len() - 1);
+        c.model = s.model_value.clone().unwrap_or_else(|| claude::MODELS[s.model.min(claude::MODELS.len() - 1)].0.to_string());
+        c.effort = s.effort.clone();
         c.mode = s.mode.min(claude::MODES.len() - 1);
         c.session_id = s.session_id.clone();
         c.wish = s.wish.clone();

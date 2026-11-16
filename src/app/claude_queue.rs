@@ -16,13 +16,13 @@ pub(super) struct Queue {
     /// with what the one before did said in a few lines.
     #[serde(default)]
     pub(super) fresh_each: bool,
-    /// Model of the tasks without one of their own (index in `claude::MODELS`); None: the one of
-    /// the conversation.
-    #[serde(default)]
-    pub(super) model: Option<usize>,
+    /// Model of the tasks without one of their own (a --model value); None: the one of the
+    /// conversation.
+    #[serde(default, deserialize_with = "model_of_before")]
+    pub(super) model: Option<String>,
     /// Model of the conversation when the queue was started: what the tasks use when no model is chosen.
     #[serde(skip)]
-    pub(super) base_model: Option<usize>,
+    pub(super) base_model: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -32,12 +32,26 @@ pub(super) struct Task {
     /// What went wrong, or the first line of its commit.
     #[serde(default)]
     pub(super) note: String,
-    /// Model for this task (index in `claude::MODELS`); None: the one of the queue.
-    #[serde(default)]
-    pub(super) model: Option<usize>,
+    /// Model for this task (a --model value); None: the one of the queue.
+    #[serde(default, deserialize_with = "model_of_before")]
+    pub(super) model: Option<String>,
     /// A message of the chat, sent as it is (written while Claude answered): no commit after it.
     #[serde(default)]
     pub(super) plain: bool,
+}
+
+/// A model kept as an index in `claude::MODELS` (queues of before) or as a --model value.
+fn model_of_before<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Kept {
+        Index(usize),
+        Value(String),
+    }
+    Ok(Option::<Kept>::deserialize(d)?.map(|k| match k {
+        Kept::Index(i) => crate::claude::MODELS[i.min(crate::claude::MODELS.len() - 1)].0.to_string(),
+        Kept::Value(v) => v,
+    }))
 }
 
 #[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
@@ -121,8 +135,8 @@ impl Queue {
     }
 
     /// The model task `k` is sent with: its own, else the one of the queue, else the one of the conversation.
-    pub(super) fn model_of(&self, k: usize) -> Option<usize> {
-        self.tasks[k].model.or(self.model).or(self.base_model)
+    pub(super) fn model_of(&self, k: usize) -> Option<String> {
+        self.tasks[k].model.clone().or_else(|| self.model.clone()).or_else(|| self.base_model.clone())
     }
 
     pub(super) fn next_waiting(&self) -> Option<usize> {
@@ -144,8 +158,10 @@ impl Queue {
 const ROW_BUTTONS_W: f32 = 170.0;
 
 /// The list above the field of the chat: the tasks and their state, the buttons of the queue.
-pub(super) fn queue_ui(ui: &mut egui::Ui, q: &mut Queue, busy: bool, accent: Color32, id: egui::Id) -> Option<QueueAct> {
+pub(super) fn queue_ui(ui: &mut egui::Ui, q: &mut Queue, busy: bool, accent: Color32, id: egui::Id, models: &[crate::claude::ModelInfo]) -> Option<QueueAct> {
+    use super::claude_ui::{model_choices, model_label};
     let mut act = None;
+    let choices: Vec<(String, String)> = model_choices(models).into_iter().filter(|(v, _)| !v.is_empty()).collect();
     let done = q.tasks.iter().filter(|t| t.state == TaskState::Done).count();
     let waiting = q.tasks.iter().filter(|t| t.state == TaskState::Waiting).count();
     let working = q.current().is_some();
@@ -166,11 +182,11 @@ pub(super) fn queue_ui(ui: &mut egui::Ui, q: &mut Queue, busy: bool, accent: Col
             }
         }
         // the model of the tasks without one of their own: a smaller one for small tasks is cheaper and faster
-        let shown = q.model.map_or(t!("Modèle de la conversation", "Conversation's model"), model_label);
+        let shown = q.model.as_deref().map_or(t!("Modèle de la conversation", "Conversation's model").to_string(), |m| model_label(models, m));
         egui::ComboBox::from_id_salt(id).selected_text(RichText::new(shown).small()).width(120.0).show_ui(ui, |ui| {
             ui.selectable_value(&mut q.model, None, t!("Modèle de la conversation", "Conversation's model"));
-            for (m, (_, label)) in crate::claude::MODELS.iter().enumerate().skip(1) {
-                ui.selectable_value(&mut q.model, Some(m), crate::claude::label(label));
+            for (value, label) in &choices {
+                ui.selectable_value(&mut q.model, Some(value.clone()), label);
             }
         });
         ui.checkbox(&mut q.commit_each, RichText::new(t!("Commit après chaque tâche", "Commit after each task")).small())
@@ -187,7 +203,7 @@ pub(super) fn queue_ui(ui: &mut egui::Ui, q: &mut Queue, busy: bool, accent: Col
             act = Some(QueueAct::Close);
         }
     });
-    let queue_model = q.model.map_or(t!("Modèle de la conversation", "Conversation's model"), model_label);
+    let queue_model = q.model.as_deref().map_or(t!("Modèle de la conversation", "Conversation's model").to_string(), |m| model_label(models, m));
     // the sentence before the list, said with each task: shown once, above them
     let intro = shared_intro(&q.tasks);
     if !intro.is_empty() {
@@ -271,11 +287,11 @@ pub(super) fn queue_ui(ui: &mut egui::Ui, q: &mut Queue, busy: bool, accent: Col
                     }
                     if editable {
                         // a model for this task only: Haiku for a small one in a list sent with Opus
-                        let shown = t.model.map_or(t!("Modèle de la file", "Queue's model"), model_label);
+                        let shown = t.model.as_deref().map_or(t!("Modèle de la file", "Queue's model").to_string(), |m| model_label(models, m));
                         egui::ComboBox::from_id_salt(id.with(("task_model", k))).selected_text(RichText::new(shown).small()).width(96.0).show_ui(ui, |ui| {
-                            ui.selectable_value(&mut t.model, None, t!("Modèle de la file", "Queue's model")).on_hover_text(queue_model);
-                            for (m, (_, label)) in crate::claude::MODELS.iter().enumerate().skip(1) {
-                                ui.selectable_value(&mut t.model, Some(m), crate::claude::label(label));
+                            ui.selectable_value(&mut t.model, None, t!("Modèle de la file", "Queue's model")).on_hover_text(&queue_model);
+                            for (value, label) in &choices {
+                                ui.selectable_value(&mut t.model, Some(value.clone()), label);
                             }
                         });
                     }
@@ -311,9 +327,6 @@ fn shared_intro(tasks: &[Task]) -> String {
     first.text[..end].to_string()
 }
 
-fn model_label(m: usize) -> &'static str {
-    crate::claude::label(crate::claude::MODELS[m.min(crate::claude::MODELS.len() - 1)].1)
-}
 
 /// `git add -A`, a message written by Claude for `wish`, `git commit`; returns the first line of
 /// the message (or says there was nothing to commit).
@@ -354,7 +367,7 @@ mod tests {
         assert!(split_tasks("  \n").is_empty());
         // a queue saved before the models and the fresh conversations
         let old: Queue = serde_json::from_str(r#"{"tasks":[{"text":"a","state":"Waiting"}],"commit_each":true}"#).unwrap();
-        assert_eq!((old.model, old.tasks[0].model, old.fresh_each, old.commit_each), (None, None, false, true));
+        assert_eq!((old.model.clone(), old.tasks[0].model.clone(), old.fresh_each, old.commit_each), (None, None, false, true));
         let mut q = Queue::default();
         assert_eq!(q.add("- a\n- b"), 2);
         q.tasks[0].state = TaskState::Running;
@@ -362,11 +375,14 @@ mod tests {
         q.settle();
         assert_eq!((q.current(), q.next_waiting()), (None, Some(0)));
         // the model of a task: its own, else the queue's, else the conversation's
-        q.base_model = Some(1);
-        assert_eq!(q.model_of(0), Some(1));
-        q.model = Some(2);
-        q.tasks[1].model = Some(3);
-        assert_eq!((q.model_of(0), q.model_of(1)), (Some(2), Some(3)));
+        q.base_model = Some("opus".into());
+        assert_eq!(q.model_of(0).as_deref(), Some("opus"));
+        q.model = Some("sonnet".into());
+        q.tasks[1].model = Some("claude-haiku-4-5".into());
+        assert_eq!((q.model_of(0).as_deref(), q.model_of(1).as_deref()), (Some("sonnet"), Some("claude-haiku-4-5")));
+        // a queue saved with the models as indexes in the list of before
+        let old: Queue = serde_json::from_str(r#"{"tasks":[{"text":"a","state":"Waiting","model":3}],"commit_each":false,"model":1}"#).unwrap();
+        assert_eq!((old.model.as_deref(), old.tasks[0].model.as_deref()), (Some("opus"), Some("haiku")));
         // the sentence before the list, shown once above the tasks
         let mut q = Queue::default();
         q.add("Dans florm :\n- a\n- b");

@@ -6,20 +6,20 @@ use super::claude_queue::TaskState;
 use crate::claude;
 
 /// A message held before it starts, while the model suited to it is checked (`suggestion` None),
-/// or until the choice is made (`suggestion`: index in `claude::MODELS` and the reason).
+/// or until the choice is made (`suggestion`: the --model value and the reason).
 #[derive(Clone)]
 pub(super) struct ModelHold {
     pub(super) text: String,
     pub(super) ask: bool,
-    pub(super) suggestion: Option<(usize, String)>,
+    pub(super) suggestion: Option<(String, String)>,
     /// A task of the queue: cancelled, it waits again and the queue is paused.
     pub(super) from_queue: bool,
 }
 
 /// What the user chooses for a held message.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(super) enum HoldAct {
-    Switch(usize),
+    Switch(String),
     Keep,
     Cancel,
 }
@@ -34,13 +34,16 @@ impl App {
             }
             return;
         };
-        let (id, current) = (self.claude.id, self.claude.model);
+        let id = self.claude.id;
+        // the default one: its real name, so that a suggestion of the same family is not made
+        let current = if self.claude.model.is_empty() { self.claude.model_id.clone() } else { self.claude.model.clone() };
+        let label = self.claude_model_label(&self.claude.model);
         self.claude.model_hold = Some(ModelHold { text: text.clone(), ask, suggestion: None, from_queue });
-        self.jobs.spawn(move || JobResult::ClaudeModelCheck(id, claude::model_check(&dir, &text, current)));
+        self.jobs.spawn(move || JobResult::ClaudeModelCheck(id, claude::model_check(&dir, &text, &current, &label)));
     }
 
     /// The model checked for the message held of conversation `id`.
-    pub(super) fn claude_model_checked(&mut self, id: u64, r: Result<Option<(usize, String)>, String>) {
+    pub(super) fn claude_model_checked(&mut self, id: u64, r: Result<Option<(String, String)>, String>) {
         let Some(k) = self.claude_others.iter().position(|c| c.id == id) else {
             if self.claude.id == id {
                 self.claude_model_checked_done(r);
@@ -53,7 +56,7 @@ impl App {
         std::mem::swap(&mut self.claude, &mut self.claude_others[k]);
     }
 
-    fn claude_model_checked_done(&mut self, r: Result<Option<(usize, String)>, String>) {
+    fn claude_model_checked_done(&mut self, r: Result<Option<(String, String)>, String>) {
         let Some(hold) = self.claude.model_hold.as_mut() else { return };
         match r {
             Ok(Some(suggestion)) => hold.suggestion = Some(suggestion),
@@ -78,7 +81,7 @@ impl App {
             self.set_status(t!("Tâche remise en attente : la file est en pause", "Task waiting again: the queue is paused"));
             return;
         }
-        match act {
+        match act.clone() {
             HoldAct::Cancel => {
                 self.claude.input = hold.text;
                 return;
@@ -96,6 +99,33 @@ impl App {
             } else {
                 self.claude.input = hold.text;
             }
+        }
+    }
+
+    /// The name of the model `value` (see `claude_ui::model_label`).
+    pub(super) fn claude_model_label(&self, value: &str) -> String {
+        claude_ui::model_label(&self.claude_commands.models, value)
+    }
+
+    /// Asks Claude Code once per session of Florm which models it offers (kept on disk with its
+    /// commands: the list of the last time is shown meanwhile).
+    pub(super) fn claude_ask_models(&mut self) {
+        if self.claude_models_asked {
+            return;
+        }
+        self.claude_models_asked = true;
+        let dir = self.claude.dir.clone().or_else(|| self.root.clone()).unwrap_or_else(std::env::temp_dir);
+        let account = self.claude_account_dir(&self.claude.account);
+        self.jobs.spawn(move || JobResult::ClaudeModels(claude::list_models(&dir, account.as_deref())));
+    }
+
+    /// The models given by Claude Code.
+    pub(super) fn claude_models_listed(&mut self, r: Result<Vec<claude::ModelInfo>, String>) {
+        // not installed, offline…: the list of the last time (or the aliases) stays
+        let Ok(models) = r else { return };
+        if models != self.claude_commands.models {
+            self.claude_commands.models = models;
+            claude_ui::write_commands(&self.claude_commands);
         }
     }
 

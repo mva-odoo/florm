@@ -386,7 +386,8 @@ impl App {
                 let (Some(session), Some(at)) = (src.session_id.clone(), src.last_uuid.clone()) else { return };
                 let mut copy = self.claude_fresh(Some(LISTED));
                 copy.dir = src.dir.clone();
-                copy.model = src.model;
+                copy.model = src.model.clone();
+                copy.effort = src.effort.clone();
                 copy.mode = src.mode;
                 copy.add_dirs = src.add_dirs.clone();
                 copy.items = src.items.clone();

@@ -499,9 +499,13 @@ panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en
   ou **📁 Un autre dossier…** pour n'importe quel dossier.
   Le modèle et le mode se changent en pleine conversation : tout de suite si Claude travaille,
   sinon au prochain message, la conversation gardée. **Maj+Tab** dans le champ : mode suivant,
-  comme dans Claude Code. Chaque modèle (Opus, Sonnet, Haiku, Fable) est sa dernière version :
-  quand Claude en sort une nouvelle, Claude Code la prend, et le menu affiche celle qui répond
-  (« Opus 5.5 ») dès le premier message.
+  comme dans Claude Code. La liste des modèles vient de Claude Code lui-même (selon ton compte) :
+  en haut Opus, Sonnet, Haiku, Fable… qui suivent toujours la dernière version (quand Anthropic
+  en sort une, elle apparaît toute seule), puis **Autres versions** pour en fixer une précise
+  (Opus 4.8, Sonnet 4.6…). À côté, **Effort** : combien Claude réfléchit avant d'agir (auto, bas,
+  moyen, élevé, très élevé, max), seulement les niveaux que le modèle choisi accepte ; plus
+  d'effort donne des réponses plus soignées, mais plus lentes et qui consomment plus de quota.
+  Le modèle et l'effort sont retenus avec la conversation.
 - **Fin de réponse** : si la conversation n'est pas affichée, son onglet (ou, dans le panneau
   du bas, ✳ ● à côté de son nom et ✔ dans la barre d'état) clignote quelques secondes (tout l'onglet s'allume) puis
   reste vert jusqu'à ce que tu la regardes, et un son est joué. **Préférences → Claude** :
