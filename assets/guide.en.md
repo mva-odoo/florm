@@ -38,6 +38,8 @@ sidebar shown or not.
 
 ## Sidebar
 
+- At the top: the name of the project (a click to switch project) and four small buttons, new
+  file, new folder, **fold everything** and ⟳ refresh.
 - **Ctrl+Shift+E** (or a click on a file): the keyboard goes to the tree. **↑ ↓** to move,
   **→** opens a folder, **←** closes it (or goes up to the parent folder), **Space** shows the
   file keeping the keyboard in the tree, **Enter** opens it and goes to the editor, **F2**

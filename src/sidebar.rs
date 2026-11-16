@@ -328,7 +328,19 @@ pub fn show(
             }
             None => {
                 ui.add_space(4.0);
-                ui.vertical_centered(|ui| ui.add(egui::Label::new(folder_name(root)).sense(Sense::click()))).inner
+                // the name on the left (the projects), the actions of the tree on the right
+                ui.horizontal(|ui| {
+                    ui.add_space(4.0);
+                    let r = ui.add(egui::Label::new(folder_name(root)).sense(Sense::click()).truncate());
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.spacing_mut().item_spacing.x = 0.0;
+                        if let Some(a) = header_buttons(ui, root) {
+                            act = Some(a);
+                        }
+                    });
+                    r
+                })
+                .inner
             }
         };
         let r = r.on_hover_cursor(CursorIcon::PointingHand).on_hover_text(t!("Changer de projet (Ctrl+Alt+P)", "Switch project (Ctrl+Alt+P)"));
@@ -388,6 +400,65 @@ pub fn show(
         egui::show_tooltip_at_pointer(ui.ctx(), ui.layer_id(), Id::new("florm_dnd"), |ui| ui.label(tf!("Déplacer {name}", "Move {name}")));
     }
     act
+}
+
+/// The small buttons of the tree's header (right to left): refresh, fold everything, new folder,
+/// new file at the root. Faint until hovered.
+fn header_buttons(ui: &mut Ui, root: &mut Node) -> Option<TreeAction> {
+    let mut act = None;
+    let weak = ui.visuals().weak_text_color();
+    let strong = ui.visuals().strong_text_color();
+    let bg = ui.visuals().panel_fill;
+    let button = |ui: &mut Ui, tip: &str, paint: &dyn Fn(&egui::Painter, Rect, Color32)| {
+        let (rect, r) = ui.allocate_exact_size(egui::vec2(22.0, 20.0), Sense::click());
+        if r.hovered() {
+            ui.painter().rect_filled(rect, 4.0, ui.visuals().widgets.hovered.weak_bg_fill);
+        }
+        paint(ui.painter(), rect, if r.hovered() { strong } else { weak });
+        r.on_hover_text(tip).clicked()
+    };
+    // a small « + » over the icons of the new file and the new folder
+    let plus = |p: &egui::Painter, rect: Rect, color: Color32| {
+        let c = Pos2::new(rect.right() - 6.0, rect.bottom() - 6.0);
+        p.circle_filled(c, 4.0, bg);
+        p.line_segment([Pos2::new(c.x - 2.5, c.y), Pos2::new(c.x + 2.5, c.y)], Stroke::new(1.3_f32, color));
+        p.line_segment([Pos2::new(c.x, c.y - 2.5), Pos2::new(c.x, c.y + 2.5)], Stroke::new(1.3_f32, color));
+    };
+    if button(ui, t!("Rafraîchir l'arborescence", "Refresh the tree"), &|p, r, c| {
+        p.text(r.center(), egui::Align2::CENTER_CENTER, "⟳", egui::FontId::proportional(13.0), c);
+    }) {
+        act = Some(TreeAction::Refresh);
+    }
+    if button(ui, t!("Tout replier", "Fold everything"), &|p, r, c| {
+        // a box with a minus, as in VS Code
+        let b = Rect::from_center_size(r.center(), egui::vec2(11.0, 11.0));
+        p.rect_stroke(b, 2.0, Stroke::new(1.2_f32, c));
+        p.line_segment([Pos2::new(b.left() + 3.0, b.center().y), Pos2::new(b.right() - 3.0, b.center().y)], Stroke::new(1.3_f32, c));
+    }) {
+        fold_all(root);
+    }
+    if button(ui, t!("Nouveau dossier…", "New folder…"), &|p, r, c| {
+        crate::icons::paint_folder(p, Rect::from_center_size(r.center() - egui::vec2(2.0, 1.0), egui::vec2(13.0, 13.0)), false, c, bg);
+        plus(p, r, c);
+    }) {
+        act = Some(TreeAction::NewFolder(root.path.clone()));
+    }
+    if button(ui, t!("Nouveau fichier…", "New file…"), &|p, r, c| {
+        let f = Rect::from_center_size(r.center() - egui::vec2(2.0, 1.0), egui::vec2(9.0, 12.0));
+        p.rect_stroke(f, 1.5, Stroke::new(1.2_f32, c));
+        plus(p, r, c);
+    }) {
+        act = Some(TreeAction::NewFile(root.path.clone()));
+    }
+    act
+}
+
+/// Folds every folder of the tree (the root stays open).
+fn fold_all(node: &mut Node) {
+    for c in node.children.iter_mut().flatten() {
+        c.expanded = false;
+        fold_all(c);
+    }
 }
 
 /// Folders accept dropped tree entries (files drop into their parent folder).

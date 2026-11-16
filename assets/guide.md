@@ -39,6 +39,8 @@ bas ouvert et la barre latérale affichée ou non.
 
 ## Barre latérale
 
+- En haut : le nom du projet (un clic pour changer de projet) et quatre petits boutons, nouveau
+  fichier, nouveau dossier, **tout replier** et ⟳ rafraîchir.
 - **Ctrl+Shift+E** (ou un clic sur un fichier) : le clavier va dans l'arborescence. **↑ ↓** pour se
   déplacer, **→** ouvre un dossier, **←** le referme (ou remonte au dossier parent), **Espace**
   affiche le fichier en gardant le clavier dans l'arborescence, **Entrée** l'ouvre et passe à
