@@ -437,8 +437,11 @@ avec `gh auth login` (connexion par le navigateur). Sans `gh`, la vue explique c
   **✖** à corriger, **👁** revue demandée). Au départ,
   **les tiennes** (préférence « Auteur affiché au départ » pour voir toutes les PR).
 - Une PR que tu viens de créer s'ouvre dès que GitHub la connaît (quelques secondes).
-- **Conversation** : la description, les **commentaires sur le code** (fichier:ligne
-  cliquable, le code commenté, les réponses) puis la discussion et les revues.
+- **Conversation**, comme sur GitHub : la description en haut, puis tout ce qui s'est passé du
+  plus ancien au plus récent, sur une ligne avec une icône par événement : les commentaires et
+  revues (dans un cadre « bob a commenté il y a 2 jours »), les **commentaires sur le code**
+  (fichier:ligne cliquable, le code commenté, les réponses) et les commits (un clic les montre).
+  En bas : si la PR peut être fusionnée, puis le champ pour écrire un commentaire.
 - **Traiter les commentaires avec Claude** : coche les commentaires non résolus à traiter
   (case à gauche de chacun, dans Conversation ou Fichiers ; « Tous » en haut), puis
   **✳ Envoyer à Claude**. Une conversation Claude s'ouvre dans le dépôt avec chaque
@@ -457,10 +460,11 @@ avec `gh auth login` (connexion par le navigateur). Sans `gh`, la vue explique c
   résoudre, appliquer une suggestion), et **double-clic sur une ligne** pour la commenter.
 - Une case avant chaque fichier le marque **vu** : il se replie et GitHub s'en souvient pour
   ta revue (« 3/10 vu(s) » en haut).
-- En haut de la conversation : les **checks** (ceux en échec toujours visibles, un clic pour
+- En bas de la conversation, le cadre de fusion, dans la couleur de l'état (rouge bloquée, orange
+  s'il manque quelque chose, vert prête) : où en est la PR (**Revue requise**, **Conflits**, **En
+  retard**, **Prête à fusionner**…), les **checks** (ceux en échec toujours visibles, un clic pour
   tous ; **Logs** ouvre le log d'un job GitHub Actions dans un onglet, **↻ Relancer les
-  échecs**), puis si la PR peut être fusionnée (conflits, en retard, approbations ou checks
-  manquants) et les boutons : **Fusionner** (commit de fusion, squash ou rebase, supprimer la
+  échecs**), et les boutons : **Fusionner** (commit de fusion, squash ou rebase, supprimer la
   branche), **⟳ Mettre à jour la branche** (merge ou rebase de la base), **Prête pour la
   revue** / **Repasser en brouillon**, **Fermer** / **Rouvrir**. Fusionner, fermer et rebaser
   demandent confirmation.

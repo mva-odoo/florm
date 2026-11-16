@@ -432,8 +432,11 @@ palette).
 - On the left, the PRs of the repository (open, merged, closed, yours), with a filter. At the
   start, **yours** (preference “Author shown at the start” to see all of them).
 - A PR you just created opens as soon as GitHub knows it (a few seconds).
-- **Conversation**: the description, the **comments on the code** (clickable file:line, the
-  commented code, the replies) then the discussion and the reviews.
+- **Conversation**, as on GitHub: the description on top, then everything that happened from the
+  oldest to the newest, on a line with an icon per event: the comments and reviews (in a box “bob
+  commented 2 days ago”), the **comments on the code** (clickable file:line, the commented code,
+  the replies) and the commits (a click shows them). At the bottom: whether the PR can be merged,
+  then the field to write a comment.
 - **Handle the comments with Claude**: tick the unresolved comments to handle (box on the
   left of each, in Conversation or Files; “All” at the top), then **✳ Send to Claude**. A
   Claude conversation opens in the repository with each comment (file:line, commented code,
@@ -452,10 +455,11 @@ palette).
   suggestion), and **double-click a line** to comment on it.
 - A box before each file marks it **viewed**: it folds and GitHub remembers it for your review
   (“3/10 viewed” on top).
-- On top of the conversation: the **checks** (the failing ones always shown, a click for all;
-  **Logs** opens the log of a GitHub Actions job in a tab, **↻ Rerun the failed ones**), then
-  whether the PR can be merged (conflicts, behind, missing approvals or checks) and the
-  buttons: **Merge** (merge commit, squash or rebase, delete the branch), **⟳ Update the
+- At the bottom of the conversation, the merge box, in the color of the state (red blocked,
+  orange something missing, green ready): where the PR stands (**Review required**,
+  **Conflicts**, **Behind**, **Ready to merge**…), the **checks** (the failing ones always shown,
+  a click for all; **Logs** opens the log of a GitHub Actions job in a tab, **↻ Rerun the failed
+  ones**), and the buttons: **Merge** (merge commit, squash or rebase, delete the branch), **⟳ Update the
   branch** (merge or rebase of the base), **Ready for review** / **Back to draft**, **Close** /
   **Reopen**. Merge, close and rebase ask first.
 - Under the message: **✔ Approve** or **✖ Request changes** (the message says what).

@@ -556,14 +556,21 @@ impl App {
                 }
                 // who wants to merge what, on its own line (wrapped when narrow), then the actions:
                 // on one line they ran over the branch names
+                // like GitHub: the state in a full pill, « bob wants to merge 2 commits into [17.0] from [17.0-fix] »
                 ui.horizontal_wrapped(|ui| {
                     let (label, color) = state_badge(&d.state, d.is_draft);
-                    badge(ui, label, color);
+                    state_pill(ui, label, color);
+                    ui.add_space(4.0);
                     ui.label(RichText::new(&d.author).strong());
-                    ui.label(RichText::new(t!("veut fusionner", "wants to merge")).weak());
-                    ui.label(RichText::new(&d.head).monospace().color(accent));
-                    ui.label(RichText::new(t!("dans", "into")).weak());
-                    ui.label(RichText::new(&d.base).monospace().color(accent));
+                    let n = d.commits.len();
+                    let wants = if n == 1 { t!("veut fusionner 1 commit dans", "wants to merge 1 commit into").to_string() } else { tf!("veut fusionner {n} commits dans", "wants to merge {n} commits into") };
+                    ui.label(RichText::new(wants).weak());
+                    branch_pill(ui, &d.base, accent);
+                    ui.label(RichText::new(t!("depuis", "from")).weak());
+                    if branch_pill(ui, &d.head, accent).on_hover_text(t!("Clic : copier le nom de la branche", "Click: copy the name of the branch")).clicked() {
+                        ui.ctx().copy_text(d.head.clone());
+                        act = Some(PrAct::Copied(d.head.clone()));
+                    }
                 });
                 ui.add_space(2.0);
                 ui.horizontal(|ui| {
@@ -605,14 +612,33 @@ impl App {
                 });
                 ui.add_space(4.0);
                 let open_threads = d.threads.iter().filter(|t| !t.resolved).count();
-                ui.horizontal(|ui| {
-                    let conv = if open_threads > 0 { tf!("Conversation · {open_threads} à traiter", "Conversation · {open_threads} to handle") } else { "Conversation".into() };
-                    ui.selectable_value(&mut p.section, PrSection::Conversation, conv);
-                    ui.selectable_value(&mut p.section, PrSection::Commits, format!("Commits · {}", d.commits.len()));
-                    let n = p.files.diff.as_ref().map_or(0, |x| x.files.len());
-                    ui.selectable_value(&mut p.section, PrSection::Files, tf!("Fichiers · {n}", "Files · {n}"));
-                });
-                ui.separator();
+                // the tabs as on GitHub: underlined when chosen, their count in a pill
+                let n_files = p.files.diff.as_ref().map_or(0, |x| x.files.len());
+                let tabs = [
+                    (PrSection::Conversation, "Conversation", d.comments.len() + d.threads.len(), (open_threads > 0).then(|| tf!("{open_threads} conversation(s) à traiter", "{open_threads} conversation(s) to handle"))),
+                    (PrSection::Commits, "Commits", d.commits.len(), None),
+                    (PrSection::Files, t!("Fichiers", "Files"), n_files, None),
+                ];
+                let line_y = ui
+                    .horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 4.0;
+                        for (section, label, count, tip) in tabs {
+                            let r = pr_tab(ui, label, count, p.section == section, open_threads > 0 && section == PrSection::Conversation, accent);
+                            let r = match tip {
+                                Some(t) => r.on_hover_text(t),
+                                None => r,
+                            };
+                            if r.clicked() {
+                                p.section = section;
+                            }
+                        }
+                    })
+                    .response
+                    .rect
+                    .bottom();
+                let stroke = egui::Stroke::new(1.0_f32, ui.visuals().widgets.noninteractive.bg_stroke.color);
+                ui.painter().hline(ui.max_rect().x_range(), line_y, stroke);
+                ui.add_space(6.0);
                 match p.section {
                     PrSection::Conversation => {
                         // reviewers, assignees, labels, milestone on the right, like on GitHub
@@ -621,37 +647,11 @@ impl App {
                                 side_info(ui, d, &mut p.new_reviewer, &mut p.new_assignee, p.choices.as_ref(), p.busy, &mut act);
                             });
                         });
-                        // like the chatter of Odoo: write on top, then everything that happened, newest first
+                        // like GitHub: everything that happened, oldest first, on a line; then whether it
+                        // can be merged, and the field to write
                         egui::ScrollArea::vertical().id_salt("pr_conv").auto_shrink([false, false]).show(ui, |ui| {
                             ui.set_max_width(ui.available_width());
                             ui.add_space(4.0);
-                            merge_box(ui, d, &mut p.merge_method, &mut p.delete_branch, &mut p.all_checks, p.busy, accent, &mut act);
-                            let draft = p.drafts.entry(DRAFT_PR.into()).or_default();
-                            if composer(ui, draft, t!("Envoyer un message sur la pull request…", "Send a message on the pull request…"), t!("Envoyer", "Send"), p.busy, accent) {
-                                act = Some(PrAct::Send(DRAFT_PR.into()));
-                            }
-                            // a review: GitHub does not let one approve their own pull request
-                            if d.state == "OPEN" && !d.viewer.is_empty() && d.viewer != d.author {
-                                ui.horizontal(|ui| {
-                                    let text = draft.trim().to_string();
-                                    let review = |event: &str, label: &str| PrAct::Gh { label: label.into(), cmds: vec![github::review_args(d.number, event, &text)], draft: Some(DRAFT_PR.into()) };
-                                    if ui
-                                        .add_enabled(!p.busy, egui::Button::new(RichText::new(t!("✔ Approuver", "✔ Approve")).color(ok())))
-                                        .on_hover_text(t!("Approuver la PR, avec le message écrit au-dessus s'il y en a un", "Approve the PR, with the message written above if there is one"))
-                                        .clicked()
-                                    {
-                                        act = Some(review("approve", t!("Approbation", "Approval")));
-                                    }
-                                    if ui
-                                        .add_enabled(!p.busy && !text.is_empty(), egui::Button::new(RichText::new(t!("✖ Demander des changements", "✖ Request changes")).color(err())))
-                                        .on_hover_text(t!("Le message écrit au-dessus dit ce qu'il faut changer", "The message written above says what to change"))
-                                        .on_disabled_hover_text(t!("Écris d'abord au-dessus ce qu'il faut changer", "First write above what to change"))
-                                        .clicked()
-                                    {
-                                        act = Some(review("request-changes", t!("Changements demandés", "Changes requested")));
-                                    }
-                                });
-                            }
                             let resolved = d.threads.len() - open_threads;
                             if resolved > 0 {
                                 ui.checkbox(&mut p.show_resolved, RichText::new(tf!("afficher les {resolved} conversation(s) résolue(s)", "show the {resolved} resolved conversation(s)")).small());
@@ -659,15 +659,14 @@ impl App {
                             if open_threads > 0 && crate::features::on(crate::features::Feature::Claude) {
                                 to_claude_bar(ui, d, &mut p.to_claude, checked_out, accent, &mut act);
                             }
-                            let mut day_shown = String::new();
+                            // the line of the timeline, under what is drawn after (set once its end is known)
+                            let line = ui.painter().add(egui::Shape::Noop);
+                            let line_top = ui.cursor().top() + 8.0;
+                            let neutral = ui.visuals().text_color();
                             for (date, ev) in timeline(d, p.show_resolved) {
-                                if day(&date) != day_shown {
-                                    day_shown = day(&date).to_string();
-                                    day_separator(ui, &date);
-                                }
                                 match ev {
                                     Event::Opened => {
-                                        comment_block(ui, &d.author, &date, Some((t!("a ouvert la pull request", "opened the pull request"), accent)), |ui| {
+                                        comment_block(ui, &d.author, &date, None, |ui| {
                                             if d.body.trim().is_empty() {
                                                 ui.label(RichText::new(t!("Pas de description.", "No description.")).weak().italics());
                                             } else {
@@ -679,15 +678,15 @@ impl App {
                                     Event::Comment(k) => {
                                         let c = &d.comments[k];
                                         let review = match c.state.as_str() {
-                                            "APPROVED" => Some((t!("✔ a approuvé", "✔ approved"), ok())),
-                                            "CHANGES_REQUESTED" => Some((t!("✖ demande des changements", "✖ requested changes"), err())),
+                                            "APPROVED" => Some((t!("a approuvé ces changements", "approved these changes"), ok(), "✔")),
+                                            "CHANGES_REQUESTED" => Some((t!("a demandé des changements", "requested changes"), err(), "✖")),
                                             _ => None,
                                         };
                                         if c.body.trim().is_empty() {
-                                            let (t, color) = review.unwrap_or((t!("a fait une revue", "reviewed"), accent));
-                                            tracking(ui, &c.author.login, &date, t, color);
+                                            let (t, color, icon) = review.unwrap_or((t!("a fait une revue", "reviewed"), neutral, "👁"));
+                                            tracking(ui, icon, color, &c.author.login, &date, t);
                                         } else {
-                                            comment_block(ui, &c.author.login, &date, review, |ui| {
+                                            comment_block(ui, &c.author.login, &date, review.map(|(t, c, _)| (t, c)), |ui| {
                                                 let tools = CommentTools { id: &c.id, body: &c.body, mine: c.mine, deletable: !c.is_review(), reactions: &c.reactions, busy: p.busy, accent };
                                                 comment_body(ui, cache, tools, &mut p.editing, &mut act, |ui, cache, _| {
                                                     egui_commonmark::CommonMarkViewer::new().show(ui, cache, &super::md::autolink(&c.body));
@@ -698,15 +697,15 @@ impl App {
                                     Event::Thread(k) => {
                                         let t = &d.threads[k];
                                         let who = t.comments.first().map_or("", |c| c.author.as_str());
-                                        tracking(ui, who, &date, &tf!("a commenté {}", "commented {}", t.path.rsplit('/').next().unwrap_or(&t.path)), accent);
+                                        tracking(ui, "✏", neutral, who, &date, &tf!("a commenté {}", "commented on {}", t.path.rsplit('/').next().unwrap_or(&t.path)));
                                         ui.horizontal_top(|ui| {
                                             // ticked: handled by Claude (« Envoyer à Claude »)
                                             if !t.resolved && crate::features::on(crate::features::Feature::Claude) {
-                                                ui.add_space(8.0);
+                                                ui.add_space(CONTENT_X - 26.0);
                                                 to_claude_tick(ui, &mut p.to_claude, &t.id);
                                                 ui.add_space(4.0);
                                             } else {
-                                                ui.add_space(34.0);
+                                                ui.add_space(CONTENT_X);
                                             }
                                             ui.vertical(|ui| {
                                                 let draft = p.drafts.entry(t.id.clone()).or_default();
@@ -715,22 +714,64 @@ impl App {
                                         });
                                     }
                                     Event::Push { author, commits } => {
-                                        let what = if commits.len() == 1 { t!("a poussé un commit", "pushed a commit").to_string() } else { tf!("a poussé {} commits", "pushed {} commits", commits.len()) };
-                                        tracking(ui, &author, &date, &what, accent);
+                                        // one line per commit, as on GitHub: its title, its short hash on the right
                                         for &k in &commits {
                                             let c = &d.commits[k];
-                                            ui.horizontal(|ui| {
-                                                ui.add_space(34.0);
-                                                if ui.link(RichText::new(&c.oid[..c.oid.len().min(8)]).monospace().small().color(accent)).on_hover_text(t!("Voir ce commit", "Show this commit")).clicked() {
-                                                    act = Some(PrAct::Commit(c.oid.clone()));
-                                                    p.section = PrSection::Commits;
-                                                }
-                                                ui.label(RichText::new(&c.message_headline).small());
+                                            let headline = c.message_headline.clone();
+                                            let short = c.oid[..c.oid.len().min(7)].to_string();
+                                            let clicked = event_row(ui, "●", neutral, |ui| {
+                                                avatar(ui, &author, 18.0);
+                                                let a = ui.add(egui::Label::new(RichText::new(&headline).monospace()).truncate().sense(Sense::click())).on_hover_text(tf!("{author} · {} — clic : voir ce commit", "{author} · {} — click: show this commit", ago(&date)));
+                                                let b = ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| ui.link(RichText::new(&short).monospace().color(accent))).inner;
+                                                a.clicked() || b.clicked()
                                             });
+                                            if clicked {
+                                                act = Some(PrAct::Commit(c.oid.clone()));
+                                                p.section = PrSection::Commits;
+                                            }
                                         }
                                     }
                                 }
                             }
+                            let stroke = egui::Stroke::new(2.0_f32, ui.visuals().widgets.noninteractive.bg_stroke.color);
+                            let x = ui.max_rect().left() + LINE_X;
+                            let bottom = ui.cursor().top();
+                            if bottom > line_top {
+                                ui.painter().set(line, egui::Shape::line_segment([egui::pos2(x, line_top), egui::pos2(x, bottom)], stroke));
+                            }
+                            ui.add_space(10.0);
+                            ui.horizontal_top(|ui| {
+                                ui.add_space(CONTENT_X);
+                                ui.vertical(|ui| {
+                                    merge_box(ui, d, &mut p.merge_method, &mut p.delete_branch, &mut p.all_checks, p.busy, accent, &mut act);
+                                    let draft = p.drafts.entry(DRAFT_PR.into()).or_default();
+                                    if composer(ui, draft, t!("Écrire un commentaire sur la pull request…", "Write a comment on the pull request…"), t!("Commenter", "Comment"), p.busy, accent) {
+                                        act = Some(PrAct::Send(DRAFT_PR.into()));
+                                    }
+                                    // a review: GitHub does not let one approve their own pull request
+                                    if d.state == "OPEN" && !d.viewer.is_empty() && d.viewer != d.author {
+                                        ui.horizontal(|ui| {
+                                            let text = draft.trim().to_string();
+                                            let review = |event: &str, label: &str| PrAct::Gh { label: label.into(), cmds: vec![github::review_args(d.number, event, &text)], draft: Some(DRAFT_PR.into()) };
+                                            if ui
+                                                .add_enabled(!p.busy, egui::Button::new(RichText::new(t!("✔ Approuver", "✔ Approve")).color(ok())))
+                                                .on_hover_text(t!("Approuver la PR, avec le message écrit au-dessus s'il y en a un", "Approve the PR, with the message written above if there is one"))
+                                                .clicked()
+                                            {
+                                                act = Some(review("approve", t!("Approbation", "Approval")));
+                                            }
+                                            if ui
+                                                .add_enabled(!p.busy && !text.is_empty(), egui::Button::new(RichText::new(t!("✖ Demander des changements", "✖ Request changes")).color(err())))
+                                                .on_hover_text(t!("Le message écrit au-dessus dit ce qu'il faut changer", "The message written above says what to change"))
+                                                .on_disabled_hover_text(t!("Écris d'abord au-dessus ce qu'il faut changer", "First write above what to change"))
+                                                .clicked()
+                                            {
+                                                act = Some(review("request-changes", t!("Changements demandés", "Changes requested")));
+                                            }
+                                        });
+                                    }
+                                });
+                            });
                             ui.add_space(20.0);
                         });
                     }
@@ -1266,20 +1307,26 @@ fn merge_box(ui: &mut egui::Ui, d: &github::PrDetail, method: &mut usize, delete
     let v = ui.visuals().clone();
     let n = d.number;
     let gh = |label: &str, more: &[&str], verb: &str| PrAct::Gh { label: label.into(), cmds: vec![github::pr_args(verb, n, more)], draft: None };
-    // the box in the color of where it stands: red blocked, orange something missing, green ready
-    let failing = d.checks.iter().any(|c| c.state == CheckState::Fail);
-    let tint = match (d.state.as_str(), d.merge_state.as_str(), d.mergeable.as_str()) {
-        ("MERGED", ..) => Some(Color32::from_rgb(0x8a, 0x5c, 0xd8)),
-        ("CLOSED", ..) => Some(err()),
-        (_, _, "CONFLICTING") | (_, "DIRTY", _) => Some(err()),
-        _ if failing => Some(err()),
-        (_, "BEHIND" | "BLOCKED" | "UNSTABLE", _) => Some(warn()),
-        (_, "CLEAN" | "HAS_HOOKS", _) => Some(ok()),
-        _ => None,
+    // where it stands, as on GitHub: a big round icon, a title and what it means
+    let base = &d.base;
+    let purple = Color32::from_rgb(0x8a, 0x5c, 0xd8);
+    let (icon, title, more, color) = match (d.state.as_str(), d.merge_state.as_str(), d.mergeable.as_str()) {
+        ("MERGED", ..) => ("✔", t!("Fusionnée", "Merged").to_string(), String::new(), purple),
+        ("CLOSED", ..) => ("✖", t!("Fermée sans être fusionnée", "Closed without being merged").to_string(), String::new(), err()),
+        (_, _, "CONFLICTING") | (_, "DIRTY", _) => ("✖", tf!("Conflits avec {base}", "Conflicts with {base}"), t!("À résoudre avant de fusionner.", "To resolve before merging.").to_string(), err()),
+        (_, "DRAFT", _) => ("●", t!("Brouillon", "Draft").to_string(), t!("Pas encore prête pour la revue.", "Not ready for review yet.").to_string(), Color32::GRAY),
+        (_, "BEHIND", _) => ("●", tf!("En retard sur {base}", "Behind {base}"), t!("Mets la branche à jour.", "Update the branch.").to_string(), warn()),
+        (_, "BLOCKED", _) if d.review_decision == "REVIEW_REQUIRED" => ("✖", t!("Revue requise", "Review required").to_string(), t!("Il faut au moins une approbation pour fusionner.", "At least one approval is needed to merge.").to_string(), err()),
+        (_, "BLOCKED", _) => ("●", t!("Bloquée", "Blocked").to_string(), t!("Il manque des approbations ou des checks requis.", "Approvals or required checks are missing.").to_string(), warn()),
+        (_, "UNSTABLE", _) => ("●", t!("Des checks ne passent pas", "Some checks fail").to_string(), t!("Elle peut quand même être fusionnée.", "It can still be merged.").to_string(), warn()),
+        (_, "CLEAN" | "HAS_HOOKS", _) => ("✔", t!("Prête à fusionner", "Ready to merge").to_string(), t!("Rien ne bloque la fusion.", "Nothing blocks the merge.").to_string(), ok()),
+        _ => ("●", t!("GitHub vérifie si elle peut être fusionnée…", "GitHub is checking whether it can be merged…").to_string(), t!("⟳ pour relire.", "⟳ to read again.").to_string(), v.weak_text_color()),
     };
-    let (fill, edge) = match tint {
-        Some(c) => (icons::mix(v.panel_fill, c, 0.06), icons::mix(v.panel_fill, c, 0.45)),
-        None => (Color32::TRANSPARENT, v.widgets.noninteractive.bg_stroke.color),
+    // the box in the color of where it stands: red blocked, orange something missing, green ready
+    let (fill, edge) = if color == v.weak_text_color() || color == Color32::GRAY {
+        (Color32::TRANSPARENT, v.widgets.noninteractive.bg_stroke.color)
+    } else {
+        (icons::mix(v.panel_fill, color, 0.06), icons::mix(v.panel_fill, color, 0.45))
     };
     egui::Frame::none()
         .fill(fill)
@@ -1289,6 +1336,30 @@ fn merge_box(ui: &mut egui::Ui, d: &github::PrDetail, method: &mut usize, delete
         .outer_margin(egui::Margin { bottom: 8.0, ..Default::default() })
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
+            let review = match (d.state.as_str(), d.review_decision.as_str()) {
+                ("OPEN", "APPROVED") => Some((t!("✔ Approuvée", "✔ Approved"), ok())),
+                ("OPEN", "CHANGES_REQUESTED") => Some((t!("✖ Des changements sont demandés", "✖ Changes requested"), err())),
+                _ => None,
+            };
+            ui.horizontal(|ui| {
+                let (rect, _) = ui.allocate_exact_size(egui::vec2(32.0, 32.0), Sense::hover());
+                ui.painter().circle_filled(rect.center(), 16.0, color);
+                ui.painter().text(rect.center(), Align2::CENTER_CENTER, icon, egui::FontId::proportional(16.0), text_on(color));
+                ui.add_space(4.0);
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = 1.0;
+                    ui.label(RichText::new(title).size(15.0).strong());
+                    ui.horizontal_wrapped(|ui| {
+                        if !more.is_empty() {
+                            ui.label(RichText::new(more).weak());
+                        }
+                        if let Some((t, c)) = review {
+                            ui.label(RichText::new(t).color(c));
+                        }
+                    });
+                });
+            });
+            ui.add_space(6.0);
             // the checks of the last commit
             if !d.checks.is_empty() {
                 let count = |s: CheckState| d.checks.iter().filter(|c| c.state == s).count();
@@ -1350,32 +1421,7 @@ fn merge_box(ui: &mut egui::Ui, d: &github::PrDetail, method: &mut usize, delete
                 }
                 ui.add_space(4.0);
             }
-            // can it be merged
             let base = &d.base;
-            let purple = Color32::from_rgb(0x8a, 0x5c, 0xd8);
-            let (state, color) = match (d.state.as_str(), d.merge_state.as_str(), d.mergeable.as_str()) {
-                ("MERGED", ..) => (t!("Fusionnée", "Merged").to_string(), purple),
-                ("CLOSED", ..) => (t!("Fermée sans être fusionnée", "Closed without being merged").to_string(), err()),
-                (_, _, "CONFLICTING") | (_, "DIRTY", _) => (tf!("✖ Conflits avec {base} : à résoudre avant de fusionner", "✖ Conflicts with {base}: to resolve before merging"), err()),
-                (_, "DRAFT", _) => (t!("Brouillon : pas encore prête pour la revue", "Draft: not ready for review yet").to_string(), Color32::GRAY),
-                (_, "BEHIND", _) => (tf!("En retard sur {base} : mets la branche à jour", "Behind {base}: update the branch"), warn()),
-                (_, "BLOCKED", _) => (t!("Bloquée : il manque des approbations ou des checks requis", "Blocked: approvals or required checks are missing").to_string(), warn()),
-                (_, "UNSTABLE", _) => (t!("Fusionnable, mais des checks ne passent pas", "Can be merged, but some checks fail").to_string(), warn()),
-                (_, "CLEAN" | "HAS_HOOKS", _) => (t!("✔ Prête à fusionner", "✔ Ready to merge").to_string(), ok()),
-                _ => (t!("GitHub vérifie encore si elle peut être fusionnée… (⟳ pour relire)", "GitHub is still checking whether it can be merged… (⟳ to read again)").to_string(), v.weak_text_color()),
-            };
-            ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new(state).strong().color(color));
-                let review = match d.review_decision.as_str() {
-                    "APPROVED" => Some((t!("· ✔ approuvée", "· ✔ approved"), ok())),
-                    "CHANGES_REQUESTED" => Some((t!("· ✖ changements demandés", "· ✖ changes requested"), err())),
-                    "REVIEW_REQUIRED" => Some((t!("· revue requise", "· review required"), warn())),
-                    _ => None,
-                };
-                if let (Some((t, c)), "OPEN") = (review, d.state.as_str()) {
-                    ui.label(RichText::new(t).color(c));
-                }
-            });
             match d.state.as_str() {
                 "OPEN" => {
                     ui.add_space(4.0);
@@ -1449,9 +1495,16 @@ fn merge_box(ui: &mut egui::Ui, d: &github::PrDetail, method: &mut usize, delete
 fn side_info(ui: &mut egui::Ui, d: &github::PrDetail, new_reviewer: &mut String, new_assignee: &mut String, choices: Option<&(Vec<github::Label>, Vec<String>)>, busy: bool, act: &mut Option<PrAct>) {
     let n = d.number;
     let edit = |label: String, more: &[&str]| PrAct::Gh { label, cmds: vec![github::pr_args("edit", n, more)], draft: None };
-    let title = |ui: &mut egui::Ui, text: &str| {
-        ui.add_space(8.0);
-        ui.label(RichText::new(text).small().strong().weak());
+    // each part under a line, its title in small bold, as on GitHub
+    let mut first = true;
+    let mut title = |ui: &mut egui::Ui, text: &str| {
+        if !std::mem::take(&mut first) {
+            ui.add_space(10.0);
+            ui.separator();
+        }
+        ui.add_space(4.0);
+        ui.label(RichText::new(text).small().strong().color(ui.visuals().text_color()));
+        ui.add_space(2.0);
     };
     // a list of logins, ✖ to take one off, a field to add one
     let mut people = |ui: &mut egui::Ui, list: &[String], new: &mut String, add: &str, remove: &str, hint: &str| {
@@ -1478,17 +1531,17 @@ fn side_info(ui: &mut egui::Ui, d: &github::PrDetail, new_reviewer: &mut String,
             }
         });
     };
-    title(ui, t!("RELECTEURS", "REVIEWERS"));
+    title(ui, t!("Relecteurs", "Reviewers"));
     people(ui, &d.reviewers, new_reviewer, "--add-reviewer", "--remove-reviewer", t!("login ou org/équipe", "login or org/team"));
-    title(ui, t!("ASSIGNÉS", "ASSIGNEES"));
+    title(ui, t!("Assignés", "Assignees"));
     people(ui, &d.assignees, new_assignee, "--add-assignee", "--remove-assignee", t!("login (me : toi)", "login (me: you)"));
 
-    title(ui, t!("ÉTIQUETTES", "LABELS"));
+    title(ui, t!("Étiquettes", "Labels"));
     ui.horizontal_wrapped(|ui| {
         for l in &d.labels {
+            // in its own color, as on GitHub
             let c = hex_color(&l.color);
-            let bg = icons::mix(ui.visuals().panel_fill, c, 0.25);
-            let r = ui.add_enabled(!busy, egui::Button::new(RichText::new(format!("{} ✖", l.name)).small().color(ui.visuals().strong_text_color())).fill(bg).rounding(10.0));
+            let r = ui.add_enabled(!busy, egui::Button::new(RichText::new(format!("{} ✖", l.name)).small().strong().color(text_on(c))).fill(c).stroke(egui::Stroke::NONE).rounding(10.0));
             if r.on_hover_text(t!("Retirer l'étiquette", "Remove the label")).clicked() {
                 *act = Some(edit(tf!("Étiquette « {} » retirée", "Label “{}” removed", l.name), &["--remove-label", &l.name]));
             }
@@ -1509,7 +1562,7 @@ fn side_info(ui: &mut egui::Ui, d: &github::PrDetail, new_reviewer: &mut String,
         });
     });
 
-    title(ui, t!("JALON", "MILESTONE"));
+    title(ui, t!("Jalon", "Milestone"));
     ui.horizontal(|ui| {
         let now = if d.milestone.is_empty() { RichText::new(t!("Aucun", "None")).weak() } else { RichText::new(&d.milestone) };
         ui.menu_button(now, |ui| {
@@ -1768,6 +1821,45 @@ pub(super) fn state_badge(state: &str, draft: bool) -> (&'static str, Color32) {
     }
 }
 
+/// A tab of the pull request: its name and its count in a grey pill, underlined in the accent when
+/// chosen; `alert`: the count in the accent (conversations to handle).
+fn pr_tab(ui: &mut egui::Ui, label: &str, count: usize, chosen: bool, alert: bool, accent: Color32) -> egui::Response {
+    let v = ui.visuals().clone();
+    let font = egui::FontId::proportional(14.0);
+    let small = egui::FontId::proportional(11.5);
+    let text_color = if chosen { v.strong_text_color() } else { v.text_color() };
+    let name = ui.fonts(|f| f.layout_no_wrap(label.to_string(), font, text_color));
+    let num = ui.fonts(|f| f.layout_no_wrap(count.to_string(), small, if alert { text_on(accent) } else { v.text_color() }));
+    let pill = egui::vec2(num.size().x + 12.0, 18.0);
+    let size = egui::vec2(12.0 + name.size().x + 6.0 + pill.x + 12.0, 34.0);
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    let p = ui.painter();
+    if resp.hovered() && !chosen {
+        p.rect_filled(rect.shrink2(egui::vec2(0.0, 3.0)), 6.0, v.widgets.hovered.weak_bg_fill);
+    }
+    let y = rect.center().y;
+    p.galley(egui::pos2(rect.left() + 12.0, y - name.size().y / 2.0), name.clone(), text_color);
+    let pr = egui::Rect::from_min_size(egui::pos2(rect.left() + 12.0 + name.size().x + 6.0, y - pill.y / 2.0), pill);
+    p.rect_filled(pr, 9.0, if alert { accent } else { icons::mix(v.panel_fill, v.text_color(), 0.12) });
+    p.galley(pr.center() - num.size() / 2.0, num, v.text_color());
+    if chosen {
+        p.rect_filled(egui::Rect::from_min_max(egui::pos2(rect.left() + 4.0, rect.bottom() - 2.0), egui::pos2(rect.right() - 4.0, rect.bottom())), 1.0, accent);
+    }
+    resp.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+/// The state of the pull request in a full rounded pill, as on GitHub (« Ouverte » on green).
+fn state_pill(ui: &mut egui::Ui, text: &str, color: Color32) {
+    let text = RichText::new(text).strong().color(text_on(color));
+    ui.add(egui::Button::new(text).fill(color).rounding(14.0).sense(Sense::hover()).min_size(egui::vec2(0.0, 26.0)));
+}
+
+/// A branch name in monospace on a light tint of the accent, as on GitHub.
+fn branch_pill(ui: &mut egui::Ui, name: &str, accent: Color32) -> egui::Response {
+    let bg = icons::mix(ui.visuals().panel_fill, accent, if ui.visuals().dark_mode { 0.22 } else { 0.12 });
+    ui.add(egui::Button::new(RichText::new(name).monospace().color(accent)).fill(bg).stroke(egui::Stroke::NONE).rounding(6.0))
+}
+
 fn badge(ui: &mut egui::Ui, text: &str, color: Color32) {
     let bg = icons::mix(ui.visuals().panel_fill, color, 0.18);
     ui.label(RichText::new(format!(" {text} ")).small().strong().color(color).background_color(bg));
@@ -1783,66 +1875,78 @@ fn avatar(ui: &mut egui::Ui, login: &str, size: f32) {
     ui.painter().text(rect.center(), Align2::CENTER_CENTER, initial, egui::FontId::proportional(size * 0.5), Color32::WHITE);
 }
 
-/// A comment like on GitHub: avatar, author and date on a line, then its body under the name.
+/// Where the comments and the rest of the conversation start (right of the avatars), and the line
+/// of the timeline with the icons of what happened.
+const CONTENT_X: f32 = 48.0;
+const LINE_X: f32 = CONTENT_X + 20.0;
+
+/// A comment like on GitHub: the avatar on the left, then a box with a band « bob commented 2 days
+/// ago » (or what the review says) and its body.
 fn comment_block(ui: &mut egui::Ui, author: &str, date: &str, tag: Option<(&str, Color32)>, body: impl FnOnce(&mut egui::Ui)) {
-    ui.add_space(6.0);
+    ui.add_space(10.0);
     ui.horizontal_top(|ui| {
-        avatar(ui, author, 26.0);
-        ui.add_space(4.0);
-        ui.vertical(|ui| {
-            ui.horizontal(|ui| {
-                ui.label(RichText::new(author).strong());
-                if let Some((t, c)) = tag {
-                    ui.label(RichText::new(t).color(c).strong());
-                }
-                if !date.is_empty() {
-                    ui.label(RichText::new(ago(date)).weak().small()).on_hover_text(date);
-                }
-            });
-            // the message in a bubble, like a chat
-            let v = ui.visuals();
-            egui::Frame::none()
-                .fill(icons::mix(v.panel_fill, v.text_color(), 0.045))
-                .rounding(egui::Rounding { nw: 2.0, ne: 10.0, sw: 10.0, se: 10.0 })
-                .inner_margin(egui::Margin::symmetric(10.0, 6.0))
+        avatar(ui, author, 32.0);
+        ui.add_space(CONTENT_X - 32.0 - ui.spacing().item_spacing.x);
+        let v = ui.visuals().clone();
+        let edge = v.widgets.noninteractive.bg_stroke.color;
+        // opaque: the line of the timeline passes under it
+        egui::Frame::none().fill(v.panel_fill).stroke(egui::Stroke::new(1.0_f32, edge)).rounding(6.0).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            // the band above the body (the frame is in a row: it would put them side by side)
+            ui.vertical(|ui| {
+            ui.spacing_mut().item_spacing.y = 0.0;
+            let band = egui::Frame::none()
+                .fill(icons::mix(v.panel_fill, v.text_color(), 0.04))
+                .rounding(egui::Rounding { nw: 6.0, ne: 6.0, sw: 0.0, se: 0.0 })
+                .inner_margin(egui::Margin::symmetric(12.0, 7.0))
                 .show(ui, |ui| {
-                    ui.set_max_width(ui.available_width());
-                    body(ui)
+                    ui.set_width(ui.available_width());
+                    ui.horizontal_wrapped(|ui| {
+                        ui.spacing_mut().item_spacing.x = 5.0;
+                        ui.label(RichText::new(author).strong());
+                        match tag {
+                            Some((t, c)) => ui.label(RichText::new(t).color(c)),
+                            None => ui.label(RichText::new(t!("a commenté", "commented")).weak()),
+                        };
+                        if !date.is_empty() {
+                            ui.label(RichText::new(ago(date)).weak()).on_hover_text(date);
+                        }
+                    });
                 });
+            ui.painter().hline(band.response.rect.x_range(), band.response.rect.bottom(), egui::Stroke::new(1.0_f32, edge));
+            egui::Frame::none().inner_margin(egui::Margin::symmetric(12.0, 10.0)).show(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = 4.0;
+                ui.set_max_width(ui.available_width());
+                body(ui)
+            });
+            });
         });
     });
 }
 
-/// Something that happened, on one discreet line (like the tracking of the chatter of Odoo).
-fn tracking(ui: &mut egui::Ui, author: &str, date: &str, what: &str, color: Color32) {
-    ui.add_space(4.0);
+/// A line of the timeline: its icon in a circle on the line, then what `add` draws; what it gave.
+fn event_row<R>(ui: &mut egui::Ui, icon: &str, color: Color32, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
     ui.horizontal(|ui| {
-        ui.add_space(4.0);
-        avatar(ui, author, 18.0);
-        ui.add_space(6.0);
-        ui.label(RichText::new(author).strong());
-        ui.label(RichText::new(what).color(color));
-        ui.label(RichText::new(ago(date)).weak().small()).on_hover_text(date);
-    });
+        ui.set_min_height(34.0);
+        // from the same edge as the line, whatever the spacing between widgets
+        let c = egui::pos2(ui.max_rect().left() + LINE_X, ui.max_rect().top() + 17.0);
+        let v = ui.visuals();
+        ui.painter().circle(c, 12.0, icons::mix(v.panel_fill, v.text_color(), 0.08), egui::Stroke::new(2.0_f32, v.panel_fill));
+        ui.painter().text(c, Align2::CENTER_CENTER, icon, egui::FontId::proportional(12.0), color);
+        ui.add_space(LINE_X + 26.0 - ui.spacing().item_spacing.x);
+        add(ui)
+    })
+    .inner
 }
 
-/// "─── 21 octobre 2026 ───" between the days of the conversation.
-fn day_separator(ui: &mut egui::Ui, date: &str) {
-    const MONTHS: [&str; 12] = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
-    const MONTHS_EN: [&str; 12] = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-    let n = |a: usize, b: usize| date.get(a..b).and_then(|s| s.parse::<usize>().ok());
-    let label = match (n(0, 4), n(5, 7), n(8, 10)) {
-        (Some(y), Some(m), Some(d)) if (1..=12).contains(&m) => tf!("{d} {} {y}", "{} {d}, {y}", t!(MONTHS[m - 1], MONTHS_EN[m - 1])),
-        _ => day(date).to_string(),
-    };
-    ui.add_space(10.0);
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 18.0), Sense::hover());
-    let v = ui.visuals();
-    let p = ui.painter();
-    let r = p.text(rect.center(), Align2::CENTER_CENTER, label, egui::FontId::proportional(12.0), v.weak_text_color());
-    let stroke = egui::Stroke::new(1.0_f32, v.widgets.noninteractive.bg_stroke.color);
-    p.line_segment([egui::pos2(rect.left(), rect.center().y), egui::pos2(r.left() - 10.0, rect.center().y)], stroke);
-    p.line_segment([egui::pos2(r.right() + 10.0, rect.center().y), egui::pos2(rect.right(), rect.center().y)], stroke);
+/// Something that happened, on one line of the timeline: « 👁 bob reviewed 2 days ago ».
+fn tracking(ui: &mut egui::Ui, icon: &str, color: Color32, author: &str, date: &str, what: &str) {
+    event_row(ui, icon, color, |ui| {
+        avatar(ui, author, 18.0);
+        ui.label(RichText::new(author).strong());
+        ui.label(RichText::new(what).weak());
+        ui.label(RichText::new(ago(date)).weak()).on_hover_text(date);
+    });
 }
 
 /// What happened in a pull request, for its conversation.
@@ -1857,7 +1961,7 @@ enum Event {
     Push { author: String, commits: Vec<usize> },
 }
 
-/// Everything that happened, newest first, with its date.
+/// Everything that happened, oldest first, the description at the top (as on GitHub), with its date.
 fn timeline(d: &github::PrDetail, show_resolved: bool) -> Vec<(String, Event)> {
     let mut ev: Vec<(String, Event)> = vec![(d.created_at.clone(), Event::Opened)];
     ev.extend(d.comments.iter().enumerate().map(|(k, c)| (c.created_at.clone(), Event::Comment(k))));
@@ -1879,7 +1983,7 @@ fn timeline(d: &github::PrDetail, show_resolved: bool) -> Vec<(String, Event)> {
         }
     }
     // stable: things of the same second keep their order
-    ev.sort_by(|a, b| b.0.cmp(&a.0));
+    ev.sort_by(|a, b| (a.1 != Event::Opened).cmp(&(b.1 != Event::Opened)).then(a.0.cmp(&b.0)));
     ev
 }
 
@@ -2100,7 +2204,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn timeline_newest_first() {
+    fn timeline_oldest_first() {
         let commit = |oid: &str, date: &str, who: &str| github::Commit {
             oid: oid.into(),
             message_headline: oid.into(),
@@ -2127,10 +2231,10 @@ mod tests {
         assert_eq!(
             t,
             vec![
-                Event::Push { author: "me".into(), commits: vec![2] },
-                Event::Comment(0),
                 Event::Opened,
                 Event::Push { author: "me".into(), commits: vec![0, 1] },
+                Event::Comment(0),
+                Event::Push { author: "me".into(), commits: vec![2] },
             ]
         );
     }
@@ -2318,3 +2422,4 @@ mod remote_tests {
         let _ = std::fs::remove_dir_all(&d);
     }
 }
+
