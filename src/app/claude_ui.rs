@@ -1197,6 +1197,10 @@ impl App {
                             side_review |= a.clicked();
                         }
                         ui.add_space(8.0);
+                        // the panel shows the session: the gauges are there, not twice
+                        if shown && !side_review {
+                            return;
+                        }
                         // the plan's quota over 5 hours always; over 7 days and the context only
                         // past 70 % (right to left: they come after the 5 hours)
                         let mut gauges: Vec<(String, f32, String)> = Vec::new();

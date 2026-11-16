@@ -473,7 +473,8 @@ bottom panel (**in a tab** to give it a whole editor tab, **at the bottom** to p
 command and your login: no key to set up.
 
 - At the top: the folder, **+ New** conversation, and **⋯** for the rest (account, permissions,
-  worktree, history, MCP / memory tools…), then the gauges and **Review**. At the bottom, the field
+  worktree, history, MCP / memory tools…), then **Review** and the button of the panel on the
+  right (Session, Review). At the bottom, the field
   and its buttons in one box: **+ Context**, **Options**, **+ Queue** on the left; on the right the
   **model**, the **mode** (what Claude is allowed to do: **By permissions**, **Plan only**, **Allow
   everything**, **Ask first**) and the round **↑** button to send (**■** to stop while it works).
@@ -543,9 +544,10 @@ command and your login: no key to set up.
   conversation shown.
 - **Output of a running command**: **▸ Output** next to a command that runs (tests…) or was
   sent to the background shows what it prints, updated live, with a button to copy it.
-- **Quotas**: at the top right, the **5 h** gauge of your subscription's quota; the **7 d** one and
-  the conversation's **Context** only show past 70 %. Hovering the 5 h gauge shows all three, with
-  when the quota resets.
+- **Quotas**: in the **Session** tab of the panel on the right. When that panel is hidden (or shows
+  the review), the **5 h** gauge of your subscription's quota is at the top right; the **7 d** one
+  and the **Context** only show there past 70 %. Hovering the 5 h gauge shows all three, with when
+  the quota resets.
 - **Images**: an image goes with the message, scaled down to 1568 pixels to cost fewer tokens.
   Three ways to give it: paste it with Ctrl+V (a copied image), drop it from the file manager on
   the conversation, or **+ Context → Image or PDF…**. Several images go together in one message: drop

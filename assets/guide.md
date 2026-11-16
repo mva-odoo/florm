@@ -478,7 +478,8 @@ avec `gh auth login` (connexion par le navigateur). Sans `gh`, la vue explique c
 panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en bas** pour l'y remettre). Florm utilise la commande `claude` et ta connexion : pas de clé à configurer.
 
 - En haut : le dossier, **+ Nouvelle** conversation, et **⋯** pour le reste (compte, permissions,
-  worktree, historique, outils MCP / mémoire…), puis les jauges et **Revue**. En bas, le champ et
+  worktree, historique, outils MCP / mémoire…), puis **Revue** et le bouton du panneau de droite
+  (Session, Revue). En bas, le champ et
   ses boutons dans une même boîte : **+ Contexte**, **Options**, **+ File** à gauche ; à droite le
   **modèle**, le **mode** (ce que Claude a le droit de faire : **Selon les permissions**, **Plan
   seulement**, **Tout autoriser**, **Demander avant**) et le bouton rond **↑** pour envoyer (**■**
@@ -553,9 +554,10 @@ panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en
 - **Sortie d'une commande en cours** : **▸ Sortie** à côté d'une commande qui tourne (des tests…)
   ou envoyée en arrière-plan montre ce qu'elle affiche, mis à jour en direct, avec un bouton
   pour le copier.
-- **Quotas** : en haut à droite, la jauge **5 h** du quota de ton abonnement ; celles de **7 j** et
-  du **Contexte** de la conversation n'apparaissent qu'au-delà de 70 %. Le survol de la jauge 5 h
-  les montre toutes les trois, avec quand le quota repart à zéro.
+- **Quotas** : dans l'onglet **Session** du panneau de droite. Quand ce panneau est masqué (ou
+  montre la revue), la jauge **5 h** du quota de ton abonnement est en haut à droite ; celles de
+  **7 j** et du **Contexte** n'y apparaissent qu'au-delà de 70 %. Le survol de la jauge 5 h les
+  montre toutes les trois, avec quand le quota repart à zéro.
 - **Images** : une image part avec le message, réduite à 1568 pixels pour coûter moins de tokens.
   Trois façons de la donner : la coller avec Ctrl+V (une image copiée), la glisser depuis le
   gestionnaire de fichiers sur la conversation, ou **+ Contexte → Image ou PDF…**. Plusieurs images
