@@ -563,7 +563,7 @@ impl App {
                     toggle_switch(ui, &mut s.inline_diff);
                 });
                 let mut blame = self.blame_mode;
-                pref_row(ui, rc, t!("Blame de la ligne", "Line blame"), t!("Auteur et commit de la ligne courante en fin de ligne (Ctrl+B). Non mémorisé entre les sessions.", "Author and commit of the current line at the end of the line (Ctrl+B). Not kept between sessions."), |ui| {
+                pref_row(ui, rc, t!("Blame de la ligne", "Line blame"), t!("Auteur et commit de la ligne courante en fin de ligne (Ctrl+Maj+B). Non mémorisé entre les sessions.", "Author and commit of the current line at the end of the line (Ctrl+Shift+B). Not kept between sessions."), |ui| {
                     if toggle_switch(ui, &mut blame).changed() {
                         actions.push(Cmd::GitBlame);
                     }

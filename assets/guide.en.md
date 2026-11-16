@@ -43,7 +43,7 @@ sidebar shown or not.
 - While scrolling, the folders holding the top of the list stay pinned there; a click goes back
   up to the folder.
 - **Double-click the edge** between the sidebar and the editor: the width fits the longest name of
-  the tree. Drag the edge to change the width; **Ctrl+K Ctrl+B** hides the sidebar, and a click on
+  the tree. Drag the edge to change the width; **Ctrl+B** (or Ctrl+K Ctrl+B) hides the sidebar, and a click on
   the thin strip on the left shows it again.
 - On the folder of a git repository inside the open folder (the open folder's own is in the status bar): its branch, the tracked remote branch (↑ to push, ↓ to
   pull) and the number of changed files; hovering shows the remotes

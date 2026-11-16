@@ -19,7 +19,7 @@ impl App {
                 ui.painter().rect_filled(rect.shrink2(egui::vec2(1.5, 0.0)), 2.0, self.hl.colors.accent.gamma_multiply(0.6));
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
             }
-            if r.on_hover_text(t!("Afficher la barre latérale (Ctrl+K Ctrl+B)", "Show the sidebar (Ctrl+K Ctrl+B)")).clicked() {
+            if r.on_hover_text(t!("Afficher la barre latérale (Ctrl+B)", "Show the sidebar (Ctrl+B)")).clicked() {
                 self.show_sidebar = true;
             }
         });

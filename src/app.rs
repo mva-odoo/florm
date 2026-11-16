@@ -1063,7 +1063,7 @@ pub struct App {
     drop_alt_text: Option<Instant>,
     /// A native file dialog is open (do not open a second one).
     dialog_open: bool,
-    /// Ctrl+B: blame annotation following the cursor line.
+    /// Ctrl+Shift+B: blame annotation following the cursor line.
     blame_mode: bool,
     blame_req: Option<(u64, usize, u64)>,
     line_history: Option<LineHistoryUi>,

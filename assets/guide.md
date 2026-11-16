@@ -44,7 +44,7 @@ bas ouvert et la barre latérale affichée ou non.
 - En défilant, les dossiers qui contiennent le haut de la liste restent figés en haut ; un clic
   remonte au dossier.
 - **Double-clic sur le bord** entre la barre et l'éditeur : la largeur s'ajuste au nom le plus long
-  de l'arborescence. Le bord se glisse pour changer la largeur ; **Ctrl+K Ctrl+B** masque la barre,
+  de l'arborescence. Le bord se glisse pour changer la largeur ; **Ctrl+B** (ou Ctrl+K Ctrl+B) masque la barre,
   et un clic sur la fine bande à gauche la réaffiche.
 - Sur le dossier d'un dépôt git rangé dans le dossier ouvert (celui du dossier ouvert est dans la barre d'état) : sa branche, la branche distante suivie (↑ à pousser, ↓ à
   récupérer) et le nombre de fichiers modifiés ; le survol montre les remotes

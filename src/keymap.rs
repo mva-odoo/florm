@@ -149,7 +149,8 @@ const DEFAULTS: &[(&str, &str)] = &[
     ("ctrl+alt+d", "toggle_inline_diff"),
     ("ctrl+period", "quick_fix"),
     ("ctrl+alt+f", "format_document"),
-    ("ctrl+b", "git_blame"),
+    ("ctrl+b", "toggle_sidebar"),
+    ("ctrl+shift+b", "git_blame"),
     ("ctrl+alt+b", "git_line_history"),
     ("ctrl+shift+e", "show_files"),
     ("ctrl+equals", "zoom_in"),
@@ -459,6 +460,7 @@ mod tests {
         user.insert("ctrl+d".to_string(), UNBOUND.to_string());
         user.insert("ctrl+alt+shift+d".to_string(), "select_next".to_string());
         user.insert("ctrl+k ctrl+b".to_string(), UNBOUND.to_string());
+        user.insert("ctrl+b".to_string(), UNBOUND.to_string());
         let (km, errs) = Keymap::new(&user, &[]);
         assert!(errs.is_empty(), "{errs:?}");
         let d = Combo::parse("ctrl+d").unwrap();
