@@ -523,8 +523,9 @@ command and your login: no key to set up.
   chip shows the whole text below it, editable; another click folds it. The pasted text can go
   alone: **Send** works even when the field is empty. A chip is removed with its ×.
 - **Several conversations, one tab**: every conversation is listed on the left of the Claude
-  tab, with what it does (⟳ working, ❓ waiting for your answer, ✔ done), its folder, how long it
-  has been working and its cost. A click shows one, the others go on behind; **+** starts a new
+  tab, grouped by folder, with what it does (⟳ working, ❓ waiting for your answer, ✔ done) and how
+  long it has been working (on the right of its title); below, its branch (🔀, or 🌿 for a
+  worktree) and its cost. A click shows one, the others go on behind; **+** starts a new
   one. Right click: **⇉ Duplicate** (a copy that starts again from the last answer), **⇱ Open in
   its own tab**, **× Close** (its process stops, it stays in the history). **Ctrl+Alt+W**: the next
   one waiting for your answer. The status bar says how many are working or waiting.

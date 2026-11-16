@@ -192,9 +192,11 @@ impl App {
             .all_convs()
             .map(|c| {
                 let project = c.dir.as_deref().map(|d| self.repo_label(d)).unwrap_or_default();
-                let mut place = match &c.worktree {
-                    Some(w) => format!("🌿 {}", w.branch),
-                    None => String::new(),
+                // its branch: the one of its worktree, else the one checked out in its folder
+                let mut place = match (&c.worktree, c.dir.as_deref().and_then(git::head_branch)) {
+                    (Some(w), _) => format!("🌿 {}", w.branch),
+                    (None, Some(b)) => format!("🔀 {b}"),
+                    (None, None) => String::new(),
                 };
                 if accounts.len() > 1 {
                     let who = format!("👤 {}", crate::claude_account::find(&accounts, &c.account).name);
@@ -254,14 +256,11 @@ impl App {
                     ui.add_space(2.0);
                 }
                 let shown = r.tab == Some(hub);
-                // its worktree or account, what it costs; how long it has been working (the
-                // project is above)
+                // its branch (or worktree) and account, what it costs (the project is above; how
+                // long it has been working is on the right of its title)
                 let mut parts: Vec<String> = Vec::new();
                 if !r.place.is_empty() {
                     parts.push(r.place.clone());
-                }
-                if let Some(d) = r.since {
-                    parts.push(short_duration(d));
                 }
                 if r.cost > 0.0 {
                     parts.push(format!("{:.2} $", r.cost));
@@ -297,13 +296,33 @@ impl App {
                 p.text(rect.left_top() + egui::vec2(10.0, 8.0), Align2::LEFT_TOP, icon, egui::FontId::proportional(13.0), color);
                 let strong = r.state != ConvState::Idle || shown;
                 let title_color = if strong { v.strong_text_color() } else { v.text_color() };
-                p.text(rect.left_top() + egui::vec2(28.0, if info.is_empty() { 9.0 } else { 7.0 }), Align2::LEFT_TOP, &r.title, egui::FontId::proportional(13.5), title_color);
+                let close_zone = resp.hovered() || shown;
+                // how long it has been working, on the right of its title (where × shows on hover)
+                let since = r.since.map(short_duration).filter(|_| !close_zone);
+                let title_y = if info.is_empty() { 9.0 } else { 7.0 };
+                let since_w = match &since {
+                    Some(s) => p.text(egui::pos2(rect.right() - 8.0, rect.top() + title_y + 1.0), Align2::RIGHT_TOP, s, egui::FontId::proportional(11.5), color).width() + 8.0,
+                    None => 0.0,
+                };
+                // the title cut before the duration or ×
+                let room = rect.width() - 28.0 - 28.0f32.max(since_w + 8.0);
+                let title = ui.fonts(|f| f.layout_no_wrap(r.title.clone(), egui::FontId::proportional(13.5), title_color));
+                let title = if title.size().x > room {
+                    let mut t = r.title.clone();
+                    while !t.is_empty() && ui.fonts(|f| f.layout_no_wrap(format!("{t}…"), egui::FontId::proportional(13.5), title_color).size().x) > room {
+                        t.pop();
+                    }
+                    format!("{}…", t.trim_end())
+                } else {
+                    r.title.clone()
+                };
+                p.text(rect.left_top() + egui::vec2(28.0, title_y), Align2::LEFT_TOP, title, egui::FontId::proportional(13.5), title_color);
                 if !info.is_empty() {
                     p.text(rect.left_top() + egui::vec2(28.0, 26.0), Align2::LEFT_TOP, info, egui::FontId::proportional(11.5), weak);
                 }
                 // × on the hovered row: close it
                 let mut on_close = false;
-                if resp.hovered() || shown {
+                if close_zone {
                     let x = egui::Rect::from_center_size(egui::pos2(rect.right() - 14.0, rect.top() + 15.0), egui::vec2(18.0, 18.0));
                     let xr = ui.interact(x, ui.id().with(("conv_close", r.id)), Sense::click());
                     on_close = xr.hovered();

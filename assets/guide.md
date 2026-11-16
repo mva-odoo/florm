@@ -532,8 +532,9 @@ panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en
   Le texte collé peut partir seul : **Envoyer** marche même si le champ est vide.
   Une puce se retire avec son ×.
 - **Plusieurs conversations, un seul onglet** : toutes les conversations sont listées à gauche
-  de l'onglet Claude, avec ce qu'elles font (⟳ travaille, ❓ attend ta réponse, ✔ a fini), leur
-  dossier, depuis quand elles travaillent et leur coût. Un clic en affiche une, les autres
+  de l'onglet Claude, rangées par dossier, avec ce qu'elles font (⟳ travaille, ❓ attend ta
+  réponse, ✔ a fini) et depuis quand elles travaillent (à droite du titre) ; en dessous, leur
+  branche (🔀, ou 🌿 pour un worktree) et leur coût. Un clic en affiche une, les autres
   continuent derrière ; **+** en commence une nouvelle. Clic droit : **⇉ Dupliquer** (une copie
   qui repart de la dernière réponse), **⇱ Ouvrir dans son propre onglet**, **× Fermer** (son
   processus s'arrête, elle reste dans l'historique). **Ctrl+Alt+W** : la suivante qui attend ta
