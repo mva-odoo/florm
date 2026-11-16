@@ -37,6 +37,10 @@ impl App {
                     _ => scroll.min.x += crate::app::title_bar::MAC_BUTTONS_W,
                 }
             }
+            // too many tabs for the strip: ‹ › on the right, and the list of all of them in the ▾ menu
+            let (over_id, offset_id) = (panel_id.with("over"), panel_id.with("offset"));
+            let over = ui.ctx().data(|d| d.get_temp::<bool>(over_id)).unwrap_or(false);
+            let (offset, width) = ui.ctx().data(|d| d.get_temp::<(f32, f32)>(offset_id)).unwrap_or((0.0, 0.0));
             // always on the right: + for a new text tab, ▾ for a view (Git, Claude…) in a tab
             const NEW_W: f32 = 58.0;
             let new_rect = egui::Rect::from_min_max(egui::pos2(scroll.max.x - NEW_W, bar.min.y), egui::pos2(scroll.max.x, bar.max.y));
@@ -49,16 +53,39 @@ impl App {
                     if plus.on_hover_text(t!("Nouvel onglet texte vide (Ctrl+N)", "New empty text tab (Ctrl+N)")).clicked() {
                         new_text = true;
                     }
-                    ui.menu_button(egui::RichText::new("▾").size(13.0), |ui| new_tab = self.new_tab_menu(ui))
-                        .response
-                        .on_hover_text(t!("Ouvrir une vue dans un onglet : Git, GitHub, Claude, Docker…", "Open a view in a tab: Git, GitHub, Claude, Docker…"));
+                    let tip = if over {
+                        t!("Onglets ouverts, ou ouvrir une vue : Git, GitHub, Claude, Docker…", "Open tabs, or open a view: Git, GitHub, Claude, Docker…")
+                    } else {
+                        t!("Ouvrir une vue dans un onglet : Git, GitHub, Claude, Docker…", "Open a view in a tab: Git, GitHub, Claude, Docker…")
+                    };
+                    ui.menu_button(egui::RichText::new("▾").size(13.0), |ui| {
+                        if over {
+                            ui.set_min_width(240.0);
+                            ui.label(egui::RichText::new(t!("Onglets ouverts", "Open tabs")).small().weak());
+                            egui::ScrollArea::vertical().id_salt("open_tabs").max_height(320.0).show(ui, |ui| {
+                                for (i, d) in self.docs.iter().enumerate().filter(|(_, d)| pane.is_none_or(|p| p == d.pane)) {
+                                    let (_, title) = doc_tab(d);
+                                    let label = if d.is_dirty() { format!("● {title}") } else { title };
+                                    let r = ui.selectable_label(i == self.active, label);
+                                    let r = match &d.path {
+                                        Some(p) => r.on_hover_text(p.display().to_string()),
+                                        None => r,
+                                    };
+                                    if r.clicked() {
+                                        activate = Some(i);
+                                        ui.close_menu();
+                                    }
+                                }
+                            });
+                            ui.separator();
+                        }
+                        new_tab = self.new_tab_menu(ui);
+                    })
+                    .response
+                    .on_hover_text(tip);
                 });
             });
-            // too many tabs for the strip: ‹ › and the list of all of them on its right
-            let (over_id, offset_id) = (panel_id.with("over"), panel_id.with("offset"));
-            let over = ui.ctx().data(|d| d.get_temp::<bool>(over_id)).unwrap_or(false);
-            let (offset, width) = ui.ctx().data(|d| d.get_temp::<(f32, f32)>(offset_id)).unwrap_or((0.0, 0.0));
-            const ARROWS_W: f32 = 76.0;
+            const ARROWS_W: f32 = 50.0;
             let arrows = over.then(|| {
                 let r = egui::Rect::from_min_max(egui::pos2(scroll.max.x - ARROWS_W, bar.min.y), egui::pos2(scroll.max.x, bar.max.y));
                 scroll.max.x -= ARROWS_W;
@@ -83,26 +110,6 @@ impl App {
                         if ui.small_button("›").on_hover_text(t!("Onglets à droite", "Tabs on the right")).clicked() {
                             goto = Some(offset + page);
                         }
-                        ui.menu_button("▾", |ui| {
-                            ui.set_min_width(240.0);
-                            egui::ScrollArea::vertical().max_height(500.0).show(ui, |ui| {
-                                for (i, d) in self.docs.iter().enumerate().filter(|(_, d)| pane.is_none_or(|p| p == d.pane)) {
-                                    let (_, title) = doc_tab(d);
-                                    let label = if d.is_dirty() { format!("● {title}") } else { title };
-                                    let r = ui.selectable_label(i == self.active, label);
-                                    let r = match &d.path {
-                                        Some(p) => r.on_hover_text(p.display().to_string()),
-                                        None => r,
-                                    };
-                                    if r.clicked() {
-                                        activate = Some(i);
-                                        ui.close_menu();
-                                    }
-                                }
-                            });
-                        })
-                        .response
-                        .on_hover_text(t!("Tous les onglets", "All the tabs"));
                     });
                 });
             }
