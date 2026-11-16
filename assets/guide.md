@@ -545,8 +545,12 @@ panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en
   processus s'arrête, elle reste dans l'historique). **Ctrl+Alt+W** : la suivante qui attend ta
   réponse. La barre d'état dit combien travaillent ou attendent. Préférences → Claude → **Un seul
   onglet Claude** pour revenir à un onglet par conversation.
-- **Liens et commandes** : les adresses (https://…) des réponses s'ouvrent dans le navigateur d'un
-  clic. Chaque commande lancée par Claude montre sa durée (en direct tant qu'elle tourne).
+- **Liens et outils** : les adresses (https://…) des réponses s'ouvrent dans le navigateur d'un
+  clic, aussi entre parenthèses. Ce que fait Claude tient sur une ligne discrète par outil :
+  **Commande**, **Lu**, **Modifié**, **Cherché**… suivi de la commande ou du fichier (coupé à la
+  ligne) et de sa durée (en direct tant qu'elle tourne), en rouge si l'outil a échoué ; un clic
+  montre la commande entière (**Copier**) et ce qu'elle a affiché. Ce qu'a coûté une réponse est
+  dans l'onglet **Session**, plus sous chaque réponse.
 - **Plusieurs comptes Claude** (pro, perso…) : **Préférences → Claude → Comptes Claude**,
   « + Ajouter un compte », puis **Se connecter…** (la connexion se fait une fois, dans un
   terminal de Florm ; chaque compte a son dossier, `~/.claude-perso` par exemple). Le menu

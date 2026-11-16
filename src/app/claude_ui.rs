@@ -212,6 +212,28 @@ impl App {
     }
 }
 
+/// What a tool did, in a word: « Commande », « Lu », « Modifié »… (an MCP tool: its server and name).
+fn tool_verb(name: &str) -> String {
+    let word = match name {
+        "Bash" => t!("Commande", "Ran"),
+        "Read" => t!("Lu", "Read"),
+        "Edit" | "MultiEdit" | "NotebookEdit" => t!("Modifié", "Edited"),
+        "Write" => t!("Écrit", "Wrote"),
+        "Grep" => t!("Cherché", "Searched"),
+        "Glob" => t!("Fichiers", "Files"),
+        "WebFetch" => t!("Page web", "Fetched"),
+        "WebSearch" => t!("Recherche web", "Searched the web"),
+        "TodoWrite" => t!("Tâches", "Tasks"),
+        _ => {
+            return match name.strip_prefix("mcp__") {
+                Some(rest) => format!("MCP {}", rest.replace("__", " › ")),
+                None => name.to_string(),
+            }
+        }
+    };
+    word.to_string()
+}
+
 /// « Claude is thinking… », with the time since its last news when it is long (it is still there).
 fn working_label(activity: Option<&str>, news: Option<Instant>) -> String {
     let what = match activity {
@@ -1932,6 +1954,11 @@ impl App {
                         if matches!(it, Item::Thinking(t) if t.trim().is_empty()) {
                             continue;
                         }
+                        // what an answer cost: in the panel of the session (« Dernière réponse »), not
+                        // a grey line under each answer
+                        if matches!(it, Item::Usage { .. }) {
+                            continue;
+                        }
                         if matches!(it, Item::User(..)) {
                             hidden = c.folded.contains(&k);
                         } else if hidden {
@@ -1940,7 +1967,9 @@ impl App {
                             }
                             continue;
                         }
-                        ui.add_space(6.0);
+                        // the tools used one after the other: a block of lines, not spread out
+                        let after_tool = k > 0 && matches!(c.items[k - 1], Item::Tool { .. });
+                        ui.add_space(if after_tool && matches!(it, Item::Tool { .. }) { 0.0 } else { 6.0 });
                         let extra = match it {
                             Item::User(..) => u8::from(c.folded.contains(&k)) | u8::from(c.confirm_rewind == Some(k)) << 1,
                             Item::Tool { id, .. } => u8::from(c.live.open.contains(id)) << 2,
@@ -2124,67 +2153,73 @@ impl App {
                                     _ => None,
                                 };
                                 let took = took.map(|ms| RichText::new(duration(ms)).small().weak());
-                                let (icon, color) = match name.as_str() {
-                                    "Edit" | "MultiEdit" | "Write" | "NotebookEdit" => ("✏", warn()),
-                                    "Bash" => ("$", accent),
-                                    _ => ("·", ui.visuals().weak_text_color()),
-                                };
                                 let error = result.as_ref().is_some_and(|(_, e)| *e);
-                                let head = RichText::new(format!("{icon} {name}  {summary}")).monospace().size(12.0).color(if error { err() } else { color });
                                 // a command: copied to run it again in a terminal
                                 let command = (name == "Bash" && !summary.is_empty()).then_some(summary.as_str());
                                 // sent to the background: its output goes on in a file
                                 let background = name == "Bash" && result.as_ref().is_some_and(|(t, _)| live::background_file(t).is_some());
-                                // lines that wrap: one too wide (a long command, its output) would widen the
-                                // conversation, and every answer after it would go past the right edge
-                                match result.as_ref().filter(|(t, _)| !t.trim().is_empty() && (name == "Bash" || error)) {
-                                    Some((t, _)) => {
-                                        let id = ui.next_auto_id();
-                                        let (_, header, _) = egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false)
-                                            .show_header(ui, |ui| {
-                                                ui.horizontal_wrapped(|ui| {
-                                                    let clicked = ui.add(egui::Label::new(head).sense(egui::Sense::click())).clicked();
-                                                    if let Some(t) = took.clone() {
-                                                        ui.label(t).on_hover_text(t!("Durée de la commande", "Time the command took"));
-                                                    }
-                                                    if let Some(cmd) = command {
-                                                        super::md::copy_button(ui, cmd, t!("Copier", "Copy"));
-                                                    }
-                                                    if background {
-                                                        live_toggle(ui, &mut c.live, tool_id);
-                                                    }
-                                                    clicked
-                                                })
-                                                .inner
-                                            })
-                                            .body(|ui| {
-                                                let t: String = t.lines().take(80).collect::<Vec<_>>().join("\n");
-                                                ui.add(egui::Label::new(RichText::new(t).monospace().size(11.5).weak()).wrap());
-                                            });
-                                        if header.inner {
-                                            if let Some(mut s) = egui::collapsing_header::CollapsingState::load(ui.ctx(), id) {
-                                                s.toggle(ui);
-                                                s.store(ui.ctx());
-                                            }
-                                        }
+                                let output = result.as_ref().map(|(t, _)| t.as_str()).filter(|t| !t.trim().is_empty());
+                                // one quiet line, as in the editors that work with Claude: what it did, on
+                                // what (cut to the line), how long; a click shows the whole command and
+                                // what it printed
+                                let weak = ui.visuals().weak_text_color();
+                                let open_id = ui.id().with(("tool_open", tool_id.as_str()));
+                                let can_open = output.is_some() || command.is_some();
+                                let mut open = can_open && ui.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(false);
+                                let mut toggle = false;
+                                ui.horizontal(|ui| {
+                                    ui.spacing_mut().item_spacing.x = 6.0;
+                                    let arrow = match (can_open, open) {
+                                        (false, _) => "·",
+                                        (true, true) => "▾",
+                                        (true, false) => "▸",
+                                    };
+                                    ui.label(RichText::new(arrow).color(weak));
+                                    if result.is_none() && c.busy {
+                                        spinner(ui);
                                     }
-                                    None => {
-                                        ui.horizontal_wrapped(|ui| {
-                                            ui.label(head);
-                                            if result.is_none() {
-                                                spinner(ui);
-                                            }
-                                            if let Some(t) = took.clone() {
-                                                ui.label(t).on_hover_text(t!("Durée de la commande", "Time the command took"));
-                                            }
+                                    let verb_color = if error { err() } else { ui.visuals().text_color() };
+                                    let verb = ui.add(egui::Label::new(RichText::new(tool_verb(name)).color(verb_color)).sense(Sense::click()));
+                                    // the room left for the target: the duration and the buttons after it
+                                    let after = 64.0 + if name == "Bash" && (result.is_none() || background) { 90.0 } else { 0.0 };
+                                    let room = (ui.available_width() - after).max(40.0);
+                                    let target_color = if error { err() } else { weak };
+                                    let target = ui
+                                        .allocate_ui(egui::vec2(room, 18.0), |ui| ui.add(egui::Label::new(RichText::new(summary.as_str()).monospace().size(12.0).color(target_color)).truncate().sense(Sense::click())))
+                                        .inner;
+                                    let tip = if can_open { t!("Clic : voir la commande entière et ce qu'elle a affiché", "Click: see the whole command and what it printed") } else { "" };
+                                    let target = if tip.is_empty() { target } else { target.on_hover_text(format!("{summary}\n\n{tip}")) };
+                                    toggle = can_open && (verb.clicked() || target.clicked());
+                                    if let Some(t) = took.clone() {
+                                        ui.label(t).on_hover_text(t!("Durée", "Time it took"));
+                                    }
+                                    if name == "Bash" && (result.is_none() || background) {
+                                        live_toggle(ui, &mut c.live, tool_id);
+                                    }
+                                });
+                                if toggle {
+                                    open = !open;
+                                    ui.data_mut(|d| d.insert_temp(open_id, open));
+                                }
+                                if open {
+                                    egui::Frame::none()
+                                        .fill(icons::mix(fill, ui.visuals().text_color(), 0.04))
+                                        .rounding(6.0)
+                                        .inner_margin(egui::Margin::symmetric(10.0, 6.0))
+                                        .outer_margin(egui::Margin { left: 18.0, ..Default::default() })
+                                        .show(ui, |ui| {
+                                            ui.set_width(ui.available_width());
                                             if let Some(cmd) = command {
-                                                super::md::copy_button(ui, cmd, t!("Copier", "Copy"));
+                                                ui.horizontal_top(|ui| {
+                                                    super::md::copy_button(ui, cmd, t!("Copier", "Copy"));
+                                                    ui.add(egui::Label::new(RichText::new(cmd).monospace().size(12.0)).wrap());
+                                                });
                                             }
-                                            if name == "Bash" && (result.is_none() || background) {
-                                                live_toggle(ui, &mut c.live, tool_id);
+                                            if let Some(t) = output {
+                                                let t: String = t.lines().take(80).collect::<Vec<_>>().join("\n");
+                                                ui.add(egui::Label::new(RichText::new(t).monospace().size(11.5).color(if error { err() } else { weak })).wrap());
                                             }
                                         });
-                                    }
                                 }
                                 // what the command prints, read while it runs
                                 // (a command in the foreground: until its result comes, Claude Code removes the file then)
@@ -2217,22 +2252,8 @@ impl App {
                             Item::Error(t) => {
                                 ui.label(RichText::new(format!("⚠ {t}")).color(err()));
                             }
-                            Item::Usage { input, cached, output, cost } => {
-                                let mut line = tf!(
-                                    "{} tokens en entrée ({} lus du cache), {} en sortie",
-                                    "{} input tokens ({} read from the cache), {} output",
-                                    thousands(*input),
-                                    thousands(*cached),
-                                    thousands(*output)
-                                );
-                                if *cost > 0.0 {
-                                    line += &format!(" · {cost:.3} $");
-                                }
-                                ui.label(RichText::new(line).weak().small()).on_hover_text(t!(
-                                    "Ce que cette réponse a coûté : les tokens lus et écrits pour elle, et son coût estimé.",
-                                    "What this answer cost: the tokens read and written for it, and its estimated cost."
-                                ));
-                            }
+                            // not shown (skipped above): in the panel of the session
+                            Item::Usage { .. } => {}
                         }));
                         // allocate_space adds the spacing after it again
                         let new_h = ui.cursor().top() - top - ui.spacing().item_spacing.y;

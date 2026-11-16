@@ -535,8 +535,11 @@ command and your login: no key to set up.
   its own tab**, **× Close** (its process stops, it stays in the history). **Ctrl+Alt+W**: the next
   one waiting for your answer. The status bar says how many are working or waiting.
   Preferences → Claude → **One Claude tab** to go back to a tab per conversation.
-- **Links and commands**: the addresses (https://…) in the answers open in the browser with a
-  click. Each command run by Claude shows how long it took (live while it runs).
+- **Links and tools**: the addresses (https://…) in the answers open in the browser with a click,
+  also between parentheses. What Claude does fits on one quiet line per tool: **Ran**, **Read**,
+  **Edited**, **Searched**… then the command or the file (cut to the line) and how long it took
+  (live while it runs), in red if the tool failed; a click shows the whole command (**Copy**) and
+  what it printed. What an answer cost is in the **Session** tab, no longer under each answer.
 - **Several Claude accounts** (work, personal…): **Preferences → Claude → Claude accounts**,
   “+ Add an account”, then **Log in…** (once, in a terminal of Florm; each account has its
   folder, `~/.claude-personal` for instance). The **👤** menu at the top of a conversation
