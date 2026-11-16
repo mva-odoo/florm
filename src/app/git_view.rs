@@ -787,7 +787,7 @@ impl App {
                 select = Some(idx[k]);
             }
             let graph_w = g.lanes.clamp(1, 24) as f32 * history::LANE_W + 6.0;
-            let row_h = 24.0;
+            let row_h = history::ROW_H;
             ui.spacing_mut().item_spacing.y = 0.0;
             let mut area = egui::ScrollArea::vertical().id_salt("history_list").auto_shrink([false, false]);
             // a commit chosen from elsewhere ("voir dans le graphe"): in the middle of the list
@@ -806,6 +806,7 @@ impl App {
                     area = area.vertical_scroll_offset(y + row_h - view_h);
                 }
             }
+            history::header_ui(ui, graph_w);
             area.show_rows(ui, row_h, idx.len(), |ui, range| {
                 for k in range {
                     let i = idx[k];
@@ -1023,12 +1024,34 @@ impl App {
                                     }
                                 });
                             });
+                            // hash, author, date in a small table (as in the git clients), then the
+                            // branches and pull requests of the commit
+                            ui.add_space(4.0);
+                            egui::Grid::new("commit_meta").num_columns(2).spacing([18.0, 3.0]).show(ui, |ui| {
+                                let key = |ui: &mut egui::Ui, k: &str| {
+                                    ui.label(RichText::new(k).small().weak());
+                                };
+                                key(ui, "Hash");
+                                ui.horizontal(|ui| {
+                                    ui.label(RichText::new(&c.hash).monospace().small());
+                                    super::md::copy_button(ui, &c.hash, t!("Copier", "Copy"));
+                                });
+                                ui.end_row();
+                                key(ui, t!("Auteur", "Author"));
+                                ui.label(RichText::new(d.author.split(" <").next().unwrap_or(&d.author)).small());
+                                ui.end_row();
+                                key(ui, "Date");
+                                ui.label(RichText::new(&d.date).small());
+                                ui.end_row();
+                            });
                             ui.horizontal_wrapped(|ui| {
                                 ui.spacing_mut().item_spacing.x = 4.0;
-                                ui.label(RichText::new(&c.hash[..c.hash.len().min(8)]).monospace().color(accent));
-                                ui.label(RichText::new(format!("· {} · {}", d.author.split(" <").next().unwrap_or(&d.author), d.date)).weak());
-                                for r in &c.refs {
-                                    ui.label(RichText::new(r.strip_prefix("HEAD -> ").unwrap_or(r)).small().color(accent).background_color(icons::mix(ui.visuals().panel_fill, accent, 0.15)));
+                                if !c.refs.is_empty() {
+                                    // as wide as the chips: the pull requests follow on the same line
+                                    let font = egui::FontId::proportional(11.0);
+                                    let w: f32 = c.refs.iter().map(|r| ui.fonts(|f| f.layout_no_wrap(r.strip_prefix("HEAD -> ").or_else(|| r.strip_prefix("tag: ")).unwrap_or(r).to_string(), font.clone(), Color32::WHITE).size().x) + 16.0).sum();
+                                    let (rect, _) = ui.allocate_exact_size(egui::vec2(w, 22.0), Sense::hover());
+                                    history::paint_refs(ui, rect.left(), rect.center().y, &c.refs, &font);
                                 }
                                 for pr in &commit_links {
                                     let (state, color) = super::pulls::state_badge(&pr.state, false);

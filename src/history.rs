@@ -240,10 +240,13 @@ pub fn paint_refs(ui: &Ui, mut x: f32, y: f32, refs: &[String], font: &FontId) -
         } else {
             (r.clone(), Color32::from_rgb(0x2b, 0x5b, 0x8a))
         };
-        let galley = p.layout_no_wrap(text, font.clone(), Color32::WHITE);
-        let r = Rect::from_min_size(Pos2::new(x, y - galley.size().y / 2.0 - 1.0), galley.size() + egui::vec2(10.0, 2.0));
-        p.rect_filled(r, 4.0, color);
-        p.galley(Pos2::new(x + 5.0, y - galley.size().y / 2.0), galley, Color32::WHITE);
+        // light and bordered, as in the git clients: the color tells the kind without shouting
+        let dark = ui.visuals().dark_mode;
+        let ink = if dark { crate::icons::mix(color, Color32::WHITE, 0.45) } else { color };
+        let galley = p.layout_no_wrap(text, font.clone(), ink);
+        let r = Rect::from_min_size(Pos2::new(x, y - galley.size().y / 2.0 - 2.0), galley.size() + egui::vec2(12.0, 4.0));
+        p.rect(r, 4.0, color.gamma_multiply(if dark { 0.25 } else { 0.10 }), egui::Stroke::new(1.0_f32, color.gamma_multiply(0.45)));
+        p.galley(Pos2::new(x + 6.0, y - galley.size().y / 2.0), galley, ink);
         x = r.right() + 4.0;
     }
     x
@@ -257,8 +260,32 @@ pub fn elided(ui: &Ui, text: &str, font: FontId, color: egui::Color32, max_w: f3
     ui.fonts(|f| f.layout_job(job))
 }
 
+/// Height of a row of the commit list.
+pub const ROW_H: f32 = 28.0;
+
+/// The names of the columns above the commit list, where `row_ui` puts them.
+pub fn header_ui(ui: &mut Ui, graph_w: f32) {
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 26.0), Sense::hover());
+    let v = ui.visuals();
+    let (font, color) = (FontId::proportional(12.0), v.weak_text_color());
+    let p = ui.painter();
+    let cy = rect.center().y;
+    p.text(Pos2::new(rect.left() + 4.0, cy), Align2::LEFT_CENTER, t!("graphe", "graph"), font.clone(), color);
+    p.text(Pos2::new(rect.left() + graph_w.max(46.0) + 8.0, cy), Align2::LEFT_CENTER, t!("description", "description"), font.clone(), color);
+    let mut right = rect.right() - 8.0;
+    p.text(Pos2::new(right, cy), Align2::RIGHT_CENTER, t!("commit", "commit"), font.clone(), color);
+    right -= 64.0;
+    if rect.width() > graph_w + 520.0 {
+        p.text(Pos2::new(right, cy), Align2::RIGHT_CENTER, t!("date", "date"), font.clone(), color);
+        right -= 112.0;
+        p.text(Pos2::new(right, cy), Align2::RIGHT_CENTER, t!("auteur", "author"), font, color);
+    }
+    p.line_segment([rect.left_bottom(), rect.right_bottom()], Stroke::new(1.0_f32, v.weak_text_color().gamma_multiply(0.35)));
+}
+
 pub fn row_ui(ui: &mut Ui, c: &Commit, row: &Row, graph_w: f32, selected: bool, with_lines: bool) -> egui::Response {
-    let h = 24.0;
+    // a table: rows with room, a thin line under each (from the description on: the graph runs on)
+    let h = ROW_H;
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), h), Sense::click());
     if selected {
         ui.painter().rect_filled(rect, 0.0, ui.visuals().selection.bg_fill);
@@ -266,8 +293,10 @@ pub fn row_ui(ui: &mut Ui, c: &Commit, row: &Row, graph_w: f32, selected: bool, 
         ui.painter().rect_filled(rect, 0.0, ui.visuals().widgets.hovered.weak_bg_fill);
     }
     paint_row(ui, Rect::from_min_size(rect.min, egui::vec2(graph_w, h)), row, with_lines);
-    let font = FontId::proportional(13.0);
-    let small = FontId::proportional(11.0);
+    let line = Stroke::new(1.0_f32, ui.visuals().weak_text_color().gamma_multiply(0.18));
+    ui.painter().line_segment([Pos2::new(rect.left() + graph_w, rect.bottom() - 0.5), Pos2::new(rect.right(), rect.bottom() - 0.5)], line);
+    let font = FontId::proportional(13.5);
+    let small = FontId::proportional(12.0);
     let weak = ui.visuals().weak_text_color();
     // on the right, in aligned columns: the author (shortened), the date, the short hash; fewer
     // of them when the view is narrow
