@@ -146,6 +146,8 @@ pub(super) struct ClaudeUi {
     pub(super) answers: Option<claude_ask::Answers>,
     /// Last commits of its folder for « + Contexte → Un commit »: (hash, short hash, subject, when).
     recent_commits: Vec<(String, String, String, String)>,
+    /// The clipboard held an image when « + Contexte » was opened (« Image du presse-papiers »).
+    clip_image: bool,
     /// Height of each item when it was last drawn, with the key of what it showed (`item_key`),
     /// and whether it was the same the time before (only then is the item left undrawn out of sight).
     pub(super) heights: Vec<(u64, f32, bool)>,
@@ -369,6 +371,18 @@ fn item_key(it: &Item, claude_said: bool, busy: bool, last_turn: bool, extra: u8
 }
 
 /// The image in the clipboard as PNG, if there is one.
+/// The clipboard holds an image (its types only are read: nothing is decoded).
+fn clipboard_has_image() -> bool {
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+        let types = crate::os::command("wl-paste").arg("--list-types").stderr(std::process::Stdio::null()).output();
+        if types.is_ok_and(|o| String::from_utf8_lossy(&o.stdout).lines().any(|t| t.starts_with("image/"))) {
+            return true;
+        }
+    }
+    arboard::Clipboard::new().ok().is_some_and(|mut c| c.get_image().is_ok())
+}
+
 fn clipboard_image() -> Option<Vec<u8>> {
     if let Some(img) = arboard::Clipboard::new().ok().and_then(|mut c| c.get_image().ok()) {
         return claude::png_of(img.width, img.height, img.bytes.into_owned()).ok();
@@ -1745,7 +1759,7 @@ impl App {
                         egui::TextEdit::multiline(&mut c.input)
                             .frame(false)
                             .id(field_id)
-                            .hint_text(t!("Demande à Claude… (Ctrl+Entrée pour envoyer, / les commandes, @ un fichier, # retenir, Maj+Tab le mode)", "Ask Claude… (Ctrl+Enter to send, / commands, @ a file, # remember, Shift+Tab the mode)"))
+                            .hint_text(t!("Demande à Claude… (Ctrl+Entrée pour envoyer, / les commandes, @ un fichier, # retenir, Ctrl+V une image, Maj+Tab le mode)", "Ask Claude… (Ctrl+Enter to send, / commands, @ a file, # remember, Ctrl+V an image, Shift+Tab the mode)"))
                             .desired_rows(rows)
                             .desired_width(f32::INFINITY)
                             .layouter(&mut layout_cutting),
@@ -1813,8 +1827,14 @@ impl App {
                                 shot = Some(Duration::ZERO);
                                 ui.close_menu();
                             }
-                            if ui.button(t!("Capture de Florm dans 3 s", "Picture of Florm in 3 s")).on_hover_text(t!("Le temps d'aller sur la vue à montrer (une pull request, un fichier…) : elle est capturée là", "The time to go to the view to show (a pull request, a file…): it is taken there")).clicked() {
-                                shot = Some(Duration::from_secs(3));
+                            // a capture of the screen made with the system's tool (Impr on Omarchy copies it):
+                            // any zone, any window, without a timer
+                            let clip = ui
+                                .add_enabled(c.clip_image, egui::Button::new(t!("Image du presse-papiers", "Image from the clipboard")))
+                                .on_hover_text(t!("L'image copiée (une capture faite avec Impr, une image copiée ailleurs) part avec le prochain message. Aussi : Ctrl+V dans le champ", "The copied image (a capture made with Print, an image copied elsewhere) goes with the next message. Also: Ctrl+V in the field"))
+                                .on_disabled_hover_text(t!("Pas d'image dans le presse-papiers : fais une capture (Impr, puis choisis la zone) et rouvre ce menu, ou colle-la avec Ctrl+V dans le champ", "No image in the clipboard: take a capture (Print, then choose the zone) and open this menu again, or paste it with Ctrl+V in the field"));
+                            if clip.clicked() {
+                                image_add = clipboard_image().map(|png| (png, t!("Image collée", "Pasted image").to_string()));
                                 ui.close_menu();
                             }
                             ui.separator();
@@ -1822,6 +1842,7 @@ impl App {
                         });
                         if ctx_menu.response.clicked() {
                             read_commits = true;
+                            c.clip_image = clipboard_has_image();
                         }
                         ctx_menu.response.on_hover_text(t!("Donner à Claude un fichier, la sélection, le diff, un commit, les problèmes, une image…", "Give Claude a file, the selection, the diff, a commit, the problems, an image…"));
                         // what goes with each message: in a menu, the options stay one click away

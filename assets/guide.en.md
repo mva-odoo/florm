@@ -558,8 +558,11 @@ command and your login: no key to set up.
 - **Picture of Florm**: **Ctrl+Alt+I**, from any view (a pull request, a file, the
   preferences…), takes a picture of Florm's window as it is and attaches it to the next message of
   the Claude conversation: no need to switch screens nor to go back to Claude. Also in **+ Context
-  → Picture of Florm**, or **… in 3 s** to have the time to go to the view to show. Florm takes the
-  picture itself: no permission of the system.
+  → Picture of Florm**. Florm takes the picture itself: no permission of the system.
+- **A screenshot taken elsewhere**: **Print** (Omarchy's capture tool, or your system's) copies the
+  chosen zone to the clipboard; **Ctrl+V** in Claude's field, or **+ Context → Image from the
+  clipboard** (enabled when there is an image), attaches it to the message. Any zone of the
+  screen, no timer.
 - **Images**: an image goes with the message, scaled down to 1568 pixels to cost fewer tokens.
   Three ways to give it: paste it with Ctrl+V (a copied image), drop it from the file manager on
   the conversation, or **+ Context → Image or PDF…**. Several images go together in one message: drop

@@ -569,8 +569,12 @@ panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en
 - **Capture de Florm** : **Ctrl+Alt+I**, depuis n'importe quelle vue (une pull request, un
   fichier, les préférences…), prend une image de la fenêtre de Florm telle qu'elle est et la joint
   au prochain message de la conversation Claude : pas besoin de changer d'écran ni de revenir sur
-  Claude. Aussi dans **+ Contexte → Capture de Florm**, ou **… dans 3 s** pour avoir le temps
-  d'aller sur la vue à montrer. Florm prend l'image lui-même : aucune autorisation du système.
+  Claude. Aussi dans **+ Contexte → Capture de Florm**. Florm prend l'image lui-même : aucune
+  autorisation du système.
+- **Une capture d'écran faite ailleurs** : **Impr** (l'outil de capture d'Omarchy, ou celui de ton
+  système) copie la zone choisie dans le presse-papiers ; **Ctrl+V** dans le champ de Claude, ou
+  **+ Contexte → Image du presse-papiers** (actif quand il y a une image), la joint au message.
+  N'importe quelle zone de l'écran, sans minuteur.
 - **Images** : une image part avec le message, réduite à 1568 pixels pour coûter moins de tokens.
   Trois façons de la donner : la coller avec Ctrl+V (une image copiée), la glisser depuis le
   gestionnaire de fichiers sur la conversation, ou **+ Contexte → Image ou PDF…**. Plusieurs images
