@@ -1230,16 +1230,15 @@ impl App {
                         let tip = if shown { t!("Masquer le panneau de droite : la conversation prend toute la largeur", "Hide the panel on the right: the conversation takes the whole width") } else { t!("Afficher à droite la session (contexte, quotas, outils) et la revue des changements", "Show on the right the session (context, quotas, tools) and the review of the changes") };
                         // a panel on the right, filled when shown: like the other layout buttons
                         let b = crate::icons::layout_button(ui, crate::icons::Layout::SidePanel(shown), tip);
-                        let a = ui.add(egui::Label::new(text).sense(Sense::click())).on_hover_text(t!("La revue de ce que Claude a changé, dans le panneau de droite", "The review of what Claude changed, in the panel on the right"));
-                        // « Revue »: the panel on its review (hidden when it already shows it)
-                        let hide = b.clicked() || (a.clicked() && shown && side_review);
-                        if hide && shown {
+                        // « Revue » only while the panel is hidden: shown, its own tabs Session / Revue do it
+                        let a = !shown && ui.add(egui::Label::new(text).sense(Sense::click())).on_hover_text(t!("La revue de ce que Claude a changé, dans le panneau de droite", "The review of what Claude changed, in the panel on the right")).clicked();
+                        if b.clicked() && shown {
                             show_review = false;
                             close_turn = true;
                             maximize::restore(ui.ctx(), view);
-                        } else if b.clicked() || a.clicked() {
+                        } else if b.clicked() || a {
                             show_review = true;
-                            side_review |= a.clicked();
+                            side_review |= a;
                         }
                         ui.add_space(8.0);
                         // the panel shows the session: the gauges are there, not twice
@@ -1918,30 +1917,36 @@ impl App {
                             };
                             let choices = model_choices(models);
                             let describe = |v: &str| models.iter().find(|m| m.value == v).map(|m| m.description.clone()).unwrap_or_default();
-                            egui::ComboBox::from_id_salt(("claude_model", conv))
-                                .selected_text(shown)
-                                .show_ui(ui, |ui| {
-                                    ui.set_min_width(200.0);
-                                    for (value, label) in choices.iter().filter(|(v, _)| !v.contains('-')) {
-                                        let r = ui.selectable_value(&mut c.model, value.clone(), label);
-                                        let d = describe(value);
-                                        if !d.is_empty() {
-                                            r.on_hover_text(d);
-                                        }
+                            // light pills, without the arrows of a list (right to left: model, effort, mode)
+                            let pill_fill = icons::mix(ui.visuals().extreme_bg_color, ui.visuals().text_color(), 0.07);
+                            let pill = |text: String| egui::Button::new(RichText::new(text).small()).rounding(10.0).fill(pill_fill).stroke(egui::Stroke::NONE).min_size(egui::vec2(0.0, 22.0));
+                            egui::menu::menu_custom_button(ui, pill(shown), |ui| {
+                                ui.set_min_width(220.0);
+                                for (value, label) in choices.iter().filter(|(v, _)| !v.contains('-')) {
+                                    let mut r = ui.selectable_value(&mut c.model, value.clone(), label);
+                                    let d = describe(value);
+                                    if !d.is_empty() {
+                                        r = r.on_hover_text(d);
                                     }
-                                    let pinned: Vec<_> = choices.iter().filter(|(v, _)| v.contains('-')).collect();
-                                    if !pinned.is_empty() {
-                                        ui.separator();
-                                        let open = pinned.iter().any(|(v, _)| *v == c.model);
-                                        egui::CollapsingHeader::new(t!("Autres versions", "Other versions")).id_salt(("claude_model_pinned", conv)).default_open(open).show(ui, |ui| {
-                                            for (value, label) in pinned {
-                                                ui.selectable_value(&mut c.model, value.clone(), label).on_hover_text(format!("{value}\n{}", describe(value)));
+                                    if r.clicked() {
+                                        ui.close_menu();
+                                    }
+                                }
+                                let pinned: Vec<_> = choices.iter().filter(|(v, _)| v.contains('-')).collect();
+                                if !pinned.is_empty() {
+                                    ui.separator();
+                                    let open = pinned.iter().any(|(v, _)| *v == c.model);
+                                    egui::CollapsingHeader::new(t!("Autres versions", "Other versions")).id_salt(("claude_model_pinned", conv)).default_open(open).show(ui, |ui| {
+                                        for (value, label) in pinned {
+                                            if ui.selectable_value(&mut c.model, value.clone(), label).on_hover_text(format!("{value}\n{}", describe(value))).clicked() {
+                                                ui.close_menu();
                                             }
-                                        });
-                                    }
-                                })
-                                .response
-                                .on_hover_text(tip);
+                                        }
+                                    });
+                                }
+                            })
+                            .response
+                            .on_hover_text(tip);
                             // the effort levels of this model (none: no setting); one it does not take goes back to auto
                             let efforts = model_efforts(models, &c.model);
                             if !c.effort.is_empty() && !efforts.contains(&c.effort) {
@@ -1949,21 +1954,25 @@ impl App {
                             }
                             if !efforts.is_empty() {
                                 let ordered: Vec<String> = claude::EFFORTS.iter().map(|(v, _)| v.to_string()).filter(|v| efforts.contains(v)).chain(efforts.iter().filter(|e| !claude::EFFORTS.iter().any(|(v, _)| v == e)).cloned()).collect();
-                                egui::ComboBox::from_id_salt(("claude_effort", conv))
-                                    .selected_text(tf!("Effort {}", "Effort {}", claude::effort_label(&c.effort)))
-                                    .show_ui(ui, |ui| {
-                                        ui.selectable_value(&mut c.effort, String::new(), claude::effort_label("")).on_hover_text(t!("Claude Code choisit (son réglage habituel)", "Claude Code chooses (its usual setting)"));
-                                        for e in ordered {
-                                            let label = claude::effort_label(&e);
-                                            ui.selectable_value(&mut c.effort, e, label);
+                                egui::menu::menu_custom_button(ui, pill(tf!("Effort {}", "Effort {}", claude::effort_label(&c.effort))), |ui| {
+                                    if ui.selectable_value(&mut c.effort, String::new(), claude::effort_label("")).on_hover_text(t!("Claude Code choisit (son réglage habituel)", "Claude Code chooses (its usual setting)")).clicked() {
+                                        ui.close_menu();
+                                    }
+                                    for e in ordered {
+                                        let label = claude::effort_label(&e);
+                                        if ui.selectable_value(&mut c.effort, e, label).clicked() {
+                                            ui.close_menu();
                                         }
-                                    })
-                                    .response
-                                    .on_hover_text(t!("Combien Claude réfléchit avant d'agir : plus d'effort, des réponses plus soignées mais plus lentes et plus de quota", "How much Claude thinks before acting: more effort, more careful answers but slower and more quota"));
+                                    }
+                                })
+                                .response
+                                .on_hover_text(t!("Combien Claude réfléchit avant d'agir : plus d'effort, des réponses plus soignées mais plus lentes et plus de quota", "How much Claude thinks before acting: more effort, more careful answers but slower and more quota"));
                             }
-                            egui::ComboBox::from_id_salt(("claude_mode", conv)).selected_text(claude::label(claude::MODES[c.mode].1)).show_ui(ui, |ui| {
+                            egui::menu::menu_custom_button(ui, pill(claude::label(claude::MODES[c.mode].1).to_string()), |ui| {
                                 for (k, (_, label, tip)) in claude::MODES.iter().enumerate() {
-                                    ui.selectable_value(&mut c.mode, k, claude::label(label)).on_hover_text(claude::label(tip));
+                                    if ui.selectable_value(&mut c.mode, k, claude::label(label)).on_hover_text(claude::label(tip)).clicked() {
+                                        ui.close_menu();
+                                    }
                                 }
                             })
                             .response
