@@ -64,6 +64,22 @@ impl App {
         .into()
     }
 
+    /// The window's edge drawn by Florm: a thin line in a grey touched by the accent, a lighter one
+    /// just inside, so the window stands out from what is behind (a light theme on a light desktop,
+    /// a tiling window manager without title bars). None in full screen.
+    pub(super) fn window_border(&self, ctx: &egui::Context) {
+        if ctx.input(|i| i.viewport().fullscreen.unwrap_or(false)) {
+            return;
+        }
+        let tc = self.hl.tab_colors();
+        let r = ctx.screen_rect();
+        let p = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("window_border")));
+        let edge = crate::icons::mix(crate::icons::mix(tc.bar, tc.text_inactive, 0.55), tc.accent, 0.30);
+        p.rect_stroke(r.shrink(0.5), 0.0, egui::Stroke::new(1.0_f32, edge));
+        let inner = if self.hl.is_light() { egui::Color32::from_white_alpha(170) } else { egui::Color32::from_white_alpha(18) };
+        p.rect_stroke(r.shrink(1.5), 0.0, egui::Stroke::new(1.0_f32, inner));
+    }
+
     /// The window loses (or gets back) the system's title bar when the setting changes.
     pub(super) fn sync_decorations(&mut self, ctx: &egui::Context) {
         let own = self.own_title_bar();

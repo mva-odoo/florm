@@ -1644,6 +1644,7 @@ impl eframe::App for App {
         }
         self.track_nav();
         self.sync_history_tab();
+        self.window_border(ctx);
         // the button of the diffs changes it for all of them: kept for the next time
         let side = history::side_by_side();
         if side != self.settings.diff_side_by_side {
