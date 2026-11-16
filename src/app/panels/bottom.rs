@@ -360,6 +360,42 @@ impl App {
     }
 }
 
+/// What the ▾ on the right of the tab strip chose: a view in an editor tab, or a command.
+pub(super) enum NewTab {
+    View(BottomTab),
+    Cmd(Cmd),
+}
+
+impl App {
+    /// The ▾ on the right of the tab strip: each view, with its icon, to open in an editor tab
+    /// (the terminal, the problems and the output stay in the bottom panel), then the preferences
+    /// and the welcome page.
+    pub(super) fn new_tab_menu(&self, ui: &mut egui::Ui) -> Option<NewTab> {
+        ui.set_min_width(260.0);
+        let mut chosen = None;
+        ui.label(egui::RichText::new(t!("Ouvrir dans un onglet", "Open in a tab")).small().weak());
+        for (tab, icon, label) in BottomTab::shown().filter(|(t, ..)| !matches!(t, BottomTab::Problems | BottomTab::Output | BottomTab::Terminal)) {
+            if tool_row(ui, icon, label, None, &self.keymap.label(tab.cmd()), false).clicked() {
+                chosen = Some(NewTab::View(tab));
+                ui.close_menu();
+            }
+        }
+        ui.separator();
+        for (cmd, icon, label) in [
+            (Cmd::NewTerminalTab, icons::ViewIcon::Terminal, t!("Terminal", "Terminal")),
+            (Cmd::OpenSql, icons::ViewIcon::Sql, "SQL"),
+            (Cmd::OpenSettings, icons::ViewIcon::Settings, t!("Préférences", "Preferences")),
+            (Cmd::ShowWelcome, icons::ViewIcon::Welcome, t!("Accueil", "Welcome")),
+        ] {
+            if tool_row(ui, icon, label, None, &self.keymap.label(cmd), false).clicked() {
+                chosen = Some(NewTab::Cmd(cmd));
+                ui.close_menu();
+            }
+        }
+        chosen
+    }
+}
+
 /// What the views menu chose.
 pub(super) enum Pick {
     View(BottomTab),

@@ -10,6 +10,8 @@ impl App {
         let tc = self.hl.tab_colors();
         let (mut activate, mut close) = (None, None);
         let (mut drag_start, mut menu_act) = (None, None);
+        // « + » (a new text tab) and « ▾ » (a view in a tab) on the right of the strip
+        let (mut new_text, mut new_tab) = (false, None);
         let is_split = self.is_split();
         let mut counts = [0usize; 2];
         for d in &self.docs {
@@ -35,6 +37,23 @@ impl App {
                     _ => scroll.min.x += crate::app::title_bar::MAC_BUTTONS_W,
                 }
             }
+            // always on the right: + for a new text tab, ▾ for a view (Git, Claude…) in a tab
+            const NEW_W: f32 = 58.0;
+            let new_rect = egui::Rect::from_min_max(egui::pos2(scroll.max.x - NEW_W, bar.min.y), egui::pos2(scroll.max.x, bar.max.y));
+            scroll.max.x -= NEW_W;
+            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(new_rect), |ui| {
+                ui.horizontal_centered(|ui| {
+                    ui.spacing_mut().item_spacing.x = 2.0;
+                    ui.add_space(4.0);
+                    let plus = ui.add(egui::Button::new(egui::RichText::new("+").size(17.0)).frame(false).min_size(egui::vec2(22.0, 22.0)));
+                    if plus.on_hover_text(t!("Nouvel onglet texte vide (Ctrl+N)", "New empty text tab (Ctrl+N)")).clicked() {
+                        new_text = true;
+                    }
+                    ui.menu_button(egui::RichText::new("▾").size(13.0), |ui| new_tab = self.new_tab_menu(ui))
+                        .response
+                        .on_hover_text(t!("Ouvrir une vue dans un onglet : Git, GitHub, Claude, Docker…", "Open a view in a tab: Git, GitHub, Claude, Docker…"));
+                });
+            });
             // too many tabs for the strip: ‹ › and the list of all of them on its right
             let (over_id, offset_id) = (panel_id.with("over"), panel_id.with("offset"));
             let over = ui.ctx().data(|d| d.get_temp::<bool>(over_id)).unwrap_or(false);
@@ -200,6 +219,14 @@ impl App {
         }
         if let Some(i) = close {
             self.close_tab(i, false);
+        }
+        if new_text {
+            self.pending.push(Cmd::NewFile);
+        }
+        match new_tab {
+            Some(super::bottom::NewTab::View(tab)) => self.show_big(tab),
+            Some(super::bottom::NewTab::Cmd(cmd)) => self.pending.push(cmd),
+            None => {}
         }
         match menu_act {
             Some(TabAct::Split(i, dir)) => self.split_tab(i, Some(dir)),

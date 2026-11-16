@@ -24,6 +24,8 @@ terminal…) have none: they keep the whole height.
 
 Two open files of the same name: their folder shows in grey after the title (`input.rs …/app`). A file with errors shows how many in red (`9+` beyond nine).
 
+On the right of the tab strip: **+** opens an empty text tab (Ctrl+N), **▾** a view in a tab, each with its icon: Search, Claude, Git, GitHub, Docker, Debug, then Terminal, SQL, Preferences and Welcome.
+
 **Groups of tabs**: right click a tab → **Add to a group** (an existing one or **+ New
 group**). The tabs of a group stay side by side, with a band of its color and its name before
 them: a click on the name folds the group (only its name stays, with the number of tabs), right

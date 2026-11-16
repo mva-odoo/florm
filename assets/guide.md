@@ -24,6 +24,8 @@ Docker, terminal…) n'en ont pas : elles gardent toute la hauteur.
 
 Deux fichiers ouverts du même nom : leur dossier s'affiche en gris après le titre (`input.rs …/app`). Un fichier avec des erreurs montre leur nombre en rouge (`9+` au-delà de neuf).
 
+À droite de la barre d'onglets : **+** ouvre un onglet texte vide (Ctrl+N), **▾** une vue dans un onglet, chacune avec son icône : Recherche, Claude, Git, GitHub, Docker, Débogage, puis Terminal, SQL, Préférences et Accueil.
+
 **Groupes d'onglets** : clic droit sur un onglet → **Ajouter à un groupe** (un existant ou
 **+ Nouveau groupe**). Les onglets d'un groupe restent côte à côte, avec une bande de sa couleur
 et son nom devant eux : un clic sur le nom replie le groupe (seul son nom reste, avec le nombre
