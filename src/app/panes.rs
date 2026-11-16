@@ -105,6 +105,8 @@ impl App {
                     tests: &tests,
                     breakpoints,
                     exec_line,
+                    rainbow: s.rainbow_brackets,
+                    whitespace: s.show_whitespace,
                 };
                 let r = editor_view::show(ui, doc, &self.hl, &opts, matches, id);
                 if let Some(t) = doc.test_pick.take() {

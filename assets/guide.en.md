@@ -689,6 +689,31 @@ In the preview (and in Claude's answers), **Mermaid sequence diagrams** (` ```me
 `<br>`, `<b>`, `<i>`, `<kbd>`, `<img>`, `<a href>`, `<details>` / `<summary>`, `<h1>`…, `<p align>`;
 `<!-- -->` comments are hidden.
 
+## Writing
+
+- **Alt+Shift+→** expands the selection step by step: the word, the inside of the string, the
+  string with its quotes, the inside of the parentheses (brackets, braces), with them, the line,
+  the block of the same indentation, the whole file. **Alt+Shift+←** goes back one step.
+- **Edit → Case**: UPPERCASE, lowercase, **snake_case**, **camelCase**, **Title Case**, on the
+  selection or the word at the cursor (`parseHTTPRequest` → `parse_http_request`).
+  **Edit → Remove duplicate lines** keeps the first of each repeated line (the selection, or the
+  whole file).
+- **Macros**: **Ctrl+Alt+Q** starts recording what you type and the editing commands,
+  **Ctrl+Alt+Q** again stops it; **Ctrl+Shift+Q** plays it, at the cursor.
+- **Parameters of a function**: with a language server, typing `(` or `,` in a call shows above
+  the cursor the signature of the function, the current parameter underlined, and its
+  documentation. It goes away at `)`, with Escape or when leaving the line.
+- **Auto-save** (Preferences → Editor): **On leaving** saves the changed files when Florm loses
+  the focus or another tab is shown; **After a pause**, a second after the last key. New files
+  without a name are left out.
+- **Colored brackets**: each level of parentheses, brackets and braces has its color (gold,
+  purple, blue), not counting those in strings and comments. The indentation guide of the block
+  of the cursor is stronger than the others.
+- **Visible whitespace** (View, or Preferences → Appearance): a dot per space, an arrow per tab.
+- **Distraction-free mode** (**Ctrl+K Z**, or View): full screen, only the text, centered; Escape
+  or Ctrl+K Z to leave it.
+- Without word wrap, a line going past the right edge fades out: you see that it goes on.
+
 ## Appearance
 
 **Preferences → Appearance**: language (Français / English), theme (clickable previews: Florm and

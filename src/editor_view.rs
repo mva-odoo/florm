@@ -71,10 +71,17 @@ pub struct ViewOpts<'a> {
     /// Where the debugger is paused in this file: the line, and whether it is the frame running
     /// (else one of its callers, chosen in the call stack).
     pub exec_line: Option<(usize, bool)>,
+    /// The brackets colored by level.
+    pub rainbow: bool,
+    /// Spaces and tabs shown (· and →).
+    pub whitespace: bool,
 }
 
 pub fn show(ui: &mut Ui, doc: &mut Document, hl: &Highlighting, opts: &ViewOpts, matches: &[(usize, usize)], id: Id) -> egui::Response {
     let font = FontId::monospace(opts.font_size);
+    if opts.rainbow {
+        doc.ensure_bracket_depths();
+    }
     let (rh, cw) = ui.fonts(|f| (f.row_height(&font), char_width(f, &font)));
     let bg = hl.colors.bg;
     if opts.minimap {
@@ -93,18 +100,32 @@ pub fn show(ui: &mut Ui, doc: &mut Document, hl: &Highlighting, opts: &ViewOpts,
 
 /// Line `l` with its syntax colors, from visual column `vstart` to `vend` (tabs expanded):
 /// the column where it starts (None when nothing is visible) and the text to lay out.
-fn line_job(doc: &Document, l: usize, font: &FontId, fg: Color32, vstart: usize, vend: usize) -> (Option<usize>, LayoutJob) {
+/// Colors of the bracket levels (gold, orchid, blue), darker on a light theme.
+fn bracket_color(level: u32, light: bool) -> Color32 {
+    let dark = [Color32::from_rgb(0xff, 0xd7, 0x00), Color32::from_rgb(0xda, 0x70, 0xd6), Color32::from_rgb(0x17, 0x9f, 0xff)];
+    let lite = [Color32::from_rgb(0xa8, 0x76, 0x00), Color32::from_rgb(0xa6, 0x26, 0xa4), Color32::from_rgb(0x0b, 0x6f, 0xd4)];
+    (if light { lite } else { dark })[level as usize % 3]
+}
+
+/// `brackets`: the brackets of the line with their color (char index in the line, color).
+fn line_job(doc: &Document, l: usize, font: &FontId, fg: Color32, vstart: usize, vend: usize, brackets: &[(usize, Color32)]) -> (Option<usize>, LayoutJob) {
     let ts = doc.tab_size;
     let spans = doc.highlight.spans(l);
     let mut job = LayoutJob::default();
     let mut buf = String::new();
     let mut cur = fg;
     let (mut v, mut byte, mut si) = (0usize, 0usize, 0usize);
+    let (mut idx, mut bi) = (0usize, 0usize);
     let mut start_v = None;
     for ch in doc.rope.line(l).chars() {
         if ch == '\n' || ch == '\r' {
             break;
         }
+        while bi < brackets.len() && brackets[bi].0 < idx {
+            bi += 1;
+        }
+        let bracket = brackets.get(bi).filter(|b| b.0 == idx).map(|b| b.1);
+        idx += 1;
         let color = spans
             .and_then(|sp| {
                 while si < sp.len() && sp[si].1.end <= byte {
@@ -113,6 +134,7 @@ fn line_job(doc: &Document, l: usize, font: &FontId, fg: Color32, vstart: usize,
                 sp.get(si).map(|s| s.0)
             })
             .unwrap_or(fg);
+        let color = bracket.unwrap_or(color);
         let w = if ch == '\t' { ts - v % ts } else { 1 };
         if v >= vend {
             break;
@@ -665,17 +687,40 @@ fn text_area(
             painter.line_segment([Pos2::new(x, origin.y + vp.min.y), Pos2::new(x, origin.y + vp.max.y)], Stroke::new(1.0_f32, c.guide));
         }
 
-        // indent guides
-        let ts = doc.tab_size;
-        for l in (first..=last).filter(|&l| !rm.is_hidden(l)) {
+        // indent guides; the one of the block of the cursor stronger
+        let ts = doc.tab_size.max(1);
+        let lead_of = |l: usize| {
             let ind = doc.indent_len(l);
-            if ind == 0 || ind == doc.line_len(l) {
-                continue;
+            (ind < doc.line_len(l)).then(|| doc.vcol(l, ind))
+        };
+        let active = lead_of(caret).filter(|&lc| lc >= 2 * ts).map(|lc| {
+            let g = (lc - 1) / ts * ts;
+            let nl = doc.rope.len_lines();
+            let (mut top, mut bot) = (caret, caret);
+            while top > 0 && lead_of(top - 1).is_none_or(|x| x > g) {
+                top -= 1;
             }
-            let lead = doc.vcol(l, ind);
+            while bot + 1 < nl && lead_of(bot + 1).is_none_or(|x| x > g) {
+                bot += 1;
+            }
+            (g, top, bot)
+        });
+        let guide = mix(c.guide, c.fg, 0.20);
+        let guide_on = mix(c.guide, c.fg, 0.50);
+        for l in (first..=last).filter(|&l| !rm.is_hidden(l)) {
+            // an empty line inside a block keeps the guides of the lines around it
+            let lead = match lead_of(l) {
+                Some(x) => x,
+                None => {
+                    let next = (l + 1..=(l + 50).min(last + 50)).find_map(|k| (k < doc.rope.len_lines()).then(|| lead_of(k)).flatten()).unwrap_or(0);
+                    let prev = (l.saturating_sub(50)..l).rev().find_map(lead_of).unwrap_or(0);
+                    next.min(prev)
+                }
+            };
             for g in (ts..lead).step_by(ts) {
                 let x = text_x + g as f32 * cw;
-                painter.line_segment([Pos2::new(x, line_y(l)), Pos2::new(x, line_y(l) + line_h(l))], Stroke::new(1.0_f32, c.guide));
+                let on = active.is_some_and(|(ag, top, bot)| ag == g && (top..=bot).contains(&l));
+                painter.line_segment([Pos2::new(x, line_y(l)), Pos2::new(x, line_y(l) + line_h(l))], Stroke::new(1.0_f32, if on { guide_on } else { guide }));
             }
         }
 
@@ -739,11 +784,43 @@ fn text_area(
             painter.text(Pos2::new(end.x + cw, end.y + rh / 2.0), Align2::LEFT_CENTER, label, FontId::proportional(font.size * 0.85), c.gutter_fg);
         }
 
+        // spaces and tabs shown: a dot in the middle of a space, an arrow over a tab
+        if opts.whitespace {
+            let ws = c.fg.gamma_multiply(0.28);
+            for l in (first..=last).filter(|&l| !rm.is_hidden(l)) {
+                let mut v = 0usize;
+                for ch in doc.rope.line(l).chars() {
+                    if ch == '\n' || ch == '\r' {
+                        break;
+                    }
+                    let w = if ch == '\t' { ts - v % ts } else { 1 };
+                    if v > vend {
+                        break;
+                    }
+                    if v + w >= vstart {
+                        if ch == ' ' {
+                            let p = at(l, v);
+                            painter.circle_filled(Pos2::new(p.x + cw / 2.0, p.y + rh / 2.0), (cw * 0.09).max(1.0), ws);
+                        } else if ch == '\t' {
+                            let p = at(l, v);
+                            let (y, x0, x1) = (p.y + rh / 2.0, p.x + cw * 0.2, p.x + w as f32 * cw - cw * 0.2);
+                            painter.line_segment([Pos2::new(x0, y), Pos2::new(x1, y)], Stroke::new(1.0_f32, ws));
+                            painter.line_segment([Pos2::new(x1 - cw * 0.3, y - rh * 0.15), Pos2::new(x1, y)], Stroke::new(1.0_f32, ws));
+                            painter.line_segment([Pos2::new(x1 - cw * 0.3, y + rh * 0.15), Pos2::new(x1, y)], Stroke::new(1.0_f32, ws));
+                        }
+                    }
+                    v += w;
+                }
+            }
+        }
+
         // text
+        let light = hl.is_light();
         for l in first..=last {
             if rm.is_hidden(l) {
                 continue;
             }
+            let brackets: Vec<(usize, Color32)> = if opts.rainbow { doc.bracket_levels(l).into_iter().map(|(i, lv)| (i, bracket_color(lv, light))).collect() } else { Vec::new() };
             if folded.contains(&l) {
                 // "⋯ N lignes" after a folded line
                 let n = hidden.iter().find(|h| h.0 == l + 1).map_or(0, |h| h.1 - h.0 + 1);
@@ -756,7 +833,7 @@ fn text_area(
             }
             match wraps.of(l) {
                 None => {
-                    let (start_v, job) = line_job(doc, l, font, c.fg, vstart, vend);
+                    let (start_v, job) = line_job(doc, l, font, c.fg, vstart, vend, &brackets);
                     if let Some(sv) = start_v {
                         let galley = ui.fonts(|f| f.layout_job(job));
                         painter.galley(Pos2::new(text_x + sv as f32 * cw, line_y(l)), galley, c.fg);
@@ -766,7 +843,7 @@ fn text_area(
                 Some(w) => {
                     for k in 0..=w.starts.len() {
                         let (a, b) = w.row_span(k);
-                        let (start_v, job) = line_job(doc, l, font, c.fg, a, b);
+                        let (start_v, job) = line_job(doc, l, font, c.fg, a, b, &brackets);
                         if let Some(sv) = start_v {
                             let galley = ui.fonts(|f| f.layout_job(job));
                             let x = (sv.saturating_sub(a) + if k > 0 { w.indent } else { 0 }) as f32 * cw;
@@ -774,6 +851,30 @@ fn text_area(
                         }
                     }
                 }
+            }
+        }
+
+        // lines going on past the right edge: they fade out there, so that the cut is seen
+        if wraps.is_empty() {
+            let right = origin.x + vp.max.x;
+            let fade = (3.0 * cw).min(36.0);
+            let mut mesh = egui::Mesh::default();
+            let clear = Color32::from_rgba_premultiplied(0, 0, 0, 0);
+            for l in (first..=last).filter(|&l| !rm.is_hidden(l)) {
+                if doc.vcol(l, doc.line_len(l)) as f32 * cw + text_x <= right {
+                    continue;
+                }
+                let r = Rect::from_min_max(Pos2::new(right - fade, line_y(l)), Pos2::new(right, line_y(l) + rh));
+                let i = mesh.vertices.len() as u32;
+                mesh.colored_vertex(r.left_top(), clear);
+                mesh.colored_vertex(r.right_top(), c.bg);
+                mesh.colored_vertex(r.right_bottom(), c.bg);
+                mesh.colored_vertex(r.left_bottom(), clear);
+                mesh.add_triangle(i, i + 1, i + 2);
+                mesh.add_triangle(i, i + 2, i + 3);
+            }
+            if !mesh.is_empty() {
+                painter.add(Shape::mesh(mesh));
             }
         }
 
@@ -995,7 +1096,7 @@ fn text_area(
             painter.rect_filled(band, 0.0, c.bg);
             for (k, &l) in sticky.iter().enumerate() {
                 let y = sticky_top + k as f32 * rh;
-                let (start_v, job) = line_job(doc, l, font, c.fg, vstart, vend);
+                let (start_v, job) = line_job(doc, l, font, c.fg, vstart, vend, &[]);
                 if let Some(sv) = start_v {
                     let galley = ui.fonts(|f| f.layout_job(job));
                     painter.galley(Pos2::new(text_x + sv as f32 * cw, y), galley, c.fg);

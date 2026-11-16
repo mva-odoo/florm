@@ -705,6 +705,32 @@ notes, `loop` / `alt` / `opt`, `autonumber`. Les autres types de diagrammes rest
 Le **HTML** courant s'affiche aussi : `<br>`, `<b>`, `<i>`, `<kbd>`, `<img>`, `<a href>`,
 `<details>` / `<summary>`, `<h1>`…, `<p align>` ; les commentaires `<!-- -->` sont masqués.
 
+## Écrire
+
+- **Alt+Maj+→** élargit la sélection pas à pas : le mot, l'intérieur de la chaîne, la chaîne avec
+  ses guillemets, l'intérieur des parenthèses (crochets, accolades), avec elles, la ligne, le bloc
+  de même indentation, tout le fichier. **Alt+Maj+←** revient au pas d'avant.
+- **Édition → Casse** : MAJUSCULES, minuscules, **snake_case**, **camelCase**, **Majuscule Au
+  Début** des mots, sur la sélection ou le mot du curseur (`parseHTTPRequest` → `parse_http_request`).
+  **Édition → Supprimer les lignes en double** garde la première de chaque ligne répétée (la
+  sélection, ou tout le fichier).
+- **Macros** : **Ctrl+Alt+Q** commence l'enregistrement de ce que tu tapes et des commandes
+  d'édition, **Ctrl+Alt+Q** à nouveau l'arrête ; **Ctrl+Maj+Q** le rejoue, au curseur.
+- **Paramètres d'une fonction** : avec un serveur de langage, taper `(` ou `,` dans un appel
+  affiche au-dessus du curseur la signature de la fonction, le paramètre en cours souligné, et sa
+  documentation. Elle disparaît à `)`, avec Échap ou en quittant la ligne.
+- **Enregistrement automatique** (Préférences → Éditeur) : **En quittant** enregistre les
+  fichiers modifiés quand Florm perd le focus ou qu'on change d'onglet ; **Après une pause**, une
+  seconde après la dernière touche. Les nouveaux fichiers sans nom ne sont pas concernés.
+- **Crochets colorés** : chaque niveau de parenthèses, crochets et accolades a sa couleur (or,
+  violet, bleu), sans compter ceux des chaînes et des commentaires. Le guide d'indentation du bloc
+  du curseur est plus marqué que les autres.
+- **Espaces visibles** (Affichage, ou Préférences → Apparence) : un point par espace, une flèche
+  par tabulation.
+- **Mode sans distraction** (**Ctrl+K Z**, ou Affichage) : plein écran, seulement le texte,
+  centré ; Échap ou Ctrl+K Z pour en sortir.
+- Sans retour à la ligne, une ligne qui dépasse le bord droit s'estompe : on voit qu'elle continue.
+
 ## Apparence
 
 **Préférences → Apparence** : langue (Français / English), thème (aperçus cliquables : Florm et

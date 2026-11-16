@@ -292,6 +292,7 @@ impl Client {
                         "contextSupport": true
                     },
                     "definition": { "linkSupport": true },
+                    "signatureHelp": { "signatureInformation": { "documentationFormat": ["plaintext"], "parameterInformation": { "labelOffsetSupport": true }, "activeParameterSupport": true } },
                     "rename": { "prepareSupport": false },
                     "codeAction": {
                         "codeActionLiteralSupport": { "codeActionKind": { "valueSet": ["", "quickfix", "refactor", "refactor.extract", "refactor.inline", "refactor.rewrite", "source", "source.organizeImports", "source.fixAll"] } },
@@ -599,6 +600,32 @@ pub fn parse_hover(v: &Value) -> String {
     raw.lines().filter(|l| !l.trim_start().starts_with("```")).collect::<Vec<_>>().join("\n").trim().to_string()
 }
 
+/// A signature of a signatureHelp answer: its label ("f(a: int, b: str) -> None"), the char range
+/// of the parameter being typed in it, and its documentation. None when there is none.
+pub fn parse_signature(v: &Value) -> Option<(String, Option<(usize, usize)>, String)> {
+    let sigs = v["signatures"].as_array().filter(|a| !a.is_empty())?;
+    let k = v["activeSignature"].as_u64().unwrap_or(0) as usize;
+    let sig = sigs.get(k).unwrap_or(&sigs[0]);
+    let label = sig["label"].as_str()?.to_string();
+    let active = sig["activeParameter"].as_u64().or_else(|| v["activeParameter"].as_u64()).unwrap_or(0) as usize;
+    let range = sig["parameters"].as_array().and_then(|ps| ps.get(active)).and_then(|p| match &p["label"] {
+        Value::String(s) => label.find(s.as_str()).map(|b| {
+            let a = label[..b].chars().count();
+            (a, a + s.chars().count())
+        }),
+        Value::Array(a) => Some((a.first()?.as_u64()? as usize, a.get(1)?.as_u64()? as usize)),
+        _ => None,
+    });
+    let doc = |d: &Value| match d {
+        Value::String(s) => s.clone(),
+        Value::Object(o) => o.get("value").and_then(Value::as_str).unwrap_or("").to_string(),
+        _ => String::new(),
+    };
+    let pdoc = sig["parameters"].as_array().and_then(|ps| ps.get(active)).map(|p| doc(&p["documentation"])).unwrap_or_default();
+    let text = if pdoc.trim().is_empty() { doc(&sig["documentation"]) } else { pdoc };
+    Some((label, range, text.trim().to_string()))
+}
+
 /// Text edits of a workspace edit, per file: (path, [(range, new text)]).
 pub fn parse_workspace_edit(v: &Value) -> Vec<(PathBuf, Vec<(Value, String)>)> {
     let mut out: Vec<(PathBuf, Vec<(Value, String)>)> = Vec::new();
@@ -630,6 +657,17 @@ pub fn parse_workspace_edit(v: &Value) -> Vec<(PathBuf, Vec<(Value, String)>)> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn the_signature_being_typed() {
+        let v: Value = serde_json::from_str(r#"{"signatures":[{"label":"f(a: int, b: str)","parameters":[{"label":"a: int"},{"label":[10,16]}]}],"activeParameter":1}"#).unwrap();
+        let (label, range, _) = parse_signature(&v).unwrap();
+        assert_eq!((label.as_str(), range), ("f(a: int, b: str)", Some((10, 16))));
+        let v: Value = serde_json::from_str(r#"{"signatures":[{"label":"g(x, y)","parameters":[{"label":"x"},{"label":"y"}],"activeParameter":0}]}"#).unwrap();
+        assert_eq!(parse_signature(&v).unwrap().1, Some((2, 3)));
+        assert!(parse_signature(&serde_json::json!({"signatures": []})).is_none());
+    }
+
     use super::*;
 
     #[test]

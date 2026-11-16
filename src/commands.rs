@@ -34,7 +34,13 @@ pub enum Cmd {
     InsertLineBefore,
     UpperCase,
     LowerCase,
+    SnakeCase,
+    CamelCase,
+    TitleCase,
     SortLines,
+    UniqueLines,
+    ExpandSelection,
+    ShrinkSelection,
     GotoBracket,
     GitNextChange,
     GitPrevChange,
@@ -112,6 +118,10 @@ pub enum Cmd {
     ShowWelcome,
     ToggleMinimap,
     ToggleWordWrap,
+    ToggleWhitespace,
+    ToggleZen,
+    MacroRecord,
+    MacroPlay,
     ZoomIn,
     ZoomOut,
     SetSyntax,
@@ -240,7 +250,13 @@ impl Cmd {
                 | InsertLineBefore
                 | UpperCase
                 | LowerCase
+                | SnakeCase
+                | CamelCase
+                | TitleCase
                 | SortLines
+                | UniqueLines
+                | ExpandSelection
+                | ShrinkSelection
                 | GotoBracket
                 | GitNextChange
                 | GitPrevChange
@@ -266,6 +282,8 @@ impl Cmd {
                     | AddCursorAbove
                     | AddCursorBelow
                     | GotoBracket
+                    | ExpandSelection
+                    | ShrinkSelection
                     | GitNextChange
                     | GitPrevChange
             )
@@ -343,6 +361,10 @@ pub const ALL: &[(&str, &str, Cmd)] = &[
     ("show_files", "Afficher les fichiers", ShowFiles),
     ("show_welcome", "Afficher l'accueil de Florm", ShowWelcome),
     ("toggle_minimap", "Afficher/masquer la minimap", ToggleMinimap),
+    ("toggle_whitespace", "Afficher/masquer les espaces et tabulations", ToggleWhitespace),
+    ("toggle_zen", "Mode sans distraction (activer / désactiver)", ToggleZen),
+    ("macro_record", "Macro : commencer / arrêter l'enregistrement", MacroRecord),
+    ("macro_play", "Macro : rejouer", MacroPlay),
     ("toggle_word_wrap", "Retour à la ligne automatique (activer / désactiver)", ToggleWordWrap),
     ("zoom_in", "Zoom avant", ZoomIn),
     ("zoom_out", "Zoom arrière", ZoomOut),
@@ -470,6 +492,12 @@ pub const ALL: &[(&str, &str, Cmd)] = &[
     ("upper_case", "Convertir en MAJUSCULES", UpperCase),
     ("lower_case", "Convertir en minuscules", LowerCase),
     ("sort_lines", "Trier les lignes", SortLines),
+    ("unique_lines", "Supprimer les lignes en double", UniqueLines),
+    ("snake_case", "Convertir en snake_case", SnakeCase),
+    ("camel_case", "Convertir en camelCase", CamelCase),
+    ("title_case", "Convertir en Majuscule Au Début Des Mots", TitleCase),
+    ("expand_selection", "Sélection : élargir (mot, chaîne, parenthèses, bloc…)", ExpandSelection),
+    ("shrink_selection", "Sélection : réduire", ShrinkSelection),
     ("goto_bracket", "Aller au crochet correspondant", GotoBracket),
     ("backspace", "", Backspace),
     ("delete", "", Delete),
@@ -571,6 +599,10 @@ const EN: &[(&str, &str)] = &[
     ("show_files", "Show files"),
     ("show_welcome", "Show the Florm welcome page"),
     ("toggle_minimap", "Show/hide the minimap"),
+    ("toggle_whitespace", "Show/hide spaces and tabs"),
+    ("toggle_zen", "Distraction-free mode (on / off)"),
+    ("macro_record", "Macro: start / stop recording"),
+    ("macro_play", "Macro: play"),
     ("toggle_word_wrap", "Word wrap (on / off)"),
     ("zoom_in", "Zoom in"),
     ("zoom_out", "Zoom out"),
@@ -697,6 +729,12 @@ const EN: &[(&str, &str)] = &[
     ("upper_case", "Convert to UPPERCASE"),
     ("lower_case", "Convert to lowercase"),
     ("sort_lines", "Sort lines"),
+    ("unique_lines", "Remove duplicate lines"),
+    ("snake_case", "Convert to snake_case"),
+    ("camel_case", "Convert to camelCase"),
+    ("title_case", "Convert To Title Case"),
+    ("expand_selection", "Selection: expand (word, string, brackets, block…)"),
+    ("shrink_selection", "Selection: shrink"),
     ("goto_bracket", "Go to matching bracket"),
 ];
 

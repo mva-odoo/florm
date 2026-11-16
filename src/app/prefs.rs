@@ -424,6 +424,12 @@ impl App {
                 pref_row(ui, rc, t!("Retour à la ligne automatique", "Word wrap"), t!("Les lignes plus longues que l'éditeur continuent sur les rangées suivantes, coupées après un espace et indentées comme la ligne (Alt+Z). Le fichier n'est pas modifié.", "Lines longer than the editor go on over the next rows, cut after a space and indented like the line (Alt+Z). The file is not changed."), |ui| {
                     toggle_switch(ui, &mut s.word_wrap);
                 });
+                pref_row(ui, rc, t!("Crochets colorés", "Colored brackets"), t!("Les parenthèses, crochets et accolades prennent une couleur par niveau d'imbrication (or, violet, bleu) : on voit tout de suite lequel ferme lequel.", "Parentheses, brackets and braces get a color per level of nesting (gold, purple, blue): you see at once which one closes which."), |ui| {
+                    toggle_switch(ui, &mut s.rainbow_brackets);
+                });
+                pref_row(ui, rc, t!("Espaces visibles", "Visible whitespace"), t!("Un point pour chaque espace, une flèche pour chaque tabulation : pratique en Python ou en YAML.", "A dot for each space, an arrow for each tab: handy in Python or YAML."), |ui| {
+                    toggle_switch(ui, &mut s.show_whitespace);
+                });
                 pref_row(ui, rc, t!("Classe et fonction figées en haut", "Sticky class and function"), t!("En défilant, les lignes class / def (ou les titres, les records…) qui contiennent le haut de l'écran y restent ; clic : y aller.", "While scrolling, the class / def lines (or the headings, the records…) containing the top of the screen stay there; click: go to it."), |ui| {
                     toggle_switch(ui, &mut s.sticky_scroll);
                 });
@@ -477,6 +483,18 @@ impl App {
                 });
                 pref_row(ui, rc, t!("Recherche dans le dossier en onglet", "Find in folder in a tab"), t!("Ctrl+Shift+F ouvre la recherche dans un onglet de l'éditeur plutôt que dans le panneau du bas (boutons « en onglet » / « en bas » de son en-tête pour changer).", "Ctrl+Shift+F opens the search in an editor tab rather than in the bottom panel (“in a tab” / “at the bottom” buttons of its header to switch)."), |ui| {
                     toggle_switch(ui, &mut s.search_in_tab);
+                });
+                pref_row(ui, rc, t!("Enregistrement automatique", "Auto-save"), t!("« En quittant » enregistre les fichiers modifiés quand Florm perd le focus ou qu'on passe à un autre onglet ; « Après une pause », une seconde après la dernière touche. Les nouveaux fichiers sans nom ne sont pas concernés.", "“On leaving” saves the changed files when Florm loses the focus or another tab is shown; “After a pause”, a second after the last key. New files without a name are left out."), |ui| {
+                    let label = |m: &str| match m {
+                        "focus" => t!("En quittant", "On leaving"),
+                        "delay" => t!("Après une pause", "After a pause"),
+                        _ => t!("Non", "Off"),
+                    };
+                    egui::ComboBox::from_id_salt("auto_save").selected_text(label(&s.auto_save)).show_ui(ui, |ui| {
+                        for m in ["off", "focus", "delay"] {
+                            ui.selectable_value(&mut s.auto_save, m.to_string(), label(m));
+                        }
+                    });
                 });
                 pref_row(ui, rc, t!("Garder le travail non enregistré", "Keep unsaved work"), t!("À la fermeture (ou en changeant de projet), les modifications non enregistrées sont gardées et rouvertes ensuite, sans question.", "When closing (or switching project), unsaved changes are kept and reopened later, without asking."), |ui| {
                     toggle_switch(ui, &mut s.hot_exit);
@@ -1060,6 +1078,8 @@ impl App {
         }
         let bools = [
             ("show_minimap", s.show_minimap, before.show_minimap),
+            ("rainbow_brackets", s.rainbow_brackets, before.rainbow_brackets),
+            ("show_whitespace", s.show_whitespace, before.show_whitespace),
             ("word_wrap", s.word_wrap, before.word_wrap),
             ("sticky_scroll", s.sticky_scroll, before.sticky_scroll),
             ("breadcrumbs", s.breadcrumbs, before.breadcrumbs),
@@ -1091,6 +1111,9 @@ impl App {
             self.apply_features();
         }
         let mut lint_changed = s.python_linter != before.python_linter || s.python_lint_args != before.python_lint_args || s.lint_live != before.lint_live;
+        if s.auto_save != before.auto_save {
+            self.persist("auto_save", config::toml_str(&s.auto_save));
+        }
         if s.ai_complete_account != before.ai_complete_account {
             self.persist("ai_complete_account", config::toml_str(&s.ai_complete_account));
         }

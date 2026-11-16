@@ -383,6 +383,9 @@ flake8 --version || ruff --version
 | Ctrl+M | Aller au crochet correspondant |
 | Ctrl+F9 | Trier les lignes |
 | Ctrl+B (ou Ctrl+K Ctrl+B) | Afficher/masquer la barre latérale |
+| Alt+Shift+→ / Alt+Shift+← | Élargir / réduire la sélection (mot, chaîne, parenthèses, bloc…) |
+| Ctrl+Alt+Q, Ctrl+Shift+Q | Enregistrer une macro (et l'arrêter), la rejouer |
+| Ctrl+K Z | Mode sans distraction |
 | Ctrl+K Ctrl+U / Ctrl+K Ctrl+L | Majuscules / minuscules |
 | Ctrl+S, Ctrl+Shift+S, Ctrl+Alt+S | Enregistrer, enregistrer sous, tout enregistrer |
 | Ctrl+W, Ctrl+Shift+T | Fermer l'onglet, rouvrir le dernier fermé |

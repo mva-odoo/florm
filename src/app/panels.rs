@@ -23,11 +23,28 @@ impl App {
         if self.docs.is_empty() {
             self.open_view_tab(document::View::Welcome, t!("Accueil", "Welcome").into());
         }
-        let two = self.is_split();
+        let two = self.is_split() && !self.zen;
         // the editor on a card, on the window's background, the same space around it as around the
         // sidebar's (on the left: the sidebar's own margin, or the strip left when it is hidden)
         let tc = self.hl.tab_colors();
         let outer = egui::Frame::none().fill(tc.bar).inner_margin(egui::Margin { left: 0.0, right: 6.0, top: 0.0, bottom: 6.0 });
+        // distraction-free: the text alone, on the editor's background, about 100 columns wide
+        if self.zen && self.active < self.docs.len() {
+            let bg = self.hl.colors.bg;
+            egui::CentralPanel::default().frame(egui::Frame::none().fill(bg)).show(ctx, |ui| {
+                let full = ui.max_rect();
+                let cw = ui.fonts(|f| f.glyph_width(&egui::FontId::monospace(self.settings.font_size), '0'));
+                let w = (cw * 110.0).min(full.width());
+                let rect = egui::Rect::from_min_size(egui::pos2(full.center().x - w / 2.0, full.top() + 24.0), egui::vec2(w, full.height() - 24.0));
+                ui.allocate_new_ui(egui::UiBuilder::new().max_rect(rect), |ui| {
+                    editor_resp = self.doc_body(ui, self.active, editor_id(), true);
+                });
+            });
+            if let Some(r) = editor_resp {
+                r.context_menu(|ui| self.editor_context_menu(ui));
+            }
+            return;
+        }
         egui::CentralPanel::default().frame(outer).show(ctx, |ui| {
             if two {
                 let frame = egui::Frame::none();

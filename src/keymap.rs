@@ -168,6 +168,10 @@ const DEFAULTS: &[(&str, &str)] = &[
     ("ctrl+shift+l", "split_selection_into_lines"),
     ("ctrl+alt+up", "add_cursor_above"),
     ("ctrl+alt+down", "add_cursor_below"),
+    ("alt+shift+right", "expand_selection"),
+    ("alt+shift+left", "shrink_selection"),
+    ("ctrl+alt+q", "macro_record"),
+    ("ctrl+shift+q", "macro_play"),
     ("alt+shift+up", "add_cursor_above"),
     ("alt+shift+down", "add_cursor_below"),
     ("ctrl+shift+d", "duplicate_line"),
@@ -244,6 +248,7 @@ const CHORDS: &[(&str, &str)] = &[
     ("ctrl+d", "show_change"),
     ("ctrl+shift+z", "git_revert_file"),
     ("v", "markdown_preview_side"),
+    ("z", "toggle_zen"),
     ("ctrl+j", "unfold_all"),
 ];
 

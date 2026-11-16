@@ -20,6 +20,10 @@ pub struct Settings {
     /// Interface font; empty: the default one.
     pub ui_font: String,
     pub show_minimap: bool,
+    /// Brackets colored by level of nesting.
+    pub rainbow_brackets: bool,
+    /// Spaces and tabs shown in the editor (· and →).
+    pub show_whitespace: bool,
     /// Lines longer than the editor shown on several rows (Alt+Z).
     pub word_wrap: bool,
     /// The class / function lines around the top of the editor stay pinned there while scrolling.
@@ -92,6 +96,9 @@ pub struct Settings {
     pub format_on_save: bool,
     /// Keep unsaved changes when closing (restored at the next start), without asking.
     pub hot_exit: bool,
+    /// Files saved by themselves: "off", "focus" (when Florm loses the focus or another tab is
+    /// shown), "delay" (a second after the last keystroke).
+    pub auto_save: String,
     /// Shell used by the terminal panel (plugins always use `sh` / `cmd`).
     pub shell: Option<String>,
     /// "ctrl+shift+r" = "git_push", chords as "ctrl+k ctrl+b".
@@ -172,6 +179,8 @@ impl Default for Settings {
             editor_font: String::new(),
             ui_font: String::new(),
             show_minimap: true,
+            rainbow_brackets: true,
+            show_whitespace: false,
             word_wrap: false,
             sticky_scroll: true,
             rulers: vec![80],
@@ -211,6 +220,7 @@ impl Default for Settings {
             trim_trailing_whitespace_on_save: false,
             format_on_save: false,
             hot_exit: true,
+            auto_save: "off".into(),
             shell: None,
             keys: HashMap::new(),
             lsp: true,
@@ -257,6 +267,10 @@ text_softness = 0.0
 editor_font = ""
 ui_font = ""
 show_minimap = true
+# crochets colorés selon leur niveau d'imbrication
+rainbow_brackets = true
+# espaces et tabulations visibles dans l'éditeur (· et →)
+show_whitespace = false
 # retour à la ligne automatique des lignes trop longues pour l'éditeur (Alt+Z)
 word_wrap = false
 # classe / fonction courantes figées en haut de l'éditeur pendant le défilement
@@ -329,6 +343,8 @@ trim_trailing_whitespace_on_save = false
 format_on_save = false
 # garder les modifications non enregistrées à la fermeture (rouvertes au démarrage suivant)
 hot_exit = true
+# enregistrement automatique : "off", "focus" (quand Florm perd le focus ou qu'on change d'onglet), "delay" (une seconde après la dernière frappe)
+auto_save = "off"
 # shell = "/bin/bash"
 # Serveurs de langage (complétion Ctrl+Espace, définition F12, renommer F2)
 lsp = true

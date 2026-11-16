@@ -106,6 +106,63 @@ impl App {
         }
     }
 
+    /// Asks the server for the signature of the call around the cursor (after « ( » or « , »).
+    pub(super) fn request_signature(&mut self, ctx: &egui::Context) {
+        let i = self.active;
+        let Some((ci, _)) = self.lsp_for(i, ctx, true) else { return };
+        let Some((doc, pos)) = self.lsp_text_position(i) else { return };
+        let d = &self.docs[i];
+        let (uid, line) = (d.uid, d.rope.char_to_line(d.primary_sel().head));
+        if let Some(c) = self.lsp.manager.client(ci) {
+            let id = c.request("textDocument/signatureHelp", serde_json::json!({ "textDocument": doc, "position": pos }));
+            self.lsp.requests.insert((ci, id), LspReq::Signature { uid, line });
+        }
+    }
+
+    /// The signature of the call being typed, above the cursor line: the parameter being typed
+    /// in bold, its documentation under it. Gone when the cursor leaves the line or the tab.
+    pub(super) fn signature_popup(&mut self, ctx: &egui::Context) {
+        let Some((uid, line, label, range, doc)) = &self.lsp.signature else { return };
+        let Some(d) = self.docs.get(self.active).filter(|d| d.uid == *uid) else {
+            self.lsp.signature = None;
+            return;
+        };
+        let here = d.rope.char_to_line(d.primary_sel().head.min(d.len()));
+        if here != *line || !ctx.memory(|m| m.has_focus(editor_id())) || self.overlay.is_some() {
+            self.lsp.signature = None;
+            return;
+        }
+        let Some((x, bottom)) = d.caret_screen else { return };
+        let font = egui::FontId::monospace(self.settings.font_size * 0.92);
+        let row = self.settings.font_size * 1.45;
+        let (fg, accent) = (self.hl.colors.fg, self.hl.colors.accent);
+        egui::Area::new(egui::Id::new("signature"))
+            .order(egui::Order::Foreground)
+            .pivot(Align2::LEFT_BOTTOM)
+            .fixed_pos(egui::pos2(x - 8.0, bottom - row - 2.0))
+            .interactable(false)
+            .show(ctx, |ui| {
+                egui::Frame::popup(ui.style()).inner_margin(egui::Margin::symmetric(8.0, 5.0)).show(ui, |ui| {
+                    ui.set_max_width(560.0);
+                    let mut job = egui::text::LayoutJob::default();
+                    let chars: Vec<char> = label.chars().collect();
+                    let (a, b) = range.unwrap_or((0, 0));
+                    let part = |s: usize, e: usize| chars[s.min(chars.len())..e.min(chars.len())].iter().collect::<String>();
+                    let plain = egui::TextFormat::simple(font.clone(), fg.gamma_multiply(0.8));
+                    let strong = egui::TextFormat { color: accent, underline: egui::Stroke::new(1.0_f32, accent), ..egui::TextFormat::simple(font.clone(), accent) };
+                    job.append(&part(0, a), 0.0, plain.clone());
+                    job.append(&part(a, b), 0.0, strong);
+                    job.append(&part(b, chars.len()), 0.0, plain);
+                    job.wrap.max_width = 560.0;
+                    ui.label(job);
+                    if !doc.is_empty() {
+                        let first: String = doc.lines().take(4).collect::<Vec<_>>().join("\n");
+                        ui.label(egui::RichText::new(first).small().weak());
+                    }
+                });
+            });
+    }
+
     /// Word to look up for "go to definition": the identifier at the cursor, or a quoted dotted
     /// name ('sale.order', 'module.xml_id') when the cursor is in one.
     pub(super) fn definition_word(d: &Document) -> String {
@@ -352,6 +409,9 @@ impl App {
                 }
                 None => self.index_definition(&word),
             },
+            LspReq::Signature { uid, line } => {
+                self.lsp.signature = lsp::parse_signature(&v).map(|(label, range, doc)| (uid, line, label, range, doc));
+            }
             LspReq::Hover { uid, range } => {
                 if self.lsp.hover_pending == Some((uid, range)) {
                     self.lsp.hover_pending = None;

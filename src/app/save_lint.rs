@@ -3,6 +3,42 @@
 use super::*;
 
 impl App {
+    /// Saves by itself the files changed (setting `auto_save`): "focus" when Florm loses the
+    /// focus or another tab is shown, "delay" a second after the last keystroke. Not the new files
+    /// (no name yet), nor those changed on disk meanwhile, nor formatted with ruff while typing.
+    pub(super) fn auto_save(&mut self, ctx: &egui::Context) {
+        let mode = self.settings.auto_save.as_str();
+        if mode != "focus" && mode != "delay" {
+            return;
+        }
+        let focused = ctx.input(|i| i.focused);
+        let shown = self.docs.get(self.active).map_or(0, |d| d.uid);
+        let (was_focused, was_shown) = std::mem::replace(&mut self.auto_save_seen, (focused, shown));
+        let delay = std::time::Duration::from_secs(1);
+        let due: Vec<usize> = (0..self.docs.len())
+            .filter(|&i| {
+                let d = &self.docs[i];
+                let ok = d.is_dirty() && d.path.is_some() && !d.read_only && d.disk_change != Some(document::DiskChange::Changed);
+                ok && match mode {
+                    "focus" => (was_focused && !focused) || (was_shown != shown && d.uid == was_shown),
+                    _ => d.last_change.elapsed() >= delay,
+                }
+            })
+            .collect();
+        if mode == "delay" && self.docs.iter().any(|d| d.is_dirty() && d.path.is_some()) {
+            ctx.request_repaint_after(delay);
+        }
+        // while typing, the trailing spaces stay (the space just typed would go)
+        let format = std::mem::replace(&mut self.settings.format_on_save, false);
+        let trim = self.settings.trim_trailing_whitespace_on_save;
+        self.settings.trim_trailing_whitespace_on_save = trim && mode == "focus";
+        for i in due {
+            self.save(i);
+        }
+        self.settings.format_on_save = format;
+        self.settings.trim_trailing_whitespace_on_save = trim;
+    }
+
     pub(super) fn save(&mut self, idx: usize) -> bool {
         let trim = self.settings.trim_trailing_whitespace_on_save;
         let Some(doc) = self.docs.get_mut(idx) else { return false };

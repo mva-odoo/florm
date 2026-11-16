@@ -83,11 +83,22 @@ impl App {
             item(ui, t!("Indenter", "Indent"), Cmd::Indent);
             item(ui, t!("Désindenter", "Unindent"), Cmd::Unindent);
             item(ui, t!("Trier les lignes", "Sort lines"), Cmd::SortLines);
-            item(ui, t!("MAJUSCULES", "UPPERCASE"), Cmd::UpperCase);
-            item(ui, t!("minuscules", "lowercase"), Cmd::LowerCase);
+            item(ui, t!("Supprimer les lignes en double", "Remove duplicate lines"), Cmd::UniqueLines);
+            ui.menu_button(t!("Casse", "Case"), |ui| {
+                item(ui, t!("MAJUSCULES", "UPPERCASE"), Cmd::UpperCase);
+                item(ui, t!("minuscules", "lowercase"), Cmd::LowerCase);
+                item(ui, "snake_case", Cmd::SnakeCase);
+                item(ui, "camelCase", Cmd::CamelCase);
+                item(ui, t!("Majuscule Au Début", "Title Case"), Cmd::TitleCase);
+            });
+            ui.separator();
+            item(ui, t!("Enregistrer une macro / arrêter", "Record a macro / stop"), Cmd::MacroRecord);
+            item(ui, t!("Rejouer la macro", "Play the macro"), Cmd::MacroPlay);
         });
         ui.menu_button(t!("Sélection", "Selection"), |ui| {
             item(ui, t!("Tout sélectionner", "Select all"), Cmd::SelectAll);
+            item(ui, t!("Élargir la sélection", "Expand selection"), Cmd::ExpandSelection);
+            item(ui, t!("Réduire la sélection", "Shrink selection"), Cmd::ShrinkSelection);
             item(ui, t!("Sélectionner la ligne", "Select line"), Cmd::SelectLine);
             item(ui, t!("Ajouter l'occurrence suivante", "Add next occurrence"), Cmd::SelectNext);
             item(ui, t!("Toutes les occurrences", "All occurrences"), Cmd::SelectAllOccurrences);
@@ -115,6 +126,8 @@ impl App {
             item(ui, t!("Sortie", "Output"), Cmd::ShowOutput);
             item(ui, "Minimap", Cmd::ToggleMinimap);
             item(ui, t!("Retour à la ligne automatique", "Word wrap"), Cmd::ToggleWordWrap);
+            item(ui, t!("Espaces et tabulations visibles", "Visible spaces and tabs"), Cmd::ToggleWhitespace);
+            item(ui, t!("Mode sans distraction", "Distraction-free mode"), Cmd::ToggleZen);
             item(ui, t!("Barre de menus", "Menu bar"), Cmd::ToggleMenuBar);
             ui.separator();
             item(ui, t!("Syntaxe…", "Syntax…"), Cmd::SetSyntax);

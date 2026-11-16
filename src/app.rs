@@ -782,6 +782,8 @@ enum LspReq {
     Rename { name: String },
     /// Tooltip of the symbol at `range` in document `uid`.
     Hover { uid: u64, range: (usize, usize) },
+    /// The parameters of the call being typed in document `uid`, on line `line`.
+    Signature { uid: u64, line: usize },
     References { word: String },
     /// Code actions for the corrections of document `uid`.
     CodeActions { uid: u64 },
@@ -917,6 +919,9 @@ struct LspUi {
     notes: HashMap<String, String>,
     /// Hovered symbol whose tooltip was asked to the server (document uid, range).
     hover_pending: Option<(u64, (usize, usize))>,
+    /// The signature of the call being typed: (document uid, line, label, range of the
+    /// parameter in it, documentation), shown above the cursor.
+    signature: Option<(u64, usize, String, Option<(usize, usize)>, String)>,
 }
 
 pub struct App {
@@ -935,6 +940,13 @@ pub struct App {
     last_active_path: Option<PathBuf>,
     tree: Option<Node>,
     show_sidebar: bool,
+    /// Distraction-free mode: full screen, only the text, centered (Ctrl+K Z).
+    zen: bool,
+    /// The macro being recorded (Ctrl+Alt+Q), and the last one recorded (Ctrl+Shift+Q plays it).
+    macro_rec: Option<Vec<input::MacroStep>>,
+    macro_last: Vec<input::MacroStep>,
+    /// Auto-save: Florm had the focus at the last frame, and the document shown then.
+    auto_save_seen: (bool, u64),
     bottom: Option<BottomTab>,
     /// The exclusions of the settings for the open folder (excluded folders are dimmed in the tree).
     tree_ex: Option<(PathBuf, Vec<String>, crate::walk::Exclusions)>,
@@ -1229,6 +1241,10 @@ impl App {
             last_active_path: None,
             tree: None,
             show_sidebar: true,
+            zen: false,
+            macro_rec: None,
+            macro_last: Vec::new(),
+            auto_save_seen: (true, 0),
             bottom: None,
             tree_ex: None,
             last_bottom: BottomTab::Terminal,
@@ -1611,6 +1627,7 @@ impl eframe::App for App {
         self.quick_fix_keys(ctx);
         self.handle_keys(ctx);
         self.editor_input(ctx);
+        self.auto_save(ctx);
         self.ai_complete_frame(ctx);
         self.update_blame();
         self.update_live_lint(ctx);
@@ -1619,15 +1636,18 @@ impl eframe::App for App {
 
         // Order matters: the sidebar takes the full height, the bottom panels and the
         // tab strip only span the editor area.
-        self.menu_bar(ctx);
-        self.status_bar(ctx);
-        if self.show_sidebar {
-            self.sidebar(ctx);
-        } else {
-            self.sidebar_strip(ctx);
-        }
-        if self.bottom.is_some() {
-            self.bottom_panel(ctx);
+        // distraction-free: only the text
+        if !self.zen {
+            self.menu_bar(ctx);
+            self.status_bar(ctx);
+            if self.show_sidebar {
+                self.sidebar(ctx);
+            } else {
+                self.sidebar_strip(ctx);
+            }
+            if self.bottom.is_some() {
+                self.bottom_panel(ctx);
+            }
         }
         if self.find.open {
             self.find_bar(ctx);
@@ -1645,6 +1665,7 @@ impl eframe::App for App {
         self.claude_poll_all();
         self.claude_take_picks();
         self.completion_popup(ctx);
+        self.signature_popup(ctx);
         self.quick_fix_ui(ctx);
         let (mb, mf) = ctx.input(|i| (i.pointer.button_pressed(egui::PointerButton::Extra1), i.pointer.button_pressed(egui::PointerButton::Extra2)));
         if mb || mf {

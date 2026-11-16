@@ -20,6 +20,8 @@ impl App {
         let events = ctx.input(|i| i.events.clone());
         let mut consumed = vec![false; events.len()];
         let mut cmds = Vec::new();
+        // a chord ending with a plain letter (Ctrl+K Z): its text must not be typed as well
+        let mut chord_letter = false;
         for (i, ev) in events.iter().enumerate() {
             let Event::Key { key, pressed: true, modifiers, .. } = ev else { continue };
             let combo = Combo::from_event(*key, *modifiers);
@@ -55,6 +57,7 @@ impl App {
                         continue;
                     }
                     consumed[i] = true;
+                    chord_letter |= in_chord && !modifiers.ctrl && !modifiers.command && !modifiers.alt;
                     cmds.push(cmd);
                 }
                 // the list of the views is open: Échap closes it, the other keys go to its filter
@@ -82,7 +85,7 @@ impl App {
             .iter()
             .zip(&consumed)
             .any(|(e, used)| *used && matches!(e, Event::Key { modifiers, .. } if modifiers.alt && !modifiers.ctrl && !modifiers.command));
-        if alt_shortcut {
+        if alt_shortcut || chord_letter {
             ctx.input_mut(|i| i.events.retain(|e| !matches!(e, Event::Text(t) if t.chars().count() == 1)));
             // in case the text comes with the next frame
             self.drop_alt_text = Some(Instant::now() + Duration::from_millis(80));
@@ -124,6 +127,17 @@ impl App {
         }
     }
 
+    /// Runs `step` of a macro on the active document.
+    fn macro_step(&mut self, step: &MacroStep) {
+        let auto = self.settings.auto_pair;
+        let Some(d) = self.docs.get_mut(self.active) else { return };
+        match step {
+            MacroStep::Cmd(c) => d.exec(*c, auto),
+            MacroStep::Text(t) => d.insert_text(t, auto),
+            MacroStep::Paste(t) => d.paste(t, false),
+        }
+    }
+
     pub(super) fn editor_input(&mut self, ctx: &egui::Context) {
         if self.overlay.is_some() || self.confirm.is_some() || self.special_shown() || !ctx.memory(|m| m.has_focus(editor_id())) {
             return;
@@ -131,10 +145,17 @@ impl App {
         let events = ctx.input(|i| i.events.clone());
         let auto = self.settings.auto_pair;
         let Some(doc) = self.docs.get_mut(self.active) else { return };
+        let mut want_signature = false;
         for ev in events {
             match ev {
                 Event::Text(t) => {
                     doc.insert_text(&t, auto);
+                    if let Some(rec) = self.macro_rec.as_mut() {
+                        match rec.last_mut() {
+                            Some(MacroStep::Text(prev)) => prev.push_str(&t),
+                            _ => rec.push(MacroStep::Text(t.clone())),
+                        }
+                    }
                     // suggestions after "." or two letters of a word (if a server handles the file)
                     let last = t.chars().last();
                     let word = |c: char| c.is_alphanumeric() || c == '_';
@@ -143,6 +164,12 @@ impl App {
                     let has_server = self.settings.lsp && doc.path.as_deref().and_then(lsp::language_of).is_some();
                     if self.lsp.completion.is_none() && ((has_server && last == Some('.')) || (last.is_some_and(word) && typed)) {
                         self.lsp.complete_at = Some(Instant::now() + Duration::from_millis(120));
+                    }
+                    // the parameters of the call: shown after ( and updated after ,
+                    if has_server && matches!(last, Some('(' | ',')) {
+                        want_signature = true;
+                    } else if last == Some(')') {
+                        self.lsp.signature = None;
                     }
                 }
                 Event::Copy => {
@@ -158,9 +185,15 @@ impl App {
                 Event::Paste(t) => {
                     let lw = self.last_line_copy.as_deref() == Some(t.replace("\r\n", "\n").as_str());
                     doc.paste(&t, lw);
+                    if let Some(rec) = self.macro_rec.as_mut() {
+                        rec.push(MacroStep::Paste(t.clone()));
+                    }
                 }
                 _ => {}
             }
+        }
+        if want_signature {
+            self.request_signature(ctx);
         }
     }
 
@@ -194,12 +227,21 @@ impl App {
             if let Some(d) = self.docs.get_mut(self.active) {
                 d.exec(cmd, auto);
             }
+            if let Some(rec) = self.macro_rec.as_mut() {
+                rec.push(MacroStep::Cmd(cmd));
+            }
             return;
         }
         match cmd {
             Escape => {
+                if self.lsp.signature.take().is_some() {
+                    return;
+                }
                 let peek_open = self.docs.get(self.active).is_some_and(|d| d.peek.is_some());
                 if self.overlay.take().is_some() || self.confirm.take().is_some() {
+                } else if self.zen {
+                    self.zen = false;
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
                 } else if maximize::restore_shown(ctx) {
                 } else if self.showing(document::View::Split) {
                     self.leave_tab(document::View::Split);
@@ -493,6 +535,47 @@ impl App {
                 self.settings.show_minimap = !self.settings.show_minimap;
                 self.persist("show_minimap", self.settings.show_minimap.to_string());
             }
+            ToggleWhitespace => {
+                self.settings.show_whitespace = !self.settings.show_whitespace;
+                self.persist("show_whitespace", self.settings.show_whitespace.to_string());
+            }
+            ToggleZen => {
+                self.zen = !self.zen;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(self.zen));
+                if self.zen {
+                    self.set_status(t!("Mode sans distraction : Échap ou Ctrl+K Z pour en sortir", "Distraction-free mode: Escape or Ctrl+K Z to leave it"));
+                }
+                self.focus_editor(ctx);
+            }
+            MacroRecord => match self.macro_rec.take() {
+                Some(steps) => {
+                    let n = steps.len();
+                    if n > 0 {
+                        self.macro_last = steps;
+                    }
+                    self.set_status(tf!("Macro enregistrée ({n} étapes) : Ctrl+Maj+Q pour la rejouer", "Macro recorded ({n} steps): Ctrl+Shift+Q to play it"));
+                }
+                None => {
+                    self.macro_rec = Some(Vec::new());
+                    self.set_status(t!("Enregistrement de la macro… Ctrl+Alt+Q pour arrêter", "Recording the macro… Ctrl+Alt+Q to stop"));
+                }
+            },
+            MacroPlay => {
+                if self.macro_rec.is_some() {
+                    self.set_status(t!("Arrête d'abord l'enregistrement (Ctrl+Alt+Q)", "Stop the recording first (Ctrl+Alt+Q)"));
+                } else if self.macro_last.is_empty() {
+                    self.set_status(t!("Aucune macro : Ctrl+Alt+Q pour en enregistrer une", "No macro: Ctrl+Alt+Q to record one"));
+                } else if self.docs.get(self.active).is_some_and(|d| d.read_only) {
+                    self.set_status(t!("Fichier en lecture seule", "Read-only file"));
+                } else {
+                    for step in self.macro_last.clone() {
+                        self.macro_step(&step);
+                    }
+                    if let Some(d) = self.docs.get_mut(self.active) {
+                        d.scroll_to_cursor = true;
+                    }
+                }
+            }
             Copy | Cut => {
                 if let Some(d) = self.docs.get_mut(self.active) {
                     let (t, linewise) = if cmd == Cut && !d.read_only { d.cut() } else { d.copy_text() };
@@ -752,4 +835,12 @@ impl App {
             _ => {}
         }
     }
+}
+
+/// A step of a macro: an editor command, typed text, or pasted text.
+#[derive(Clone)]
+pub(super) enum MacroStep {
+    Cmd(Cmd),
+    Text(String),
+    Paste(String),
 }

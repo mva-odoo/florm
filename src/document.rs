@@ -209,6 +209,10 @@ pub struct Document {
     /// Suggestion of the AI completion shown in grey after the cursor: its place (char) and its
     /// text, not part of the file until Tab takes it.
     pub ghost: Option<(usize, String)>,
+    /// Alt+Shift+→: the selections before each widening and after it, so that Alt+Shift+← goes back.
+    expand_stack: Vec<(Vec<Sel>, Vec<Sel>)>,
+    /// Depth of the brackets at the start of each line (for their colors): (version, depths).
+    bracket_depths: Option<(u64, Vec<u32>)>,
 }
 
 pub const NO_PANE: u8 = u8::MAX;
@@ -313,6 +317,132 @@ fn char_class(c: char) -> u8 {
 
 fn is_word(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
+}
+
+/// What the bracket colors skip: strings, and comments to the end of the line.
+struct BracketRules {
+    comment: &'static str,
+    single_quote_strings: bool,
+}
+
+impl BracketRules {
+    fn of(syntax: &str) -> Self {
+        let s = syntax.to_lowercase();
+        let hash = ["python", "shell", "bash", "yaml", "toml", "ruby", "perl", "makefile", "dockerfile", "r"].iter().any(|k| s.contains(k));
+        let comment = if hash { "#" } else if s.contains("sql") || s.contains("lua") || s.contains("haskell") { "--" } else { "//" };
+        // in Rust and the C family a ' is a char or a lifetime, not a string
+        let single_quote_strings = ["python", "javascript", "typescript", "shell", "bash", "sql", "php", "ruby", "yaml", "toml"].iter().any(|k| s.contains(k));
+        BracketRules { comment, single_quote_strings }
+    }
+}
+
+/// The depth after `chars` (one line) starting at `depth`; `out` gets each bracket of it with
+/// its level (char index, level), strings and comments skipped.
+fn scan_brackets(chars: impl Iterator<Item = char>, mut depth: u32, rules: &BracketRules, mut out: Option<&mut Vec<(usize, u32)>>) -> u32 {
+    let cs: Vec<char> = chars.collect();
+    let comment: Vec<char> = rules.comment.chars().collect();
+    let mut quote: Option<char> = None;
+    let mut i = 0;
+    while i < cs.len() {
+        let c = cs[i];
+        if let Some(q) = quote {
+            if c == '\\' {
+                i += 2;
+                continue;
+            }
+            if c == q {
+                quote = None;
+            }
+        } else if c == '"' || c == '`' || (c == '\'' && rules.single_quote_strings) {
+            quote = Some(c);
+        } else if cs[i..].starts_with(&comment) {
+            break;
+        } else if matches!(c, '(' | '[' | '{') {
+            if let Some(o) = out.as_deref_mut() {
+                o.push((i, depth));
+            }
+            depth += 1;
+        } else if matches!(c, ')' | ']' | '}') {
+            depth = depth.saturating_sub(1);
+            if let Some(o) = out.as_deref_mut() {
+                o.push((i, depth));
+            }
+        }
+        i += 1;
+    }
+    depth
+}
+
+/// The words of an identifier: "parseHTTPRequest_id" → parse, HTTP, Request, id.
+fn ident_words(s: &str) -> Vec<String> {
+    let cs: Vec<char> = s.chars().collect();
+    let mut words = Vec::new();
+    let mut cur = String::new();
+    for (i, &c) in cs.iter().enumerate() {
+        if !c.is_alphanumeric() {
+            if !cur.is_empty() {
+                words.push(std::mem::take(&mut cur));
+            }
+            continue;
+        }
+        let prev = i.checked_sub(1).map(|j| cs[j]);
+        let next = cs.get(i + 1).copied();
+        let boundary = c.is_uppercase()
+            && prev.is_some_and(|p| p.is_lowercase() || p.is_ascii_digit() || (p.is_uppercase() && next.is_some_and(|n| n.is_lowercase())));
+        if boundary && !cur.is_empty() {
+            words.push(std::mem::take(&mut cur));
+        }
+        cur.push(c);
+    }
+    if !cur.is_empty() {
+        words.push(cur);
+    }
+    words
+}
+
+/// Each identifier of `s` changed with `f` (its words), the rest kept: punctuation, and the
+/// spaces unless `join_spaces` (words separated by spaces make one identifier then).
+fn per_ident(s: &str, join_spaces: bool, f: impl Fn(Vec<String>) -> String) -> String {
+    let mut out = String::new();
+    let mut ident = String::new();
+    for c in s.chars().chain(std::iter::once('\u{0}')) {
+        if c.is_alphanumeric() || c == '_' || c == '-' || (join_spaces && c == ' ' && !ident.trim().is_empty()) {
+            ident.push(c);
+            continue;
+        }
+        if !ident.is_empty() {
+            // spaces after the last word stay after it
+            let trail = ident.len() - ident.trim_end().len();
+            let words = ident_words(&ident);
+            out.push_str(&if words.is_empty() { ident.clone() } else { f(words) });
+            out.push_str(&" ".repeat(trail));
+            ident.clear();
+        }
+        if c != '\u{0}' {
+            out.push(c);
+        }
+    }
+    out
+}
+
+fn capitalized(w: &str) -> String {
+    let mut c = w.chars();
+    c.next().map(|f| f.to_uppercase().chain(c.flat_map(char::to_lowercase)).collect()).unwrap_or_default()
+}
+
+/// "parseHTTPRequest" → "parse_http_request".
+pub fn snake_case(s: &str) -> String {
+    per_ident(s, true, |w| w.iter().map(|x| x.to_lowercase()).collect::<Vec<_>>().join("_"))
+}
+
+/// "parse_http_request" → "parseHttpRequest".
+pub fn camel_case(s: &str) -> String {
+    per_ident(s, true, |w| w.iter().enumerate().map(|(i, x)| if i == 0 { x.to_lowercase() } else { capitalized(x) }).collect())
+}
+
+/// "le nom du champ" → "Le Nom Du Champ"; an identifier: "parse_http" → "Parse Http".
+pub fn title_case(s: &str) -> String {
+    per_ident(s, false, |w| w.iter().map(|x| capitalized(x)).collect::<Vec<_>>().join(" "))
 }
 
 fn pair_of(c: char) -> Option<char> {
@@ -487,6 +617,8 @@ impl Document {
             zoom: 0.0,
             caret_screen: None,
             ghost: None,
+            expand_stack: Vec::new(),
+            bracket_depths: None,
         }
     }
 
@@ -1090,9 +1222,15 @@ impl Document {
             JoinLines => self.join_lines(),
             InsertLineAfter => self.insert_line(true),
             InsertLineBefore => self.insert_line(false),
-            UpperCase => self.change_case(true),
-            LowerCase => self.change_case(false),
+            UpperCase => self.transform_words(str::to_uppercase),
+            LowerCase => self.transform_words(str::to_lowercase),
+            SnakeCase => self.transform_words(snake_case),
+            CamelCase => self.transform_words(camel_case),
+            TitleCase => self.transform_words(title_case),
             SortLines => self.sort_lines(),
+            UniqueLines => self.unique_lines(),
+            ExpandSelection => self.expand_selection(),
+            ShrinkSelection => self.shrink_selection(),
             GotoBracket => self.goto_bracket(),
             GitNextChange => self.goto_change(true),
             GitPrevChange => self.goto_change(false),
@@ -1736,19 +1874,201 @@ impl Document {
         self.edit(EditKind::Other, items);
     }
 
-    fn change_case(&mut self, upper: bool) {
+    /// Changes the selected text (or the word at each cursor) with `f`: case conversions.
+    fn transform_words(&mut self, f: impl Fn(&str) -> String) {
         let items: Vec<Edit> = self
             .sels
             .iter()
             .map(|s| {
                 let (a, b) = if s.is_empty() { self.word_at(s.head) } else { (s.start(), s.end()) };
-                let t = self.slice(a, b);
-                let t = if upper { t.to_uppercase() } else { t.to_lowercase() };
+                let t = f(&self.slice(a, b));
                 let n = t.chars().count();
                 Edit { start: a, end: b, text: t, anchor: 0, head: n }
             })
             .collect();
         self.edit(EditKind::Other, items);
+    }
+
+    /// Removes the lines seen before in the selection (the whole file without one), the first
+    /// of each kept in its place.
+    fn unique_lines(&mut self) {
+        let nl = self.rope.len_lines();
+        let spans: Vec<(usize, usize)> = if self.sels.iter().all(|s| s.is_empty()) {
+            let last = if nl > 1 && self.line_len(nl - 1) == 0 { nl - 2 } else { nl - 1 };
+            vec![(0, last)]
+        } else {
+            self.sels.iter().zip(self.line_spans()).filter(|(s, _)| !s.is_empty()).map(|(_, sp)| sp).collect()
+        };
+        let edits = spans
+            .into_iter()
+            .map(|(l0, l1)| {
+                let mut seen = std::collections::HashSet::new();
+                let lines: Vec<String> = (l0..=l1).map(|l| self.line_text(l)).filter(|t| seen.insert(t.clone())).collect();
+                let s = self.rope.line_to_char(l0);
+                let e = self.rope.line_to_char(l1) + self.line_len(l1);
+                (s, e, lines.join("\n"))
+            })
+            .collect();
+        self.replace_keep(EditKind::Other, edits);
+    }
+
+    /// Computes the depth of the brackets at the start of each line, once per version (not for
+    /// very large files: no colors there).
+    pub fn ensure_bracket_depths(&mut self) {
+        if self.bracket_depths.as_ref().is_some_and(|(v, _)| *v == self.version) {
+            return;
+        }
+        if self.len() > 2_000_000 {
+            self.bracket_depths = Some((self.version, Vec::new()));
+            return;
+        }
+        let rules = BracketRules::of(&self.syntax);
+        let mut depths = Vec::with_capacity(self.rope.len_lines());
+        let mut d = 0u32;
+        for line in self.rope.lines() {
+            depths.push(d);
+            d = scan_brackets(line.chars(), d, &rules, None);
+        }
+        self.bracket_depths = Some((self.version, depths));
+    }
+
+    /// The brackets of line `l` and their level (0, 1, 2…): (char index in the line, level).
+    /// Empty before `ensure_bracket_depths`, or for a very large file.
+    pub fn bracket_levels(&self, l: usize) -> Vec<(usize, u32)> {
+        let Some(d0) = self.bracket_depths.as_ref().and_then(|(_, d)| d.get(l).copied()) else { return Vec::new() };
+        let mut out = Vec::new();
+        scan_brackets(self.rope.line(l).chars(), d0, &BracketRules::of(&self.syntax), Some(&mut out));
+        out
+    }
+
+    /// Alt+Shift+→: each selection grows to the next unit around it: the word, the inside of
+    /// the string, the string with its quotes, the inside of the brackets, with the brackets, the
+    /// line, the block of the same indentation, the whole text.
+    fn expand_selection(&mut self) {
+        let before = self.sels.clone();
+        let new: Vec<Sel> = before.iter().map(|s| self.expanded(s.start(), s.end()).map_or(*s, |(a, b)| Sel::range(a, b))).collect();
+        if new == before {
+            return;
+        }
+        self.sels = new.clone();
+        self.normalize();
+        self.expand_stack.push((before, self.sels.clone()));
+    }
+
+    /// Alt+Shift+←: back to the selections before the last widening (if nothing moved since).
+    fn shrink_selection(&mut self) {
+        match self.expand_stack.pop() {
+            Some((before, after)) if after == self.sels => {
+                self.sels = before;
+                self.primary = self.primary.min(self.sels.len().saturating_sub(1));
+            }
+            _ => self.expand_stack.clear(),
+        }
+    }
+
+    /// The smallest unit strictly larger than `a..b` (see `expand_selection`).
+    fn expanded(&self, a: usize, b: usize) -> Option<(usize, usize)> {
+        let mut cands: Vec<(usize, usize)> = Vec::new();
+        let (ws, we) = self.word_at(a);
+        if ws <= a && we >= b {
+            cands.push((ws, we));
+        }
+        // the string of the line around it (quotes paired from the start of the line)
+        let line = self.rope.char_to_line(a);
+        let ls = self.rope.line_to_char(line);
+        let text: Vec<char> = self.line_text(line).chars().collect();
+        if self.rope.char_to_line(b) == line {
+            for q in ['"', '\'', '`'] {
+                let mut open: Option<usize> = None;
+                let mut k = 0;
+                while k < text.len() {
+                    if text[k] == '\\' {
+                        k += 2;
+                        continue;
+                    }
+                    if text[k] == q {
+                        match open.take() {
+                            None => open = Some(k),
+                            Some(o) => {
+                                let (qa, qb) = (ls + o, ls + k + 1);
+                                if qa <= a && qb >= b {
+                                    cands.push((qa + 1, qb - 1));
+                                    cands.push((qa, qb));
+                                }
+                            }
+                        }
+                    }
+                    k += 1;
+                }
+            }
+        }
+        // the brackets around it, each level: inside, then with them
+        let mut from = a;
+        for _ in 0..64 {
+            let Some(open) = self.enclosing_open(from) else { break };
+            let Some((_, close)) = self.matching_bracket(open) else { break };
+            if close + 1 < b {
+                break;
+            }
+            cands.push((open + 1, close));
+            cands.push((open, close + 1));
+            if open == 0 {
+                break;
+            }
+            from = open;
+        }
+        // the lines: without their indentation, whole, then the block of the same indentation
+        let (l0, l1) = (line, self.rope.char_to_line(b.max(a + 1) - 1).max(line));
+        let start = self.rope.line_to_char(l0);
+        let indent = self.line_text(l0).chars().take_while(|c| c.is_whitespace()).count();
+        let end = self.rope.line_to_char(l1) + self.line_len(l1);
+        cands.push((start + indent, end));
+        cands.push((start, end));
+        let depth = |l: usize| {
+            let t = self.line_text(l);
+            (!t.trim().is_empty()).then(|| t.chars().take_while(|c| c.is_whitespace()).count())
+        };
+        if let Some(d) = depth(l0) {
+            let nl = self.rope.len_lines();
+            let (mut top, mut bot) = (l0, l1);
+            while top > 0 && depth(top - 1).is_none_or(|x| x >= d) {
+                top -= 1;
+            }
+            while bot + 1 < nl && depth(bot + 1).is_none_or(|x| x >= d) {
+                bot += 1;
+            }
+            cands.push((self.rope.line_to_char(top), self.rope.line_to_char(bot) + self.line_len(bot)));
+        }
+        cands.push((0, self.len()));
+        cands.into_iter().filter(|&(x, y)| x <= a && y >= b && (x, y) != (a, b) && x <= y).min_by_key(|&(x, y)| y - x)
+    }
+
+    /// The opening bracket of the pair around `pos` (before it), if any.
+    fn enclosing_open(&self, pos: usize) -> Option<usize> {
+        const LIMIT: usize = 50_000;
+        let mut depth = [0i32; 3];
+        let mut it = self.rope.chars_at(pos);
+        let mut i = pos;
+        while let Some(ch) = it.prev() {
+            i -= 1;
+            if pos - i > LIMIT {
+                return None;
+            }
+            let k = match ch {
+                '(' | ')' => 0,
+                '[' | ']' => 1,
+                '{' | '}' => 2,
+                _ => continue,
+            };
+            if matches!(ch, ')' | ']' | '}') {
+                depth[k] += 1;
+            } else if depth[k] == 0 {
+                return Some(i);
+            } else {
+                depth[k] -= 1;
+            }
+        }
+        None
     }
 
     fn sort_lines(&mut self) {
@@ -2486,6 +2806,54 @@ mod tests {
 
     fn doc(text: &str) -> Document {
         Document::from_text(1, text, 4, true)
+    }
+
+    #[test]
+    fn brackets_get_their_level() {
+        let mut d = doc("f(a[0], \"(\") {\n    g()\n}\n");
+        d.syntax = "Rust".into();
+        d.ensure_bracket_depths();
+        // the ( in the string is skipped
+        assert_eq!(d.bracket_levels(0), [(1, 0), (3, 1), (5, 1), (11, 0), (13, 0)]);
+        assert_eq!(d.bracket_levels(1), [(5, 1), (6, 1)]);
+        assert_eq!(d.bracket_levels(2), [(0, 0)]);
+    }
+
+    #[test]
+    fn case_conversions() {
+        assert_eq!(snake_case("parseHTTPRequest"), "parse_http_request");
+        assert_eq!(snake_case("my-var, otherOne"), "my_var, other_one");
+        assert_eq!(camel_case("parse_http_request"), "parseHttpRequest");
+        assert_eq!(camel_case("Some Words"), "someWords");
+        assert_eq!(snake_case("Nom du champ"), "nom_du_champ");
+        assert_eq!(title_case("le nom du champ"), "Le Nom Du Champ");
+        assert_eq!(title_case("partner_id"), "Partner Id");
+    }
+
+    #[test]
+    fn unique_lines_keep_the_first() {
+        let mut d = doc("b\na\nb\nc\na\n");
+        d.exec(Cmd::UniqueLines, false);
+        assert_eq!(d.rope.to_string(), "b\na\nc\n");
+    }
+
+    #[test]
+    fn selection_grows_and_shrinks() {
+        let mut d = doc("f(a, \"hello world\")\n");
+        cursors(&mut d, &[7]);
+        let sel = |d: &Document| d.slice(d.sels[0].start(), d.sels[0].end());
+        d.exec(Cmd::ExpandSelection, false);
+        assert_eq!(sel(&d), "hello");
+        d.exec(Cmd::ExpandSelection, false);
+        assert_eq!(sel(&d), "hello world");
+        d.exec(Cmd::ExpandSelection, false);
+        assert_eq!(sel(&d), "\"hello world\"");
+        d.exec(Cmd::ExpandSelection, false);
+        assert_eq!(sel(&d), "a, \"hello world\"");
+        d.exec(Cmd::ExpandSelection, false);
+        assert_eq!(sel(&d), "(a, \"hello world\")");
+        d.exec(Cmd::ShrinkSelection, false);
+        assert_eq!(sel(&d), "a, \"hello world\"");
     }
 
     fn cursors(d: &mut Document, pos: &[usize]) {
