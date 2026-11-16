@@ -41,13 +41,13 @@ fn row(ui: &mut egui::Ui, label: &str, value: impl Into<egui::WidgetText>) -> eg
 /// A group of lines on a light background, under its title.
 fn card(ui: &mut egui::Ui, title: &str, add: impl FnOnce(&mut egui::Ui)) {
     let fill = ui.visuals().faint_bg_color;
-    egui::Frame::none().fill(fill).rounding(10.0).inner_margin(egui::Margin::symmetric(12.0, 10.0)).show(ui, |ui| {
+    egui::Frame::none().fill(fill).rounding(8.0).inner_margin(egui::Margin::symmetric(10.0, 7.0)).show(ui, |ui| {
         ui.set_width(ui.available_width());
-        ui.spacing_mut().item_spacing.y = 6.0;
-        ui.label(RichText::new(title).strong());
+        ui.spacing_mut().item_spacing.y = 4.0;
+        ui.label(RichText::new(title).small().strong().color(ui.visuals().weak_text_color()));
         add(ui);
     });
-    ui.add_space(8.0);
+    ui.add_space(6.0);
 }
 
 /// The panel; what was asked in it (open a memory file, read the MCP servers, allow one…).
@@ -59,7 +59,7 @@ pub(in crate::app) fn session_ui(ui: &mut egui::Ui, c: &mut ClaudeUi, info: &Ses
     let weak = ui.visuals().weak_text_color();
     egui::ScrollArea::vertical().id_salt(("claude_session", c.id)).auto_shrink([false, false]).show(ui, |ui| {
         ui.add_space(4.0);
-        card(ui, t!("Session", "Session"), |ui| {
+        card(ui, t!("Utilisation", "Usage"), |ui| {
             let (tokens, window) = c.context;
             let used = if window > 0 { tokens as f32 / window as f32 } else { 0.0 };
             let value = if window > 0 { format!("{:.0} %  ·  {:.2} $", used * 100.0, c.cost) } else { format!("–  ·  {:.2} $", c.cost) };

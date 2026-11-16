@@ -1377,9 +1377,10 @@ impl App {
         if review_max {
             egui::CentralPanel::default().show_inside(ui, |ui| review_ui(ui, c));
         } else if show_review || turn_shown {
-            // narrower for the session alone: the review needs room for its diffs
-            let width = if side_review { ui.available_width() * 0.5 } else { 300.0 };
-            egui::SidePanel::right(review_id).resizable(true).default_width(width).width_range(260.0..=1400.0).show_inside(ui, |ui| {
+            // each its own width: the review needs room for its diffs, the session little (dragged
+            // wider for the review, the session would stay as wide)
+            let (panel_id, width, range) = if side_review { (review_id, ui.available_width() * 0.5, 260.0..=1400.0) } else { (review_id.with("session"), 230.0, 200.0..=420.0) };
+            egui::SidePanel::right(panel_id).resizable(true).default_width(width).width_range(range).show_inside(ui, |ui| {
                 ui.add_space(4.0);
                 ui.horizontal(|ui| {
                     if ui.selectable_label(!side_review, t!("Session", "Session")).on_hover_text(t!("Contexte, quotas, projet, modèle, mémoire, serveurs MCP", "Context, quotas, project, model, memory, MCP servers")).clicked() && side_review {
