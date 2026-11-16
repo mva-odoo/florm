@@ -600,9 +600,15 @@ panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en
   à Claude**) : son message et son diff, pour partir de ce qu'il fait (« fais pareil pour… »).
 - À droite, **ce que Claude a changé** depuis ton premier message, fichier par fichier et bloc
   par bloc : **✔ Garder** (le bloc quitte la revue et reste dans le fichier) ou **↺ Rejeter**
-  (il est retiré du fichier). Tes propres changements d'avant ne sont pas dedans. **Revue** en haut
-  à droite masque tout ce panneau (même agrandi, ou montrant une seule question) : la conversation
-  reprend toute la largeur.
+  (il est retiré du fichier). Tes propres changements d'avant ne sont pas dedans. Le bouton du
+  panneau en haut à droite le masque (même agrandi, ou montrant une seule question) : la
+  conversation reprend toute la largeur ; **Revue** l'ouvre directement sur la revue.
+- Le panneau de droite a deux onglets : **Revue** (ci-dessus) et **Session**, qui rassemble ce que
+  la conversation utilise : le **contexte** en % et le **coût**, les **quotas** 5 h et 7 j de ton
+  abonnement, le **projet** et sa branche (ou son worktree 🌿), le **modèle** et le **mode** ; puis
+  la **mémoire** (le CLAUDE.md du projet ou le tien, ouvert d'un clic), le nombre d'**agents** et de
+  **commandes**, les **serveurs MCP** (⟳ pour les lire ; coché : Claude utilise leurs outils sans
+  demander) et ce qu'a lu, écrit et coûté la **dernière réponse**.
 - **Ce que fait Claude** : quand rien de nouveau ne s'affiche, une ligne en bas de la conversation
   le dit (« Claude réfléchit… », « Claude prépare Write… », « Claude fait travailler un agent : … »,
   « attend l'API, nouvel essai 2/10 »), avec le temps passé sans nouvelles au-delà de 15 s. Sa

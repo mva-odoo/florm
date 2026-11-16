@@ -73,27 +73,39 @@ pub fn repo_root(dir: &Path) -> Option<PathBuf> {
     stdout(dir, &["rev-parse", "--show-toplevel"]).ok().map(|s| PathBuf::from(s.trim()))
 }
 
-/// Git repositories inside `root` (up to `max_depth` levels), plus the repository
-/// containing `root` when it is a subfolder of one.
+/// The git folder of `repo`: `.git`, or for a worktree / submodule the one its `.git` file names.
+fn git_dir(repo: &Path) -> Option<PathBuf> {
+    let dot = repo.join(".git");
+    if !dot.is_file() {
+        return Some(dot);
+    }
+    let text = std::fs::read_to_string(&dot).ok()?;
+    Some(repo.join(text.trim().strip_prefix("gitdir:")?.trim()))
+}
+
+/// The branch checked out in `repo`, read from its HEAD without running git (cheap enough to
+/// ask at every frame); the short hash of a detached HEAD.
+pub fn head_branch(repo: &Path) -> Option<String> {
+    let head = std::fs::read_to_string(git_dir(repo)?.join("HEAD")).ok()?;
+    let head = head.trim();
+    Some(match head.strip_prefix("ref: refs/heads/") {
+        Some(b) => b.to_string(),
+        None => head.chars().take(8).collect(),
+    })
+}
+
 /// Modification times of the files git rewrites on a commit, checkout, staging, fetch…: when it
 /// changes, the repository was changed (possibly outside Florm, e.g. in a terminal).
 pub fn stamp(repo: &Path) -> Vec<Option<std::time::SystemTime>> {
-    let dot = repo.join(".git");
-    let dir = if dot.is_file() {
-        // worktree / submodule: ".git" is a file "gitdir: <path>"
-        match std::fs::read_to_string(&dot).ok().and_then(|t| t.trim().strip_prefix("gitdir:").map(|p| p.trim().to_string())) {
-            Some(p) => repo.join(p),
-            None => return Vec::new(),
-        }
-    } else {
-        dot
-    };
+    let Some(dir) = git_dir(repo) else { return Vec::new() };
     ["HEAD", "index", "logs/HEAD", "FETCH_HEAD", "ORIG_HEAD", "MERGE_HEAD", "rebase-merge"]
         .iter()
         .map(|f| std::fs::metadata(dir.join(f)).and_then(|m| m.modified()).ok())
         .collect()
 }
 
+/// Git repositories inside `root` (up to `max_depth` levels), plus the repository
+/// containing `root` when it is a subfolder of one.
 pub fn find_repos(root: &Path, max_depth: usize) -> Vec<PathBuf> {
     fn walk(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
         if dir.join(".git").exists() {
@@ -1116,6 +1128,9 @@ mod init_tests {
         add_version(&v, "17.0").unwrap();
         add_version(&v, " saas-18.3 ").unwrap();
         assert_eq!(run(&odoo.join("17.0"), &["rev-parse", "--abbrev-ref", "@{u}"]).unwrap(), "odoo/17.0");
+        // the branch read from HEAD, in the repository and in a worktree
+        assert_eq!(head_branch(&v.main).as_deref(), Some("master"));
+        assert_eq!(head_branch(&odoo.join("17.0")).as_deref(), Some("17.0"));
         assert_eq!(run(&odoo.join("saas-18.3"), &["log", "-1", "--format=%s"]).unwrap(), "saas-18.3");
         assert_eq!(versions(&odoo).unwrap().names, ["17.0", "master", "saas-18.3"]);
         // from the folder, a version or the folder above: the same versions

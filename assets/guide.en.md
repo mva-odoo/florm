@@ -588,9 +588,15 @@ command and your login: no key to set up.
   does (“do the same for…”).
 - On the right, **what Claude changed** since your first message, file by file and block by
   block: **✔ Keep** (the block leaves the review and stays in the file) or **↺ Reject** (it is
-  removed from the file). Your own earlier changes are not in it. **Review** at the top right hides
-  the whole panel (even maximized, or showing one question): the conversation gets its whole width
-  back.
+  removed from the file). Your own earlier changes are not in it. The panel button at the top right
+  hides it (even maximized, or showing one question): the conversation gets its whole width back;
+  **Review** opens it right on the review.
+- The panel on the right has two tabs: **Review** (above) and **Session**, which gathers what the
+  conversation uses: the **context** in % and the **cost**, the **quotas** of your subscription over
+  5 h and 7 d, the **project** and its branch (or its worktree 🌿), the **model** and the **mode**;
+  then the **memory** (the CLAUDE.md of the project or yours, opened in one click), the number of
+  **agents** and **commands**, the **MCP servers** (⟳ to read them; ticked: Claude uses their tools
+  without asking) and what the **last answer** read, wrote and cost.
 - **What Claude is doing**: when nothing new shows, a line at the end of the conversation says it
   (“Claude is thinking…”, “Claude is preparing Write…”, “Claude has an agent at work: …”, “is
   waiting for the API, retry 2/10”), with the time without news past 15 s. Its **Thinking** is

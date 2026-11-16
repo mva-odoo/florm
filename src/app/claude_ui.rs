@@ -20,6 +20,7 @@ mod hub;
 mod live;
 mod review;
 mod send;
+mod session;
 mod store;
 pub(in crate::app) use context::*;
 pub(in crate::app) use hub::*;
@@ -1014,6 +1015,13 @@ impl App {
         let no_limits = Vec::new();
         let limits = self.claude_limits.get(&limits_key).unwrap_or(&no_limits);
         let commands = command_list(&self.claude_commands);
+        let session_info = session::SessionInfo {
+            project: dir_name.clone(),
+            branch: self.claude.dir.as_deref().and_then(git::head_branch),
+            limits,
+            commands: commands.len(),
+            allow,
+        };
         let c = &mut self.claude;
         let cache = &mut self.md_cache;
         let hl = &self.hl;
@@ -1024,6 +1032,9 @@ impl App {
         let queue_id = cid("claude_queue");
         let conv = c.id;
         let (model_before, mode_before) = (c.model, c.mode);
+        // the panel on the right shows the review of the changes (else the session)
+        let side_id = cid("claude_side_review");
+        let mut side_review = ui.data(|d| d.get_temp::<bool>(side_id)).unwrap_or(false);
 
         // ------------------------------------------------ settings of the conversation
         egui::TopBottomPanel::top(bar_id)
@@ -1170,17 +1181,20 @@ impl App {
                         // the conversation gets its whole width back
                         let view = cid("claude_view");
                         let shown = show_review || c.turn_diff.is_some() || maximize::maxed(ui.ctx(), view).is_some();
-                        let text = if !shown && n > 0 { RichText::new(label).color(accent).strong() } else { RichText::new(label) };
-                        let tip = if shown { t!("Masquer la revue des changements : la conversation prend toute la largeur", "Hide the review of the changes: the conversation takes the whole width") } else { t!("Afficher à droite la revue de ce que Claude a changé", "Show on the right the review of what Claude changed") };
+                        let text = if !(shown && side_review) && n > 0 { RichText::new(label).color(accent).strong() } else { RichText::new(label) };
+                        let tip = if shown { t!("Masquer le panneau de droite : la conversation prend toute la largeur", "Hide the panel on the right: the conversation takes the whole width") } else { t!("Afficher à droite la session (contexte, quotas, outils) et la revue des changements", "Show on the right the session (context, quotas, tools) and the review of the changes") };
                         // a panel on the right, filled when shown: like the other layout buttons
                         let b = crate::icons::layout_button(ui, crate::icons::Layout::SidePanel(shown), tip);
-                        let a = ui.add(egui::Label::new(text).sense(Sense::click())).on_hover_text(tip);
-                        if a.clicked() || b.clicked() {
-                            show_review = !shown;
-                            if shown {
-                                close_turn = true;
-                                maximize::restore(ui.ctx(), view);
-                            }
+                        let a = ui.add(egui::Label::new(text).sense(Sense::click())).on_hover_text(t!("La revue de ce que Claude a changé, dans le panneau de droite", "The review of what Claude changed, in the panel on the right"));
+                        // « Revue »: the panel on its review (hidden when it already shows it)
+                        let hide = b.clicked() || (a.clicked() && shown && side_review);
+                        if hide && shown {
+                            show_review = false;
+                            close_turn = true;
+                            maximize::restore(ui.ctx(), view);
+                        } else if b.clicked() || a.clicked() {
+                            show_review = true;
+                            side_review |= a.clicked();
                         }
                         ui.add_space(8.0);
                         // the plan's quota over 5 hours always; over 7 days and the context only
@@ -1235,7 +1249,9 @@ impl App {
         let view = cid("claude_view");
         let review_max = maximize::maxed(ui.ctx(), view) == Some("review");
         let turn_shown = c.turn_diff.is_some();
-        let review_ui = |ui: &mut egui::Ui| {
+        // the changes of one question (± on a message) are in the review
+        side_review |= turn_shown;
+        let mut review_ui = |ui: &mut egui::Ui, c: &mut ClaudeUi| {
             ui.add_space(4.0);
             // the changes of one question (± on a message), instead of the review
             let turn_title = c.turn_diff.as_ref().and_then(|t| match c.items.get(t.item) {
@@ -1328,11 +1344,37 @@ impl App {
                 }
             }
         };
+        // « Session » chosen while the changes of a question were shown: they are closed
+        let mut to_session = false;
         if review_max {
-            egui::CentralPanel::default().show_inside(ui, review_ui);
+            egui::CentralPanel::default().show_inside(ui, |ui| review_ui(ui, c));
         } else if show_review || turn_shown {
-            egui::SidePanel::right(review_id).resizable(true).default_width(ui.available_width() * 0.5).width_range(320.0..=1400.0).show_inside(ui, review_ui);
+            // narrower for the session alone: the review needs room for its diffs
+            let width = if side_review { ui.available_width() * 0.5 } else { 300.0 };
+            egui::SidePanel::right(review_id).resizable(true).default_width(width).width_range(260.0..=1400.0).show_inside(ui, |ui| {
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    if ui.selectable_label(!side_review, t!("Session", "Session")).on_hover_text(t!("Contexte, quotas, projet, modèle, mémoire, serveurs MCP", "Context, quotas, project, model, memory, MCP servers")).clicked() && side_review {
+                        side_review = false;
+                        to_session = true;
+                    }
+                    let n = c.review.as_ref().map_or(0, |d| d.files.len());
+                    let label = if n > 0 { tf!("Revue ({n})", "Review ({n})") } else { t!("Revue", "Review").to_string() };
+                    let text = if n > 0 && !side_review { RichText::new(label).color(accent).strong() } else { RichText::new(label) };
+                    if ui.selectable_label(side_review, text).on_hover_text(t!("Ce que Claude a changé dans les fichiers, bloc par bloc", "What Claude changed in the files, block by block")).clicked() {
+                        side_review = true;
+                    }
+                });
+                ui.separator();
+                if side_review {
+                    review_ui(ui, c);
+                } else if let Some(a) = session::session_ui(ui, c, &session_info, accent) {
+                    tool_act = Some(a);
+                }
+            });
         }
+        close_turn |= to_session;
+        ui.data_mut(|d| d.insert_temp(side_id, side_review));
 
         // ------------------------------------------------ the conversation
         if !review_max {

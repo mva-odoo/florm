@@ -29,6 +29,8 @@ pub(super) struct ToolsUi {
     branch: String,
     /// `@` being typed: what was typed, and the matching files.
     pub(super) mention: (Option<String>, Vec<String>),
+    /// The subagents and the settings files were read (by the panel of the session or ⋯).
+    pub(super) lists_read: bool,
 }
 
 /// The worktree a conversation was started in: the repository it comes from and its branch.
@@ -74,7 +76,7 @@ fn scope_label(k: usize) -> &'static str {
 
 /// The state of an MCP server in words (the check marks of `claude mcp list` are not in the
 /// fonts), and whether it is connected (None: neither, e.g. waiting for approval).
-fn mcp_state(status: &str) -> (String, Option<bool>) {
+pub(super) fn mcp_state(status: &str) -> (String, Option<bool>) {
     if status.contains('\u{2713}') {
         (t!("connecté", "connected").into(), Some(true))
     } else if status.contains('\u{2717}') {
@@ -85,7 +87,7 @@ fn mcp_state(status: &str) -> (String, Option<bool>) {
 }
 
 /// Claude Code's own folder (`~/.claude`, or `CLAUDE_CONFIG_DIR`).
-fn claude_home() -> PathBuf {
+pub(super) fn claude_home() -> PathBuf {
     std::env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from).unwrap_or_else(|| config::home().join(".claude"))
 }
 
@@ -510,6 +512,7 @@ impl App {
             ToolAct::ReadLists => {
                 self.claude.tools.agents = read_agents(dir.as_deref());
                 self.claude.tools.settings = read_settings(dir.as_deref());
+                self.claude.tools.lists_read = true;
             }
         }
     }
