@@ -216,13 +216,9 @@ impl App {
                 }
             })
             .collect();
-        // by project, the one used last at the top; in each, the newest at the top
-        let mut latest: HashMap<String, u64> = HashMap::new();
-        for r in &rows {
-            let e = latest.entry(r.project.clone()).or_insert(r.id);
-            *e = (*e).max(r.id);
-        }
-        rows.sort_by_key(|r| (std::cmp::Reverse(latest[&r.project]), std::cmp::Reverse(r.id)));
+        // the newest at the top: its project is on its second line (headers per project took a
+        // line each)
+        rows.sort_by_key(|r| std::cmp::Reverse(r.id));
         let dark = ui.visuals().dark_mode;
         let mut act = None;
         ui.add_space(6.0);
@@ -236,28 +232,12 @@ impl App {
         });
         ui.add_space(4.0);
         egui::ScrollArea::vertical().id_salt(("claude_list", hub)).auto_shrink([false, false]).show(ui, |ui| {
-            let mut last_project: Option<&str> = None;
+            // close rows: more conversations in sight
+            ui.spacing_mut().item_spacing.y = 2.0;
             for r in &rows {
-                // the project above its conversations, in its color
-                if last_project != Some(r.project.as_str()) {
-                    if last_project.is_some() {
-                        ui.add_space(6.0);
-                    }
-                    last_project = Some(r.project.as_str());
-                    let color = project_color(&r.project, dark);
-                    let n = rows.iter().filter(|x| x.project == r.project).count();
-                    ui.horizontal(|ui| {
-                        let (dot, _) = ui.allocate_exact_size(egui::vec2(10.0, 10.0), Sense::hover());
-                        ui.painter().circle_filled(dot.center(), 4.5, color);
-                        let name = if r.project.is_empty() { t!("(sans dossier)", "(no folder)").to_string() } else { r.project.clone() };
-                        ui.add(egui::Label::new(RichText::new(name).strong().size(13.5).color(color)).truncate());
-                        ui.label(RichText::new(format!("{n}")).small().color(weak));
-                    });
-                    ui.add_space(2.0);
-                }
                 let shown = r.tab == Some(hub);
-                // its branch (or worktree) and account, what it costs (the project is above; how
-                // long it has been working is on the right of its title)
+                // its branch (or worktree) and account, what it costs, after its project (how long
+                // it has been working is on the right of its title)
                 let mut parts: Vec<String> = Vec::new();
                 if !r.place.is_empty() {
                     parts.push(r.place.clone());
@@ -272,7 +252,8 @@ impl App {
                     None => parts.push(t!("panneau du bas", "bottom panel").into()),
                 }
                 let info = parts.join(" · ");
-                let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), if info.is_empty() { 34.0 } else { 46.0 }), Sense::click());
+                let project_name = if r.project.is_empty() { t!("(sans dossier)", "(no folder)").to_string() } else { r.project.clone() };
+                let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 40.0), Sense::click());
                 let v = ui.visuals();
                 if shown {
                     // a light tint of the accent: the folder and the cost stay readable on it
@@ -293,13 +274,13 @@ impl App {
                     ConvState::Idle => ("·", weak),
                 };
                 let p = ui.painter().with_clip_rect(rect.shrink2(egui::vec2(4.0, 2.0)));
-                p.text(rect.left_top() + egui::vec2(10.0, 8.0), Align2::LEFT_TOP, icon, egui::FontId::proportional(13.0), color);
+                p.text(rect.left_top() + egui::vec2(10.0, 5.0), Align2::LEFT_TOP, icon, egui::FontId::proportional(13.0), color);
                 let strong = r.state != ConvState::Idle || shown;
                 let title_color = if strong { v.strong_text_color() } else { v.text_color() };
                 let close_zone = resp.hovered() || shown;
                 // how long it has been working, on the right of its title (where × shows on hover)
                 let since = r.since.map(short_duration).filter(|_| !close_zone);
-                let title_y = if info.is_empty() { 9.0 } else { 7.0 };
+                let title_y = 4.0;
                 let since_w = match &since {
                     Some(s) => p.text(egui::pos2(rect.right() - 8.0, rect.top() + title_y + 1.0), Align2::RIGHT_TOP, s, egui::FontId::proportional(11.5), color).width() + 8.0,
                     None => 0.0,
@@ -317,13 +298,16 @@ impl App {
                     r.title.clone()
                 };
                 p.text(rect.left_top() + egui::vec2(28.0, title_y), Align2::LEFT_TOP, title, egui::FontId::proportional(13.5), title_color);
+                // its project in its color, then the rest
+                let below = rect.left_top() + egui::vec2(28.0, 22.0);
+                let pr = p.text(below, Align2::LEFT_TOP, format!("● {project_name}"), egui::FontId::proportional(11.5), project_color(&r.project, dark));
                 if !info.is_empty() {
-                    p.text(rect.left_top() + egui::vec2(28.0, 26.0), Align2::LEFT_TOP, info, egui::FontId::proportional(11.5), weak);
+                    p.text(egui::pos2(pr.right(), below.y), Align2::LEFT_TOP, format!(" · {info}"), egui::FontId::proportional(11.5), weak);
                 }
                 // × on the hovered row: close it
                 let mut on_close = false;
                 if close_zone {
-                    let x = egui::Rect::from_center_size(egui::pos2(rect.right() - 14.0, rect.top() + 15.0), egui::vec2(18.0, 18.0));
+                    let x = egui::Rect::from_center_size(egui::pos2(rect.right() - 14.0, rect.top() + 12.0), egui::vec2(18.0, 18.0));
                     let xr = ui.interact(x, ui.id().with(("conv_close", r.id)), Sense::click());
                     on_close = xr.hovered();
                     p.text(x.center(), Align2::CENTER_CENTER, "×", egui::FontId::proportional(14.0), if xr.hovered() { err() } else { weak });
@@ -356,7 +340,6 @@ impl App {
                         ui.close_menu();
                     }
                 });
-                ui.add_space(2.0);
             }
         });
         act
@@ -479,3 +462,4 @@ mod glyph_tests {
         assert!(missing.is_empty(), "{missing:?}");
     }
 }
+
