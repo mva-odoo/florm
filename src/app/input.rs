@@ -387,6 +387,7 @@ impl App {
             SuggestCommit => self.suggest_commit_message(),
             ClaudeAddSelection => self.claude_attach_selection(false),
             ClaudeAsk => self.claude_attach_selection(true),
+            ClaudeScreenshot => self.screenshot_for_claude(Duration::ZERO),
             ClaudeInline => self.inline_ai_open(),
             AiComplete => self.ai_complete_now(),
             ToggleAiComplete => self.ai_complete_toggle(),

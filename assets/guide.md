@@ -562,6 +562,11 @@ panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en
   montre la revue), la jauge **5 h** du quota de ton abonnement est en haut à droite ; celles de
   **7 j** et du **Contexte** n'y apparaissent qu'au-delà de 70 %. Le survol de la jauge 5 h les
   montre toutes les trois, avec quand le quota repart à zéro.
+- **Capture de Florm** : **Ctrl+Alt+I**, depuis n'importe quelle vue (une pull request, un
+  fichier, les préférences…), prend une image de la fenêtre de Florm telle qu'elle est et la joint
+  au prochain message de la conversation Claude : pas besoin de changer d'écran ni de revenir sur
+  Claude. Aussi dans **+ Contexte → Capture de Florm**, ou **… dans 3 s** pour avoir le temps
+  d'aller sur la vue à montrer. Florm prend l'image lui-même : aucune autorisation du système.
 - **Images** : une image part avec le message, réduite à 1568 pixels pour coûter moins de tokens.
   Trois façons de la donner : la coller avec Ctrl+V (une image copiée), la glisser depuis le
   gestionnaire de fichiers sur la conversation, ou **+ Contexte → Image ou PDF…**. Plusieurs images

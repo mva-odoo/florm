@@ -984,6 +984,8 @@ impl App {
         // an image file dropped on it goes with the next message (seen at the next frame)
         self.claude.drop_area = Some((ui.ctx().cumulative_pass_nr(), ui.max_rect()));
         let mut answer: Option<String> = None;
+        // « + Contexte → Capture de Florm »: now, or in a few seconds (to go to the view to show)
+        let mut shot: Option<Duration> = None;
         let (mut tool_act, mut mem_act, mut mode_cycle) = (None, None, false);
         let (mut fold, mut fold_all, mut turn_req, mut rewind, mut close_turn, mut turn_click) = (None, None, None, None, false, None);
         // `@` being typed in the field: the files of the project matching it
@@ -1784,6 +1786,15 @@ impl App {
                                 });
                             });
                             ui.separator();
+                            if ui.button(t!("Capture de Florm", "Picture of Florm")).on_hover_text(t!("La fenêtre de Florm telle qu'elle est, en image (aussi : Ctrl+Alt+I depuis n'importe quelle vue, sans revenir ici)", "Florm's window as it is, as a picture (also: Ctrl+Alt+I from any view, without coming back here)")).clicked() {
+                                shot = Some(Duration::ZERO);
+                                ui.close_menu();
+                            }
+                            if ui.button(t!("Capture de Florm dans 3 s", "Picture of Florm in 3 s")).on_hover_text(t!("Le temps d'aller sur la vue à montrer (une pull request, un fichier…) : elle est capturée là", "The time to go to the view to show (a pull request, a file…): it is taken there")).clicked() {
+                                shot = Some(Duration::from_secs(3));
+                                ui.close_menu();
+                            }
+                            ui.separator();
                             ui.label(RichText::new(t!("Aussi : clic droit dans l'éditeur, ou ✳ dans la marge pour des lignes", "Also: right click in the editor, or ✳ in the margin for lines")).small().weak());
                         });
                         if ctx_menu.response.clicked() {
@@ -2338,6 +2349,9 @@ impl App {
                 let id = self.claude.id;
                 self.jobs.spawn(move || JobResult::ClaudeCommits(id, git::stdout(&dir, &["log", "-40", "--format=%H%x1f%h%x1f%s%x1f%cr"]).unwrap_or_default()));
             }
+        }
+        if let Some(delay) = shot {
+            self.screenshot_for_claude(delay);
         }
         if let Some(w) = ctx_add {
             self.claude_add_context(w);
