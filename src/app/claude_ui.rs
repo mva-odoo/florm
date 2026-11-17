@@ -2041,8 +2041,23 @@ impl App {
                             let describe = |v: &str| models.iter().find(|m| m.value == v).map(|m| m.description.clone()).unwrap_or_default();
                             // light pills, without the arrows of a list (right to left: model, effort, mode)
                             let pill_fill = icons::mix(ui.visuals().extreme_bg_color, ui.visuals().text_color(), 0.07);
-                            let pill = |text: String| egui::Button::new(RichText::new(text).small()).rounding(10.0).fill(pill_fill).stroke(egui::Stroke::NONE).min_size(egui::vec2(0.0, 22.0));
-                            egui::menu::menu_custom_button(ui, pill(shown), |ui| {
+                            // their text is drawn by Florm, at a place rounded from the pill's edge: egui
+                            // centers it, and on a half pixel a tiny change between two frames put it a
+                            // pixel up or down (the pills shook while Claude worked)
+                            let (pill_ctx, pill_font, pill_text) = (ui.ctx().clone(), egui::TextStyle::Small.resolve(ui.style()), ui.visuals().widgets.inactive.text_color());
+                            let pad = ui.spacing().button_padding.x;
+                            let pill = |text: String| {
+                                let galley = pill_ctx.fonts(|f| f.layout_no_wrap(text, pill_font.clone(), pill_text));
+                                let button = egui::Button::new("").rounding(10.0).fill(pill_fill).stroke(egui::Stroke::NONE).min_size(egui::vec2(galley.size().x + 2.0 * pad, 22.0));
+                                (button, galley)
+                            };
+                            let pill_label = |ui: &egui::Ui, rect: egui::Rect, galley: std::sync::Arc<egui::Galley>| {
+                                let x = (rect.left() + 0.25).round() + ((rect.width() - galley.size().x) / 2.0).round();
+                                let y = (rect.top() + 0.25).round() + ((rect.height() - galley.size().y) / 2.0).round();
+                                ui.painter().galley(egui::pos2(x, y), galley, pill_text);
+                            };
+                            let (button, galley) = pill(shown);
+                            let r = egui::menu::menu_custom_button(ui, button, |ui| {
                                 ui.set_min_width(220.0);
                                 for (value, label) in choices.iter().filter(|(v, _)| !v.contains('-')) {
                                     let mut r = ui.selectable_value(&mut c.model, value.clone(), label);
@@ -2066,9 +2081,9 @@ impl App {
                                         }
                                     });
                                 }
-                            })
-                            .response
-                            .on_hover_text(tip);
+                            });
+                            pill_label(ui, r.response.rect, galley);
+                            r.response.on_hover_text(tip);
                             // the effort levels of this model (none: no setting); one it does not take goes back to auto
                             let efforts = model_efforts(models, &c.model);
                             if !c.effort.is_empty() && !efforts.contains(&c.effort) {
@@ -2076,7 +2091,8 @@ impl App {
                             }
                             if !efforts.is_empty() {
                                 let ordered: Vec<String> = claude::EFFORTS.iter().map(|(v, _)| v.to_string()).filter(|v| efforts.contains(v)).chain(efforts.iter().filter(|e| !claude::EFFORTS.iter().any(|(v, _)| v == e)).cloned()).collect();
-                                egui::menu::menu_custom_button(ui, pill(tf!("Effort {}", "Effort {}", claude::effort_label(&c.effort))), |ui| {
+                                let (button, galley) = pill(tf!("Effort {}", "Effort {}", claude::effort_label(&c.effort)));
+                                let r = egui::menu::menu_custom_button(ui, button, |ui| {
                                     if ui.selectable_value(&mut c.effort, String::new(), claude::effort_label("")).on_hover_text(t!("Claude Code choisit (son réglage habituel)", "Claude Code chooses (its usual setting)")).clicked() {
                                         ui.close_menu();
                                     }
@@ -2086,19 +2102,20 @@ impl App {
                                             ui.close_menu();
                                         }
                                     }
-                                })
-                                .response
-                                .on_hover_text(t!("Combien Claude réfléchit avant d'agir : plus d'effort, des réponses plus soignées mais plus lentes et plus de quota", "How much Claude thinks before acting: more effort, more careful answers but slower and more quota"));
+                                });
+                                pill_label(ui, r.response.rect, galley);
+                                r.response.on_hover_text(t!("Combien Claude réfléchit avant d'agir : plus d'effort, des réponses plus soignées mais plus lentes et plus de quota", "How much Claude thinks before acting: more effort, more careful answers but slower and more quota"));
                             }
-                            egui::menu::menu_custom_button(ui, pill(claude::label(claude::MODES[c.mode].1).to_string()), |ui| {
+                            let (button, galley) = pill(claude::label(claude::MODES[c.mode].1).to_string());
+                            let r = egui::menu::menu_custom_button(ui, button, |ui| {
                                 for (k, (_, label, tip)) in claude::MODES.iter().enumerate() {
                                     if ui.selectable_value(&mut c.mode, k, claude::label(label)).on_hover_text(claude::label(tip)).clicked() {
                                         ui.close_menu();
                                     }
                                 }
-                            })
-                            .response
-                            .on_hover_text(t!("Maj+Tab dans le champ : mode suivant", "Shift+Tab in the field: next mode"));
+                            });
+                            pill_label(ui, r.response.rect, galley);
+                            r.response.on_hover_text(t!("Maj+Tab dans le champ : mode suivant", "Shift+Tab in the field: next mode"));
                             // what Claude is doing, in the room left (cut, it never pushes the buttons), and
                             // where a message written meanwhile goes: at once, or after
                             if c.busy {
@@ -3063,6 +3080,8 @@ mod tests {
         app.claude.activity = Some("Lecture de src/app/claude_ui.rs".into());
         let working = at(&mut app);
         assert_eq!(idle, working, "the mode's pill moved when Claude started working");
+        // on a whole pixel: on a half one, a tiny change between two frames moved it a pixel up or down
+        assert!(idle.x.fract() == 0.0 && idle.y.fract() == 0.0, "the text of the pill is at {idle:?}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
