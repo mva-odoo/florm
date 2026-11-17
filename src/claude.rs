@@ -398,6 +398,9 @@ pub enum Event {
     Done { error: bool, text: String, cost: f64, window: u64, tokens: Tokens },
     /// Tokens of the conversation the model read for its last message (its context).
     Context(u64),
+    /// The conversation was summarized (/compact, or by itself): the tokens of its context now,
+    /// when Claude Code says them.
+    Compacted(Option<u64>),
     /// Use of the plan's quotas: (window "five_hour" / "seven_day", fraction used, reset time in
     /// unix seconds).
     Limits(Vec<(String, f32, i64)>),
@@ -431,7 +434,11 @@ pub fn parse_line(line: &str) -> Vec<Event> {
         }
         Some("system") => match v["subtype"].as_str() {
             Some("status") if v["status"] == "compacting" => vec![Event::Activity(t!("résume la conversation", "is summarizing the conversation").into())],
-            Some("compact_boundary") => vec![Event::Note(t!("— conversation résumée pour libérer du contexte —", "— conversation summarized to free some context —").into())],
+            Some("compact_boundary") => {
+                let meta = if v["compact_metadata"].is_object() { &v["compact_metadata"] } else { &v["compactMetadata"] };
+                let after = meta["post_tokens"].as_u64().or_else(|| meta["postTokens"].as_u64());
+                vec![Event::Note(t!("— conversation résumée pour libérer du contexte —", "— conversation summarized to free some context —").into()), Event::Compacted(after)]
+            }
             // the subagents run in the background: their state comes apart from their steps
             Some(st @ ("task_started" | "task_progress" | "task_notification")) if v["tool_use_id"].is_string() => {
                 let status = match st {
@@ -1530,7 +1537,10 @@ mod tests {
         assert_eq!(parse_line(whole), vec![Event::Thinking("Je pense.".into())]);
         let retry = r#"{"type":"system","subtype":"api_retry","attempt":2,"max_retries":10,"error_status":529}"#;
         assert!(matches!(parse_line(retry).as_slice(), [Event::Activity(a)] if a.contains("2/10 (529)")));
-        assert!(matches!(parse_line(r#"{"type":"system","subtype":"compact_boundary"}"#).as_slice(), [Event::Note(_)]));
+        assert!(matches!(parse_line(r#"{"type":"system","subtype":"compact_boundary"}"#).as_slice(), [Event::Note(_), Event::Compacted(None)]));
+        // the size of the context after it, as Claude Code writes it in the stream or in its files
+        assert!(matches!(parse_line(r#"{"type":"system","subtype":"compact_boundary","compact_metadata":{"pre_tokens":608978,"post_tokens":15315}}"#).as_slice(), [_, Event::Compacted(Some(15315))]));
+        assert!(matches!(parse_line(r#"{"type":"system","subtype":"compact_boundary","compactMetadata":{"postTokens":9553}}"#).as_slice(), [_, Event::Compacted(Some(9553))]));
         // a subagent's text and its stream stay out
         assert!(parse_line(r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"x"}},"parent_tool_use_id":"t9"}"#).is_empty());
     }

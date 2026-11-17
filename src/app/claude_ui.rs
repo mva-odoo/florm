@@ -625,6 +625,14 @@ impl App {
                     }
                 }
                 Event::Note(t) => items.push(Item::Info(t)),
+                // summarized: the context is small again, the bar « over 60 % » goes (it came back,
+                // the old size kept until the next message)
+                Event::Compacted(after) => {
+                    self.claude.context.0 = after.unwrap_or(0);
+                    self.claude.context_high = false;
+                    self.claude.context_hidden = false;
+                    save = true;
+                }
                 // its session: continued after a restart of Florm
                 Event::Init { session, model, version, commands, terminal } => {
                     if !session.is_empty() {
