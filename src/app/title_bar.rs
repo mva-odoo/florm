@@ -111,11 +111,11 @@ impl App {
         let round = (!maximized || os::window_controls() == Controls::None)
             && os::rounded_window(self.settings.show_menu_bar)
             && os::TRANSPARENT_WINDOW.load(std::sync::atomic::Ordering::Relaxed);
-        let radius = if round { WINDOW_ROUNDING } else { 0.0 };
+        let radius = if round && !crate::highlight::square() { WINDOW_ROUNDING } else { 0.0 };
         let tc = self.hl.tab_colors();
         let r = ctx.screen_rect();
         let p = ctx.layer_painter(egui::LayerId::new(egui::Order::Debug, egui::Id::new("window_border")));
-        if round {
+        if radius > 0.0 {
             p.add(egui::PaintCallback { rect: r, callback: std::sync::Arc::new(clear_corners(radius)) });
         }
         let light = self.hl.is_light();

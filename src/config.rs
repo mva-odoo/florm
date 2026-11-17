@@ -17,8 +17,11 @@ pub struct Settings {
     pub text_softness: f32,
     /// Editor font (a monospaced font installed on the system); empty: the default one.
     pub editor_font: String,
-    /// Interface font; empty: the default one.
+    /// Interface font; empty: the default one (the editor's font with the "square" style).
     pub ui_font: String,
+    /// Look of the interface: "rounded" (cards, rounded corners, shadows) or "square" (straight
+    /// corners, no shadows, the interface in the editor's monospaced font, like a terminal).
+    pub ui_style: String,
     pub show_minimap: bool,
     /// Brackets colored by level of nesting.
     pub rainbow_brackets: bool,
@@ -178,6 +181,7 @@ impl Default for Settings {
             text_softness: 0.0,
             editor_font: String::new(),
             ui_font: String::new(),
+            ui_style: "rounded".into(),
             show_minimap: true,
             rainbow_brackets: true,
             show_whitespace: false,
@@ -266,6 +270,8 @@ text_softness = 0.0
 # polices installées sur le système ; vide = par défaut (Consolas / Segoe UI sous Windows)
 editor_font = ""
 ui_font = ""
+# style de l'interface : "rounded" (coins arrondis, ombres) ou "square" (coins droits, sans ombres, police de l'éditeur partout, comme un terminal)
+ui_style = "rounded"
 show_minimap = true
 # crochets colorés selon leur niveau d'imbrication
 rainbow_brackets = true

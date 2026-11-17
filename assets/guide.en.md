@@ -716,6 +716,11 @@ In the preview (and in Claude's answers), **Mermaid sequence diagrams** (` ```me
 
 ## Appearance
 
+**Style** (Preferences → Appearance): **Rounded** (rounded cards and buttons, shadows under the
+menus) or **Square**: straight corners, no shadows, and the whole interface in the system's
+monospaced font (the terminal's, on Linux the one `fc-match monospace` gives), like a terminal or
+Omarchy. An interface font chosen by hand still wins.
+
 **Preferences → Appearance**: language (Français / English), theme (clickable previews: Florm and
 Florm Light, and Florm Monokai, One Dark, Dracula, GitHub Light after the usual themes of other editors),
 accent color, **softened text** (less “bold” text, useful on light themes), fonts of the editor

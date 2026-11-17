@@ -740,6 +740,11 @@ Florm Light, et Florm Monokai, One Dark, Dracula, GitHub Light d'après les thè
 de l'interface, minimap, fil d'Ariane, **barre de menus** (masquée, les menus restent sous **☰**
 en bas à gauche).
 
+**Style** : **Arrondi** (cartes et boutons arrondis, ombres sous les menus) ou **Carré** : coins
+droits, sans ombres, et toute l'interface dans la police monospace du système (celle du terminal,
+sous Linux celle que donne `fc-match monospace`), comme un terminal ou Omarchy. Une police
+d'interface choisie à la main reste prioritaire.
+
 **Couleurs du thème → Créer un thème à partir de « … »** : toutes les couleurs de l'éditeur
 (fond, texte, accent, curseur, sélection, marge…) et du code (commentaires, mots-clés, chaînes,
 fonctions, classes, balises…, en italique ou non), appliquées tout de suite. **Enregistrer le

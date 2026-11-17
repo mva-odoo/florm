@@ -7,6 +7,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use syntect::highlighting::{Color, HighlightIterator, HighlightState, Highlighter, Theme, ThemeSet};
 use syntect::parsing::{ParseState, ScopeStack, SyntaxSet};
 
+/// The "square" style of the interface (setting `ui_style`): straight corners, no shadows.
+pub static SQUARE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn square() -> bool {
+    SQUARE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 #[derive(Clone, Copy)]
 pub struct Colors {
     pub bg: Color32,
@@ -282,6 +289,21 @@ impl Highlighting {
 
     /// Interface colors (panels, buttons, selection) derived from the editor theme.
     pub fn visuals(&self) -> egui::Visuals {
+        let mut v = self.visuals_rounded();
+        if square() {
+            // straight corners and flat popups, framed by a line instead of a shadow
+            v.window_rounding = Rounding::ZERO;
+            v.menu_rounding = Rounding::ZERO;
+            v.window_shadow = egui::epaint::Shadow::NONE;
+            v.popup_shadow = egui::epaint::Shadow::NONE;
+            for w in [&mut v.widgets.noninteractive, &mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active, &mut v.widgets.open] {
+                w.rounding = Rounding::ZERO;
+            }
+        }
+        v
+    }
+
+    fn visuals_rounded(&self) -> egui::Visuals {
         let c = self.colors;
         let light = c.bg.r() as u32 + c.bg.g() as u32 + c.bg.b() as u32 > 384;
         let shade = |amount: i16| {

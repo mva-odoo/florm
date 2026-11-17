@@ -77,6 +77,28 @@ mod panels;
 mod prefs;
 mod title_bar;
 
+/// The "square" style: every rectangle painted this frame loses its rounded corners (cards,
+/// tabs, buttons, pills…), wherever it was drawn, the round shapes (circles) staying round.
+fn square_shapes(ctx: &egui::Context) {
+    fn flat(s: &mut egui::Shape) {
+        match s {
+            egui::Shape::Rect(r) => r.rounding = egui::Rounding::ZERO,
+            egui::Shape::Vec(v) => v.iter_mut().for_each(flat),
+            _ => {}
+        }
+    }
+    let mut layers: Vec<egui::LayerId> = ctx.memory(|m| m.layer_ids().collect());
+    layers.push(egui::LayerId::background());
+    ctx.graphics_mut(|g| {
+        for id in layers {
+            let Some(list) = g.get_mut(id) else { continue };
+            for k in 0..list.next_idx().0 {
+                list.mutate_shape(egui::layers::ShapeIdx(k), |c| flat(&mut c.shape));
+            }
+        }
+    });
+}
+
 /// The same colors whatever egui thinks the system theme is.
 fn apply_visuals(ctx: &egui::Context, v: egui::Visuals) {
     ctx.set_visuals_of(egui::Theme::Dark, v.clone());
@@ -1224,8 +1246,9 @@ impl App {
         }
         hl.set_overrides(highlight::parse_hex(&settings.accent_color), settings.text_softness);
         history::SIDE_BY_SIDE.store(settings.diff_side_by_side, Ordering::Relaxed);
+        highlight::SQUARE.store(settings.ui_style == "square", Ordering::Relaxed);
         apply_visuals(egui_ctx, hl.visuals());
-        egui_ctx.set_fonts(crate::fonts::definitions(&settings.editor_font, &settings.ui_font));
+        egui_ctx.set_fonts(crate::fonts::definitions(&settings.editor_font, &settings.ui_font, settings.ui_style == "square"));
         egui_extras::install_image_loaders(egui_ctx);
         let (keymap, _) = Keymap::new(&settings.keys, &[]);
         let mut app = App {
@@ -1674,6 +1697,9 @@ impl eframe::App for App {
         self.track_nav();
         self.sync_history_tab();
         self.window_border(ctx);
+        if highlight::square() {
+            square_shapes(ctx);
+        }
         // the button of the diffs changes it for all of them: kept for the next time
         let side = history::side_by_side();
         if side != self.settings.diff_side_by_side {

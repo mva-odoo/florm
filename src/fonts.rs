@@ -151,6 +151,16 @@ pub fn default_editor_font() -> &'static [&'static str] {
     }
 }
 
+/// The monospaced font the system chose (`fc-match monospace`, Linux): what terminals use.
+fn system_monospace() -> Option<String> {
+    if !cfg!(target_os = "linux") {
+        return None;
+    }
+    let out = std::process::Command::new("fc-match").args(["-f", "%{family[0]}", "monospace"]).output().ok()?;
+    let name = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (out.status.success() && !name.is_empty()).then_some(name)
+}
+
 pub fn default_ui_font() -> &'static [&'static str] {
     if cfg!(windows) {
         &["Segoe UI"]
@@ -234,7 +244,8 @@ fn scan_nerd_font() -> Option<PathBuf> {
 }
 
 /// egui fonts with the chosen editor (monospace) and interface fonts first.
-pub fn definitions(editor: &str, ui: &str) -> FontDefinitions {
+/// `mono_ui`: without an interface font of its own, the interface uses the editor's font.
+pub fn definitions(editor: &str, ui: &str, mono_ui: bool) -> FontDefinitions {
     let mut defs = crate::app::font_definitions();
     let load = |names: Vec<&str>| names.into_iter().filter(|n| !n.trim().is_empty()).find_map(|n| {
         let f = find(n.trim())?;
@@ -244,14 +255,29 @@ pub fn definitions(editor: &str, ui: &str) -> FontDefinitions {
         Some(data)
     });
     let editor_names: Vec<&str> = if editor.trim().is_empty() { default_editor_font().to_vec() } else { vec![editor] };
-    if let Some(d) = load(editor_names) {
+    if let Some(d) = load(editor_names.clone()) {
         defs.font_data.insert("user_mono".into(), d);
         defs.families.entry(FontFamily::Monospace).or_default().insert(0, "user_mono".into());
     }
-    let ui_names: Vec<&str> = if ui.trim().is_empty() { default_ui_font().to_vec() } else { vec![ui] };
+    // the "square" style: the editor's font, else the monospaced font of the system (fontconfig)
+    let system = if mono_ui && ui.trim().is_empty() && editor.trim().is_empty() { system_monospace() } else { None };
+    let ui_names: Vec<&str> = if !ui.trim().is_empty() {
+        vec![ui]
+    } else if mono_ui {
+        system.as_deref().map_or_else(|| editor_names.clone(), |s| vec![s])
+    } else {
+        default_ui_font().to_vec()
+    };
     if let Some(d) = load(ui_names) {
         defs.font_data.insert("user_ui".into(), d);
         defs.families.entry(FontFamily::Proportional).or_default().insert(0, "user_ui".into());
+    } else if mono_ui {
+        // no font found: the monospaced fonts of egui for the interface too
+        let mono = defs.families.get(&FontFamily::Monospace).cloned().unwrap_or_default();
+        let prop = defs.families.entry(FontFamily::Proportional).or_default();
+        for (k, f) in mono.into_iter().enumerate() {
+            prop.insert(k, f);
+        }
     }
     if let Some(bytes) = nerd_font_file().and_then(|p| std::fs::read(p).ok()) {
         defs.font_data.insert("nerd_symbols".into(), FontData::from_owned(bytes));
