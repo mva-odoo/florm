@@ -190,7 +190,16 @@ jobs:
           mkdir dmg dist
           mv Florm.app dmg/
           ln -s /Applications dmg/Applications
-          hdiutil create -volname Florm -srcfolder dmg -format UDZO "dist/Florm-${VERSION}-macos-universal.dmg"
+          # « Resource busy » arrive parfois sur les machines de GitHub (un service système tient le
+          # disque quelques secondes) : quelques essais avant d'abandonner
+          dmg="dist/Florm-${VERSION}-macos-universal.dmg"
+          for i in 1 2 3 4 5; do
+            hdiutil create -volname Florm -srcfolder dmg -format UDZO "$dmg" && exit 0
+            echo "hdiutil : essai $i raté, nouvel essai dans $((i * 5)) s"
+            rm -f "$dmg"
+            sleep $((i * 5))
+          done
+          exit 1
       - name: Notarisation
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -209,6 +218,9 @@ jobs:
 
   release:
     needs: [version, linux, arch, windows, macos]
+    # macOS ne bloque pas la version : ses machines manquent parfois (le job est annulé) ; son
+    # fichier s'ajoute ensuite en relançant le job macOS (gh run rerun --failed)
+    if: ${{ !cancelled() && needs.version.result == 'success' && needs.linux.result == 'success' && needs.arch.result == 'success' && needs.windows.result == 'success' }}
     permissions:
       contents: write
     runs-on: ubuntu-latest
@@ -225,7 +237,8 @@ jobs:
           PRERELEASE: ${{ inputs.prerelease }}
         run: |
           tag="v$VERSION"
-          files=$(ls dist/linux/* dist/arch/* dist/windows/* dist/macos/*)
+          # ceux qui sont là (macOS peut manquer, voir plus haut)
+          files=$(ls dist/*/*)
           # vérifiées par Florm avant d'installer une mise à jour (src/update.rs)
           for f in $files; do (cd "$(dirname "$f")" && sha256sum "$(basename "$f")"); done > SHA256SUMS
           files="$files SHA256SUMS"
