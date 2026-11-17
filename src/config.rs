@@ -427,6 +427,17 @@ pub fn make_private() {
 }
 
 /// Data folder (tools installed by Florm, X11 libraries on WSL…).
+#[cfg(test)]
+pub fn data_dir() -> PathBuf {
+    // the tests never read nor write the user's data (the Claude conversations…): next to their
+    // configuration, else in a folder of their own
+    match std::env::var_os("FLORM_CONFIG") {
+        Some(d) => PathBuf::from(d).join("data"),
+        None => std::env::temp_dir().join(format!("florm_test_data_{}", std::process::id())),
+    }
+}
+
+#[cfg(not(test))]
 pub fn data_dir() -> PathBuf {
     #[cfg(windows)]
     if let Some(a) = std::env::var_os("LOCALAPPDATA") {
