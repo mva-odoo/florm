@@ -2013,18 +2013,11 @@ impl App {
                                 ui.painter().text(rect.center(), Align2::CENTER_CENTER, glyph, egui::FontId::proportional(15.0), Color32::WHITE);
                                 resp.clicked() && enabled
                             };
+                            // the round button keeps its place and its size (↑, ■ while Claude works): the
+                            // model, effort and mode do not move when it starts or stops
                             if c.busy {
                                 if send_btn(ui, true, "■", ui.visuals().text_color()) {
                                     stop = true;
-                                }
-                                let tip = t!("Le message attend dans la file et part quand Claude a fini ce qu'il fait (Ctrl+Maj+Entrée)", "The message waits in the queue and goes when Claude is done with what it does (Ctrl+Shift+Enter)");
-                                if ui.add_enabled(has_text, egui::Button::new(t!("⏭ Après", "⏭ After"))).on_hover_text(tip).clicked() {
-                                    send = true;
-                                    later = true;
-                                }
-                                let tip = t!("Envoie le message tout de suite : Claude le lit entre deux étapes et en tient compte dans le travail en cours (Ctrl+Entrée)", "Sends the message at once: Claude reads it between two steps and takes it into account in the work going on (Ctrl+Enter)");
-                                if ui.add_enabled(can_send, egui::Button::new(t!("Envoyer", "Send"))).on_hover_text(tip).clicked() {
-                                    send = true;
                                 }
                             } else if send_btn(ui, can_send, "↑", accent) {
                                 send = true;
@@ -2106,8 +2099,19 @@ impl App {
                             })
                             .response
                             .on_hover_text(t!("Maj+Tab dans le champ : mode suivant", "Shift+Tab in the field: next mode"));
-                            // what Claude is doing, in the room left (cut, it never pushes the buttons)
+                            // what Claude is doing, in the room left (cut, it never pushes the buttons), and
+                            // where a message written meanwhile goes: at once, or after
                             if c.busy {
+                                ui.add_space(8.0);
+                                let tip = t!("Le message attend dans la file et part quand Claude a fini ce qu'il fait (Ctrl+Maj+Entrée)", "The message waits in the queue and goes when Claude is done with what it does (Ctrl+Shift+Enter)");
+                                if ui.add_enabled(has_text, egui::Button::new(t!("⏭ Après", "⏭ After"))).on_hover_text(tip).clicked() {
+                                    send = true;
+                                    later = true;
+                                }
+                                let tip = t!("Envoie le message tout de suite : Claude le lit entre deux étapes et en tient compte dans le travail en cours (Ctrl+Entrée)", "Sends the message at once: Claude reads it between two steps and takes it into account in the work going on (Ctrl+Enter)");
+                                if ui.add_enabled(can_send, egui::Button::new(t!("Envoyer", "Send"))).on_hover_text(tip).clicked() {
+                                    send = true;
+                                }
                                 ui.add_space(8.0);
                                 ui.add(egui::Label::new(RichText::new(working_label(c.activity.as_deref(), c.news)).weak().small()).truncate());
                                 spinner(ui);
@@ -3017,6 +3021,48 @@ mod tests {
         }
         assert!(focused_after_tab, "the field lost the focus with Tab");
         assert!(app.claude.input.starts_with("/co") && app.claude.input.ends_with(" x") && !app.claude.input.contains('\t'), "{:?}", app.claude.input);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The pills of the bottom row (here the mode) stay at the same place when Claude starts working.
+    #[test]
+    fn the_buttons_do_not_move_while_claude_works() {
+        let dir = std::env::temp_dir().join(format!("florm_claude_still_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (conf, proj) = (dir.join("conf"), dir.join("proj"));
+        std::fs::create_dir_all(&conf).unwrap();
+        std::fs::create_dir_all(&proj).unwrap();
+        std::fs::write(conf.join("settings.toml"), "check_updates = false\nlsp = false\n").unwrap();
+        let _lock = config::TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("FLORM_CONFIG", &conf);
+        let ctx = egui::Context::default();
+        let mut app = App::with_ctx(&ctx, Some(proj.clone()));
+        let mut mode = String::new();
+        // where the text of the mode's pill is drawn, after a few frames in the state set
+        let mut at = |app: &mut App| {
+            let mut pos = None;
+            for _ in 0..3 {
+                mode = claude::label(claude::MODES[app.claude.mode].1).to_string();
+                let out = ctx.run(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1100.0, 700.0))), ..Default::default() }, |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| app.claude_show(ui, None));
+                });
+                // the last one drawn: the same text is in the Session card above
+                fn find(shape: &egui::Shape, text: &str) -> Option<egui::Pos2> {
+                    match shape {
+                        egui::Shape::Text(t) if t.galley.text() == text => Some(t.pos),
+                        egui::Shape::Vec(v) => v.iter().rev().find_map(|s| find(s, text)),
+                        _ => None,
+                    }
+                }
+                pos = out.shapes.iter().rev().find_map(|c| find(&c.shape, &mode));
+            }
+            pos.expect("the mode's pill is drawn")
+        };
+        let idle = at(&mut app);
+        app.claude.busy = true;
+        app.claude.activity = Some("Lecture de src/app/claude_ui.rs".into());
+        let working = at(&mut app);
+        assert_eq!(idle, working, "the mode's pill moved when Claude started working");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
