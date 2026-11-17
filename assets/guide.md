@@ -109,7 +109,8 @@ Docker, débogage, problèmes, sortie) ont chacune une seule place**, que tu cho
   et le débogage s'ouvrent en onglet, les autres en bas (`views_in_tab` dans settings.toml).
 - **La barre d'état ne montre que ce qui se passe** : à gauche le bouton du panneau du bas (clic :
   l'afficher ou le masquer, clic droit : ouvrir une vue) ; à droite la branche (**↑** commits à
-  pousser, **↓** à récupérer, **●** fichiers modifiés), puis, seulement quand c'est le cas, Claude
+  pousser, **↓** à récupérer, **●** fichiers modifiés) du dépôt du fichier affiché (il suit les
+  onglets ; un dépôt choisi dans la vue Git reste jusqu'au prochain fichier affiché), puis, seulement quand c'est le cas, Claude
   (**au travail**, ou **✔** quand il a fini : un clic montre la réponse), les conteneurs Docker
   démarrés, le débogage (**en cours** / **en pause**), et les problèmes. Au repos, elle est presque vide.
 - Les Préférences : **Ctrl+,**, le menu ou la palette.

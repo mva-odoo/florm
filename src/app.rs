@@ -969,6 +969,8 @@ pub struct App {
     macro_last: Vec<input::MacroStep>,
     /// Auto-save: Florm had the focus at the last frame, and the document shown then.
     auto_save_seen: (bool, u64),
+    /// The document whose repository was last followed (`follow_file_repo`).
+    repo_followed: u64,
     bottom: Option<BottomTab>,
     /// The exclusions of the settings for the open folder (excluded folders are dimmed in the tree).
     tree_ex: Option<(PathBuf, Vec<String>, crate::walk::Exclusions)>,
@@ -1268,6 +1270,7 @@ impl App {
             macro_rec: None,
             macro_last: Vec::new(),
             auto_save_seen: (true, 0),
+            repo_followed: 0,
             bottom: None,
             tree_ex: None,
             last_bottom: BottomTab::Terminal,
@@ -1553,6 +1556,20 @@ impl App {
         self.reload_plugins();
     }
 
+    /// The repository of the file shown becomes the selected one (status bar, Git view) when
+    /// another tab is shown: the branch at the bottom is the one of the file being edited. A
+    /// repository chosen by hand in the Git view stays until another file is shown.
+    fn follow_file_repo(&mut self) {
+        let Some(d) = self.docs.get(self.active).filter(|d| d.view == document::View::Text) else { return };
+        if d.uid == self.repo_followed {
+            return;
+        }
+        self.repo_followed = d.uid;
+        if let Some(r) = d.path.as_deref().and_then(|p| self.repo_for(p)) {
+            self.select_repo(r);
+        }
+    }
+
     /// The innermost known repository containing `path`.
     fn repo_for(&self, path: &Path) -> Option<PathBuf> {
         self.repos.iter().filter(|r| path.starts_with(r)).max_by_key(|r| r.as_os_str().len()).cloned()
@@ -1695,6 +1712,7 @@ impl eframe::App for App {
             self.nav_go(mb);
         }
         self.track_nav();
+        self.follow_file_repo();
         self.sync_history_tab();
         self.window_border(ctx);
         if highlight::square() {

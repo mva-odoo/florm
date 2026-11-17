@@ -330,7 +330,11 @@ pub fn show(
                 ui.add_space(4.0);
                 // the name on the left (the projects), the actions of the tree on the right
                 ui.horizontal(|ui| {
-                    ui.add_space(4.0);
+                    ui.add_space(2.0);
+                    // the logo, small, before the name of the project
+                    let (logo, _) = ui.allocate_exact_size(egui::vec2(16.0, 16.0), Sense::hover());
+                    crate::logo::paint(ui.painter(), logo, false);
+                    ui.add_space(2.0);
                     let r = ui.add(egui::Label::new(folder_name(root)).sense(Sense::click()).truncate());
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = 0.0;

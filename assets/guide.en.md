@@ -109,7 +109,8 @@ output) each have one place**, which you choose.
   debugger open in a tab, the others at the bottom (`views_in_tab` in settings.toml).
 - **The status bar only shows what is going on**: on the left the button of the bottom panel
   (click: show or hide it, right click: open a view); on the right the branch (**↑** commits to
-  push, **↓** to pull, **●** changed files), then, only when it is the case, Claude (**working**,
+  push, **↓** to pull, **●** changed files) of the repository of the file shown (it follows the
+  tabs; a repository chosen in the Git view stays until the next file shown), then, only when it is the case, Claude (**working**,
   or **✔** when it has finished: a click shows the answer), the running Docker containers, the
   debugger (**running** / **paused**), and the problems. At rest, it is almost empty.
 - The Preferences: **Ctrl+,**, the menu or the palette.
