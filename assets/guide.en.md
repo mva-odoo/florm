@@ -562,7 +562,7 @@ command and your login: no key to set up.
   conversations of that folder (and its subfolders) use it; **📁** changes its configuration
   folder. The quota gauges follow the account of the
   conversation shown.
-- **Output of a running command**: **▸ Output** next to a command that runs (tests…) or was
+- **Output of a running command**: **Show the output** next to a command that runs (tests…) or was
   sent to the background shows what it prints, updated live, with a button to copy it.
 - **Quotas**: in the **Session** tab of the panel on the right. When that panel is hidden (or shows
   the review), the **5 h** gauge of your subscription's quota is at the top right; the **7 d** one

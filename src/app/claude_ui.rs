@@ -2393,6 +2393,7 @@ impl App {
                                     (a, b) if b >= a => Some(b - a),
                                     _ => None,
                                 };
+                                let took_ms = took;
                                 let took = took.map(|ms| RichText::new(duration(ms)).small().weak());
                                 let error = result.as_ref().is_some_and(|(_, e)| *e);
                                 // a command: copied to run it again in a terminal
@@ -2421,8 +2422,16 @@ impl App {
                                     }
                                     let verb_color = if error { err() } else { ui.visuals().text_color() };
                                     let verb = ui.add(egui::Label::new(RichText::new(tool_verb(name)).color(verb_color)).sense(Sense::click()));
-                                    // the room left for the target: the duration and the buttons after it
-                                    let after = 64.0 + if name == "Bash" && (result.is_none() || background) { 90.0 } else { 0.0 };
+                                    // the room left for the target: the duration and the button after it, measured
+                                    // (a fixed guess was too short in a monospace font, and they overlapped)
+                                    let width = |text: &str, style: egui::TextStyle| ui.fonts(|f| f.layout_no_wrap(text.to_string(), style.resolve(ui.style()), Color32::WHITE).size().x);
+                                    let mut after = 8.0;
+                                    if let Some(ms) = took_ms {
+                                        after += width(&duration(ms), egui::TextStyle::Small) + 6.0;
+                                    }
+                                    if name == "Bash" && (result.is_none() || background) {
+                                        after += width(live_label(c.live.open.contains(tool_id.as_str())), egui::TextStyle::Body) + ui.spacing().button_padding.x * 2.0 + 6.0;
+                                    }
                                     let room = (ui.available_width() - after).max(40.0);
                                     let target_color = if error { err() } else { weak };
                                     let target = ui
@@ -2536,8 +2545,11 @@ impl App {
                 let below = out.content_size.y - out.state.offset.y - out.inner_rect.height();
                 if below > 40.0 {
                     let r = out.inner_rect;
-                    let at = egui::Rect::from_min_size(egui::pos2(r.right() - 170.0, r.bottom() - 36.0), egui::vec2(150.0, 26.0));
-                    let b = egui::Button::new(RichText::new(t!("⬇ Dernier message", "⬇ Last message")).strong()).fill(ui.visuals().widgets.inactive.weak_bg_fill).rounding(13.0);
+                    // as wide as its text: a fixed width wrapped it on two lines in a monospace font
+                    let label = RichText::new(t!("⬇ Dernier message", "⬇ Last message")).strong();
+                    let w = ui.fonts(|f| f.layout_no_wrap(label.text().to_string(), egui::TextStyle::Button.resolve(ui.style()), Color32::WHITE).size().x) + 28.0;
+                    let at = egui::Rect::from_min_size(egui::pos2(r.right() - w - 20.0, r.bottom() - 36.0), egui::vec2(w, 26.0));
+                    let b = egui::Button::new(label).fill(ui.visuals().widgets.inactive.weak_bg_fill).rounding(13.0);
                     if ui.put(at, b).on_hover_text(t!("Descendre à la fin de la conversation", "Go down to the end of the conversation")).clicked() {
                         ui.data_mut(|d| d.insert_temp(to_end_id, true));
                         ui.ctx().request_repaint();
@@ -3030,14 +3042,18 @@ fn gauges_tip(ui: &mut egui::Ui, gauges: &[(String, f32, String)], accent: Color
 /// The button that shows (or hides) what command `id` prints.
 fn live_toggle(ui: &mut egui::Ui, live: &mut live::Live, id: &str) {
     let open = live.open.contains(id);
-    let label = if open { t!("▾ Sortie", "▾ Output") } else { t!("▸ Sortie", "▸ Output") };
-    if ui.small_button(label).on_hover_text(t!("Voir ce que la commande affiche, pendant qu'elle tourne", "See what the command prints, while it runs")).clicked() {
+    if ui.small_button(live_label(open)).on_hover_text(t!("Voir ce que la commande affiche, pendant qu'elle tourne", "See what the command prints, while it runs")).clicked() {
         if open {
             live.open.remove(id);
         } else {
             live.open.insert(id.to_string());
         }
     }
+}
+
+/// The label of `live_toggle`: a verb, not an arrow (the line has one already, for its details).
+fn live_label(open: bool) -> &'static str {
+    if open { t!("Masquer la sortie", "Hide the output") } else { t!("Voir la sortie", "Show the output") }
 }
 
 /// What command `id` (started at `start`, unix ms) prints, its end, read again while it runs.

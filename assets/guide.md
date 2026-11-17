@@ -572,7 +572,7 @@ panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en
   « par défaut » sert aux nouvelles conversations et aux messages de commit, descriptions de
   PR et revues. **+ Dossier…** sur un compte : les nouvelles conversations de ce dossier (et
   de ses sous-dossiers) l'utilisent ; **📁** change son dossier de configuration. Les jauges de quota suivent le compte de la conversation affichée.
-- **Sortie d'une commande en cours** : **▸ Sortie** à côté d'une commande qui tourne (des tests…)
+- **Sortie d'une commande en cours** : **Voir la sortie** à côté d'une commande qui tourne (des tests…)
   ou envoyée en arrière-plan montre ce qu'elle affiche, mis à jour en direct, avec un bouton
   pour le copier.
 - **Quotas** : dans l'onglet **Session** du panneau de droite. Quand ce panneau est masqué (ou
