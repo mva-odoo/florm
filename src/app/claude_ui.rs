@@ -2229,7 +2229,23 @@ impl App {
                                 let max_w = (ui.available_width() * 0.85).max(240.0);
                                 let natural = ui.fonts(|f| f.layout_no_wrap(t.lines().max_by_key(|l| l.len()).unwrap_or("").to_string(), egui::TextStyle::Body.resolve(ui.style()), Color32::WHITE).size().x);
                                 let roomy = c.confirm_rewind == Some(k) || !notes.is_empty() || !images.is_empty();
-                                let bubble_w = if roomy { max_w } else { (natural + 28.0).clamp(220.0, max_w) };
+                                // the bar above the text (fold, copy, rewind) must fit too: in a monospace
+                                // font it is wider than a short message, and its buttons covered the label
+                                let header = {
+                                    let width = |s: &str, style: egui::TextStyle| ui.fonts(|f| f.layout_no_wrap(s.to_string(), style.resolve(ui.style()), Color32::WHITE).size().x);
+                                    let fold_label = if folded { t!("▸ Déplier la réponse", "▸ Unfold the answer") } else { t!("▾ Replier la réponse", "▾ Fold the answer") };
+                                    let pad = ui.spacing().button_padding.x * 2.0 + ui.spacing().item_spacing.x;
+                                    let mut w = width(fold_label, egui::TextStyle::Small) + ui.spacing().item_spacing.x;
+                                    w += width(&format!("🗐 {}", t!("Copier", "Copy")), egui::TextStyle::Body).max(width(t!("✔ Copié", "✔ Copied"), egui::TextStyle::Body)) + pad;
+                                    if cp.is_some() {
+                                        w += width("↶", egui::TextStyle::Body) + pad;
+                                    }
+                                    if cp.is_some_and(|p| p.tree.is_some()) {
+                                        w += width("±", egui::TextStyle::Body) + pad;
+                                    }
+                                    w
+                                };
+                                let bubble_w = if roomy { max_w } else { (natural.max(header) + 28.0).clamp(220.0, max_w) };
                                 let text_color = ui.visuals().text_color();
                                 let push = (ui.available_width() - bubble_w).max(0.0);
                                 egui::Frame::none()
