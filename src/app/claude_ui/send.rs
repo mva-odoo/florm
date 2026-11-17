@@ -249,6 +249,8 @@ impl App {
         }
         if self.claude.session.is_none() {
             let (model, effort) = (self.claude.model.clone(), self.claude.effort.clone());
+            let system = self.florm_context(&dir);
+            self.claude.florm_ctx = system.clone();
             let s = &self.settings;
             let perms = claude::permission_args(self.claude.mode, &s.claude_perms, &s.claude_allow, &s.claude_deny, s.claude_budget);
             let ctx = self.egui_ctx.clone();
@@ -260,7 +262,7 @@ impl App {
             let at = self.claude.resume_at.clone().filter(|_| resume.is_some());
             self.claude.started = false;
             let account = self.claude_account_dir(&self.claude.account);
-            match claude::Session::start(&dir, account.as_deref(), &model, &effort, &perms, resume.as_deref(), at.as_deref(), &self.claude.add_dirs, move || ctx.request_repaint()) {
+            match claude::Session::start(&dir, account.as_deref(), &model, &effort, &system, &perms, resume.as_deref(), at.as_deref(), &self.claude.add_dirs, move || ctx.request_repaint()) {
                 Ok(s) => {
                     self.claude.session = Some(s);
                     self.claude.resume_at = None;

@@ -84,6 +84,14 @@ impl App {
         self.jobs.spawn(move || JobResult::DockerList(docker::list(), root.as_deref().map(docker::composes_in).unwrap_or_default()));
     }
 
+    /// The containers of the last listing: (name, image, running); empty before the first one.
+    pub(super) fn docker_containers(&self) -> Vec<(String, String, bool)> {
+        match &self.docker.list {
+            Some(Ok(l)) => l.iter().map(|c| (c.name.clone(), c.image.clone(), c.running())).collect(),
+            _ => Vec::new(),
+        }
+    }
+
     pub(super) fn docker_listed(&mut self, list: Result<Vec<Container>, String>, composes: Vec<docker::Compose>) {
         let d = &mut self.docker;
         d.loading = false;

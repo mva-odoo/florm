@@ -107,6 +107,11 @@ pub(in crate::app) fn session_ui(ui: &mut egui::Ui, c: &mut ClaudeUi, info: &Ses
             };
             row(ui, t!("Modèle", "Model"), model);
             row(ui, t!("Effort", "Effort"), claude::effort_label(&c.effort));
+            // what Florm told Claude of the project (tests, containers, commit rules)
+            if !c.florm_ctx.is_empty() {
+                row(ui, t!("Contexte Florm", "Florm context"), t!("donné ✔", "given ✔").to_string())
+                    .on_hover_text(format!("{}\n\n{}", t!("Ce que Florm a dit à Claude au démarrage :", "What Florm told Claude when it started:"), c.florm_ctx));
+            }
             row(ui, t!("Mode", "Mode"), claude::label(claude::MODES[c.mode].1));
         });
         card(ui, t!("Claude Code", "Claude Code"), |ui| {

@@ -165,6 +165,8 @@ pub(super) struct ClaudeUi {
     pub(super) resume_at: Option<String>,
     /// The messages of the user whose turn is folded (their index).
     pub(super) folded: HashSet<usize>,
+    /// What Florm told Claude of the project when its process started (`florm_context`).
+    pub(super) florm_ctx: String,
     /// The groups of steps (tools, thinking) unfolded: the index of their first item.
     pub(super) open_steps: HashSet<usize>,
     /// The changes of one question, shown instead of the review.

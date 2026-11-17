@@ -585,6 +585,12 @@ command and your login: no key to set up.
   For a screenshot: take it with the system's tool (it
   goes to the clipboard), then Ctrl+V. The image shows as a thumbnail above the field, then in the
   message sent; a click opens it full size.
+- **Florm context**: when Claude starts, Florm tells it what it knows of the project: how to run
+  the **Odoo tests** (the container and command set in the Docker view, the last tags), the
+  **Docker containers**, the **commit message rules** (the project's, else yours) and the branch
+  and version you work on. Claude then runs the tests in the right container, proposes them as
+  boxes to tick after a change, and writes its commits like ✨. The **Session** panel shows what it
+  was told (hover “Florm context”).
 - **Boxes to tick**: when Claude's last answer proposes things to do (`- [ ]`), tick the ones
   you want then **✔ Send my answer**: Claude gets “Ok, go ahead with: …” with what is ticked,
   and “Not for now: …” with the rest.

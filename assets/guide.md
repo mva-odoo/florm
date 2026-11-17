@@ -598,6 +598,12 @@ panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en
   d'écran : prends-la avec l'outil du système (elle va dans le presse-papiers), puis Ctrl+V.
   L'image apparaît en miniature au-dessus du champ, puis dans le message envoyé ; un clic l'ouvre
   en grand.
+- **Contexte Florm** : au démarrage de Claude, Florm lui dit ce qu'il sait du projet : comment
+  lancer les **tests Odoo** (le conteneur et la commande réglés dans la vue Docker, les derniers
+  tags), les **conteneurs Docker**, les **consignes des messages de commit** (celles du projet, sinon
+  les tiennes) et la branche et la version où tu travailles. Claude lance alors les tests dans le
+  bon conteneur, te les propose en cases à cocher après une modification, et écrit ses commits
+  comme ✨. Le panneau **Session** montre ce qui lui a été dit (survol de « Contexte Florm »).
 - **Cases à cocher** : quand la dernière réponse de Claude propose des choses à faire (`- [ ]`),
   coche celles que tu veux puis **✔ Envoyer ma réponse** : Claude reçoit « Ok, tu peux faire : … »
   avec ce qui est coché, et « Pas pour l'instant : … » avec le reste.

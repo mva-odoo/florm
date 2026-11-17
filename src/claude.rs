@@ -21,6 +21,69 @@ pub fn not_installed() -> String {
 /// answers (`Event::Init`, `Event::Model`, shown by `model_name`), so no version is written here.
 pub const MODELS: [(&str, &str); 5] = [("", "Modèle par défaut"), ("opus", "Opus"), ("sonnet", "Sonnet"), ("haiku", "Haiku (rapide)"), ("fable", "Fable")];
 
+/// What Florm knows of the project, given to Claude at the start of each conversation (see
+/// `florm_context`): how the tests are run, the containers, the commit rules, where the user is.
+#[derive(Default)]
+pub struct FlormContext {
+    /// The container of the Odoo tests, the command run in it (`{tags}` for the tags) and the
+    /// last tags run.
+    pub tests: Option<(String, String, Vec<String>)>,
+    /// The Docker containers known: (name, image, running).
+    pub containers: Vec<(String, String, bool)>,
+    /// The rules of the commit messages (the project's, else the user's).
+    pub commit_rules: String,
+    /// The repository of the file shown and its branch.
+    pub repo: Option<(String, String)>,
+    /// The version worked on, among several side by side (odoo/17.0…).
+    pub version: String,
+}
+
+/// The text added to Claude's system prompt (`--append-system-prompt`) from `ctx`, in the
+/// language of the interface; empty when Florm knows nothing worth saying.
+pub fn florm_context(ctx: &FlormContext) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some((container, command, history)) = &ctx.tests {
+        let cmd = if command.trim().is_empty() { crate::odoo_test::DEFAULT_COMMAND } else { command.as_str() };
+        let mut s = tf!(
+            "## Tests Odoo\nLes tests se lancent dans le conteneur Docker `{container}`, pas sur la machine : `docker exec {container} {cmd}` (remplace {{tags}} par les tags, ex. `/sale_stock` ou `/sale_stock:TestClass.test_method`). Après une modification, propose les tests à lancer sous forme de liste à cocher (`- [ ] …`) ; lance-les quand on te le demande.",
+            "## Odoo tests\nThe tests run in the Docker container `{container}`, not on the machine: `docker exec {container} {cmd}` (replace {{tags}} with the tags, e.g. `/sale_stock` or `/sale_stock:TestClass.test_method`). After a change, propose the tests to run as a list to tick (`- [ ] …`); run them when asked."
+        );
+        if !history.is_empty() {
+            s += &tf!("\nDerniers tags lancés : {}.", "\nLast tags run: {}.", history.iter().take(5).map(|t| format!("`{t}`")).collect::<Vec<_>>().join(", "));
+        }
+        parts.push(s);
+    }
+    if !ctx.containers.is_empty() {
+        let list = ctx.containers.iter().map(|(n, img, up)| format!("- `{n}` ({img}){}", if *up { "" } else { t!(", arrêté", ", stopped") })).collect::<Vec<_>>().join("\n");
+        parts.push(tf!("## Conteneurs Docker\n{list}", "## Docker containers\n{list}"));
+    }
+    if !ctx.commit_rules.trim().is_empty() {
+        parts.push(tf!(
+            "## Messages de commit\nQuand tu fais un commit, suis ces consignes :\n{}",
+            "## Commit messages\nWhen you make a commit, follow these rules:\n{}",
+            ctx.commit_rules.trim()
+        ));
+    }
+    let mut here = Vec::new();
+    if let Some((repo, branch)) = &ctx.repo {
+        here.push(tf!("dépôt `{repo}`, branche `{branch}`", "repository `{repo}`, branch `{branch}`"));
+    }
+    if !ctx.version.is_empty() {
+        here.push(tf!("version travaillée : `{}`", "version worked on: `{}`", ctx.version));
+    }
+    if !here.is_empty() {
+        parts.push(tf!("## Où en est l'utilisateur\n{}", "## Where the user is\n{}", here.join(" ; ")));
+    }
+    if parts.is_empty() {
+        return String::new();
+    }
+    let head = t!(
+        "# Contexte de l'éditeur Florm\nL'utilisateur travaille dans l'éditeur Florm, qui te donne ce qu'il sait du projet.",
+        "# Context from the Florm editor\nThe user works in the Florm editor, which gives you what it knows of the project."
+    );
+    format!("{head}\n\n{}", parts.join("\n\n"))
+}
+
 /// A model offered by Claude Code (asked with `list_models`, nothing written here).
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ModelInfo {
@@ -546,7 +609,7 @@ impl Session {
     /// message of it after which it goes on (a copy of it, what came after is left out).
     /// `add_dirs`: folders Claude may use besides `dir`; `account`: the configuration folder of
     /// the account it runs with (None: the usual one).
-    pub fn start(dir: &Path, account: Option<&Path>, model: &str, effort: &str, perms: &[String], resume: Option<&str>, at: Option<&str>, add_dirs: &[std::path::PathBuf], repaint: impl Fn() + Send + 'static) -> Result<Session, String> {
+    pub fn start(dir: &Path, account: Option<&Path>, model: &str, effort: &str, system: &str, perms: &[String], resume: Option<&str>, at: Option<&str>, add_dirs: &[std::path::PathBuf], repaint: impl Fn() + Send + 'static) -> Result<Session, String> {
         let mut args = vec!["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages"];
         args.extend(perms.iter().map(String::as_str));
         if let Some(id) = resume {
@@ -564,6 +627,10 @@ impl Session {
         }
         if !effort.is_empty() {
             args.extend(["--effort", effort]);
+        }
+        // what Florm knows of the project (tests, containers, commit rules): see `florm_context`
+        if !system.is_empty() {
+            args.extend(["--append-system-prompt", system]);
         }
         let mut child = crate::claude_account::command_for(account)
             .args(&args)
@@ -1540,7 +1607,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("a.py"), "x = 1\n").unwrap();
         let perms = permission_args(3, &["edit".into(), "bash".into()], &[], &[], 0.0);
-        let mut s = Session::start(&dir, None, "haiku", "", &perms, None, None, &[], || {}).unwrap();
+        let mut s = Session::start(&dir, None, "haiku", "", "", &perms, None, None, &[], || {}).unwrap();
         s.send("Change x = 1 to x = 2 in a.py with the Edit tool. Then run `touch made.txt` with Bash. Then say done.").unwrap();
         let (mut asked, until) = (Vec::new(), std::time::Instant::now() + std::time::Duration::from_secs(120));
         'run: loop {
@@ -1646,6 +1713,22 @@ mod tests {
         assert_eq!(parse_model_answer("MODELE: gpt", "sonnet").unwrap(), None);
         // no MODELE line at all: an error with the answer
         assert!(parse_model_answer("désolé", "sonnet").is_err());
+    }
+
+    #[test]
+    fn florm_tells_claude_what_it_knows() {
+        assert!(florm_context(&FlormContext::default()).is_empty());
+        let ctx = FlormContext {
+            tests: Some(("odoo-17".into(), String::new(), vec!["/sale".into()])),
+            containers: vec![("odoo-17".into(), "odoo:17".into(), true), ("db".into(), "postgres".into(), false)],
+            commit_rules: "[TAG] Zone : quoi".into(),
+            repo: Some(("odoo".into(), "17.0-fix".into())),
+            version: "17.0".into(),
+        };
+        let t = florm_context(&ctx);
+        // the exact command, in the container, with the tags to fill
+        assert!(t.contains("docker exec odoo-17 odoo --stop-after-init --test-enable --test-tags {tags}"), "{t}");
+        assert!(t.contains("`/sale`") && t.contains("`db` (postgres)") && t.contains("[TAG] Zone : quoi") && t.contains("17.0-fix"));
     }
 
     #[test]
