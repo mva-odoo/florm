@@ -7,6 +7,10 @@ use super::*;
 pub(super) enum MdPart {
     Text(String),
     Code { lang: String, code: String },
+    /// A table (`| a | b |` lines under a `|---|---|` one), cut apart by `blocks`: drawn by Florm,
+    /// its cells wrapped to the width (the viewer's grid does not wrap them, and two of its
+    /// tables in one answer, a code block between, shared their column widths and overlapped).
+    Table { header: Vec<String>, rows: Vec<Vec<String>> },
 }
 
 /// `text` cut around its fenced code blocks (``` or ~~~); a block not closed yet (an answer being
@@ -54,6 +58,162 @@ pub(super) fn parts(text: &str) -> Vec<MdPart> {
     out
 }
 
+/// `parts` with the tables of its texts apart too, to be drawn.
+pub(super) fn blocks(text: &str) -> Vec<MdPart> {
+    let mut out = Vec::new();
+    for part in parts(text) {
+        let MdPart::Text(t) = part else {
+            out.push(part);
+            continue;
+        };
+        let lines: Vec<&str> = t.split('\n').collect();
+        let mut buf = String::new();
+        let mut i = 0;
+        while i < lines.len() {
+            let row = |l: &str| {
+                let t = l.trim();
+                (l.len() - l.trim_start().len() <= 3 && t.starts_with('|')).then(|| table_cells(t))
+            };
+            let header = row(lines[i]);
+            let rule = lines.get(i + 1).and_then(|l| row(l)).filter(|c| !c.is_empty() && c.iter().all(|c| table_rule(c)));
+            let (Some(header), Some(_)) = (header, rule) else {
+                buf.push_str(lines[i]);
+                buf.push('\n');
+                i += 1;
+                continue;
+            };
+            if !buf.trim().is_empty() {
+                out.push(MdPart::Text(std::mem::take(&mut buf)));
+            }
+            buf.clear();
+            i += 2;
+            let mut rows = Vec::new();
+            while let Some(mut cells) = lines.get(i).and_then(|l| row(l)) {
+                cells.resize(header.len(), String::new());
+                rows.push(cells);
+                i += 1;
+            }
+            out.push(MdPart::Table { header, rows });
+        }
+        if !buf.trim().is_empty() {
+            out.push(MdPart::Text(buf));
+        }
+    }
+    out
+}
+
+/// The cells of a table line (`| a | b |`): a `|` in code (`` `a|b` ``) or escaped (`\|`) is text.
+fn table_cells(line: &str) -> Vec<String> {
+    let line = line.trim();
+    let line = line.strip_prefix('|').unwrap_or(line);
+    let line = line.strip_suffix('|').filter(|l| !l.ends_with('\\')).unwrap_or(line);
+    let (mut cells, mut cell, mut code) = (Vec::new(), String::new(), false);
+    let mut chars = line.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' if chars.peek() == Some(&'|') => {
+                cell.push('|');
+                chars.next();
+            }
+            '`' => {
+                code = !code;
+                cell.push(c);
+            }
+            '|' if !code => cells.push(std::mem::take(&mut cell).trim().to_string()),
+            _ => cell.push(c),
+        }
+    }
+    cells.push(cell.trim().to_string());
+    cells
+}
+
+/// A cell of the line under the header: `---`, `:--`, `--:`, `:-:`.
+fn table_rule(cell: &str) -> bool {
+    let c = cell.trim().trim_start_matches(':').trim_end_matches(':');
+    !c.is_empty() && c.chars().all(|c| c == '-')
+}
+
+/// A table: the columns share the width (the narrow ones keep theirs, the others are cut in
+/// proportion and their text wraps), one row out of two on a light background.
+fn table(ui: &mut egui::Ui, cache: &mut egui_commonmark::CommonMarkCache, header: &[String], rows: &[Vec<String>]) {
+    let n = header.len().max(1);
+    let gap = 14.0;
+    let v = ui.visuals().clone();
+    ui.add_space(4.0);
+    egui::Frame::none()
+        .stroke(egui::Stroke::new(1.0_f32, v.widgets.noninteractive.bg_stroke.color))
+        .rounding(4.0)
+        .inner_margin(egui::Margin::symmetric(8.0, 4.0))
+        .show(ui, |ui| {
+            let avail = (ui.available_width() - gap * (n - 1) as f32).max(40.0 * n as f32);
+            // the width of each column on one line (the marks of bold and code left out)
+            let font = egui::TextStyle::Body.resolve(ui.style());
+            let natural: Vec<f32> = (0..n)
+                .map(|k| {
+                    std::iter::once(header).chain(rows.iter().map(|r| r.as_slice())).filter_map(|r| r.get(k)).map(|c| {
+                        let plain: String = c.chars().filter(|c| !matches!(c, '`' | '*')).collect();
+                        ui.fonts(|f| f.layout_no_wrap(plain, font.clone(), Color32::WHITE).size().x) + 6.0
+                    }).fold(20.0_f32, f32::max)
+                })
+                .collect();
+            let widths = column_widths(&natural, avail);
+            let total: f32 = widths.iter().sum::<f32>() + gap * (n - 1) as f32;
+            let stripe = icons::mix(v.panel_fill, v.text_color(), if v.dark_mode { 0.05 } else { 0.035 });
+            let mut line = |ui: &mut egui::Ui, cells: &[String], strong: bool| {
+                ui.horizontal_top(|ui| {
+                    ui.spacing_mut().item_spacing.x = gap;
+                    for (k, w) in widths.iter().enumerate() {
+                        let cell = cells.get(k).map(String::as_str).unwrap_or("");
+                        ui.allocate_ui_with_layout(egui::vec2(*w, 0.0), egui::Layout::top_down(egui::Align::Min), |ui| {
+                            ui.set_width(*w);
+                            if strong {
+                                ui.label(RichText::new(cell.replace(['`', '*'], "")).strong());
+                            } else {
+                                egui_commonmark::CommonMarkViewer::new().show(ui, cache, &autolink(&html_text(cell)));
+                            }
+                        });
+                    }
+                })
+                .response
+                .rect
+            };
+            let head = line(ui, header, true);
+            ui.painter().hline(head.left()..=head.left() + total, head.bottom() + 2.0, v.widgets.noninteractive.bg_stroke);
+            ui.add_space(3.0);
+            for (k, r) in rows.iter().enumerate() {
+                let bg = ui.painter().add(egui::Shape::Noop);
+                let rect = line(ui, r, false);
+                if k % 2 == 1 {
+                    let rect = egui::Rect::from_min_max(egui::pos2(rect.left() - 4.0, rect.top() - 1.0), egui::pos2(rect.left() + total + 4.0, rect.bottom() + 1.0));
+                    ui.painter().set(bg, egui::Shape::rect_filled(rect, 2.0, stripe));
+                }
+            }
+        });
+    ui.add_space(4.0);
+}
+
+/// The widths of columns whose text on one line takes `natural`, in `avail`: all of them when
+/// they fit; else the narrow ones keep theirs and the rest is shared in proportion.
+fn column_widths(natural: &[f32], avail: f32) -> Vec<f32> {
+    if natural.iter().sum::<f32>() <= avail {
+        return natural.to_vec();
+    }
+    let mut kept = vec![false; natural.len()];
+    loop {
+        let free = avail - natural.iter().zip(&kept).filter(|(_, k)| **k).map(|(w, _)| w).sum::<f32>();
+        let wide: Vec<usize> = (0..natural.len()).filter(|i| !kept[*i]).collect();
+        let share = free / wide.len().max(1) as f32;
+        let narrow: Vec<usize> = wide.iter().copied().filter(|i| natural[*i] <= share).collect();
+        if narrow.is_empty() || narrow.len() == wide.len() {
+            let sum: f32 = wide.iter().map(|i| natural[*i]).sum();
+            return (0..natural.len()).map(|i| if kept[i] { natural[i] } else { (free * natural[i] / sum).max(40.0) }).collect();
+        }
+        for i in narrow {
+            kept[i] = true;
+        }
+    }
+}
+
 /// The HTML of `text` written in Markdown, as the viewer leaves HTML out: `<br>`, `<b>`, `<img>`,
 /// `<a href>`, `<details>` / `<summary>`, `<kbd>`…; the tags only around text (`<p align>`, `<div>`…)
 /// taken away, the comments too. Code (blocks and `…`) is left as it is.
@@ -69,6 +229,8 @@ pub(super) fn html_to_md(text: &str) -> String {
                 let fence = if code.contains("```") { "~~~~" } else { "```" };
                 out.push_str(&format!("{fence}{lang}\n{code}\n{fence}\n"));
             }
+            // not made by `parts`
+            MdPart::Table { .. } => {}
         }
     }
     // `parts` ends each piece with a new line
@@ -232,10 +394,14 @@ pub(super) fn autolink(text: &str) -> String {
 
 /// `hl`: to color the code blocks (None: plain).
 pub(super) fn markdown(ui: &mut egui::Ui, cache: &mut egui_commonmark::CommonMarkCache, hl: Option<&Highlighting>, text: &str) {
-    for part in parts(text) {
+    for (k, part) in blocks(text).into_iter().enumerate() {
         match part {
+            // an id of its own: the viewer names what it draws from its place in the text it is given
             MdPart::Text(t) => {
-                egui_commonmark::CommonMarkViewer::new().show(ui, cache, &autolink(&html_text(&t)));
+                ui.push_id(k, |ui| egui_commonmark::CommonMarkViewer::new().show(ui, cache, &autolink(&html_text(&t))));
+            }
+            MdPart::Table { header, rows } => {
+                ui.push_id(k, |ui| table(ui, cache, &header, &rows));
             }
             MdPart::Code { lang, code } if lang.eq_ignore_ascii_case("mermaid") && super::mermaid::show(ui, &code) => {}
             MdPart::Code { lang, code } => code_block(ui, hl, &lang, &code),
@@ -247,11 +413,15 @@ pub(super) fn markdown(ui: &mut egui::Ui, cache: &mut egui_commonmark::CommonMar
 /// keeps the boxes changed by a click, by message (`msg`) and item text: a box starts as its
 /// marker says (`[x]`: ticked).
 pub(super) fn markdown_checks(ui: &mut egui::Ui, cache: &mut egui_commonmark::CommonMarkCache, hl: &Highlighting, text: &str, checks: &mut HashSet<(usize, String)>, msg: usize) {
-    for part in parts(text) {
+    for (k, part) in blocks(text).into_iter().enumerate() {
         let t = match part {
             MdPart::Text(t) => autolink(&t),
             MdPart::Code { lang, code } => {
                 code_block(ui, Some(hl), &lang, &code);
+                continue;
+            }
+            MdPart::Table { header, rows } => {
+                ui.push_id(k, |ui| table(ui, cache, &header, &rows));
                 continue;
             }
         };
@@ -547,5 +717,48 @@ mod tests {
             ]
         );
         assert_eq!(sections("sans titre"), ("sans titre".to_string(), vec![]));
+    }
+
+    #[test]
+    fn tables_apart() {
+        let t = "Avant\n\n| A | `a|b` |\n|:--|--:|\n| 1 | x \\| y |\n| 2 |\n\nAprès\n```sh\nls\n```\n| pas | une table |\n";
+        let b = blocks(t);
+        assert_eq!(b.len(), 5, "{b:?}");
+        assert_eq!(b[0], MdPart::Text("Avant\n\n".into()));
+        // a | in code or escaped stays in its cell; a short row is filled
+        assert_eq!(b[1], MdPart::Table { header: vec!["A".into(), "`a|b`".into()], rows: vec![vec!["1".into(), "x | y".into()], vec!["2".into(), String::new()]] });
+        assert!(matches!(&b[2], MdPart::Text(t) if t.starts_with("\nAprès")));
+        // no line of dashes under it: not a table
+        assert!(matches!(&b[3], MdPart::Code { .. }));
+        assert!(matches!(&b[4], MdPart::Text(t) if t.starts_with("| pas |")));
+        assert_eq!(column_widths(&[50.0, 100.0], 300.0), vec![50.0, 100.0]);
+        // the narrow column keeps its width, the two wide ones share the rest in proportion
+        let w = column_widths(&[50.0, 600.0, 300.0], 350.0);
+        assert_eq!(w[0], 50.0);
+        assert!((w[1] - 200.0).abs() < 0.1 && (w[2] - 100.0).abs() < 0.1, "{w:?}");
+    }
+
+    /// Two wide tables, a code block between (as in an answer of Claude): nothing goes past the
+    /// width, the text after them included.
+    #[test]
+    fn wide_tables_stay_in_the_width() {
+        let long = "une cellule avec beaucoup de texte qui doit revenir à la ligne dans sa colonne ".repeat(3);
+        let text = format!(
+            "| | A | B |\n|---|---|---|\n| Isolation | {long} | `saas create --product syndic` {long} |\n\n```\nPOST /projects\n```\n\n| Ordre | Contenu |\n|---|---|\n| ✓ | {long} |\n\n1. {long}\n"
+        );
+        let ctx = egui::Context::default();
+        let hl = Highlighting::new("Florm", Path::new("/nonexistent"));
+        let mut cache = egui_commonmark::CommonMarkCache::default();
+        let width = 600.0;
+        let mut right = 0.0;
+        for _ in 0..3 {
+            let _ = ctx.run(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 2000.0))), ..Default::default() }, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    markdown(ui, &mut cache, Some(&hl), &text);
+                    right = ui.min_rect().right();
+                });
+            });
+        }
+        assert!(right <= width, "the answer goes to x = {right}, past {width}");
     }
 }

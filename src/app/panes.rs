@@ -379,6 +379,8 @@ impl App {
                                 pending.push_str(&format!("{fence}{lang}\n{code}\n{fence}\n"));
                             }
                             md::MdPart::Text(t) => pending.push_str(&t),
+                            // not made by `parts`
+                            md::MdPart::Table { .. } => {}
                         }
                     }
                     flush(ui, cache, &mut pending);
