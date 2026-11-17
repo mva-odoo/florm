@@ -1231,7 +1231,11 @@ impl App {
             s.spacing.item_spacing = egui::vec2(8.0, 5.0);
             s.spacing.button_padding = egui::vec2(8.0, 3.0);
             s.spacing.interact_size.y = 22.0;
-            s.spacing.menu_margin = egui::Margin::same(8.0);
+            // the menus and tooltips: room around their text, and wide enough before it wraps
+            // (in a monospace font a file name went past the 400 of egui)
+            s.spacing.menu_margin = egui::Margin::symmetric(12.0, 8.0);
+            s.spacing.menu_width = 480.0;
+            s.spacing.tooltip_width = 540.0;
             s.spacing.window_margin = egui::Margin::same(12.0);
             s.spacing.scroll = egui::style::ScrollStyle::floating();
             s.text_styles.insert(TextStyle::Body, FontId::proportional(14.0));

@@ -4,45 +4,86 @@
 use super::*;
 
 impl App {
-    /// The update, at the bottom right of the status bar (next to the version): its menu
-    /// installs or downloads it. Once installed, Florm restarts by itself (see `update`).
+    /// The update, at the bottom right of the status bar (next to the version): a pill of the
+    /// accent color, its card says what is new and installs it. Once installed, Florm restarts
+    /// by itself (see `update`).
     pub(super) fn update_symbol(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-        let link = ui.visuals().hyperlink_color;
+        let accent = self.hl.colors.accent;
+        // a pill, not a link lost among the details of the bar
+        let pill = |text: String| egui::Button::new(RichText::new(text).size(12.0).color(text_on(accent)).strong()).fill(accent).rounding(9.0).min_size(egui::vec2(0.0, 18.0));
         if let (Some(u), true) = (&self.update, self.update_installing) {
             ui.label(RichText::new(tf!("Mise à jour vers Florm {}…", "Updating to Florm {}…", u.version)).weak());
             spinner(ui);
         } else if let (Some(u), true) = (&self.update, self.update_ready.is_some()) {
-            let text = RichText::new(tf!("⟳ Redémarrer (Florm {})", "⟳ Restart (Florm {})", u.version)).color(link);
-            if ui.add(egui::Button::new(text).frame(false)).on_hover_text(t!("La nouvelle version est installée : Florm se relance (fichiers non enregistrés : la question habituelle)", "The new version is installed: Florm restarts (unsaved files: the usual question)")).clicked() {
+            if ui.add(pill(tf!("⟳ Redémarrer pour la {}", "⟳ Restart for {}", u.version))).on_hover_text(t!("La nouvelle version est installée : Florm se relance (fichiers non enregistrés : la question habituelle)", "The new version is installed: Florm restarts (unsaved files: the usual question)")).clicked() {
                 self.restart_for_update(ctx);
             }
         } else if let Some(u) = self.update.clone() {
-            let text = RichText::new(format!("⬆ Florm {}", u.version)).color(link);
-            ui.menu_button(text, |ui| {
-                ui.visuals_mut().override_text_color = None;
-                ui.label(tf!("Nouvelle version (vous avez la {})", "New version (you have {})", crate::update::current()));
-                if ui.button(t!("Installer et redémarrer", "Install and restart")).on_hover_text(t!("Florm télécharge la nouvelle version, la vérifie et remplace celle-ci ; les préférences sont gardées. Sous Linux, un paquet système demande le mot de passe.", "Florm downloads the new version, checks it and replaces this one; the preferences are kept. On Linux, a system package asks for the password.")).clicked() {
-                    self.install_update();
-                    ui.close_menu();
-                }
-                if let Some((name, url)) = &u.file {
-                    if ui.button(tf!("Télécharger {name}", "Download {name}")).on_hover_text(t!("Dans le navigateur ; installez-le comme la première fois : il remplace l'ancienne version, les préférences sont gardées.", "In the browser; install it like the first time: it replaces the old version, the preferences are kept.")).clicked() {
-                        ui.ctx().open_url(egui::OpenUrl::new_tab(url));
-                        ui.close_menu();
-                    }
-                }
-                if ui.button(t!("Notes de version et tous les fichiers", "Release notes and all the files")).clicked() {
-                    ui.ctx().open_url(egui::OpenUrl::new_tab(&u.page));
-                    ui.close_menu();
-                }
-                if ui.button(t!("Masquer", "Hide")).on_hover_text(t!("Jusqu'au prochain démarrage", "Until the next start")).clicked() {
-                    self.update = None;
-                    ui.close_menu();
-                }
-            })
-            .response
-            .on_hover_text(tf!("Florm {} est disponible", "Florm {} is available", u.version));
+            ui.scope(|ui| {
+                ui.spacing_mut().button_padding = egui::vec2(9.0, 0.0);
+                egui::menu::menu_custom_button(ui, pill(tf!("⬆ Mise à jour {}", "⬆ Update {}", u.version)), |ui| self.update_card(ui, &u, accent))
+                    .response
+                    .on_hover_text(t!("Une nouvelle version de Florm : clic pour voir ce qui change et l'installer", "A new version of Florm: click to see what changes and install it"));
+            });
         }
+    }
+
+    /// The card of an update: what it is, the button to install it, what is new, the other ways.
+    fn update_card(&mut self, ui: &mut egui::Ui, u: &crate::update::Update, accent: Color32) {
+        ui.visuals_mut().override_text_color = None;
+        ui.set_width(400.0);
+        ui.spacing_mut().item_spacing.y = 6.0;
+        ui.add_space(2.0);
+        ui.label(RichText::new(tf!("Florm {} est disponible", "Florm {} is available", u.version)).size(16.0).strong());
+        ui.label(RichText::new(tf!("Vous avez la {}. Vos préférences et vos fichiers sont gardés.", "You have {}. Your preferences and files are kept.", crate::update::current())).weak());
+        ui.add_space(4.0);
+        let install = filled_button(t!("Installer et redémarrer", "Install and restart"), accent).min_size(egui::vec2(0.0, 28.0));
+        if ui.add(install).on_hover_text(t!("Florm télécharge la nouvelle version, la vérifie et remplace celle-ci. Sous Linux, un paquet système demande le mot de passe.", "Florm downloads the new version, checks it and replaces this one. On Linux, a system package asks for the password.")).clicked() {
+            self.install_update();
+            ui.close_menu();
+        }
+        if !u.news.is_empty() {
+            ui.add_space(6.0);
+            ui.label(RichText::new(t!("Nouveautés", "What's new")).strong());
+            egui::ScrollArea::vertical().max_height(240.0).auto_shrink([false, true]).show(ui, |ui| {
+                for line in &u.news {
+                    let (tag, text) = news_tag(line);
+                    ui.horizontal_top(|ui| {
+                        // a column of its own for the badges: the texts start at the same place
+                        ui.allocate_ui_with_layout(egui::vec2(74.0, 18.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                            ui.set_width(74.0);
+                            if let Some((label, color)) = tag {
+                                egui::Frame::none().fill(color.gamma_multiply(0.18)).rounding(4.0).inner_margin(egui::Margin::symmetric(5.0, 1.0)).show(ui, |ui| {
+                                    ui.label(RichText::new(label).size(11.0).color(color).strong());
+                                });
+                            }
+                        });
+                        ui.add(egui::Label::new(text).wrap());
+                    });
+                }
+            });
+        }
+        ui.add_space(4.0);
+        ui.separator();
+        // the other ways, quieter: in the browser, or later
+        ui.horizontal_wrapped(|ui| {
+            let link = |ui: &mut egui::Ui, text: &str| ui.add(egui::Button::new(RichText::new(text).small()).frame(false));
+            if link(ui, t!("Notes et fichiers ↗", "Notes and files ↗")).on_hover_text(t!("La page de la version sur GitHub", "The page of the version on GitHub")).clicked() {
+                ui.ctx().open_url(egui::OpenUrl::new_tab(&u.page));
+                ui.close_menu();
+            }
+            if let Some((name, url)) = &u.file {
+                let tip = tf!("{name}, dans le navigateur ; installez-le comme la première fois : il remplace l'ancienne version, les préférences sont gardées.", "{name}, in the browser; install it like the first time: it replaces the old version, the preferences are kept.");
+                if link(ui, t!("Télécharger le fichier ↗", "Download the file ↗")).on_hover_text(tip).clicked() {
+                    ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+                    ui.close_menu();
+                }
+            }
+            if link(ui, t!("Plus tard", "Later")).on_hover_text(t!("Masquée jusqu'au prochain démarrage", "Hidden until the next start")).clicked() {
+                self.update = None;
+                ui.close_menu();
+            }
+        });
     }
 
     pub(in crate::app) fn status_bar(&mut self, ctx: &egui::Context) {
@@ -429,4 +470,15 @@ fn state_chip(ui: &mut egui::Ui, icon: icons::ViewIcon, text: &str, color: Color
     icons::paint_view(ui.painter(), egui::pos2(rect.left() + 10.0, rect.center().y), icon, color);
     ui.painter().galley(egui::pos2(rect.left() + 20.0, rect.center().y - galley.size().y / 2.0), galley, color);
     r
+}
+
+/// The badge of a news line (`[ADD] Zone : …`: Nouveau, accent) and its text without the tag.
+fn news_tag(line: &str) -> (Option<(&'static str, Color32)>, &str) {
+    let tags = [("[ADD]", t!("Nouveau", "New"), Color32::from_rgb(0x6c, 0x9e, 0xf8)), ("[IMP]", t!("Amélioré", "Improved"), ok()), ("[FIX]", t!("Corrigé", "Fixed"), warn())];
+    for (tag, label, color) in tags {
+        if let Some(rest) = line.strip_prefix(tag) {
+            return (Some((label, color)), rest.trim());
+        }
+    }
+    (None, line)
 }

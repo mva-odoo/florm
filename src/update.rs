@@ -23,6 +23,9 @@ pub struct Update {
     pub file: Option<(String, String)>,
     /// Every file of the release: (name, download address).
     pub assets: Vec<(String, String)>,
+    /// What changed since this Florm: the subjects of the commits (`[FIX] Zone : …`), newest
+    /// first; empty when GitHub did not say.
+    pub news: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -56,7 +59,37 @@ pub fn check() -> Result<Option<Update>, String> {
         return Err(tf!("Recherche de mise à jour impossible : {}", "Cannot check for an update: {}", String::from_utf8_lossy(&out.stderr).trim()));
     }
     let releases: Vec<Release> = serde_json::from_slice(&out.stdout).map_err(|e| tf!("Réponse de GitHub illisible : {e}", "Unreadable answer from GitHub: {e}"))?;
-    Ok(newest(releases, current(), &file_kind()))
+    let mut u = newest(releases, current(), &file_kind());
+    if let Some(u) = u.as_mut() {
+        u.news = news(current(), &u.version);
+    }
+    Ok(u)
+}
+
+/// The subjects of the commits between version `from` and `to` (see `news_of`); empty when
+/// GitHub cannot be asked (the update is shown all the same).
+fn news(from: &str, to: &str) -> Vec<String> {
+    let url = format!("https://api.github.com/repos/mva-odoo/florm/compare/v{from}...v{to}");
+    let out = crate::os::command("curl").args(["-fsSL", "--max-time", "15", "-H", "Accept: application/vnd.github+json", &url]).stdin(Stdio::null()).output();
+    match out {
+        Ok(o) if o.status.success() => news_of(&o.stdout),
+        _ => Vec::new(),
+    }
+}
+
+/// The first lines of the commits of a GitHub comparison that say what changed for the user
+/// (`[ADD]`, `[IMP]`, `[FIX]`), newest first, each once.
+fn news_of(json: &[u8]) -> Vec<String> {
+    let Ok(v) = serde_json::from_slice::<serde_json::Value>(json) else { return Vec::new() };
+    let mut out: Vec<String> = Vec::new();
+    for c in v["commits"].as_array().into_iter().flatten().rev() {
+        let subject = c["commit"]["message"].as_str().unwrap_or("").lines().next().unwrap_or("").trim().to_string();
+        if ["[ADD]", "[IMP]", "[FIX]"].iter().any(|t| subject.starts_with(t)) && !out.contains(&subject) {
+            out.push(subject);
+        }
+    }
+    out.truncate(40);
+    out
 }
 
 fn newest(releases: Vec<Release>, current: &str, kind: &str) -> Option<Update> {
@@ -66,7 +99,7 @@ fn newest(releases: Vec<Release>, current: &str, kind: &str) -> Option<Update> {
         .max_by(|a, b| version_key(&a.tag_name).cmp(&version_key(&b.tag_name)))?;
     let assets: Vec<(String, String)> = r.assets.into_iter().map(|a| (a.name, a.browser_download_url)).collect();
     let file = assets.iter().find(|(name, _)| name.ends_with(kind)).cloned();
-    Some(Update { version: r.tag_name.trim_start_matches('v').to_string(), page: r.html_url, file, assets })
+    Some(Update { version: r.tag_name.trim_start_matches('v').to_string(), page: r.html_url, file, assets, news: Vec::new() })
 }
 
 /// "v0.2.0-beta" → ([0, 2, 0], false): numbers, then a pre-version sorts before the version.
@@ -348,6 +381,17 @@ mod tests {
         assert_eq!(u.version, "0.2.1");
         assert_eq!(u.file, Some(("florm_0.2.1_amd64.deb".into(), "https://dl/florm_0.2.1_amd64.deb".into())));
         assert_eq!(newest(vec![rel("v0.1.0", false, &[])], "0.1.0", ".deb"), None);
+    }
+
+    #[test]
+    fn the_news_are_the_subjects_of_the_commits() {
+        let json = r#"{"commits": [
+            {"commit": {"message": "[FIX] Claude : a\n\nle corps"}},
+            {"commit": {"message": "Merge branch x"}},
+            {"commit": {"message": "[ADD] Git : b"}}
+        ]}"#;
+        assert_eq!(news_of(json.as_bytes()), vec!["[ADD] Git : b".to_string(), "[FIX] Claude : a".to_string()]);
+        assert!(news_of(b"not json").is_empty());
     }
 
     #[test]
