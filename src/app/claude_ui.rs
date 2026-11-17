@@ -22,9 +22,6 @@ mod review;
 mod send;
 mod session;
 mod store;
-
-/// Width of the conversation on a wide screen (points): centered, readable lines.
-const CHAT_MAX_W: f32 = 1100.0;
 pub(in crate::app) use context::*;
 pub(in crate::app) use hub::*;
 pub(in crate::app) use review::*;
@@ -168,6 +165,8 @@ pub(super) struct ClaudeUi {
     pub(super) resume_at: Option<String>,
     /// The messages of the user whose turn is folded (their index).
     pub(super) folded: HashSet<usize>,
+    /// The groups of steps (tools, thinking) unfolded: the index of their first item.
+    pub(super) open_steps: HashSet<usize>,
     /// The changes of one question, shown instead of the review.
     pub(super) turn_diff: Option<TurnDiff>,
     /// ↶ clicked on a message: what to take back is asked.
@@ -240,6 +239,71 @@ fn tool_verb(name: &str) -> String {
         }
     };
     word.to_string()
+}
+
+/// A step of an answer, folded with the others around it: a tool (not a subagent, shown as a card)
+/// or a thinking with something to read.
+fn is_step(it: &Item) -> bool {
+    match it {
+        Item::Tool { name, .. } => !matches!(name.as_str(), "Agent" | "Task"),
+        Item::Thinking(t) => !t.trim().is_empty(),
+        _ => false,
+    }
+}
+
+/// The runs of at least two steps (first, last item), what costs and empty thinkings left aside.
+fn step_groups(items: &[Item]) -> Vec<(usize, usize)> {
+    let mut groups = Vec::new();
+    let mut run: Option<(usize, usize, usize)> = None;
+    for (k, it) in items.iter().enumerate() {
+        let transparent = matches!(it, Item::Usage { .. }) || matches!(it, Item::Thinking(t) if t.trim().is_empty());
+        if is_step(it) {
+            run = Some(match run {
+                Some((a, _, n)) => (a, k, n + 1),
+                None => (k, k, 1),
+            });
+        } else if !transparent {
+            if let Some((a, b, n)) = run.take() {
+                if n >= 2 {
+                    groups.push((a, b));
+                }
+            }
+        }
+    }
+    if let Some((a, b, n)) = run {
+        if n >= 2 {
+            groups.push((a, b));
+        }
+    }
+    groups
+}
+
+/// The line of a group of steps: how many, of which kinds (« Cherché ×2, Lu, Commande »), and
+/// while it runs, the step in progress.
+fn steps_summary(items: &[Item], open: bool, running: bool) -> String {
+    let mut kinds: Vec<(String, usize)> = Vec::new();
+    let mut n = 0;
+    for it in items.iter().filter(|i| is_step(i)) {
+        n += 1;
+        let word = match it {
+            Item::Tool { name, .. } => tool_verb(name),
+            _ => t!("Réflexion", "Thinking").to_string(),
+        };
+        match kinds.iter_mut().find(|(w, _)| *w == word) {
+            Some(k) => k.1 += 1,
+            None => kinds.push((word, 1)),
+        }
+    }
+    let list = kinds.iter().map(|(w, c)| if *c > 1 { format!("{w} ×{c}") } else { w.clone() }).collect::<Vec<_>>().join(", ");
+    let arrow = if open { "▾" } else { "▸" };
+    let mut text = tf!("{arrow} {n} étapes · {list}", "{arrow} {n} steps · {list}");
+    if running {
+        if let Some(Item::Tool { name, summary, .. }) = items.iter().rev().find(|i| matches!(i, Item::Tool { .. })) {
+            let what: String = summary.chars().take(80).collect();
+            text += &tf!(" — en cours : {} {what}", " — now: {} {what}", tool_verb(name));
+        }
+    }
+    text
 }
 
 /// « Claude is thinking… », with the time since its last news when it is long (it is still there).
@@ -564,6 +628,7 @@ impl App {
                     self.claude.asks.clear();
                     self.claude.checkpoints.clear();
                     self.claude.folded.clear();
+                    self.claude.open_steps.clear();
                     self.claude.turn_diff = None;
                     self.claude.last_uuid = None;
                     items.push(Item::Info(t!("— /clear : Claude repart sans la conversation —", "— /clear: Claude starts again without the conversation —").into()));
@@ -1449,10 +1514,7 @@ impl App {
         // ------------------------------------------------ the conversation
         if !review_max {
             egui::CentralPanel::default().show_inside(ui, |ui| {
-                // the field in the same column as the conversation on a wide screen
-                let pad = ((ui.available_width() - CHAT_MAX_W) / 2.0).max(0.0);
-                let input_frame = egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin { left: 8.0 + pad, right: 8.0 + pad, top: 2.0, bottom: 2.0 });
-                egui::TopBottomPanel::bottom(input_id).frame(input_frame).show_inside(ui, |ui| {
+                egui::TopBottomPanel::bottom(input_id).show_inside(ui, |ui| {
                     ui.add_space(6.0);
                     if !c.queue.tasks.is_empty() {
                         queue_act = claude_queue::queue_ui(ui, &mut c.queue, c.busy, accent, queue_id, models);
@@ -2011,10 +2073,7 @@ impl App {
                 let to_end = ui.data_mut(|d| d.remove_temp::<bool>(to_end_id)).unwrap_or(false);
                 let chat = egui::ScrollArea::vertical().id_salt(chat_id).stick_to_bottom(true).auto_shrink([false, false]);
                 let out = chat.show(ui, |ui| {
-                    // on a wide screen, a column of readable width in the middle: lines of 1500 px
-                    // are hard to follow (narrower, the whole width)
-                    let pad = ((ui.available_width() - CHAT_MAX_W) / 2.0).max(0.0);
-                    egui::Frame::none().inner_margin(egui::Margin { left: pad, right: pad, ..Default::default() }).show(ui, |ui| {
+                    // the whole width: long commands and outputs wrap less
                     ui.set_max_width(ui.available_width());
                     if c.items.is_empty() {
                         ui.add_space(20.0);
@@ -2049,6 +2108,10 @@ impl App {
                         resp.on_hover_text(t!("Replier / déplier cette question et sa réponse", "Fold / unfold this question and its answer")).clicked()
                     };
                     let n_items = c.items.len();
+                    // the steps between two things Claude says (searches, reads, commands, thinking):
+                    // one folded line, so that what it says stands out, as in Claude Desktop
+                    let groups = step_groups(&c.items);
+                    let mut toggle_steps = None;
                     for (k, it) in c.items.iter().enumerate() {
                         // a thinking with nothing to read (not shown by the model): not a line of
                         // its own, « Claude réfléchit… » at the end says it while it lasts
@@ -2067,6 +2130,27 @@ impl App {
                                 claude_said = true;
                             }
                             continue;
+                        }
+                        if let Some(&(gs, ge)) = groups.iter().find(|(a, b)| (*a..=*b).contains(&k)) {
+                            let open = c.open_steps.contains(&gs);
+                            if k == gs {
+                                ui.add_space(6.0);
+                                let running = c.busy && ge + 1 >= n_items;
+                                let r = ui.horizontal(|ui| {
+                                    ui.add_space(14.0);
+                                    if running {
+                                        spinner(ui);
+                                    }
+                                    let text = steps_summary(&c.items[gs..=ge], open, running);
+                                    ui.add(egui::Label::new(RichText::new(text).small().weak()).sense(Sense::click()))
+                                }).inner;
+                                if r.on_hover_text(t!("Les recherches, lectures, commandes et la réflexion de Claude : clic pour les voir ou les replier", "Claude's searches, reads, commands and thinking: click to see or fold them")).clicked() {
+                                    toggle_steps = Some(gs);
+                                }
+                            }
+                            if !open {
+                                continue;
+                            }
                         }
                         // the tools used one after the other: a block of lines, not spread out
                         let after_tool = k > 0 && matches!(c.items[k - 1], Item::Tool { .. });
@@ -2371,6 +2455,11 @@ impl App {
                             fold = Some(u);
                         }
                     }
+                    if let Some(g) = toggle_steps {
+                        if !c.open_steps.remove(&g) {
+                            c.open_steps.insert(g);
+                        }
+                    }
                     // working without anything new in sight (thinking, a subagent, a tool running):
                     // said at the end of the conversation, where the eye is
                     let quiet = !matches!(c.items.last(), Some(Item::Streaming(_) | Item::Tool { result: None, .. }));
@@ -2388,7 +2477,6 @@ impl App {
                     if to_end {
                         ui.scroll_to_rect(end, Some(egui::Align::BOTTOM));
                     }
-                    });
                 });
                 // scrolled up: a button to go back down to the last message
                 let below = out.content_size.y - out.state.offset.y - out.inner_rect.height();
@@ -2632,6 +2720,26 @@ mod tests {
 
     fn sh(dir: &Path, args: &[&str]) {
         git::run(dir, args).unwrap();
+    }
+
+    #[test]
+    fn the_steps_between_two_texts_are_grouped() {
+        let tool = |name: &str| Item::Tool { id: String::new(), name: name.into(), summary: "x".into(), result: None, steps: Vec::new(), time: (0, 0), agent: None };
+        let items = vec![
+            Item::Text("a".into()),
+            tool("Grep"),
+            Item::Thinking(String::new()),
+            tool("Grep"),
+            tool("Read"),
+            Item::Text("b".into()),
+            tool("Bash"),
+            Item::Text("c".into()),
+            tool("Agent"),
+            tool("Edit"),
+        ];
+        // a lone step stays a line of its own, a subagent is not a step
+        assert_eq!(step_groups(&items), [(1, 4)]);
+        assert_eq!(steps_summary(&items[1..=4], false, false), tf!("▸ 3 étapes · Cherché ×2, Lu", "▸ 3 steps · Searched ×2, Read"));
     }
 
     #[test]

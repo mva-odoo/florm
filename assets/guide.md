@@ -488,8 +488,10 @@ panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en
 - En haut : le dossier, **+ Nouvelle** conversation, puis le compte, les **Permissions**, **🌿
   Worktree**, l'**Historique** et les **Outils** (MCP, mémoire…) ; quand la place manque, ils
   passent dans **⋯**. À droite, le bouton du panneau de droite (Session, Fichiers
-  modifiés), marqué d'un point quand Claude a modifié des fichiers. Sur un grand écran, la conversation et le champ restent dans une colonne centrée,
-  à la largeur d'une lecture confortable. En bas, le champ et
+  modifiés), marqué d'un point quand Claude a modifié des fichiers. Entre deux messages de Claude, ses
+  étapes (recherches, lectures, commandes, réflexion) tiennent sur une ligne repliée, « ▸ 4 étapes ·
+  Cherché ×2, Lu, Commande » (pendant qu'il travaille : l'étape en cours) ; un clic la déplie. Ce
+  qu'il dit reste bien visible. En bas, le champ et
   ses boutons dans une même boîte : **+ Contexte**, **Options**, **+ File** à gauche ; à droite le
   **modèle**, le **mode** (ce que Claude a le droit de faire : **Selon les permissions**, **Plan
   seulement**, **Tout autoriser**, **Demander avant**) et le bouton rond **↑** pour envoyer (**■**

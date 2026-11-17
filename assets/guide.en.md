@@ -483,9 +483,10 @@ command and your login: no key to set up.
 - At the top: the folder, **+ New** conversation, then the account, **Permissions**, **🌿
   Worktree**, **History** and **Tools** (MCP, memory…); when room is short, they go into **⋯**.
   On the right, the button of the panel on the right (Session, Changed files), marked with a dot
-  when Claude changed files. On a
-  large screen, the conversation and the field stay in a centered column, at a comfortable
-  reading width. At the bottom, the field
+  when Claude changed files. Between two messages of Claude, its steps (searches,
+  reads, commands, thinking) fit on one folded line, “▸ 4 steps · Searched ×2, Read, Ran” (while
+  it works: the step in progress); a click unfolds it. What it says stays in sight. At the
+  bottom, the field
   and its buttons in one box: **+ Context**, **Options**, **+ Queue** on the left; on the right the
   **model**, the **mode** (what Claude is allowed to do: **By permissions**, **Plan only**, **Allow
   everything**, **Ask first**) and the round **↑** button to send (**■** to stop while it works).
