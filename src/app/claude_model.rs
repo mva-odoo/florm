@@ -14,6 +14,8 @@ pub(super) struct ModelHold {
     pub(super) suggestion: Option<(String, String)>,
     /// A task of the queue: cancelled, it waits again and the queue is paused.
     pub(super) from_queue: bool,
+    /// What a task of the queue was given with (the field of the message keeps its own).
+    pub(super) attach: Vec<claude_ui::Attach>,
 }
 
 /// What the user chooses for a held message.
@@ -26,7 +28,7 @@ pub(super) enum HoldAct {
 
 impl App {
     /// Holds `text` and asks Haiku which model suits it (see `claude::model_check`).
-    pub(super) fn claude_check_model(&mut self, text: String, ask: bool, from_queue: bool) {
+    pub(super) fn claude_check_model(&mut self, text: String, ask: bool, from_queue: bool, attach: Vec<claude_ui::Attach>) {
         let Some(dir) = self.claude.dir.clone() else {
             self.set_status(t!("Aucun dossier ouvert", "No folder open"));
             if from_queue {
@@ -38,7 +40,7 @@ impl App {
         // the default one: its real name, so that a suggestion of the same family is not made
         let current = if self.claude.model.is_empty() { self.claude.model_id.clone() } else { self.claude.model.clone() };
         let label = self.claude_model_label(&self.claude.model);
-        self.claude.model_hold = Some(ModelHold { text: text.clone(), ask, suggestion: None, from_queue });
+        self.claude.model_hold = Some(ModelHold { text: text.clone(), ask, suggestion: None, from_queue, attach });
         self.jobs.spawn(move || JobResult::ClaudeModelCheck(id, claude::model_check(&dir, &text, &current, &label)));
     }
 
@@ -93,7 +95,7 @@ impl App {
             }
             _ => {}
         }
-        if !self.claude_send_text(hold.text.clone(), hold.ask) {
+        if !self.claude_send_given(hold.text.clone(), hold.ask, hold.attach) {
             if hold.from_queue {
                 self.claude_queue_failed(t!("Pas pu être envoyée", "Could not be sent"));
             } else {

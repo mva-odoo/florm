@@ -682,6 +682,7 @@ panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en
     le travail en cours (« utilise plutôt tel fichier », « ajoute aussi un test »…).
   - **⏭ Après** (Ctrl+Maj+Entrée) : le message attend dans la file et part tout seul quand Claude a fini.
     Une liste reste un seul message (pas de découpage) ; la file ne fait pas de commit pour lui.
+    Les images et fichiers joints partent avec lui (marqués ✳ sous son texte dans la file).
 - **File de tâches** : écris plusieurs demandes en liste (`- …`, `1. …`) et clique **+ File**
   au lieu d'Envoyer : chaque élément devient une tâche (la phrase avant la liste va avec
   chacune). **Lancer** les envoie une à une dans la même conversation, chacune quand Claude a

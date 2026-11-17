@@ -666,6 +666,7 @@ command and your login: no key to set up.
     work going on (“use that file instead”, “add a test too”…).
   - **⏭ After** (Ctrl+Shift+Enter): the message waits in the queue and is sent by itself when Claude is
     done. A list stays one message (no splitting); the queue makes no commit for it.
+    The images and files attached go with it (marked ✳ under its text in the queue).
 - **Task queue**: write several requests as a list (`- …`, `1. …`) and click **+ Queue**
   instead of Send: each item becomes a task (the sentence before the list goes with each).
   **Run** sends them one by one in the same conversation, each when Claude is done with the

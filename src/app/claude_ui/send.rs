@@ -19,8 +19,10 @@ impl App {
             }
             return;
         }
-        if later && self.claude.busy && !text.is_empty() {
-            self.claude.queue.push_message(&text);
+        // the images and files given go with it, not with the next message sent
+        if later && self.claude.busy && (!text.is_empty() || !self.claude.attach.is_empty()) {
+            let attach = std::mem::take(&mut self.claude.attach);
+            self.claude.queue.push_message(&text, attach);
             self.claude.queue.running = true;
             self.claude.input.clear();
             self.set_status(t!("Message ajouté à la file : il partira quand Claude aura fini", "Message queued: it goes when Claude is done"));
@@ -28,8 +30,9 @@ impl App {
             return;
         }
         // the model of a message is being chosen: this one waits in the queue, after the answer
-        if self.claude.model_hold.is_some() && !text.is_empty() {
-            self.claude.queue.push_message(&text);
+        if self.claude.model_hold.is_some() && (!text.is_empty() || !self.claude.attach.is_empty()) {
+            let attach = std::mem::take(&mut self.claude.attach);
+            self.claude.queue.push_message(&text, attach);
             self.claude.queue.running = true;
             self.claude.input.clear();
             self.set_status(t!("Message ajouté à la file : il partira après le choix du modèle et la réponse", "Message queued: it goes after the model choice and the answer"));
@@ -39,7 +42,7 @@ impl App {
         let ask = self.claude.ask_first;
         // a message starting work: the model suited to it is checked first, when the option is on
         if self.claude.model_first && !self.claude.busy && !text.is_empty() {
-            self.claude_check_model(text, ask, false);
+            self.claude_check_model(text, ask, false, Vec::new());
             self.claude.input.clear();
             return;
         }
@@ -193,7 +196,8 @@ impl App {
             if command || text.is_empty() {
                 return false;
             }
-            self.claude.queue.push_message(&text);
+            let attach = std::mem::take(&mut self.claude.attach);
+            self.claude.queue.push_message(&text, attach);
             self.claude.queue.running = true;
             self.set_status(t!("Message ajouté à la file : il partira quand Claude aura fini", "Message queued: it goes when Claude is done"));
             return true;
@@ -292,6 +296,18 @@ impl App {
         }
         let checkpoint = !during && !command;
         self.claude_deliver(out, checkpoint, None)
+    }
+
+    /// `claude_send_text` with `given` instead of what the field of the message holds, which
+    /// stays there for the next message.
+    pub(in crate::app) fn claude_send_given(&mut self, text: String, ask_first: bool, given: Vec<Attach>) -> bool {
+        if given.is_empty() {
+            return self.claude_send_text(text, ask_first);
+        }
+        let mine = std::mem::replace(&mut self.claude.attach, given);
+        let sent = self.claude_send_text(text, ask_first);
+        self.claude.attach = mine;
+        sent
     }
 
     /// The files of conversation `id` were noted: its message leaves.
@@ -498,13 +514,15 @@ impl App {
             c.session = None;
         }
         self.claude.queue.tasks[k].state = TaskState::Running;
+        // kept on the task too: retried, it goes with them again
+        let attach = self.claude.queue.tasks[k].attach.clone();
         let ask = self.claude.ask_first;
         if self.claude.model_first && self.claude.queue.tasks[k].model.is_none() {
             // a task with its own model keeps it: only the others are checked
-            self.claude_check_model(text, ask, true);
+            self.claude_check_model(text, ask, true, attach);
             return;
         }
-        if !self.claude_send_text(text, ask) {
+        if !self.claude_send_given(text, ask, attach) {
             let q = &mut self.claude.queue;
             q.tasks[k].state = TaskState::Failed;
             q.tasks[k].note = t!("Pas pu être envoyée", "Could not be sent").into();

@@ -2,6 +2,7 @@
 //! conversation, each when the one before is finished (and committed, if asked).
 
 use super::*;
+use super::claude_ui::Attach;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -38,6 +39,9 @@ pub(super) struct Task {
     /// A message of the chat, sent as it is (written while Claude answered): no commit after it.
     #[serde(default)]
     pub(super) plain: bool,
+    /// What was given with the message (images, files, texts) when it was queued: sent with it.
+    #[serde(default)]
+    pub(super) attach: Vec<Attach>,
 }
 
 /// A model kept as an index in `claude::MODELS` (queues of before) or as a --model value.
@@ -120,13 +124,14 @@ impl Queue {
     pub(super) fn add(&mut self, text: &str) -> usize {
         let new = split_tasks(text);
         let n = new.len();
-        self.tasks.extend(new.into_iter().map(|text| Task { text, state: TaskState::Waiting, note: String::new(), model: None, plain: false }));
+        self.tasks.extend(new.into_iter().map(|text| Task { text, state: TaskState::Waiting, note: String::new(), model: None, plain: false, attach: Vec::new() }));
         n
     }
 
-    /// A message written while Claude answered: one task, sent whole (its lines are not split).
-    pub(super) fn push_message(&mut self, text: &str) {
-        self.tasks.push(Task { text: text.to_string(), state: TaskState::Waiting, note: String::new(), model: None, plain: true });
+    /// A message written while Claude answered: one task, sent whole (its lines are not split),
+    /// with what was given with it.
+    pub(super) fn push_message(&mut self, text: &str, attach: Vec<Attach>) {
+        self.tasks.push(Task { text: text.to_string(), state: TaskState::Waiting, note: String::new(), model: None, plain: true, attach });
     }
 
     /// The task being done or committed.
@@ -257,11 +262,19 @@ pub(super) fn queue_ui(ui: &mut egui::Ui, q: &mut Queue, busy: bool, accent: Col
                 // the buttons of the row sit in a column of their own, on the right: the same place in every row
                 let w = (ui.available_width() - ROW_BUTTONS_W).max(80.0);
                 let body = &t.text[intro.len()..];
+                // what goes with it (an image…), under its text: it left the field of the message
+                let given = (!t.attach.is_empty()).then(|| format!("✳ {}", t.attach.iter().map(|a| a.label(None)).collect::<Vec<_>>().join(", ")));
                 if editable {
                     let mut edited = body.to_string();
-                    if ui.add(egui::TextEdit::multiline(&mut edited).desired_rows(1).desired_width(w).layouter(&mut layout_cutting)).changed() {
-                        t.text = format!("{intro}{edited}");
-                    }
+                    ui.allocate_ui_with_layout(egui::vec2(w, 18.0), egui::Layout::top_down(egui::Align::Min), |ui| {
+                        ui.set_width(w);
+                        if ui.add(egui::TextEdit::multiline(&mut edited).desired_rows(1).desired_width(w).layouter(&mut layout_cutting)).changed() {
+                            t.text = format!("{intro}{edited}");
+                        }
+                        if let Some(g) = &given {
+                            ui.add(egui::Label::new(RichText::new(g).small().weak()).truncate());
+                        }
+                    });
                 } else {
                     let tip = if t.note.is_empty() { t.text.clone() } else { format!("{}\n\n{}", t.text, t.note) };
                     ui.allocate_ui_with_layout(egui::vec2(w, 18.0), egui::Layout::top_down(egui::Align::Min), |ui| {
@@ -272,6 +285,9 @@ pub(super) fn queue_ui(ui: &mut egui::Ui, q: &mut Queue, busy: bool, accent: Col
                             ui.add(egui::Label::new(RichText::new(first).weak()).truncate()).on_hover_text(tip);
                         } else {
                             ui.add(egui::Label::new(RichText::new(body.trim())).wrap()).on_hover_text(tip);
+                        }
+                        if let Some(g) = &given {
+                            ui.add(egui::Label::new(RichText::new(g).small().weak()).truncate());
                         }
                     });
                 }
@@ -349,7 +365,7 @@ mod tests {
     #[test]
     fn a_message_written_during_an_answer_stays_whole() {
         let mut q = Queue::default();
-        q.push_message("Fais ceci :\n- a\n- b");
+        q.push_message("Fais ceci :\n- a\n- b", Vec::new());
         assert_eq!(q.tasks.len(), 1);
         assert!(q.tasks[0].plain && q.tasks[0].state == TaskState::Waiting);
         // a request added with + File is cut as before, and is not a plain message

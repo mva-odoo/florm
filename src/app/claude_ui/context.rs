@@ -5,7 +5,7 @@ use super::*;
 
 /// Something given to Claude with the next message: lines of a file, a file / folder, or a text
 /// (the changes not committed, the problems of a file…).
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub(in crate::app) struct Attach {
     pub(super) path: PathBuf,
     /// Lines (1-based, first and last) and their text; None: the whole file or folder.
@@ -28,7 +28,7 @@ impl Attach {
         Attach { path: dir, lines: None, note: None, image: Some(image) }
     }
 
-    pub(super) fn label(&self, dir: Option<&Path>) -> String {
+    pub(in crate::app) fn label(&self, dir: Option<&Path>) -> String {
         if let Some((label, _)) = &self.image {
             return label.clone();
         }
