@@ -235,7 +235,7 @@ pub(super) fn rules_ui(ui: &mut egui::Ui, t: &mut ToolsUi, allow: &[String], den
 /// « ▾ » next to « Nouvelle conversation »: a conversation on a branch of its own.
 pub(super) fn worktree_menu(ui: &mut egui::Ui, t: &mut ToolsUi, in_git: bool) -> Option<ToolAct> {
     let mut act = None;
-    ui.menu_button("🌿", |ui| {
+    ui.menu_button(t!("🌿 Worktree", "🌿 Worktree"), |ui| {
         ui.set_min_width(340.0);
         ui.label(RichText::new(t!("Nouvelle conversation sur une branche à part", "New conversation on a branch of its own")).strong());
         ui.label(RichText::new(t!(
@@ -266,7 +266,7 @@ pub(super) fn tools_menu(ui: &mut egui::Ui, c: &mut ClaudeUi, allow: &[String], 
     let mut act = None;
     let dir = c.dir.clone();
     let t = &mut c.tools;
-    let menu = ui.menu_button("⋯", |ui| {
+    let menu = ui.menu_button(t!("Outils", "Tools"), |ui| {
         ui.set_min_width(260.0);
         ui.menu_button(t!("🔌 Serveurs MCP", "🔌 MCP servers"), |ui| {
             ui.set_min_width(460.0);

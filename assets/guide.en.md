@@ -480,9 +480,12 @@ palette).
 bottom panel (**in a tab** to give it a whole editor tab, **at the bottom** to put it back). Florm uses the `claude`
 command and your login: no key to set up.
 
-- At the top: the folder, **+ New** conversation, and **⋯** for the rest (account, permissions,
-  worktree, history, MCP / memory tools…), then **Review** and the button of the panel on the
-  right (Session, Review). At the bottom, the field
+- At the top: the folder, **+ New** conversation, then the account, **Permissions**, **🌿
+  Worktree**, **History** and **Tools** (MCP, memory…); when room is short, they go into **⋯**.
+  On the right, the button of the panel on the right (Session, Changed files), marked with a dot
+  when Claude changed files. On a
+  large screen, the conversation and the field stay in a centered column, at a comfortable
+  reading width. At the bottom, the field
   and its buttons in one box: **+ Context**, **Options**, **+ Queue** on the left; on the right the
   **model**, the **mode** (what Claude is allowed to do: **By permissions**, **Plan only**, **Allow
   everything**, **Ask first**) and the round **↑** button to send (**■** to stop while it works).
@@ -616,8 +619,8 @@ command and your login: no key to set up.
   block: **✔ Keep** (the block leaves the review and stays in the file) or **↺ Reject** (it is
   removed from the file). Your own earlier changes are not in it. The panel button at the top right
   hides it (even maximized, or showing one question): the conversation gets its whole width back;
-  **Review** opens it right on the review.
-- The panel on the right has two tabs: **Review** (above) and **Session**, which gathers what the
+  when there are changed files, it opens right on them.
+- The panel on the right has two tabs: **Changed files** (above) and **Session**, which gathers what the
   conversation uses: the **context** in % and the **cost**, the **quotas** of your subscription over
   5 h and 7 d, the **project** and its branch (or its worktree 🌿), the **model** and the **mode**;
   then the **memory** (the CLAUDE.md of the project or yours, opened in one click), the number of
@@ -630,10 +633,10 @@ command and your login: no key to set up.
 - **Subagents**: each one has its purple “⇉ Subagent” card (its kind, running / done, its time,
   what it is doing), its last steps and its **Report** folded. It works in the background: it
   may end after Claude's answer.
-- **Question by question**: the **▾** in front of one of your messages folds the answer to that
-  question (one line stays: “N steps · N files changed”); right click on the ▾: fold all but the
+- **Question by question**: **▾ Fold the answer**, at the top of one of your messages, folds the
+  answer to that question (one line stays: “N steps · N files changed”); right click on it: fold all but the
   last one, or unfold all. **±** on the message shows on the right the file changes of that
-  question alone (**× Whole review** to go back to the review).
+  question alone (**× All the changed files** to go back to all of them).
   A colored band on the left ties each question to its whole answer: a click on it folds or
   unfolds it.
 - **Closing Florm while Claude works**: Florm says so and offers **Close when it is done** (Florm

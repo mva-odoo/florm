@@ -22,6 +22,9 @@ mod review;
 mod send;
 mod session;
 mod store;
+
+/// Width of the conversation on a wide screen (points): centered, readable lines.
+const CHAT_MAX_W: f32 = 1100.0;
 pub(in crate::app) use context::*;
 pub(in crate::app) use hub::*;
 pub(in crate::app) use review::*;
@@ -1111,9 +1114,11 @@ impl App {
                     if ui.button(t!("+ Nouvelle", "+ New")).on_hover_text(t!("Dans un nouvel onglet : celle-ci continue dans le sien (l'onglet devient vert quand Claude a fini)", "In a new tab: this one goes on in its own (the tab turns green when Claude is done)")).clicked() {
                         new_conv = true;
                     }
-                    // the rest of the settings in one menu: the bar stays on one line, even narrow
-                    ui.menu_button("⋯", |ui| {
-                        ui.set_min_width(240.0);
+                    // the rest of the settings: buttons of their own on a wide screen, else in one menu
+                    // (the bar stays on one line, even narrow)
+                    // about 560 points for the buttons, 300 for the gauges and the panel buttons on the right
+                    let wide = ui.available_width() > 1000.0;
+                    let mut items = |ui: &mut egui::Ui| {
                     // changed during the conversation: Claude goes on with it (at once while it works,
                     // else from the next message, the conversation kept)
                     // the account it runs with (from the next message, the conversation kept)
@@ -1208,9 +1213,18 @@ impl App {
                     if c.cost > 0.0 {
                         ui.label(RichText::new(format!("{:.2} $", c.cost)).weak().small()).on_hover_text(t!("Coût estimé de la conversation", "Estimated cost of the conversation"));
                     }
-                    })
-                    .response
-                    .on_hover_text(t!("Compte, permissions, worktree, historique, outils (MCP, mémoire…)", "Account, permissions, worktree, history, tools (MCP, memory…)"));
+                    };
+                    if wide {
+                        ui.add_space(6.0);
+                        items(ui);
+                    } else {
+                        ui.menu_button("⋯", |ui| {
+                            ui.set_min_width(240.0);
+                            items(ui);
+                        })
+                        .response
+                        .on_hover_text(t!("Compte, permissions, worktree, historique, outils (MCP, mémoire…)", "Account, permissions, worktree, history, tools (MCP, memory…)"));
+                    }
                     // the gauges, « Revue » and the view buttons need about 300 px: else on a line of their own
                     if ui.max_rect().right() - ui.cursor().min.x < 300.0 {
                         ui.end_row();
@@ -1221,24 +1235,31 @@ impl App {
                         }
                         // the review of the changes on the right, or the whole width for the conversation
                         let n = c.review.as_ref().map_or(0, |d| d.files.len());
-                        let label = if n > 0 { tf!("Revue ({n})", "Review ({n})") } else { t!("Revue", "Review").to_string() };
                         // shown also as the changes of one question, or maximized: hidden in one click,
                         // the conversation gets its whole width back
                         let view = cid("claude_view");
                         let shown = show_review || c.turn_diff.is_some() || maximize::maxed(ui.ctx(), view).is_some();
-                        let text = if !(shown && side_review) && n > 0 { RichText::new(label).color(accent).strong() } else { RichText::new(label) };
-                        let tip = if shown { t!("Masquer le panneau de droite : la conversation prend toute la largeur", "Hide the panel on the right: the conversation takes the whole width") } else { t!("Afficher à droite la session (contexte, quotas, outils) et la revue des changements", "Show on the right the session (context, quotas, tools) and the review of the changes") };
-                        // a panel on the right, filled when shown: like the other layout buttons
-                        let b = crate::icons::layout_button(ui, crate::icons::Layout::SidePanel(shown), tip);
-                        // « Revue » only while the panel is hidden: shown, its own tabs Session / Revue do it
-                        let a = !shown && ui.add(egui::Label::new(text).sense(Sense::click())).on_hover_text(t!("La revue de ce que Claude a changé, dans le panneau de droite", "The review of what Claude changed, in the panel on the right")).clicked();
+                        let tip = if shown {
+                            t!("Masquer le panneau de droite : la conversation prend toute la largeur", "Hide the panel on the right: the conversation takes the whole width").to_string()
+                        } else if n > 0 {
+                            tf!("Afficher le panneau de droite : {n} fichier(s) modifié(s) par Claude à garder ou rejeter, et la session", "Show the panel on the right: {n} file(s) changed by Claude to keep or reject, and the session")
+                        } else {
+                            t!("Afficher le panneau de droite : la session (contexte, quotas, outils) et les fichiers modifiés par Claude", "Show the panel on the right: the session (context, quotas, tools) and the files changed by Claude").to_string()
+                        };
+                        // a panel on the right, filled when shown: like the other layout buttons; a dot
+                        // in the accent when Claude changed files and the panel is hidden
+                        let b = crate::icons::layout_button(ui, crate::icons::Layout::SidePanel(shown), &tip);
+                        if n > 0 && !shown {
+                            ui.painter().circle_filled(b.rect.right_top() + egui::vec2(-3.0, 3.0), 3.5, accent);
+                        }
                         if b.clicked() && shown {
                             show_review = false;
                             close_turn = true;
                             maximize::restore(ui.ctx(), view);
-                        } else if b.clicked() || a {
+                        } else if b.clicked() {
                             show_review = true;
-                            side_review |= a;
+                            // files to look at: the panel opens on them
+                            side_review |= n > 0;
                         }
                         ui.add_space(8.0);
                         // the panel shows the session: the gauges are there, not twice
@@ -1314,7 +1335,7 @@ impl App {
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         maximize::button(ui, view, "review");
-                        if ui.button(t!("× Revue complète", "× Whole review")).on_hover_text(t!("Revenir à la revue de tous les changements de Claude", "Back to the review of all of Claude's changes")).clicked() {
+                        if ui.button(t!("× Tous les fichiers modifiés", "× All the changed files")).on_hover_text(t!("Revenir à la revue de tous les changements de Claude", "Back to the review of all of Claude's changes")).clicked() {
                             close_turn = true;
                         }
                     });
@@ -1408,7 +1429,7 @@ impl App {
                         to_session = true;
                     }
                     let n = c.review.as_ref().map_or(0, |d| d.files.len());
-                    let label = if n > 0 { tf!("Revue ({n})", "Review ({n})") } else { t!("Revue", "Review").to_string() };
+                    let label = if n > 0 { tf!("Fichiers modifiés ({n})", "Changed files ({n})") } else { t!("Fichiers modifiés", "Changed files").to_string() };
                     let text = if n > 0 && !side_review { RichText::new(label).color(accent).strong() } else { RichText::new(label) };
                     if ui.selectable_label(side_review, text).on_hover_text(t!("Ce que Claude a changé dans les fichiers, bloc par bloc", "What Claude changed in the files, block by block")).clicked() {
                         side_review = true;
@@ -1428,7 +1449,10 @@ impl App {
         // ------------------------------------------------ the conversation
         if !review_max {
             egui::CentralPanel::default().show_inside(ui, |ui| {
-                egui::TopBottomPanel::bottom(input_id).show_inside(ui, |ui| {
+                // the field in the same column as the conversation on a wide screen
+                let pad = ((ui.available_width() - CHAT_MAX_W) / 2.0).max(0.0);
+                let input_frame = egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin { left: 8.0 + pad, right: 8.0 + pad, top: 2.0, bottom: 2.0 });
+                egui::TopBottomPanel::bottom(input_id).frame(input_frame).show_inside(ui, |ui| {
                     ui.add_space(6.0);
                     if !c.queue.tasks.is_empty() {
                         queue_act = claude_queue::queue_ui(ui, &mut c.queue, c.busy, accent, queue_id, models);
@@ -1987,7 +2011,10 @@ impl App {
                 let to_end = ui.data_mut(|d| d.remove_temp::<bool>(to_end_id)).unwrap_or(false);
                 let chat = egui::ScrollArea::vertical().id_salt(chat_id).stick_to_bottom(true).auto_shrink([false, false]);
                 let out = chat.show(ui, |ui| {
-                    // the whole width: long commands and outputs wrap less
+                    // on a wide screen, a column of readable width in the middle: lines of 1500 px
+                    // are hard to follow (narrower, the whole width)
+                    let pad = ((ui.available_width() - CHAT_MAX_W) / 2.0).max(0.0);
+                    egui::Frame::none().inner_margin(egui::Margin { left: pad, right: pad, ..Default::default() }).show(ui, |ui| {
                     ui.set_max_width(ui.available_width());
                     if c.items.is_empty() {
                         ui.add_space(20.0);
@@ -2103,7 +2130,9 @@ impl App {
                                     .show(ui, |ui| {
                                         ui.set_width(bubble_w - 26.0);
                                         ui.horizontal(|ui| {
-                                            let arrow = ui.add(egui::Label::new(RichText::new(if folded { "▸" } else { "▾" }).color(accent)).sense(Sense::click()));
+                                            // says what it folds: the answer under the message, not the message
+                                            let label = if folded { t!("▸ Déplier la réponse", "▸ Unfold the answer") } else { t!("▾ Replier la réponse", "▾ Fold the answer") };
+                                            let arrow = ui.add(egui::Label::new(RichText::new(label).small().color(icons::mix(text_color, accent, 0.5))).sense(Sense::click()));
                                             if arrow.clicked() {
                                                 fold = Some(k);
                                             }
@@ -2359,6 +2388,7 @@ impl App {
                     if to_end {
                         ui.scroll_to_rect(end, Some(egui::Align::BOTTOM));
                     }
+                    });
                 });
                 // scrolled up: a button to go back down to the last message
                 let below = out.content_size.y - out.state.offset.y - out.inner_rect.height();

@@ -485,9 +485,11 @@ avec `gh auth login` (connexion par le navigateur). Sans `gh`, la vue explique c
 **Ctrl+Alt+C** (ou Outils → ✳ Claude, la palette) : une conversation avec Claude Code, dans le
 panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en bas** pour l'y remettre). Florm utilise la commande `claude` et ta connexion : pas de clé à configurer.
 
-- En haut : le dossier, **+ Nouvelle** conversation, et **⋯** pour le reste (compte, permissions,
-  worktree, historique, outils MCP / mémoire…), puis **Revue** et le bouton du panneau de droite
-  (Session, Revue). En bas, le champ et
+- En haut : le dossier, **+ Nouvelle** conversation, puis le compte, les **Permissions**, **🌿
+  Worktree**, l'**Historique** et les **Outils** (MCP, mémoire…) ; quand la place manque, ils
+  passent dans **⋯**. À droite, le bouton du panneau de droite (Session, Fichiers
+  modifiés), marqué d'un point quand Claude a modifié des fichiers. Sur un grand écran, la conversation et le champ restent dans une colonne centrée,
+  à la largeur d'une lecture confortable. En bas, le champ et
   ses boutons dans une même boîte : **+ Contexte**, **Options**, **+ File** à gauche ; à droite le
   **modèle**, le **mode** (ce que Claude a le droit de faire : **Selon les permissions**, **Plan
   seulement**, **Tout autoriser**, **Demander avant**) et le bouton rond **↑** pour envoyer (**■**
@@ -630,8 +632,8 @@ panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en
   par bloc : **✔ Garder** (le bloc quitte la revue et reste dans le fichier) ou **↺ Rejeter**
   (il est retiré du fichier). Tes propres changements d'avant ne sont pas dedans. Le bouton du
   panneau en haut à droite le masque (même agrandi, ou montrant une seule question) : la
-  conversation reprend toute la largeur ; **Revue** l'ouvre directement sur la revue.
-- Le panneau de droite a deux onglets : **Revue** (ci-dessus) et **Session**, qui rassemble ce que
+  conversation reprend toute la largeur ; s'il y a des fichiers modifiés, il s'ouvre directement sur eux.
+- Le panneau de droite a deux onglets : **Fichiers modifiés** (ci-dessus) et **Session**, qui rassemble ce que
   la conversation utilise : le **contexte** en % et le **coût**, les **quotas** 5 h et 7 j de ton
   abonnement, le **projet** et sa branche (ou son worktree 🌿), le **modèle** et le **mode** ; puis
   la **mémoire** (le CLAUDE.md du projet ou le tien, ouvert d'un clic), le nombre d'**agents** et de
@@ -644,10 +646,10 @@ panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en
 - **Sous-agents** : chacun a sa carte violette « ⇉ Sous-agent » (son type, en cours / terminé,
   sa durée, ce qu'il fait), ses dernières étapes et son **Rapport** replié. Il travaille en
   arrière-plan : il peut finir après la réponse de Claude.
-- **Question par question** : le **▾** devant un de tes messages replie la réponse à cette
-  question (il reste une ligne « N étapes · N fichiers modifiés ») ; clic droit sur le ▾ : tout
+- **Question par question** : **▾ Replier la réponse**, en haut d'un de tes messages, replie la
+  réponse à cette question (il reste une ligne « N étapes · N fichiers modifiés ») ; clic droit dessus : tout
   replier sauf la dernière, ou tout déplier. **±** sur le message montre à droite les seuls
-  changements de fichiers de cette question (**× Revue complète** pour revenir à la revue).
+  changements de fichiers de cette question (**× Tous les fichiers modifiés** pour revenir à l'ensemble).
   Une bande de couleur à gauche relie chaque question à toute sa réponse : un clic dessus la
   replie ou la déplie.
 - **Fermer Florm pendant que Claude travaille** : Florm le dit et propose **Fermer quand il aura
