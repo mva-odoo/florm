@@ -241,6 +241,24 @@ fn tool_verb(name: &str) -> String {
     word.to_string()
 }
 
+/// The message saying what was ticked in the tasks of answer `k` (`- [ ]`), and how many: None
+/// when nothing is ticked. The tasks left unticked are said too, so that Claude does not do them.
+fn ticked_reply(text: &str, checks: &HashSet<(usize, String)>, k: usize) -> Option<(String, usize)> {
+    let tasks = super::md::tasks(text);
+    let state: Vec<(&str, bool)> = tasks.iter().map(|(t, on)| (t.as_str(), *on ^ checks.contains(&(k, t.clone())))).collect();
+    let yes: Vec<&str> = state.iter().filter(|s| s.1).map(|s| s.0).collect();
+    if yes.is_empty() {
+        return None;
+    }
+    let no: Vec<&str> = state.iter().filter(|s| !s.1).map(|s| s.0).collect();
+    let list = |v: &[&str]| v.iter().map(|t| format!("- {t}")).collect::<Vec<_>>().join("\n");
+    let mut msg = tf!("Ok, tu peux faire :\n{}", "Ok, go ahead with:\n{}", list(&yes));
+    if !no.is_empty() {
+        msg += &tf!("\n\nPas pour l'instant :\n{}", "\n\nNot for now:\n{}", list(&no));
+    }
+    Some((msg, yes.len()))
+}
+
 /// A step of an answer, folded with the others around it: a tool (not a subagent, shown as a card)
 /// or a thinking with something to read.
 fn is_step(it: &Item) -> bool {
@@ -1951,14 +1969,13 @@ impl App {
                         })
                         .response
                         .on_hover_text(t!("Ce qui part avec chaque message : le fichier ouvert, les questions d'abord, les définitions citées", "What goes with each message: the open file, questions first, the mentioned definitions"));
-                        if c.busy {
-                            spinner(ui);
-                            ui.label(RichText::new(working_label(c.activity.as_deref(), c.news)).weak().small());
-                        }
                         // on the right, as in Claude Desktop: the model and the mode, then send (a
-                        // round button) or stop; on a line of their own when the box is narrow
+                        // round button) or stop; on a line of their own when the box is narrow.
+                        // The room asked does not depend on Claude working (Stop, After and Send are
+                        // wider than ↑), nor on what it is doing: the buttons do not jump from a
+                        // line to the other while it works
                         // the room left on this row (in a wrapping row `available_width` is the whole row)
-                        if ui.max_rect().right() - ui.cursor().min.x < 300.0 {
+                        if ui.max_rect().right() - ui.cursor().min.x < 520.0 {
                             ui.end_row();
                         }
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -2063,6 +2080,12 @@ impl App {
                             })
                             .response
                             .on_hover_text(t!("Maj+Tab dans le champ : mode suivant", "Shift+Tab in the field: next mode"));
+                            // what Claude is doing, in the room left (cut, it never pushes the buttons)
+                            if c.busy {
+                                ui.add_space(8.0);
+                                ui.add(egui::Label::new(RichText::new(working_label(c.activity.as_deref(), c.news)).weak().small()).truncate());
+                                spinner(ui);
+                            }
                         });
                     });
                     });
@@ -2111,6 +2134,7 @@ impl App {
                     // the steps between two things Claude says (searches, reads, commands, thinking):
                     // one folded line, so that what it says stands out, as in Claude Desktop
                     let groups = step_groups(&c.items);
+                    let last_text = c.items.iter().rposition(|i| matches!(i, Item::Text(_)));
                     let mut toggle_steps = None;
                     for (k, it) in c.items.iter().enumerate() {
                         // a thinking with nothing to read (not shown by the model): not a line of
@@ -2311,6 +2335,18 @@ impl App {
                                 let (rest, questions) = claude_ask::parse(t);
                                 if questions.is_empty() {
                                     super::md::markdown_checks(ui, cache, hl, t, &mut c.checks, k);
+                                    // the last answer proposes things to tick: what is ticked is sent back
+                                    let last = matches!(it, Item::Text(_)) && !c.busy && last_user.is_none_or(|u| k > u) && last_text == Some(k);
+                                    if last {
+                                        if let Some(msg) = ticked_reply(t, &c.checks, k) {
+                                            ui.add_space(4.0);
+                                            let n = msg.1;
+                                            let b = ui.add(filled_button(&tf!("✔ Envoyer ma réponse ({n} cochée(s))", "✔ Send my answer ({n} ticked)"), accent));
+                                            if b.on_hover_text(&msg.0).clicked() {
+                                                answer = Some(msg.0);
+                                            }
+                                        }
+                                    }
                                     return;
                                 }
                                 super::md::markdown_checks(ui, cache, hl, &rest, &mut c.checks, k);
@@ -2720,6 +2756,19 @@ mod tests {
 
     fn sh(dir: &Path, args: &[&str]) {
         git::run(dir, args).unwrap();
+    }
+
+    #[test]
+    fn what_is_ticked_is_sent_back() {
+        let text = "Voilà.\n\n- [ ] Essayer\n- [ ] Committer\n\n```\n- [ ] pas une tâche\n```";
+        let mut checks = HashSet::new();
+        assert!(ticked_reply(text, &checks, 3).is_none());
+        checks.insert((3, "Committer".to_string()));
+        let (msg, n) = ticked_reply(text, &checks, 3).unwrap();
+        assert_eq!(n, 1);
+        assert!(msg.contains("- Committer") && msg.contains("- Essayer") && !msg.contains("pas une tâche"));
+        // the boxes of another answer do not count
+        assert!(ticked_reply(text, &checks, 4).is_none());
     }
 
     #[test]

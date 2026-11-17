@@ -298,6 +298,18 @@ pub(super) fn markdown_checks(ui: &mut egui::Ui, cache: &mut egui_commonmark::Co
     }
 }
 
+/// The tasks (`- [ ]`) of a markdown text, outside the code blocks: (text, ticked in the text).
+pub(super) fn tasks(text: &str) -> Vec<(String, bool)> {
+    parts(text)
+        .into_iter()
+        .filter_map(|p| match p {
+            MdPart::Text(t) => Some(t),
+            _ => None,
+        })
+        .flat_map(|t| t.lines().filter_map(list_item).map(|i| (i.text.to_string(), i.checked)).collect::<Vec<_>>())
+        .collect()
+}
+
 /// A task of the top level: its box (`[x]` ticked) and its text.
 struct ListItem<'a> {
     checked: bool,

@@ -585,6 +585,9 @@ command and your login: no key to set up.
   For a screenshot: take it with the system's tool (it
   goes to the clipboard), then Ctrl+V. The image shows as a thumbnail above the field, then in the
   message sent; a click opens it full size.
+- **Boxes to tick**: when Claude's last answer proposes things to do (`- [ ]`), tick the ones
+  you want then **✔ Send my answer**: Claude gets “Ok, go ahead with: …” with what is ticked,
+  and “Not for now: …” with the rest.
 - **Questions first**: if the request leaves choices open, Claude codes nothing and asks 1 to 3
   questions with options (the recommended one ticked already, **Other** to write yours);
   **Answer** sends them and it goes on. In the task queue, the task waits for your answers

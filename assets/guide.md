@@ -598,6 +598,9 @@ panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en
   d'écran : prends-la avec l'outil du système (elle va dans le presse-papiers), puis Ctrl+V.
   L'image apparaît en miniature au-dessus du champ, puis dans le message envoyé ; un clic l'ouvre
   en grand.
+- **Cases à cocher** : quand la dernière réponse de Claude propose des choses à faire (`- [ ]`),
+  coche celles que tu veux puis **✔ Envoyer ma réponse** : Claude reçoit « Ok, tu peux faire : … »
+  avec ce qui est coché, et « Pas pour l'instant : … » avec le reste.
 - **Questions d'abord** : si la demande laisse des choix ouverts, Claude ne code rien et pose
   1 à 3 questions avec des options (la conseillée cochée d'avance, **Autre** pour écrire la
   tienne) ; **Répondre** les envoie et il continue. Dans la file de tâches, la tâche attend tes
