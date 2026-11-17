@@ -583,8 +583,10 @@ pub fn parse_line(line: &str) -> Vec<Event> {
 /// What a tool call is about, in a few words: the file, the command, the pattern…
 pub fn tool_summary(name: &str, input: &Value) -> String {
     let s = |k: &str| input[k].as_str().unwrap_or("").to_string();
-    let short = |p: String| p.rsplit('/').take(3).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("/");
+    let short = |p: String| short_path(&p);
     match name {
+        // an image or a PDF read: its whole path, to show it in the conversation (cut when written)
+        "Read" if shown_read(&s("file_path")) => s("file_path"),
         "Edit" | "MultiEdit" | "Write" | "Read" | "NotebookEdit" => short(s("file_path")).to_string() + &s("notebook_path"),
         "Bash" => s("command").lines().next().unwrap_or("").to_string(),
         "Grep" => format!("{} {}", s("pattern"), s("path")).trim().to_string(),
@@ -595,6 +597,16 @@ pub fn tool_summary(name: &str, input: &Value) -> String {
         "TodoWrite" => t!("liste de tâches", "todo list").into(),
         _ => String::new(),
     }
+}
+
+/// The last three parts of a path (`app/claude_ui/send.rs`), for a line of the conversation.
+pub fn short_path(p: &str) -> String {
+    p.rsplit(['/', '\\']).take(3).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("/")
+}
+
+/// A file read by Claude that the conversation shows: an image or a PDF.
+pub fn shown_read(file: &str) -> bool {
+    is_image(file) || is_pdf(std::path::Path::new(file))
 }
 
 /// A tool that changes files: the review is read again after it.
@@ -1723,6 +1735,16 @@ mod tests {
         assert_eq!(parse_model_answer("MODELE: gpt", "sonnet").unwrap(), None);
         // no MODELE line at all: an error with the answer
         assert!(parse_model_answer("désolé", "sonnet").is_err());
+    }
+
+    #[test]
+    fn an_image_read_keeps_its_whole_path() {
+        let read = |p: &str| tool_summary("Read", &serde_json::json!({ "file_path": p }));
+        assert_eq!(read("/tmp/claude/images/1.png"), "/tmp/claude/images/1.png");
+        assert_eq!(read("/home/u/doc/plan.PDF"), "/home/u/doc/plan.PDF");
+        // the other files: the end of their path
+        assert_eq!(read("/home/u/src/florm/src/app/md.rs"), "src/app/md.rs");
+        assert_eq!(short_path("C:\\Users\\u\\Pictures\\a.png"), "u/Pictures/a.png");
     }
 
     #[test]

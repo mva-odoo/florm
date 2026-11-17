@@ -589,6 +589,8 @@ panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en
   **+ Contexte → Image du presse-papiers** (actif quand il y a une image), la joint au message.
   N'importe quelle zone de l'écran, sans minuteur.
 - **Images** : une image part avec le message, réduite à 1568 pixels pour coûter moins de tokens.
+  Une image (ou un PDF) que Claude ouvre lui-même s'affiche en miniature sous la ligne « Lu … » :
+  survol pour la voir en grand, clic pour l'ouvrir.
   Trois façons de la donner : la coller avec Ctrl+V (une image copiée), la glisser depuis le
   gestionnaire de fichiers sur la conversation, ou **+ Contexte → Image ou PDF…**. Plusieurs images
   vont ensemble dans un message : glisse-en plusieurs, colle-les l'une après l'autre, ou choisis-en

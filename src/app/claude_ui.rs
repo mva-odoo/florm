@@ -319,7 +319,7 @@ fn steps_summary(items: &[Item], open: bool, running: bool) -> String {
     let mut text = tf!("{arrow} {n} étapes · {list}", "{arrow} {n} steps · {list}");
     if running {
         if let Some(Item::Tool { name, summary, .. }) = items.iter().rev().find(|i| matches!(i, Item::Tool { .. })) {
-            let what: String = summary.chars().take(80).collect();
+            let what: String = shown_summary(name, summary).chars().take(80).collect();
             text += &tf!(" — en cours : {} {what}", " — now: {} {what}", tool_verb(name));
         }
     }
@@ -496,6 +496,15 @@ pub(super) fn is_image_file(path: &Path) -> bool {
 
 /// The thumbnail of an image given to Claude (`max`: its tallest), its file opened by a click;
 /// a PDF: a 📄 label.
+/// What the line of a step says of its target: a path read kept whole (an image) is cut there.
+fn shown_summary(name: &str, summary: &str) -> String {
+    if name == "Read" && Path::new(summary).is_absolute() {
+        claude::short_path(summary)
+    } else {
+        summary.to_string()
+    }
+}
+
 fn image_thumb(ui: &mut egui::Ui, path: &Path, max: f32) -> egui::Response {
     if claude::is_pdf(path) {
         let size = if max > 40.0 { 15.0 } else { 12.5 };
@@ -680,7 +689,8 @@ impl App {
                     }
                     // an image costs many tokens, and stays in the conversation: said where it happens
                     if name == "Read" && claude::is_image(&summary) {
-                        items.push(Item::Info(tf!("— Claude a ouvert une image ({summary}) : elle coûte beaucoup de tokens, à chaque message suivant —", "— Claude opened an image ({summary}): it costs many tokens, with every next message —")));
+                        let file = claude::short_path(&summary);
+                        items.push(Item::Info(tf!("— Claude a ouvert une image ({file}) : elle coûte beaucoup de tokens, à chaque message suivant —", "— Claude opened an image ({file}): it costs many tokens, with every next message —")));
                     }
                     items.push(Item::Tool { id, name, summary, result: None, steps: Vec::new(), time: (now_ms(), 0), agent: None });
                 }
@@ -2449,7 +2459,7 @@ impl App {
                                     let room = (ui.available_width() - after).max(40.0);
                                     let target_color = if error { err() } else { weak };
                                     let target = ui
-                                        .allocate_ui(egui::vec2(room, 18.0), |ui| ui.add(egui::Label::new(RichText::new(summary.as_str()).monospace().size(12.0).color(target_color)).truncate().sense(Sense::click())))
+                                        .allocate_ui(egui::vec2(room, 18.0), |ui| ui.add(egui::Label::new(RichText::new(shown_summary(name, summary)).monospace().size(12.0).color(target_color)).truncate().sense(Sense::click())))
                                         .inner;
                                     let tip = if can_open { t!("Clic : voir la commande entière et ce qu'elle a affiché", "Click: see the whole command and what it printed") } else { "" };
                                     let target = if tip.is_empty() { target } else { target.on_hover_text(format!("{summary}\n\n{tip}")) };
@@ -2464,6 +2474,14 @@ impl App {
                                 if toggle {
                                     open = !open;
                                     ui.data_mut(|d| d.insert_temp(open_id, open));
+                                }
+                                // an image (or a PDF) Claude opened: shown under its line, as the ones given
+                                if name == "Read" && claude::shown_read(summary) && Path::new(summary).exists() {
+                                    egui::Frame::none().outer_margin(egui::Margin { left: 18.0, top: 2.0, bottom: 4.0, ..Default::default() }).show(ui, |ui| {
+                                        if image_thumb(ui, Path::new(summary), 120.0).clicked() {
+                                            open_image = Some(PathBuf::from(summary));
+                                        }
+                                    });
                                 }
                                 if open {
                                     egui::Frame::none()
