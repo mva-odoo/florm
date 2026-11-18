@@ -224,7 +224,7 @@ impl App {
                 }
                 // attach: the command that starts the program under debugpy, to paste in a terminal
                 if let Some(cmd) = listen.filter(|_| !self.debug.session.as_ref().is_some_and(|s| s.connected)) {
-                    if ui.button(t!("Copier la commande", "Copy the command")).on_hover_text(tf!("{cmd}\n\nÀ lancer dans un terminal (celui de Florm ou le tien) ; dans un conteneur, comme commande d'Odoo (command: du docker-compose.yml).", "{cmd}\n\nTo run in a terminal (Florm's or yours); in a container, as the command of Odoo (command: of docker-compose.yml).")).clicked() {
+                    if ui.button(t!("Copier la commande", "Copy the command")).on_hover_text(tf!("{cmd}\n\nÀ lancer dans un terminal (celui de Florm ou le tien) ; dans un conteneur, comme commande du service (command: du docker-compose.yml).", "{cmd}\n\nTo run in a terminal (Florm's or yours); in a container, as the command of the service (command: of docker-compose.yml).")).clicked() {
                         *act = Some(DebugAct::Copy(cmd));
                     }
                 }
@@ -495,7 +495,7 @@ impl App {
                 ui.label(RichText::new(t!("Exceptions :", "Exceptions:")).small().color(weak));
                 for (key, label, tip) in [
                     ("uncaught", t!("non interceptées", "uncaught"), t!("S'arrêter sur une exception que rien n'intercepte", "Stop on an exception nothing catches")),
-                    ("raised", t!("toutes", "all raised"), t!("S'arrêter sur chaque exception levée, même interceptée (Odoo en lève beaucoup)", "Stop on every exception raised, even caught (Odoo raises many)")),
+                    ("raised", t!("toutes", "all raised"), t!("S'arrêter sur chaque exception levée, même interceptée (un framework comme Odoo en lève beaucoup)", "Stop on every exception raised, even caught (a framework like Odoo raises many)")),
                     ("userUnhandled", t!("hors de mon code", "leaving my code"), t!("S'arrêter quand une exception sort du code du projet", "Stop when an exception leaves the code of the project")),
                 ] {
                     let mut on = self.settings.debug_exceptions.iter().any(|e| e == key);

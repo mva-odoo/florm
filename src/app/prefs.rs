@@ -768,7 +768,7 @@ impl App {
                         }
                     }
                 });
-                pref_row(ui, rc, t!("Mon code seulement", "My code only"), t!("N'entre pas dans le code d'Odoo ni des bibliothèques (justMyCode).", "Does not step into the code of Odoo nor of the libraries (justMyCode)."), |ui| {
+                pref_row(ui, rc, t!("Mon code seulement", "My code only"), t!("N'entre pas dans le code des bibliothèques, ni d'Odoo dans un projet Odoo (justMyCode).", "Does not step into the code of the libraries, nor of Odoo in an Odoo project (justMyCode)."), |ui| {
                     toggle_switch(ui, &mut s.debug_just_my_code);
                 });
             }

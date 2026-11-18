@@ -228,7 +228,7 @@ impl App {
                 }
             }
             Mode::Projects => t!("Changer de projet", "Switch project").into(),
-            Mode::Symbols => t!("Aller au symbole   (classe, fonction, méthode, record Odoo, titre…)", "Go to symbol   (class, function, method, Odoo record, heading…)").into(),
+            Mode::Symbols => t!("Aller au symbole   (classe, fonction, méthode, record XML, titre…)", "Go to symbol   (class, function, method, XML record, heading…)").into(),
             Mode::Definitions(w) => tf!("Définitions de « {w} »", "Definitions of “{w}”"),
             Mode::References(w) => tf!("Usages de « {w} »", "Usages of “{w}”"),
             Mode::Bookmarks => t!("Signets", "Bookmarks").into(),
@@ -251,7 +251,7 @@ impl App {
                 Prompt::RenameBranch { old, upstream } if upstream.is_empty() => tf!("Nouveau nom de la branche « {old} »", "New name of the branch “{old}”"),
                 Prompt::RenameBranch { old, upstream } => tf!("Nouveau nom de « {old} » ({upstream} est renommée aussi)", "New name of “{old}” ({upstream} is renamed too)"),
                 Prompt::TagAt(h) => tf!("Nom du tag sur le commit {}   (« v1.2 » ; « v1.2 message » : tag annoté)", "Name of the tag on commit {}   (“v1.2”; “v1.2 message”: annotated tag)", &h[..h.len().min(8)]),
-                Prompt::AddRemote => t!("Nouveau remote : nom puis URL   (upstream git@github.com:odoo/odoo.git)", "New remote: name then URL   (upstream git@github.com:odoo/odoo.git)").into(),
+                Prompt::AddRemote => t!("Nouveau remote : nom puis URL   (upstream git@github.com:propriétaire/dépôt.git)", "New remote: name then URL   (upstream git@github.com:owner/repo.git)").into(),
                 Prompt::AddSubmodule => t!("Nouveau sous-module : URL, puis le dossier si besoin   (git@github.com:org/lib.git libs/lib)", "New submodule: URL, then the folder if needed   (git@github.com:org/lib.git libs/lib)").into(),
                 Prompt::HistorySearch(k) => tf!("Rechercher dans l'historique — {}   (Tab : changer de critère)", "Search the history — {}   (Tab: change the criterion)", k.label()),
             },

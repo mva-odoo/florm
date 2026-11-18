@@ -450,7 +450,7 @@ fn is_python(word: &str) -> bool {
 pub fn program(command: &str, find: impl Fn(&str) -> Option<String>) -> Result<Program, String> {
     let mut words = crate::odoo_test::split(command.trim());
     if words.is_empty() {
-        return Err(t!("Indiquez le programme à lancer (ex. ./odoo-bin -c odoo.conf)", "Enter the program to run (e.g. ./odoo-bin -c odoo.conf)").into());
+        return Err(t!("Indiquez le programme à lancer (ex. python3 main.py)", "Enter the program to run (e.g. python3 main.py)").into());
     }
     let mut python = None;
     if is_python(&words[0]) {
