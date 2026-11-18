@@ -523,7 +523,7 @@ command and your login: no key to set up.
   it, and a sound plays. **Preferences → Claude**: blink or not, and the sound (Chime, Bell,
   Drop, Beep, Chord, Microwave, or none; ▶ to listen).
 - **/** at the start of the field: the commands of Claude Code (`/usage`, `/context`, `/compact`,
-  `/clear`, `/model`, your skills…), **Tab** or a click completes. They go alone, without the
+  `/clear`, `/model`, your skills `/florm:name`…): **Tab** (or ↑ ↓) goes from one to the next, **Enter** or a click completes. They go alone, without the
   context. **/btw question** asks a question on the side, even while Claude is working: the
   answer shows above the field and does not enter the conversation. **/status**: version, model,
   session, folder. Those of the terminal interface only (`/doctor`…) open in a terminal below.

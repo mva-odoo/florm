@@ -530,7 +530,7 @@ panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en
   clignoter ou non, et le son (Carillon, Clochette, Goutte, Bip, Accord, Micro-ondes, ou aucun ; ▶ pour
   écouter).
 - **/** au début du champ : les commandes de Claude Code (`/usage`, `/context`, `/compact`,
-  `/clear`, `/model`, tes skills…), **Tab** ou un clic complète. Elles partent seules, sans le
+  `/clear`, `/model`, tes skills `/florm:nom`…) : **Tab** (ou ↑ ↓) passe d'une à l'autre, **Entrée** ou un clic complète. Elles partent seules, sans le
   contexte. **/btw question** pose une question à côté, même pendant que Claude travaille : la
   réponse s'affiche au-dessus du champ et n'entre pas dans la conversation. **/status** : version,
   modèle, session, dossier. Celles de l'interface terminal seulement (`/doctor`…) s'ouvrent dans

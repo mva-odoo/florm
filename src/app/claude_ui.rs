@@ -496,6 +496,13 @@ fn shown_summary(name: &str, summary: &str) -> String {
     }
 }
 
+/// `input` shows a list of completions: a slash command being typed, or a file after `@`.
+fn opens_completion(input: &str) -> bool {
+    let command = input.starts_with('/') && !input.contains(char::is_whitespace);
+    let mention = input.rsplit(char::is_whitespace).next().is_some_and(|w| w.starts_with('@'));
+    command || mention
+}
+
 fn image_thumb(ui: &mut egui::Ui, path: &Path, max: f32) -> egui::Response {
     if claude::is_pdf(path) {
         let size = if max > 40.0 { 15.0 } else { 12.5 };
@@ -1817,13 +1824,14 @@ impl App {
                             let choice_id = field_id.with(("command_choice", typed.clone()));
                             let mut choice = ui.data(|d| d.get_temp::<usize>(choice_id)).unwrap_or(0).min(matching.len() - 1);
                             if ui.memory(|m| m.has_focus(field_id)) {
-                                if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::ArrowDown)) {
+                                // Tab and ↓ go to the next one, ↑ to the one before, Enter completes
+                                if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::ArrowDown) | i.consume_key(egui::Modifiers::NONE, Key::Tab)) {
                                     choice = (choice + 1) % matching.len();
                                 }
                                 if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::ArrowUp)) {
                                     choice = (choice + matching.len() - 1) % matching.len();
                                 }
-                                if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Tab)) || ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Enter)) {
+                                if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Enter)) {
                                     pick = Some(matching[choice].0.clone());
                                 }
                             }
@@ -1831,7 +1839,7 @@ impl App {
                             egui::Frame::none().fill(icons::mix(fill, accent, 0.05)).rounding(6.0).inner_margin(4.0).show(ui, |ui| {
                                 for (k, (name, hint)) in matching.iter().enumerate() {
                                     ui.horizontal_wrapped(|ui| {
-                                        if ui.selectable_label(k == choice, format!("/{name}")).on_hover_text(t!("↑ ↓ pour choisir, Tab ou Entrée : compléter", "↑ ↓ to choose, Tab or Enter: complete")).clicked() {
+                                        if ui.selectable_label(k == choice, format!("/{name}")).on_hover_text(t!("Tab ou ↑ ↓ pour choisir, Entrée : compléter", "Tab or ↑ ↓ to choose, Enter: complete")).clicked() {
                                             pick = Some(name.clone());
                                         }
                                         if !hint.is_empty() {
@@ -1861,6 +1869,11 @@ impl App {
                             .lock_focus(completing)
                             .layouter(&mut layout_cutting),
                     );
+                    // a list of completions opened by what was just typed: the field keeps Tab from now
+                    // on (else egui moves the focus with the next Tab, before the list takes it)
+                    if resp.has_focus() && opens_completion(&c.input) {
+                        ui.memory_mut(|m| m.set_focus_lock_filter(field_id, egui::EventFilter { tab: true, horizontal_arrows: true, vertical_arrows: true, escape: false }));
+                    }
                     if to_end {
                         cursor_to = Some(c.input.chars().count());
                     }
@@ -2943,7 +2956,7 @@ mod tests {
     /// On a small screen the conversation stays in the window: the bars wrap instead of
     /// pushing the messages past its right edge (where nothing scrolls to them), and so do the
     /// changes and commands waiting for an answer.
-    /// « /co » typed (several commands match), Tab: the command is completed and the field keeps
+    /// « /co » typed (several commands match), Enter: the command is completed and the field keeps
     /// the focus, the next letters go on in it.
     #[test]
     fn tab_completes_a_command_and_keeps_the_focus() {
@@ -2958,7 +2971,7 @@ mod tests {
         let ctx = egui::Context::default();
         let mut app = App::with_ctx(&ctx, Some(proj.clone()));
         let mut field = egui::Id::NULL;
-        let key = |pressed| egui::Event::Key { key: Key::Tab, physical_key: None, pressed, repeat: false, modifiers: Default::default() };
+        let key = |pressed| egui::Event::Key { key: Key::Enter, physical_key: None, pressed, repeat: false, modifiers: Default::default() };
         let mut focused_after_tab = false;
         for frame in 0..8 {
             // after the first frame: the conversation is loaded then
@@ -2980,8 +2993,51 @@ mod tests {
                 focused_after_tab = ctx.memory(|m| m.has_focus(field));
             }
         }
-        assert!(focused_after_tab, "the field lost the focus with Tab");
+        assert!(focused_after_tab, "the field lost the focus with Enter");
         assert!(app.claude.input.starts_with("/co") && app.claude.input.ends_with(" x") && !app.claude.input.contains('\t'), "{:?}", app.claude.input);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// « / » typed in the field, then Tab at once: the field keeps the focus (the list of the
+    /// commands takes the key as soon as it shows).
+    #[test]
+    fn slash_then_tab_keeps_the_focus() {
+        let dir = std::env::temp_dir().join(format!("florm_claude_slash_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (conf, proj) = (dir.join("conf"), dir.join("proj"));
+        std::fs::create_dir_all(&conf).unwrap();
+        std::fs::create_dir_all(&proj).unwrap();
+        std::fs::write(conf.join("settings.toml"), "check_updates = false\nlsp = false\n").unwrap();
+        let _lock = config::TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("FLORM_CONFIG", &conf);
+        let ctx = egui::Context::default();
+        let mut app = App::with_ctx(&ctx, Some(proj.clone()));
+        let mut field = egui::Id::NULL;
+        let key = |k, pressed| egui::Event::Key { key: k, physical_key: None, pressed, repeat: false, modifiers: Default::default() };
+        let mut focus = Vec::new();
+        for frame in 0..10 {
+            if frame == 1 {
+                field = egui::Id::new("claude_input").with(app.claude.id).with("field");
+                app.claude.focus = true;
+            }
+            let events = match frame {
+                3 => vec![egui::Event::Text("/".into())],
+                4 => vec![key(Key::Tab, true)],
+                5 => vec![key(Key::Tab, false)],
+                6 => vec![key(Key::Tab, true)],
+                7 => vec![key(Key::Tab, false)],
+                _ => Vec::new(),
+            };
+            let _ = ctx.run(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 700.0))), events, ..Default::default() }, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| app.claude_show(ui, None));
+            });
+            focus.push((frame, ctx.memory(|m| m.has_focus(field)), app.claude.input.clone()));
+        }
+        assert!(focus.iter().skip(3).all(|(_, f, _)| *f), "{focus:?}");
+        // Tab goes through the choices: nothing completed yet, the second one chosen after two
+        assert_eq!(app.claude.input, "/");
+        let field_choice = field.with(("command_choice", String::new()));
+        assert_eq!(ctx.data(|d| d.get_temp::<usize>(field_choice)), Some(2));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
