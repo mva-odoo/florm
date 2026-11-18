@@ -525,9 +525,14 @@ mod lsp_tests {
         let ctx = egui::Context::default();
         let mut app = App::with_ctx(&ctx, Some(proj.clone()));
         assert!(app.open_path(file.clone()));
+        // checked on a thread: its answer read like the app does at each frame
         let check = |app: &mut App| {
             app.docs[app.active].last_change = Instant::now() - Duration::from_secs(1);
             app.periodic(&ctx);
+            for _ in 0..60 {
+                app.process_jobs();
+                std::thread::sleep(Duration::from_millis(5));
+            }
             app.docs[app.active].spelling.iter().map(|m| m.word.clone()).collect::<Vec<_>>()
         };
         assert_eq!(check(&mut app), ["fichierr", "flormesque"]);

@@ -354,8 +354,11 @@ impl App {
                     } else {
                         let repaint = ctx.clone();
                         if let Some(dict) = crate::spell::dict(move || repaint.request_repaint()) {
-                            d.spelling = crate::spell::check(&d.rope.to_string(), kind, &dict);
-                            d.spell_version = d.version;
+                            // on a thread (a copy of the rope costs nothing); the version marked
+                            // now so that it is not asked twice
+                            let (uid, version, rope) = (d.uid, d.version, d.rope.clone());
+                            d.spell_version = version;
+                            self.jobs.spawn(move || JobResult::Spelled { uid, version, list: crate::spell::check(&rope.to_string(), kind, &dict) });
                         }
                     }
                 }

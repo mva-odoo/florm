@@ -61,6 +61,8 @@ pub enum JobResult {
     /// Commit after a task of the queue of conversation (id): the first line of its message.
     /// Remarks of an AI review (key of what was reviewed: a pull request, the changes not committed).
     AiReview(String, Result<Vec<crate::claude::ReviewNote>, String>),
+    /// The words a document (uid) at a version does not spell right.
+    Spelled { uid: u64, version: u64, list: Vec<crate::spell::Misspelled> },
     /// Claude's answer about a remark of a review: (key of the review, id of the remark).
     AiRefined { key: String, id: u64, result: Result<(String, Option<String>), String> },
     /// Answer of Claude on a selection in the editor (number of the question).

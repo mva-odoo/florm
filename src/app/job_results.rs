@@ -207,6 +207,16 @@ impl App {
                 JobResult::CommitPlan(repo, r) => self.commit_plan_loaded(repo, r),
                 JobResult::CommitPlanDone(repo, done, e) => self.commit_plan_done(repo, done, e),
                 JobResult::AiReview(key, r) => self.ai_review_loaded(key, r),
+                JobResult::Spelled { uid, version, list } => {
+                    if let Some(d) = self.docs.iter_mut().find(|d| d.uid == uid) {
+                        if d.version == version {
+                            d.spelling = list;
+                        } else if d.spell_version == version {
+                            // changed meanwhile: checked again
+                            d.spell_version = u64::MAX;
+                        }
+                    }
+                }
                 JobResult::AiRefined { key, id, result } => self.ai_refined(key, id, result),
                 JobResult::InlineAi(n, r) => self.inline_ai_loaded(n, r),
                 JobResult::AiComplete(n, r) => self.ai_complete_loaded(n, r),

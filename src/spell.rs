@@ -18,65 +18,98 @@ pub struct Misspelled {
     pub word: String,
 }
 
-/// The words, sorted, one per line, and where each one starts.
-pub struct Dict {
+/// Words sorted by bytes, one per line, and where each one starts: the text of a list as it is
+/// on the disk (no allocation per word).
+struct List {
     text: String,
     starts: Vec<u32>,
-    mine: HashSet<String>,
 }
 
-impl Dict {
-    fn from_words(mut words: Vec<String>, mine: HashSet<String>) -> Dict {
-        words.sort_unstable();
-        words.dedup();
-        let mut text = String::with_capacity(words.iter().map(|w| w.len() + 1).sum());
-        let mut starts = Vec::with_capacity(words.len());
-        for w in words {
-            starts.push(text.len() as u32);
-            text.push_str(&w);
-            text.push('\n');
+impl List {
+    fn of_text(text: String) -> List {
+        let mut starts = Vec::with_capacity(text.len() / 9);
+        let mut at = 0;
+        for line in text.split_inclusive('\n') {
+            if !line.trim_end_matches('\n').is_empty() {
+                starts.push(at as u32);
+            }
+            at += line.len();
         }
-        Dict { text, starts, mine }
+        List { text, starts }
     }
 
     fn word(&self, k: usize) -> &str {
         let a = self.starts[k] as usize;
-        let b = self.starts.get(k + 1).map_or(self.text.len(), |s| *s as usize);
-        &self.text[a..b - 1]
+        let rest = &self.text[a..];
+        &rest[..rest.find('\n').unwrap_or(rest.len())]
     }
 
     fn has(&self, w: &str) -> bool {
-        self.mine.contains(w) || self.mine.contains(&w.to_lowercase()) || {
-            let (mut lo, mut hi) = (0, self.starts.len());
-            while lo < hi {
-                let mid = (lo + hi) / 2;
-                match self.word(mid).cmp(w) {
-                    std::cmp::Ordering::Less => lo = mid + 1,
-                    std::cmp::Ordering::Greater => hi = mid,
-                    std::cmp::Ordering::Equal => return true,
-                }
+        let (mut lo, mut hi) = (0, self.starts.len());
+        while lo < hi {
+            let mid = (lo + hi) / 2;
+            match self.word(mid).cmp(w) {
+                std::cmp::Ordering::Less => lo = mid + 1,
+                std::cmp::Ordering::Greater => hi = mid,
+                std::cmp::Ordering::Equal => return true,
             }
-            false
         }
+        false
+    }
+}
+
+/// The lists (shared: adding a word of the user does not copy them) and the words of the user.
+pub struct Dict {
+    lists: Arc<Vec<List>>,
+    mine: HashSet<String>,
+}
+
+/// Longer than this, a run of letters is no word: left alone (and no suggestion is looked for).
+const LONGEST: usize = 40;
+
+impl Dict {
+    #[cfg(test)]
+    fn from_words(mut words: Vec<String>, mine: HashSet<String>) -> Dict {
+        words.sort_unstable();
+        words.dedup();
+        Dict { lists: Arc::new(vec![List::of_text(words.join("\n"))]), mine }
+    }
+
+    fn has(&self, w: &str) -> bool {
+        self.mine.contains(w) || self.lists.iter().any(|l| l.has(w))
     }
 
     /// The word is right: as written, in lowercase (a word at the start of a sentence), with its
-    /// French elision (`l'`, `qu'`…) or English contraction (`n't`, `'s`…) taken off.
+    /// French elisions (`l'`, `qu'`…) or English contraction (`n't`, `'s`…) taken off.
     pub fn knows(&self, w: &str) -> bool {
-        let w = w.replace('’', "'");
-        if self.has(&w) || self.has(&w.to_lowercase()) {
+        if w.chars().count() > LONGEST {
+            return true;
+        }
+        let w: std::borrow::Cow<str> = if w.contains('’') { w.replace('’', "'").into() } else { w.into() };
+        if self.has(&w) {
             return true;
         }
         let lower = w.to_lowercase();
+        if lower != *w && self.has(&lower) {
+            return true;
+        }
         // the words with an apostrophe of their own (the lists have none)
         if ["aujourd'hui", "prud'homme", "prud'hommes"].contains(&lower.as_str()) {
             return true;
         }
-        if let Some((head, tail)) = lower.split_once('\'') {
-            const ELISIONS: [&str; 15] = ["l", "d", "j", "m", "n", "s", "t", "c", "qu", "jusqu", "lorsqu", "puisqu", "quoiqu", "quelqu", "presqu"];
-            if ELISIONS.contains(&head) && (tail.is_empty() || self.knows(tail)) {
+        const ELISIONS: [&str; 15] = ["l", "d", "j", "m", "n", "s", "t", "c", "qu", "jusqu", "lorsqu", "puisqu", "quoiqu", "quelqu", "presqu"];
+        // the elisions taken off one after the other (« qu'l'… » would be odd but stays a loop)
+        let mut rest = lower.as_str();
+        while let Some((head, tail)) = rest.split_once('\'') {
+            if !ELISIONS.contains(&head) {
+                break;
+            }
+            if tail.is_empty() || self.has(tail) {
                 return true;
             }
+            rest = tail;
+        }
+        if lower.contains('\'') {
             const CONTRACTIONS: [&str; 7] = ["n't", "'s", "'re", "'ll", "'ve", "'d", "'m"];
             for c in CONTRACTIONS {
                 if let Some(base) = lower.strip_suffix(c) {
@@ -85,7 +118,7 @@ impl Dict {
                     }
                 }
             }
-            if self.has(head) && tail.is_empty() {
+            if lower.strip_suffix('\'').is_some_and(|head| self.has(head)) {
                 return true;
             }
         }
@@ -99,20 +132,16 @@ impl Dict {
     /// Up to `n` words close to `w` (one change, else two), closest in length first.
     pub fn suggest(&self, w: &str, n: usize) -> Vec<String> {
         let lower = w.to_lowercase();
+        if lower.chars().count() > LONGEST {
+            return Vec::new();
+        }
         let capital = w.chars().next().is_some_and(char::is_uppercase);
         let mut found: Vec<String> = edits(&lower).into_iter().filter(|c| self.has(c)).collect();
-        if found.is_empty() && lower.chars().count() <= 12 {
-            let once = edits(&lower);
-            let mut seen = HashSet::new();
-            for e in once {
-                for c in edits(&e) {
-                    if seen.insert(c.clone()) && self.has(&c) {
-                        found.push(c);
-                    }
-                }
-                if found.len() > 50 {
-                    break;
-                }
+        // two changes: the second one only a letter removed or two swapped (all the changes twice
+        // over is hundreds of thousands of words to look up: a pause in the editor)
+        if found.is_empty() {
+            for e in edits(&lower) {
+                found.extend(small_edits(&e).into_iter().filter(|c| self.has(c)));
             }
         }
         found.sort();
@@ -150,6 +179,21 @@ fn strip_accents(w: &str) -> String {
 fn capitalize(w: &str) -> String {
     let mut c = w.chars();
     c.next().map(|f| f.to_uppercase().chain(c).collect()).unwrap_or_default()
+}
+
+/// The words a letter removed, or two letters swapped, away from `w`.
+fn small_edits(w: &str) -> Vec<String> {
+    let chars: Vec<char> = w.chars().collect();
+    let mut out = Vec::with_capacity(chars.len() * 2);
+    for i in 0..chars.len() {
+        out.push(chars[..i].iter().chain(&chars[i + 1..]).collect());
+        if i + 1 < chars.len() {
+            let mut s = chars.clone();
+            s.swap(i, i + 1);
+            out.push(s.into_iter().collect());
+        }
+    }
+    out
 }
 
 /// The words one change away from `w`: a letter removed, swapped with the next, replaced, added.
@@ -215,7 +259,7 @@ pub fn add_word(word: &str) -> Result<(), String> {
         if let Loaded::Ready(d) = &*s {
             let mut mine = d.mine.clone();
             mine.insert(word.to_string());
-            *s = Loaded::Ready(Arc::new(Dict { text: d.text.clone(), starts: d.starts.clone(), mine }));
+            *s = Loaded::Ready(Arc::new(Dict { lists: d.lists.clone(), mine }));
         }
     }
     Ok(())
@@ -377,7 +421,7 @@ pub fn unfold(aff: &str, dic: &str) -> Vec<String> {
 /// The lists, downloaded the first time (in the background: it reads and writes files).
 pub fn load() -> Result<Dict, String> {
     let dir = lists_dir();
-    let mut words = Vec::new();
+    let mut lists = Vec::new();
     for (package, version) in LISTS {
         let txt = dir.join(format!("{package}-{version}.txt"));
         if !txt.is_file() {
@@ -390,9 +434,10 @@ pub fn load() -> Result<Dict, String> {
             std::fs::write(&txt, words.join("\n")).map_err(|e| e.to_string())?;
             let _ = std::fs::remove_dir_all(&tmp);
         }
-        words.extend(std::fs::read_to_string(&txt).map_err(|e| e.to_string())?.lines().map(String::from));
+        // written sorted by bytes, as the search wants
+        lists.push(List::of_text(std::fs::read_to_string(&txt).map_err(|e| e.to_string())?));
     }
-    Ok(Dict::from_words(words, my_words()))
+    Ok(Dict { lists: Arc::new(lists), mine: my_words() })
 }
 
 pub enum Loaded {
@@ -499,9 +544,12 @@ fn parts(text: &str, kind: Kind) -> Vec<(usize, usize, String)> {
             let mut inside: Option<&str> = None;
             for (i, l) in text.lines().enumerate() {
                 let chars: Vec<char> = l.chars().collect();
+                // where each char starts: the rest of the line is a slice, not a copy (a copy per
+                // char made long lines quadratic)
+                let offs: Vec<usize> = l.char_indices().map(|(b, _)| b).collect();
                 let mut k = 0;
                 while k < chars.len() {
-                    let rest: String = chars[k..].iter().collect();
+                    let rest: &str = &l[offs[k]..];
                     if let Some(end) = inside {
                         match rest.find(end) {
                             Some(at) => {
@@ -511,7 +559,7 @@ fn parts(text: &str, kind: Kind) -> Vec<(usize, usize, String)> {
                                 inside = None;
                             }
                             None => {
-                                out.push((i, k, rest));
+                                out.push((i, k, rest.to_string()));
                                 break;
                             }
                         }
@@ -556,9 +604,10 @@ fn prose_line(line: &str) -> String {
     let chars: Vec<char> = line.chars().collect();
     let mut out: Vec<char> = chars.clone();
     let blank = |out: &mut Vec<char>, a: usize, b: usize| out[a..b.min(chars.len())].iter_mut().for_each(|c| *c = ' ');
+    let offs: Vec<usize> = line.char_indices().map(|(b, _)| b).collect();
     let mut k = 0;
     while k < chars.len() {
-        let rest: String = chars[k..].iter().collect();
+        let rest: &str = &line[offs[k]..];
         let end_of = |stop: &dyn Fn(char) -> bool| chars[k..].iter().position(|c| stop(*c)).map_or(chars.len(), |p| k + p);
         if chars[k] == '`' {
             let end = chars[k + 1..].iter().position(|c| *c == '`').map_or(chars.len(), |p| k + 1 + p + 1);
@@ -639,6 +688,16 @@ mod tests {
         assert_eq!(d.suggest("fichierr", 3), ["fichier", "fichiers"]);
         assert_eq!(d.suggest("fonctoin", 3), ["fonction"]);
         assert_eq!(d.suggest("Cafe", 1), ["Café"]);
+        // two changes: a letter replaced, then one more removed or swapped
+        assert_eq!(d.suggest("fonctoinn", 3), ["fonction"]);
+        // a trap of elisions (« l'l'l'…x »): no recursion, no crash
+        let trap = "l'".repeat(100_000) + "x";
+        let t = std::time::Instant::now();
+        let _ = d.knows(&trap);
+        let _ = d.knows(&format!("{}fichierr", "l'".repeat(19)));
+        assert!(t.elapsed().as_millis() < 50);
+        assert!(d.knows("l'l'fichier") && !d.knows("l'l'fichierr"));
+        assert!(d.suggest(&"a".repeat(1_000_000), 3).is_empty());
     }
 
     #[test]
