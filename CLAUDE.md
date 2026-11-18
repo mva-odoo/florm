@@ -1,8 +1,8 @@
 # CLAUDE.md
 
 Florm : éditeur de texte en Rust (egui/eframe 0.29), inspiré de Sublime Text, un seul binaire.
-Intègre Git, GitHub (pull requests), Claude Code, Docker, terminal, LSP, linters, débogueur (DAP),
-tests Odoo, connexions SSH/WSL, plugins.
+Intègre Git, GitHub (pull requests), Claude Code, terminal, LSP, linters, orthographe, débogueur (DAP :
+Python, Node, Rust/C, Go), tests (pytest, jest, cargo, go, Odoo dans Docker), dossiers WSL.
 
 ## Commandes
 
@@ -49,7 +49,7 @@ scripts/build-windows.sh    # binaire Windows depuis Linux/WSL
 - **Commentaires et doc du code** : en anglais, courts, comme le code existant.
 - **Guide intégré** : une fonctionnalité visible par l'utilisateur se documente dans
   `assets/guide.md` **et** `assets/guide.en.md` (inclus dans le binaire), et dans `README.md`
-  si elle concerne l'installation, les outils externes ou la configuration.
+  **et** `README.en.md` si elle concerne l'installation, les outils externes ou la configuration.
 - **Style des textes** : phrases simples et concrètes, sans jargon ; symboles déjà utilisés
   dans l'UI (⟳, ⇱ / ⇲, ⋯, ✨, ✂…) plutôt que de nouveaux libellés.
 
