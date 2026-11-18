@@ -47,6 +47,9 @@ impl App {
     /// Before egui reads the input of a frame: Alt alone opens the labels; while they are shown, the
     /// keys typed choose one (they go nowhere else), and its click is given as pointer events.
     pub(super) fn hints_input(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        if !self.hints.active {
+            menu_keys(ctx, raw);
+        }
         let h = &mut self.hints;
         // the second half of a click: the release, one frame after the press
         if let Some(p) = h.release_at.take() {
@@ -210,6 +213,72 @@ impl App {
     }
 }
 
+/// What Florm shows on top that is not a menu: lists reading the arrows themselves from the field
+/// that has the focus, and a banner staying while one works.
+const OWN_LISTS: [&str; 4] = ["completion", "quick_fix", "overlay", "quit_when_idle"];
+
+/// ↓ or ↑ while a menu or a list of choices is open, but none of its entries has the focus (it was
+/// opened with a click, or the editor kept the focus): the first or the last entry gets it, so the
+/// arrows move in the menu from then on and Enter chooses (egui does both once an entry has focus).
+fn menu_keys(ctx: &egui::Context, raw: &mut egui::RawInput) {
+    // Enter chose an entry at the last frame: a list of choices only closes by itself on a click
+    let chose = egui::Id::new("menu_keys_chose");
+    if ctx.data_mut(|d| d.remove_temp::<bool>(chose)).is_some() {
+        ctx.memory_mut(|m| m.close_popup());
+    }
+    let enter = raw.events.iter().any(|e| matches!(e, egui::Event::Key { key: egui::Key::Enter, pressed: true, modifiers, .. } if modifiers.is_none()));
+    let arrow = raw.events.iter().position(|e| {
+        matches!(e, egui::Event::Key { key: egui::Key::ArrowDown | egui::Key::ArrowUp, pressed: true, modifiers, .. } if modifiers.is_none())
+    });
+    if arrow.is_none() && !enter {
+        return;
+    }
+    let own: Vec<egui::Id> = OWN_LISTS.iter().map(|n| egui::Id::new(*n)).collect();
+    // the entries of the menus open at the last frame
+    let entries: Vec<(egui::Id, egui::LayerId, egui::Rect)> = ctx.viewport(|v| {
+        v.prev_pass
+            .widgets
+            .layers()
+            .filter(|(l, _)| l.order == egui::Order::Foreground && !own.contains(&l.id))
+            .flat_map(|(_, w)| w.iter())
+            .filter(|w| w.enabled && w.sense.click && !w.sense.drag && w.interact_rect.height() >= 4.0)
+            .map(|w| (w.id, w.layer_id, w.interact_rect))
+            .collect()
+    });
+    if entries.is_empty() {
+        return;
+    }
+    let focused = ctx.memory(|m| m.focused());
+    if focused.is_some_and(|f| entries.iter().any(|(id, _, _)| *id == f)) {
+        if enter {
+            ctx.data_mut(|d| d.insert_temp(chose, true));
+        }
+        return;
+    }
+    let Some(at) = arrow else { return };
+    // the menu under the pointer (a submenu over its parent), else the one on top
+    let pointer = ctx.input(|i| i.pointer.latest_pos());
+    let top = ctx.memory(|m| m.areas().top_layer_id(egui::Order::Foreground));
+    let layer = pointer
+        .and_then(|p| ctx.layer_id_at(p))
+        .filter(|l| entries.iter().any(|(_, el, _)| el == l))
+        .or(top.filter(|l| entries.iter().any(|(_, el, _)| el == l)))
+        .unwrap_or(entries[0].1);
+    let mut mine: Vec<(egui::Id, egui::Rect)> = entries.into_iter().filter(|(_, l, _)| *l == layer).map(|(id, _, r)| (id, r)).collect();
+    // the background of the popup (a list of choices has one that can be clicked) is no entry
+    let all = mine.clone();
+    mine.retain(|(id, r)| !all.iter().any(|(o, or)| o != id && r.contains_rect(*or)));
+    mine.sort_by(|a, b| (a.1.top() as i32, a.1.left() as i32).cmp(&(b.1.top() as i32, b.1.left() as i32)));
+    let down = matches!(raw.events[at], egui::Event::Key { key: egui::Key::ArrowDown, .. });
+    let pick = if down { mine.first() } else { mine.last() };
+    if let Some((id, _)) = pick {
+        ctx.memory_mut(|m| m.request_focus(*id));
+        // used: it would move the focus one entry further, or the cursor of the editor
+        raw.events.remove(at);
+        ctx.request_repaint();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -264,5 +333,71 @@ mod tests {
         assert_eq!(clicks, 1, "« s » clicks the second button");
         assert!(!app.hints.active);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A menu opened with a click: ↓ reaches its first entry, ↓ again the next, Enter chooses it.
+    #[test]
+    fn arrows_move_in_a_menu_opened_with_a_click() {
+        let ctx = egui::Context::default();
+        let key = |k| egui::Event::Key { key: k, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() };
+        let (mut button, mut chosen) = (egui::Rect::NOTHING, Vec::new());
+        for frame in 0..12 {
+            let mut raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 300.0))), ..Default::default() };
+            let p = button.center();
+            match frame {
+                2 => raw.events.extend([egui::Event::PointerMoved(p), egui::Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() }]),
+                3 => raw.events.push(egui::Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() }),
+                5 | 7 => raw.events.push(key(egui::Key::ArrowDown)),
+                9 => raw.events.push(key(egui::Key::Enter)),
+                _ => {}
+            }
+            menu_keys(&ctx, &mut raw);
+            let _ = ctx.run(raw, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    let r = ui.menu_button("Fichier", |ui| {
+                        for name in ["Ouvrir", "Enregistrer", "Fermer"] {
+                            if ui.button(name).clicked() {
+                                chosen.push(name);
+                                ui.close_menu();
+                            }
+                        }
+                    });
+                    button = r.response.rect;
+                });
+            });
+        }
+        assert_eq!(chosen, ["Enregistrer"]);
+    }
+
+    /// The same in a list of choices (a combo box), like the filters of the pull requests.
+    #[test]
+    fn arrows_move_in_a_combo_box() {
+        let ctx = egui::Context::default();
+        let key = |k| egui::Event::Key { key: k, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() };
+        let (mut button, mut who) = (egui::Rect::NOTHING, 0usize);
+        for frame in 0..12 {
+            let mut raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 300.0))), ..Default::default() };
+            let p = button.center();
+            match frame {
+                2 => raw.events.extend([egui::Event::PointerMoved(p), egui::Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() }]),
+                3 => raw.events.push(egui::Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() }),
+                5 | 7 => raw.events.push(key(egui::Key::ArrowDown)),
+                9 => raw.events.push(key(egui::Key::Enter)),
+                _ => {}
+            }
+            menu_keys(&ctx, &mut raw);
+            let _ = ctx.run(raw, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    let r = egui::ComboBox::from_id_salt("who").selected_text("x").show_ui(ui, |ui| {
+                        for (k, name) in ["Toutes", "Les miennes", "À relire"].iter().enumerate() {
+                            ui.selectable_value(&mut who, k, *name);
+                        }
+                    });
+                    button = r.response.rect;
+                });
+            });
+        }
+        assert_eq!(who, 1, "the second entry chosen");
+        assert!(!ctx.memory(|m| m.any_popup_open()), "the list closed once chosen");
     }
 }

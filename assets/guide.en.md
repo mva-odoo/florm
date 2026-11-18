@@ -12,7 +12,7 @@ Every shortcut can be changed in **Preferences → Shortcuts** (Ctrl+,).
 | **Ctrl+P** | Go to a file of the project. `name:42` opens it at line 42, `:42` goes to line 42 of the current file |
 | **Ctrl+K** | The views apart from the commands: Search, Terminal, Claude, Git…, the terminals and the conversations, then the Ctrl+K… chords with their name. Type to filter; **Ctrl+K Ctrl+B**, **Ctrl+K V**… keep their role |
 | **Ctrl+Shift+P** | Command palette. A leading **`#`** lists the views, the terminals and the conversations: `#git`, `#dock`, `#term`, `#claude` |
-| **Alt** alone | Everything from the keyboard: one or two letters on each visible button, tab, box or field; typing them clicks it (Esc closes). Can be turned off in Preferences → Editor |
+| **Alt** alone | Everything from the keyboard: one or two letters on each visible button, tab, box or field; typing them clicks it (Esc closes). In an open menu, ↓ ↑ move between its entries and Enter chooses. Can be turned off in Preferences → Editor |
 | **Ctrl+R** | Go to a class, a function, an Odoo record of the file |
 | **Ctrl+O** / **Ctrl+Shift+S** | Open / save as: **Tab completes the path** like in a terminal |
 | **F12** | Go to definition (also on `'sale.order'` or `'module.xml_id'`) |
