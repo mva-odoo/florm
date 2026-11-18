@@ -381,7 +381,7 @@ enum Mode {
     /// Where a symbol is used (language server).
     References(String),
     Bookmarks,
-    /// Machines to connect to (SSH hosts, WSL distributions).
+    /// WSL distributions to open a folder of.
     Remotes,
     Prompt(Prompt),
 }
@@ -1385,7 +1385,7 @@ impl App {
             app.shared_job(crate::shared::Op::Sync);
         }
         let cwd = std::env::current_dir().unwrap_or_default();
-        let last_project = app.projects.iter().find(|p| p.path.is_dir() || crate::remote::ssh_location(&p.path).is_some()).map(|p| p.path.clone());
+        let last_project = app.projects.iter().find(|p| p.path.is_dir()).map(|p| p.path.clone());
         match arg {
             Some(p) if p.is_dir() => app.open_project(p),
             Some(p) => {

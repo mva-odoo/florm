@@ -188,8 +188,6 @@ pub enum JobResult {
     Shared(crate::shared::Op, Result<(String, String), String>),
     /// Connected to another machine: the folder to start from there.
     RemoteConnected(crate::remote::Target, Result<PathBuf, String>),
-    /// Host of an SSH project mounted: the project to open (`switch`: from another project).
-    RemoteMounted { path: PathBuf, switch: bool, result: Result<(), String> },
 }
 
 /// `f` on each item, `threads` at a time, the results in the order of the items: for the same

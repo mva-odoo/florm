@@ -263,7 +263,7 @@ impl Terminal {
     fn spawn(&mut self, ctx: &egui::Context, shell: Option<&str>, cwd: Option<PathBuf>) -> Result<Session, String> {
         let shell = shell.map(str::to_string).filter(|s| !s.trim().is_empty()).unwrap_or_else(default_shell);
         let cwd = cwd.unwrap_or_else(|| self.cwd());
-        // a folder of another machine: a shell over there (ssh, wsl.exe), in the same folder
+        // a folder of a WSL distribution: a shell over there (wsl.exe), in the same folder
         let started = match crate::remote::terminal_argv(&cwd) {
             Some(argv) => {
                 let argv: Vec<&str> = argv.iter().map(String::as_str).collect();

@@ -347,7 +347,6 @@ impl App {
             }
             OpenFolderPath => self.open_prompt(Prompt::OpenFolder),
             RemoteConnect => self.open_overlay(Mode::Remotes),
-            RemoteDisconnect => self.remote_disconnect(),
             CloseTab => self.close_tab(self.active, false),
             ReopenClosed => {
                 if let Some(p) = self.closed.pop() {

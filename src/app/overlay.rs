@@ -31,8 +31,7 @@ impl App {
             Mode::Projects => self
                 .projects
                 .iter()
-                // a project over SSH may not be mounted yet: it is when chosen
-                .filter(|p| p.path.is_dir() || crate::remote::ssh_location(&p.path).is_some())
+                .filter(|p| p.path.is_dir())
                 .map(|p| {
                     let detail = match crate::remote::describe(&p.path) {
                         Some(r) => format!("{r} · {}", crate::remote::remote_path(&p.path).unwrap_or_default()),
@@ -232,7 +231,7 @@ impl App {
             Mode::Definitions(w) => tf!("Définitions de « {w} »", "Definitions of “{w}”"),
             Mode::References(w) => tf!("Usages de « {w} »", "Usages of “{w}”"),
             Mode::Bookmarks => t!("Signets", "Bookmarks").into(),
-            Mode::Remotes => t!("Se connecter   (un hôte de ~/.ssh/config, ou tape user@hôte[:port] puis Entrée)", "Connect   (a host of ~/.ssh/config, or type user@host[:port] then Enter)").into(),
+            Mode::Remotes => t!("Ouvrir un dossier WSL   (une distribution)", "Open a WSL folder   (a distribution)").into(),
             Mode::Prompt(p) => match p {
                 Prompt::OpenFolder => t!("Ouvrir le dossier", "Open the folder").into(),
                 Prompt::OpenFile => t!("Ouvrir le fichier", "Open the file").into(),
@@ -520,8 +519,6 @@ impl App {
                                 spinner(ui);
                                 ui.label(RichText::new(t!("Liste des fichiers du projet en cours…", "Listing the project files…")).weak());
                             });
-                        } else if n == 0 && matches!(ov.mode, Mode::Remotes) && !ov.query.trim().is_empty() {
-                            ui.label(RichText::new(tf!("Entrée : se connecter en SSH à {}", "Enter: connect over SSH to {}", ov.query.trim())).weak());
                         } else if n == 0 {
                             ui.label(RichText::new(t!("Aucun résultat", "No result")).weak());
                         }
@@ -529,9 +526,6 @@ impl App {
                     if enter {
                         if let Some(&i) = ov.filtered.get(ov.selected) {
                             chosen = Some(ov.items.action(i));
-                        } else if matches!(ov.mode, Mode::Remotes) && !ov.query.trim().is_empty() {
-                            // a host that is not in ~/.ssh/config
-                            chosen = Some(Action::Remote(crate::remote::Target::Ssh(ov.query.trim().to_string())));
                         }
                     }
                 });
