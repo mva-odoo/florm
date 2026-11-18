@@ -601,7 +601,7 @@ const IMAGE_EXTS: [(&str, &str); 4] = [("image/png", "png"), ("image/jpeg", "jpg
 /// Writes the image `data` (base64) of the tool `id` into `images_dir` (once); the ones older
 /// than 30 days go.
 fn keep_image(id: &str, media: &str, data: &str) -> Option<PathBuf> {
-    if id.is_empty() || id.contains(['/', '\\', '.']) {
+    if !safe_id(id) {
         return None;
     }
     let ext = IMAGE_EXTS.iter().find(|(m, _)| *m == media).map_or("png", |(_, e)| e);
@@ -624,8 +624,17 @@ fn keep_image(id: &str, media: &str, data: &str) -> Option<PathBuf> {
     Some(path)
 }
 
+/// An id of a tool of Claude used as a file name: letters, digits, `_` and `-` only (no path,
+/// drive or stream of Windows).
+fn safe_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 100 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
 /// The image of the tool `id` kept by Florm, if any.
 pub fn kept_image(id: &str) -> Option<PathBuf> {
+    if !safe_id(id) {
+        return None;
+    }
     let dir = images_dir();
     IMAGE_EXTS.iter().map(|(_, e)| dir.join(format!("{id}.{e}"))).find(|p| p.is_file())
 }
@@ -1414,7 +1423,7 @@ pub fn review(dir: &Path, diff: &str, about: &str, language: &str) -> Result<Vec
         prompt.push_str(about.trim());
     }
     let numbered: String = number_diff(diff).chars().take(200_000).collect();
-    let text = run_once(dir, &["-p", &prompt, "--output-format", "text", "--tools", "Read,Grep,Glob", "--no-session-persistence"], numbered)?;
+    let text = run_once(dir, &["-p", &prompt, "--output-format", "text", "--tools", "Read,Grep,Glob", "--setting-sources", "user", "--no-session-persistence"], numbered)?;
     parse_review(&text)
 }
 
@@ -1465,7 +1474,7 @@ pub fn refine_note(dir: &Path, note: &ReviewNote, diff: &str, about: &str, threa
         prompt.push_str(&format!("\n{who} : {text}"));
     }
     let numbered: String = number_diff(diff).chars().take(60_000).collect();
-    let text = run_once(dir, &["-p", &prompt, "--output-format", "text", "--tools", "Read,Grep,Glob", "--no-session-persistence"], numbered)?;
+    let text = run_once(dir, &["-p", &prompt, "--output-format", "text", "--tools", "Read,Grep,Glob", "--setting-sources", "user", "--no-session-persistence"], numbered)?;
     parse_refined(&text)
 }
 

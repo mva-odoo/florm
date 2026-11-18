@@ -132,7 +132,12 @@ fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(to)?;
     for e in std::fs::read_dir(from)?.flatten() {
         let p = e.path();
-        if p.is_dir() {
+        // a link is not followed: a loop of links, or one to the whole disk, is not copied
+        let Ok(kind) = e.file_type() else { continue };
+        if kind.is_symlink() {
+            continue;
+        }
+        if kind.is_dir() {
             copy_dir(&p, &to.join(e.file_name()))?;
         } else {
             std::fs::copy(&p, to.join(e.file_name()))?;

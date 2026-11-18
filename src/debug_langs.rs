@@ -380,7 +380,7 @@ fn js_debug() -> Result<PathBuf, Failure> {
 }
 
 fn curl(args: &[&str]) -> Result<Vec<u8>, String> {
-    let out = crate::os::command("curl").args(args).args(["-A", "florm"]).stdin(Stdio::null()).output().map_err(|e| format!("curl : {e}"))?;
+    let out = crate::os::command("curl").args(args).args(["-A", "florm", "--max-time", "120"]).stdin(Stdio::null()).output().map_err(|e| format!("curl : {e}"))?;
     if out.status.success() { Ok(out.stdout) } else { Err(String::from_utf8_lossy(&out.stderr).trim().to_string()) }
 }
 

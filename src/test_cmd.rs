@@ -135,11 +135,15 @@ pub fn command_at(path: &Path, text: &str, root: &Path, line: usize) -> Option<S
 /// A command of these runners (and not Odoo tags): its folder (relative to the project) and
 /// its arguments.
 pub fn parse(cmd: &str) -> Option<(Option<String>, Vec<String>)> {
-    let (dir, rest) = match cmd.trim().strip_prefix("cd ").and_then(|r| r.split_once("&&")) {
-        Some((d, r)) => (Some(crate::odoo_test::split(d.trim()).concat()), r.trim()),
-        None => (None, cmd.trim()),
+    // cut like a shell first: a `&&` inside quotes (a folder named so) is part of a word
+    let mut argv = crate::odoo_test::split(cmd.trim());
+    let dir = if argv.first().map(String::as_str) == Some("cd") && argv.get(2).map(String::as_str) == Some("&&") {
+        let d = argv[1].clone();
+        argv.drain(..3);
+        Some(d)
+    } else {
+        None
     };
-    let argv = crate::odoo_test::split(rest);
     let prog = argv.first()?;
     let name = Path::new(prog).file_stem()?.to_str()?;
     let known = ["pytest", "py.test", "python", "python3", "py", "uv", "cargo", "go", "npx", "npm", "pnpm", "yarn", "jest", "vitest", "bun", "deno"];
@@ -397,6 +401,15 @@ mod tests {
         assert_eq!(t, [(4, "go test ./calc -run '^TestAdd$'".to_string())]);
         assert!(tests_in(&root.join("src/app/plain.rs"), "fn f() {}\n", &root).is_empty());
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_folder_named_with_and_and_stays_a_folder() {
+        // a folder `x&&python3 evil.py` of a repository: quoted in the command, not a second command
+        let (dir, argv) = parse("cd 'x&&python3 evil.py' && npx jest a.test.ts").unwrap();
+        assert_eq!(dir.as_deref(), Some("x&&python3 evil.py"));
+        assert_eq!(argv, ["npx", "jest", "a.test.ts"]);
+        assert!(parse("cd 'x&&python3' evil.py").is_none());
     }
 
     #[test]
