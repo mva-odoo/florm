@@ -29,6 +29,8 @@ pub(super) struct PrCreate {
     /// Remotes the branch can be pushed to: (name, GitHub owner).
     remotes: Vec<(String, String)>,
     remote: usize,
+    /// Every remote branch ("remote/branch"), read when the window opened.
+    refs: Vec<String>,
     draft: bool,
     busy: bool,
     error: Option<String>,
@@ -149,24 +151,33 @@ impl App {
             self.set_status(t!("Pas de branche (HEAD détachée) : crée d'abord une branche", "No branch (detached HEAD): create a branch first"));
             return;
         }
-        let remotes: Vec<(String, String)> = git::stdout(&repo, &["remote"])
-            .unwrap_or_default()
-            .lines()
-            .filter(|r| !r.is_empty())
-            .map(|r| {
-                let url = git::stdout(&repo, &["remote", "get-url", r]).unwrap_or_default();
-                (r.to_string(), git::parse_github(url.trim()).map(|(o, _)| o).unwrap_or_default())
-            })
-            .collect();
-        // the remote it already follows, else "dev" (the fork of the odoo developers), else origin
+        // read on a thread (the window opens a moment later): each git command froze the view a little
         let upstream = st.upstream().and_then(|(u, _, _)| u.split_once('/').map(|(r, _)| r.to_string()));
+        self.jobs.spawn(move || {
+            let remotes = git::parse_remotes(&git::stdout(&repo, &["remote", "-v"]).unwrap_or_default())
+                .into_iter()
+                .map(|(n, url)| {
+                    let owner = git::parse_github(&url).map(|(o, _)| o).unwrap_or_default();
+                    (n, owner)
+                })
+                .collect();
+            let last = git::stdout(&repo, &["log", "-1", "--format=%s%x00%b"]).unwrap_or_default();
+            let (title, body) = last.split_once('\0').unwrap_or((last.as_str(), ""));
+            let (title, body) = (title.trim().to_string(), body.trim().to_string());
+            let refs = git::stdout(&repo, &["for-each-ref", "--format=%(refname:short)", "refs/remotes"]).unwrap_or_default().lines().map(String::from).collect();
+            JobResult::PrCreateInfo { repo, branch, upstream, remotes, title, body, refs }
+        });
+    }
+
+    /// What git said for the window « Créer une pull request »: it opens.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn pr_create_info(&mut self, repo: PathBuf, branch: String, upstream: Option<String>, remotes: Vec<(String, String)>, title: String, body: String, refs: Vec<String>) {
+        // the remote it already follows, else "dev" (the fork of the odoo developers), else origin
         let remote = upstream
             .and_then(|u| remotes.iter().position(|(n, _)| *n == u))
             .or_else(|| remotes.iter().position(|(n, _)| n == "dev"))
             .or_else(|| remotes.iter().position(|(n, _)| n == "origin"))
             .unwrap_or(0);
-        let title = git::stdout(&repo, &["log", "-1", "--format=%s"]).unwrap_or_default().trim().to_string();
-        let body = git::stdout(&repo, &["log", "-1", "--format=%b"]).unwrap_or_default().trim().to_string();
         self.gh_base(&repo);
         self.gh.create = Some(PrCreate {
             repo,
@@ -177,6 +188,7 @@ impl App {
             base: String::new(),
             remotes,
             remote,
+            refs,
             draft: self.settings.pr_draft,
             busy: false,
             error: None,
@@ -224,8 +236,8 @@ impl App {
             let base_remote = c.remotes.iter().find(|(_, o)| o.eq_ignore_ascii_case(owner)).map(|(n, _)| n.clone());
             c.base_remote = base_remote.clone().unwrap_or_default();
             if let Some(r) = base_remote {
-                let refs = git::stdout(&repo, &["for-each-ref", "--format=%(refname:short)", &format!("refs/remotes/{r}")]).unwrap_or_default();
-                c.bases = refs.lines().filter_map(|l| l.strip_prefix(&format!("{r}/"))).filter(|b| *b != "HEAD").map(String::from).collect();
+                let prefix = format!("{r}/");
+                c.bases = c.refs.iter().filter_map(|l| l.strip_prefix(&prefix)).filter(|b| *b != "HEAD").map(String::from).collect();
             }
             if c.bases.is_empty() {
                 c.bases.push(default.clone());

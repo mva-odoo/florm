@@ -11,6 +11,20 @@ use eframe::egui;
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, Sender};
 
+#[cfg(test)]
+mod par_tests {
+    #[test]
+    fn par_map_keeps_the_order() {
+        let items: Vec<u64> = (0..50).collect();
+        let out = super::par_map(&items, 8, |n| {
+            std::thread::sleep(std::time::Duration::from_millis(50 - n));
+            n * 2
+        });
+        assert_eq!(out, items.iter().map(|n| n * 2).collect::<Vec<_>>());
+        assert!(super::par_map(&Vec::<u8>::new(), 8, |n| *n).is_empty());
+    }
+}
+
 pub enum JobResult {
     /// Changes since the start of the review of Claude's work (a diff).
     ClaudeReview(u64, Result<String, String>),
@@ -57,6 +71,10 @@ pub enum JobResult {
     AiComplete(u64, Result<String, String>),
     /// The repository pull requests go to, and its default branch.
     GhBase(PathBuf, Result<(String, String), String>),
+    /// What the window « Créer une pull request » needs from git, read off the UI thread:
+    /// repository, branch, upstream remote, remotes (name, GitHub owner), last commit's subject and
+    /// body, every remote branch ("remote/branch").
+    PrCreateInfo { repo: PathBuf, branch: String, upstream: Option<String>, remotes: Vec<(String, String)>, title: String, body: String, refs: Vec<String> },
     /// Pull requests of a branch (repository, branch).
     GhBranchPrs(PathBuf, String, Result<Vec<crate::github::PrSummary>, String>),
     /// Pull requests containing a commit.
@@ -179,6 +197,31 @@ pub enum JobResult {
     /// Host of an SSH project mounted: the project to open (`switch`: from another project).
     RemoteMounted { path: PathBuf, switch: bool, result: Result<(), String> },
     Plugin { uid: u64, version: u64, title: String, output: Output, result: Result<Vec<String>, String> },
+}
+
+/// `f` on each item, `threads` at a time, the results in the order of the items: for the same
+/// slow command run on many repositories (`git status` on each one).
+pub fn par_map<T: Sync, R: Send>(items: &[T], threads: usize, f: impl Fn(&T) -> R + Sync) -> Vec<R> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let next = AtomicUsize::new(0);
+    let mut out: Vec<(usize, R)> = std::thread::scope(|s| {
+        let workers: Vec<_> = (0..threads.clamp(1, items.len().max(1)))
+            .map(|_| {
+                s.spawn(|| {
+                    let mut done = Vec::new();
+                    loop {
+                        let k = next.fetch_add(1, Ordering::Relaxed);
+                        let Some(item) = items.get(k) else { break };
+                        done.push((k, f(item)));
+                    }
+                    done
+                })
+            })
+            .collect();
+        workers.into_iter().flat_map(|w| w.join().unwrap_or_default()).collect()
+    });
+    out.sort_by_key(|(k, _)| *k);
+    out.into_iter().map(|(_, r)| r).collect()
 }
 
 pub struct Jobs {

@@ -70,15 +70,22 @@ pub(super) fn seed_index(repo: &Path, index: &Path) -> Result<(), String> {
 /// files as they are now), and the files written as a tree to come back to (`first`: the first
 /// message of the conversation, its private index made afresh).
 pub(super) fn prepare_turn(repo: &Path, conv: u64, review: bool, first: bool) -> (Option<Result<PathBuf, String>>, Option<String>) {
-    let review = review.then(|| {
-        let index = super::claude_ui::review_index_of(repo, conv);
-        seed_index(repo, &index).and_then(|_| rgit(repo, &index, &["add", "-A"], None)).map(|_| index)
-    });
-    let index = snap_index(repo, conv, "");
-    if first || !index.exists() {
-        let _ = seed_index(repo, &index);
-    }
-    (review, snapshot(repo, &index).ok())
+    // the two pictures of the files at the same time: each reads the whole work tree (a fraction of
+    // a second on a large repository), in an index of its own
+    std::thread::scope(|s| {
+        let review = s.spawn(move || {
+            review.then(|| {
+                let index = super::claude_ui::review_index_of(repo, conv);
+                seed_index(repo, &index).and_then(|_| rgit(repo, &index, &["add", "-A"], None)).map(|_| index)
+            })
+        });
+        let index = snap_index(repo, conv, "");
+        if first || !index.exists() {
+            let _ = seed_index(repo, &index);
+        }
+        let tree = snapshot(repo, &index).ok();
+        (review.join().unwrap_or(None), tree)
+    })
 }
 
 /// The diff between two trees, or between `from` and the files now (`to` None).
