@@ -312,6 +312,9 @@ Problems are underlined in the code and listed in **Problems** (bottom panel):
 
 - **Python**: the first linter installed (`flake8`, else `ruff`, `pyflakes`, `pylint`; Preferences →
   Lint), while typing. **JavaScript**: `eslint`, on save.
+- **Language servers** (Preferences → Editor → Language servers): their errors too, for every
+  language they know (TypeScript, Rust, Go, C…). **Format the file** (palette) goes through `ruff`
+  for Python, through the language server for the others.
 - **XML and JSON**: a badly formed file (unclosed or badly nested tag, missing quote), live.
 - **XML of an Odoo module**: a reference to an id that exists nowhere (the view inherited with
   `inherit_id`, a `t-call`, the `parent` or `action` of a menu, a `%(…)d` action, a group), and a view

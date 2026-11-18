@@ -815,6 +815,8 @@ enum LspReq {
     ResolveAction,
     /// workspace/executeCommand: its edit comes as a workspace/applyEdit.
     Command,
+    /// The whole document `uid` formatted by the server (its text edits, at `version`).
+    Format { uid: u64, version: u64 },
 }
 
 /// Interactive rebase prepared in the graph (see rebase.rs).

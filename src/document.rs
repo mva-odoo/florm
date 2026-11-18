@@ -125,7 +125,11 @@ pub struct Document {
     pub last_change: Instant,
     pub syntax: String,
     pub highlight: HlCache,
+    /// The problems shown: those of the linters and those of the language server together (each
+    /// kept apart, so that one does not wipe out the other).
     pub diagnostics: Vec<Diagnostic>,
+    lint_diagnostics: Vec<Diagnostic>,
+    lsp_diagnostics: Vec<Diagnostic>,
     pub lint_version: u64,
     pub git_marks: HashMap<usize, GitMark>,
     /// File content in HEAD, the live diff is computed against it.
@@ -545,6 +549,24 @@ pub fn build_regex(query: &str, case: bool, regex: bool, whole: bool) -> Result<
 }
 
 impl Document {
+    /// The problems found by the linters (in Florm or external).
+    pub fn set_lint_diagnostics(&mut self, v: Vec<Diagnostic>) {
+        self.lint_diagnostics = v;
+        self.merge_diagnostics();
+    }
+
+    /// The problems sent by the language server.
+    pub fn set_lsp_diagnostics(&mut self, v: Vec<Diagnostic>) {
+        self.lsp_diagnostics = v;
+        self.merge_diagnostics();
+    }
+
+    fn merge_diagnostics(&mut self) {
+        let mut all: Vec<Diagnostic> = self.lint_diagnostics.iter().chain(&self.lsp_diagnostics).cloned().collect();
+        all.sort_by_key(|d| (d.line, d.col));
+        self.diagnostics = all;
+    }
+
     pub fn new(uid: u64, tab_size: usize, use_spaces: bool) -> Self {
         let cid = next_content_id();
         Document {
@@ -565,6 +587,8 @@ impl Document {
             syntax: "Plain Text".into(),
             highlight: HlCache::default(),
             diagnostics: Vec::new(),
+            lint_diagnostics: Vec::new(),
+            lsp_diagnostics: Vec::new(),
             lint_version: 0,
             git_marks: HashMap::new(),
             git_base: None,

@@ -174,6 +174,8 @@ pub enum Incoming {
     Response { id: i64, result: Result<Value, String> },
     /// The server asks for a workspace edit to be made (after a command of a code action).
     ApplyEdit(Value),
+    /// The problems of a file, as the server sees them (LSP diagnostics, positions in UTF-16).
+    Diagnostics { uri: String, items: Vec<Value> },
     Exited(String),
 }
 
@@ -256,6 +258,12 @@ impl Client {
                         let _ = events.send((idx, Incoming::Response { id, result }));
                         repaint();
                     }
+                    (None, Some(m)) if m == "textDocument/publishDiagnostics" => {
+                        let uri = v["params"]["uri"].as_str().unwrap_or("").to_string();
+                        let items = v["params"]["diagnostics"].as_array().cloned().unwrap_or_default();
+                        let _ = events.send((idx, Incoming::Diagnostics { uri, items }));
+                        repaint();
+                    }
                     _ => {}
                 }
             }
@@ -287,6 +295,8 @@ impl Client {
                 "workspace": { "workspaceEdit": { "documentChanges": true }, "configuration": true, "workspaceFolders": true, "applyEdit": true, "executeCommand": {} },
                 "textDocument": {
                     "synchronization": { "didSave": true },
+                    "publishDiagnostics": { "relatedInformation": false },
+                    "formatting": {},
                     "completion": {
                         "completionItem": { "snippetSupport": false, "documentationFormat": ["plaintext"], "insertReplaceSupport": false },
                         "contextSupport": true
@@ -474,7 +484,7 @@ impl Manager {
                         }
                     }
                 }
-                Incoming::ApplyEdit(_) => {}
+                Incoming::ApplyEdit(_) | Incoming::Diagnostics { .. } => {}
                 Incoming::Exited(_) => {
                     if let Some(c) = self.clients.get_mut(i).and_then(|c| c.take()) {
                         self.failed.insert((c.family.clone(), c.root.clone()));

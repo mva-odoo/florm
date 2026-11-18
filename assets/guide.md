@@ -315,6 +315,9 @@ Les problèmes sont soulignés dans le code et listés dans **Problèmes** (pann
 
 - **Python** : le premier linter installé (`flake8`, sinon `ruff`, `pyflakes`, `pylint` ; Préférences →
   Lint), pendant la frappe. **JavaScript** : `eslint`, à l'enregistrement.
+- **Serveurs de langage** (Préférences → Éditeur → Serveurs de langage) : leurs erreurs aussi, pour
+  tous les langages qu'ils connaissent (TypeScript, Rust, Go, C…). **Formater le fichier** (palette)
+  passe par `ruff` pour Python, par le serveur de langage pour les autres.
 - **XML et JSON** : un fichier mal formé (balise non fermée, mal imbriquée, guillemet oublié), en direct.
 - **XML d'un module Odoo** : une référence à un identifiant qui n'existe nulle part (la vue héritée
   `inherit_id`, un `t-call`, le `parent` ou l'`action` d'un menu, une action `%(…)d`, un groupe), et

@@ -161,7 +161,7 @@ impl App {
             let (text, version) = (doc.rope.to_string(), doc.version);
             let diags = self.lint_here(lang, &path, &text);
             let Some(doc) = self.docs.get_mut(idx) else { return };
-            doc.diagnostics = diags;
+            doc.set_lint_diagnostics(diags);
             doc.lint_version = version;
         }
         let Some(doc) = self.docs.get_mut(idx) else { return };

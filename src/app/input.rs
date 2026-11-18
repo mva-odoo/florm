@@ -641,7 +641,16 @@ impl App {
                 }
             }
             ListBookmarks => self.list_bookmarks(),
-            FormatDocument => self.python_rewrite(lint::Rewrite::Format),
+            // Python: ruff (fast, the project's settings); the other languages: their language server
+            FormatDocument => {
+                let python = self.docs.get(self.active).and_then(|d| d.path.as_deref()).and_then(lint::lang_of) == Some("python");
+                if python {
+                    self.python_rewrite(lint::Rewrite::Format);
+                } else {
+                    let ctx = self.egui_ctx.clone();
+                    self.lsp_format(&ctx);
+                }
+            }
             FixDocument => self.python_rewrite(lint::Rewrite::Fix),
             NoqaLine => {
                 if let Some(d) = self.docs.get_mut(self.active) {

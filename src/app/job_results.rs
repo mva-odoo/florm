@@ -9,7 +9,7 @@ impl App {
                 JobResult::Analyzed { uid, diags, base, .. } => {
                     if let Some(d) = self.docs.iter_mut().find(|d| d.uid == uid) {
                         if let Some((dg, linter)) = diags {
-                            d.diagnostics = dg;
+                            d.set_lint_diagnostics(dg);
                             d.lint_version = d.version;
                             if lint::lang_of(d.path.as_deref().unwrap_or(Path::new(""))) == Some("python") {
                                 self.python_linter = Some(linter);
@@ -23,7 +23,7 @@ impl App {
                     self.lint_inflight.remove(&uid);
                     if let Some(d) = self.docs.iter_mut().find(|d| d.uid == uid) {
                         if d.version == version {
-                            d.diagnostics = diags;
+                            d.set_lint_diagnostics(diags);
                             d.lint_version = version;
                         }
                     }

@@ -340,7 +340,7 @@ impl App {
         if let Some((lang, path, text, version)) = due {
             let diags = self.lint_here(lang, &path, &text);
             if let Some(d) = self.docs.get_mut(self.active) {
-                d.diagnostics = diags;
+                d.set_lint_diagnostics(diags);
                 d.lint_version = version;
             }
         }

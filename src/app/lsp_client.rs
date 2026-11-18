@@ -51,6 +51,7 @@ impl App {
                     let (n, files) = self.apply_workspace_edit(&edit);
                     self.set_status(tf!("Serveur de langage : {n} modification(s) dans {files} fichier(s)", "Language server: {n} change(s) in {files} file(s)"));
                 }
+                lsp::Incoming::Diagnostics { uri, items } => self.lsp_diagnostics(&uri, &items),
                 lsp::Incoming::Exited(name) => {
                     self.set_status(tf!("Le serveur de langage {name} s'est arrêté (LSP : redémarrer pour réessayer)", "The language server {name} stopped (LSP: restart to try again)"));
                 }
@@ -460,7 +461,67 @@ impl App {
                 }
             }
             LspReq::Command => {}
+            LspReq::Format { uid, version } => {
+                let Some(d) = self.docs.iter_mut().find(|d| d.uid == uid) else { return };
+                // typed meanwhile: the edits would go to the wrong places
+                if d.version != version {
+                    self.set_status(t!("Le fichier a changé pendant le formatage : relance-le", "The file changed during the formatting: run it again"));
+                    return;
+                }
+                let edits = v.as_array().cloned().unwrap_or_default();
+                let changes: Vec<(usize, usize, String)> = edits
+                    .iter()
+                    .map(|e| (lsp::from_position(&d.rope, &e["range"]["start"]), lsp::from_position(&d.rope, &e["range"]["end"]), e["newText"].as_str().unwrap_or("").to_string()))
+                    .collect();
+                let n = changes.len();
+                if n > 0 {
+                    d.replace_keep(EditKind::Other, changes);
+                }
+                self.set_status(if n > 0 { t!("Fichier formaté (serveur de langage)", "File formatted (language server)") } else { t!("Déjà formaté", "Already formatted") });
+            }
         }
+    }
+
+    /// The problems the server sees in a file open here: underlined with those of the linters.
+    fn lsp_diagnostics(&mut self, uri: &str, items: &[serde_json::Value]) {
+        let Some(path) = lsp::uri_to_path(uri) else { return };
+        let Some(d) = self.docs.iter_mut().find(|d| d.path.as_ref().is_some_and(|p| *p == path || crate::os::canon(p) == crate::os::canon(&path))) else { return };
+        let diags = items
+            .iter()
+            .filter_map(|it| {
+                // 1 error, 2 warning, 3 information; 4 (a hint: unused, deprecated) is not a problem
+                let severity = match it["severity"].as_u64().unwrap_or(1) {
+                    1 => lint::Severity::Error,
+                    2 | 3 => lint::Severity::Warning,
+                    _ => return None,
+                };
+                let at = lsp::from_position(&d.rope, &it["range"]["start"]);
+                let line = d.rope.char_to_line(at);
+                let code = match &it["code"] {
+                    serde_json::Value::String(s) => Some(s.clone()),
+                    serde_json::Value::Number(n) => Some(n.to_string()),
+                    _ => None,
+                };
+                Some(lint::Diagnostic { line, col: at - d.rope.line_to_char(line), severity, message: it["message"].as_str().unwrap_or("").to_string(), source: it["source"].as_str().unwrap_or("lsp").to_string(), code })
+            })
+            .collect();
+        d.set_lsp_diagnostics(diags);
+    }
+
+    /// The file formatted by its language server (`textDocument/formatting`).
+    pub(super) fn lsp_format(&mut self, ctx: &egui::Context) {
+        let i = self.active;
+        let Some(d) = self.docs.get(i).filter(|d| !d.read_only) else { return };
+        let (uid, version) = (d.uid, d.version);
+        let options = serde_json::json!({ "tabSize": self.settings.tab_size, "insertSpaces": self.settings.translate_tabs_to_spaces });
+        let Some((ci, _)) = self.lsp_for(i, ctx, true) else {
+            self.set_status(t!("Pas de serveur de langage pour ce fichier (Préférences → Éditeur → Serveurs de langage)", "No language server for this file (Preferences → Editor → Language servers)"));
+            return;
+        };
+        let (Some((doc, _)), Some(cl)) = (self.lsp_text_position(i), self.lsp.manager.client(ci)) else { return };
+        let id = cl.request("textDocument/formatting", serde_json::json!({ "textDocument": doc, "options": options }));
+        self.lsp.requests.insert((ci, id), LspReq::Format { uid, version });
+        self.set_status(t!("Formatage…", "Formatting…"));
     }
 
     /// Makes the text edits of a workspace edit (files not open are opened, the active tab stays);
@@ -710,5 +771,54 @@ impl App {
             self.accept_completion(k);
             self.pending_focus = true;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// With clangd (when installed): the errors it sends are underlined and stay when a linter
+    /// runs again, and the file is formatted by it.
+    #[test]
+    fn errors_and_formatting_of_a_language_server() {
+        if !crate::tools::locate("clangd") {
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("florm_lsp_diags_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (conf, proj) = (dir.join("conf"), dir.join("proj"));
+        std::fs::create_dir_all(&conf).unwrap();
+        std::fs::create_dir_all(&proj).unwrap();
+        std::fs::write(conf.join("settings.toml"), "check_updates = false\nlsp = true\n").unwrap();
+        let file = proj.join("a.c");
+        std::fs::write(&file, "int main(void) {\n  return undefined_name;\n}\n").unwrap();
+        let _lock = config::TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("FLORM_CONFIG", &conf);
+        let ctx = egui::Context::default();
+        let mut app = App::with_ctx(&ctx, Some(proj.clone()));
+        assert!(app.open_path(file.clone()));
+        let wait = |app: &mut App, done: &dyn Fn(&App) -> bool| {
+            let until = Instant::now() + Duration::from_secs(30);
+            while Instant::now() < until && !done(app) {
+                app.lsp_frame(&ctx);
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        };
+        wait(&mut app, &|a| !a.docs[a.active].diagnostics.is_empty());
+        let d = &app.docs[app.active];
+        assert!(d.diagnostics.iter().any(|x| x.line == 1 && x.severity == lint::Severity::Error), "{:?}", d.diagnostics.iter().map(|x| (x.line, &x.message)).collect::<Vec<_>>());
+        // a linter running again keeps them
+        app.docs[app.active].set_lint_diagnostics(Vec::new());
+        assert!(!app.docs[app.active].diagnostics.is_empty());
+        // formatted by clangd (its default style keeps a short function on one line): the wrong spaces gone
+        let i = app.active;
+        let len = app.docs[i].rope.len_chars();
+        app.docs[i].replace_keep(EditKind::Other, vec![(0, len, "int   main( void ){return 0;}\n".into())]);
+        app.lsp_format(&ctx);
+        wait(&mut app, &|a| a.docs[a.active].rope.to_string() != "int   main( void ){return 0;}\n");
+        let text = app.docs[app.active].rope.to_string();
+        assert_eq!(text, "int main(void) { return 0; }\n");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
