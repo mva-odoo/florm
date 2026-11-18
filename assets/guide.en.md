@@ -316,11 +316,6 @@ Problems are underlined in the code and listed in **Problems** (bottom panel):
   language they know (TypeScript, Rust, Go, C…). **Format the file** (palette) goes through `ruff`
   for Python, through the language server for the others.
 - **XML and JSON**: a badly formed file (unclosed or badly nested tag, missing quote), live.
-- **XML of an Odoo module**: a reference to an id that exists nowhere (the view inherited with
-  `inherit_id`, a `t-call`, the `parent` or `action` of a menu, a `%(…)d` action, a group), and a view
-  or template defined twice in the same file. A reference is only checked when its module is in the
-  open project, and the ids made by Odoo itself (`model_…`, `field_…`) or by Python code are not
-  reported: no false alarm.
 
 ## Tests (pytest, jest, cargo, go)
 

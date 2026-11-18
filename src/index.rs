@@ -475,16 +475,6 @@ impl Index {
         out
     }
 
-    /// Some symbol is named exactly `name`, anywhere (fast: no file is read).
-    pub fn has_name(&self, name: &str) -> bool {
-        self.strings.find(name).is_some_and(|id| self.uses.get(id as usize).copied().unwrap_or(0) > 0)
-    }
-
-    /// The Odoo module `module` is in the index (a `…/<module>/__manifest__.py` was walked).
-    pub fn has_module(&self, module: &str) -> bool {
-        self.paths.contains(&format!("/{module}/__manifest__.py")) || self.paths.contains(&format!("\\{module}\\__manifest__.py"))
-    }
-
     /// Names starting with `prefix` (case-sensitive, at most `limit`).
     pub fn names_with_prefix(&self, prefix: &str, limit: usize) -> Vec<&str> {
         let start = self.names.partition_point(|&n| self.strings.get(n) < prefix);

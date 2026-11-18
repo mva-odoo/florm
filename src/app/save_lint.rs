@@ -137,19 +137,6 @@ impl App {
         }
     }
 
-    /// The in-process lint of `text` (XML, JSON), and in an Odoo module the ids its XML gets wrong
-    /// (an id twice, a reference found nowhere in the project: see `odoo_xml`).
-    pub(super) fn lint_here(&self, lang: &str, path: &Path, text: &str) -> Vec<lint::Diagnostic> {
-        let mut diags = lint::lint_in_process(lang, text);
-        // a badly formed file: its ids cannot be trusted, the syntax first
-        if lang == "xml" && diags.is_empty() {
-            if let (Some((module, _)), Some(ix)) = (crate::odoo_xml::module_of(path), self.index.symbols.as_ref()) {
-                diags = crate::odoo_xml::check(text, &module, |id| ix.has_name(id), |m| ix.has_module(m));
-            }
-        }
-        diags
-    }
-
     /// Lints (in-process now, external in background), updates git gutter marks.
     pub(super) fn analyze(&mut self, idx: usize, saving: bool) {
         let Some(doc) = self.docs.get_mut(idx) else { return };
@@ -158,13 +145,9 @@ impl App {
             return;
         }
         if let Some(lang) = lint::lang_of(&path).filter(|l| lint::is_in_process(l)) {
-            let (text, version) = (doc.rope.to_string(), doc.version);
-            let diags = self.lint_here(lang, &path, &text);
-            let Some(doc) = self.docs.get_mut(idx) else { return };
-            doc.set_lint_diagnostics(diags);
-            doc.lint_version = version;
+            doc.set_lint_diagnostics(lint::lint_in_process(lang, &doc.rope.to_string()));
+            doc.lint_version = doc.version;
         }
-        let Some(doc) = self.docs.get_mut(idx) else { return };
         let uid = doc.uid;
         let lint_on = self.settings.lint_on_save || !saving;
         let root = self.repo_for(&path).or_else(|| self.root.clone());

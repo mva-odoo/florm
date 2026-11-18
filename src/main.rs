@@ -35,7 +35,6 @@ mod logo;
 mod lsp;
 mod odoo_test;
 mod test_cmd;
-mod odoo_xml;
 mod os;
 mod pick;
 mod project;
