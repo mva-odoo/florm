@@ -59,7 +59,6 @@ pub enum JobResult {
     /// Commit message written by Claude.
     CommitMessage(Result<String, String>),
     /// Commit after a task of the queue of conversation (id): the first line of its message.
-    QueueCommit(u64, Result<String, String>),
     /// Remarks of an AI review (key of what was reviewed: a pull request, the changes not committed).
     AiReview(String, Result<Vec<crate::claude::ReviewNote>, String>),
     /// Claude's answer about a remark of a review: (key of the review, id of the remark).

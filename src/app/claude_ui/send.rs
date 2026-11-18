@@ -383,11 +383,11 @@ impl App {
         }
     }
 
-    /// The task of the queue being done is finished: committed if asked, then the next one.
+    /// The message of the queue being sent is answered: it goes, the next one is sent.
     pub(super) fn claude_task_finished(&mut self, r: Result<(), String>) {
         let q = &mut self.claude.queue;
-        let Some(k) = q.current().filter(|k| q.tasks[*k].state == TaskState::Running) else {
-            // an answer of the chat, not of a task: the messages waiting in the queue go on
+        let Some(k) = q.current() else {
+            // an answer of the chat, not of a waiting message: the waiting ones go on
             self.claude_queue_next();
             return;
         };
@@ -396,57 +396,16 @@ impl App {
                 q.tasks[k].state = TaskState::Failed;
                 q.tasks[k].note = e;
                 q.running = false;
-                self.set_error(t!("File de tâches en pause : une tâche a échoué", "Task queue paused: a task failed"));
-            }
-            Ok(()) if q.commit_each && !q.tasks[k].plain => {
-                q.tasks[k].state = TaskState::Committing;
-                let (dir, wish, id) = (self.claude.dir.clone(), q.tasks[k].text.clone(), self.claude.id);
-                let Some(dir) = dir else { return };
-                self.jobs.spawn(move || JobResult::QueueCommit(id, claude_queue::commit_task(&dir, &wish)));
+                self.set_error(t!("Un message en attente n'a pas pu être envoyé : « Réessayer » dans la liste", "A waiting message could not be sent: “Retry” in the list"));
             }
             Ok(()) => {
-                q.tasks[k].state = TaskState::Done;
+                q.tasks.remove(k);
                 self.claude_queue_next();
             }
         }
     }
 
-    /// The commit after a task of conversation `id` is made: the next task goes.
-    pub(in crate::app) fn queue_commit_loaded(&mut self, id: u64, r: Result<String, String>) {
-        let Some(k) = self.claude_others.iter().position(|c| c.id == id) else {
-            if self.claude.id == id {
-                self.queue_commit_done(r);
-            }
-            return;
-        };
-        // a conversation not shown: made the current one the time to send its next task
-        std::mem::swap(&mut self.claude, &mut self.claude_others[k]);
-        self.queue_commit_done(r);
-        std::mem::swap(&mut self.claude, &mut self.claude_others[k]);
-    }
-
-    pub(super) fn queue_commit_done(&mut self, r: Result<String, String>) {
-        let q = &mut self.claude.queue;
-        let Some(k) = q.current().filter(|k| q.tasks[*k].state == TaskState::Committing) else { return };
-        match r {
-            Ok(first) => {
-                q.tasks[k].state = TaskState::Done;
-                q.tasks[k].note = tf!("Commit : {first}", "Commit: {first}");
-                self.claude.items.push(Item::Info(format!("— commit : {first} —")));
-                self.git_refresh();
-                self.claude_queue_next();
-            }
-            Err(e) => {
-                q.tasks[k].state = TaskState::Failed;
-                q.tasks[k].note = tf!("Le commit a échoué : {e}", "The commit failed: {e}");
-                q.running = false;
-                self.claude.items.push(Item::Error(tf!("Commit après la tâche : {e}", "Commit after the task: {e}")));
-            }
-        }
-        self.claude_save();
-    }
-
-    /// The next waiting task, if the queue runs and Claude is free.
+    /// The next waiting message, when Claude is free.
     pub(super) fn claude_queue_next(&mut self) {
         let q = &self.claude.queue;
         if !q.running || self.claude.busy || q.current().is_some() {
@@ -454,43 +413,16 @@ impl App {
         }
         let Some(k) = q.next_waiting() else {
             self.claude.queue.running = false;
-            self.set_status(t!("File de tâches terminée", "Task queue done"));
             return;
         };
-        let mut text = q.tasks[k].text.trim().to_string();
-        let model = q.model_of(k);
-        let previous = q.tasks[..k].iter().rev().find(|t| t.state == TaskState::Done).map(|t| t.text.lines().next().unwrap_or("").to_string());
-        let fresh = q.fresh_each;
-        let c = &mut self.claude;
-        // a conversation of its own: the history is not sent again, only what was just done
-        if fresh && c.items.iter().any(|i| matches!(i, Item::User(..))) {
-            let last: Option<String> = c.items.iter().rev().find_map(|i| if let Item::Text(t) = i { Some(t.clone()) } else { None });
-            c.session = None;
-            c.session_id = None;
-            c.last_uuid = None;
-            c.resume_at = None;
-            c.context.0 = 0;
-            c.items.push(Item::Info(t!("— conversation neuve pour cette tâche —", "— new conversation for this task —").into()));
-            if let (Some(prev), Some(last)) = (previous, last) {
-                let mut said: String = last.chars().take(1200).collect();
-                if said.len() < last.len() {
-                    said.push('…');
-                }
-                text = tf!("Pour info, la tâche d'avant (« {prev} ») vient d'être faite ; sa conclusion :\n{said}\n\nTâche :\n{text}", "For information, the previous task (“{prev}”) has just been done; its conclusion:\n{said}\n\nTask:\n{text}");
-            }
-        }
-        // another model: the process starts again, the conversation goes on (--resume)
-        if let Some(m) = model.filter(|m| *m != c.model) {
-            c.model = m;
-            c.session = None;
-        }
+        let text = q.tasks[k].text.trim().to_string();
         self.claude.queue.tasks[k].state = TaskState::Running;
-        // kept on the task too: retried, it goes with them again
+        // kept on the message too: retried, it goes with them again
         let attach = self.claude.queue.tasks[k].attach.clone();
         if !self.claude_send_given(text, attach) {
             let q = &mut self.claude.queue;
             q.tasks[k].state = TaskState::Failed;
-            q.tasks[k].note = t!("Pas pu être envoyée", "Could not be sent").into();
+            q.tasks[k].note = t!("Pas pu être envoyé", "Could not be sent").into();
             q.running = false;
         }
     }
@@ -498,21 +430,15 @@ impl App {
     pub(super) fn claude_queue_act(&mut self, act: QueueAct) {
         let q = &mut self.claude.queue;
         match act {
-            QueueAct::Start => {
-                q.running = true;
-                q.base_model = Some(self.claude.model.clone());
-                self.claude_queue_next();
-            }
-            QueueAct::Pause => q.running = false,
             QueueAct::Remove(k) => {
                 q.tasks.remove(k);
             }
-            QueueAct::Up(k) => q.tasks.swap(k, k - 1),
             QueueAct::Retry(k) => {
                 q.tasks[k].state = TaskState::Waiting;
                 q.tasks[k].note.clear();
+                q.running = true;
+                self.claude_queue_next();
             }
-            QueueAct::ClearDone => q.tasks.retain(|t| t.state != TaskState::Done),
             QueueAct::Close => q.tasks.clear(),
         }
         self.claude_save();

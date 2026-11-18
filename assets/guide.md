@@ -504,7 +504,7 @@ panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en
   étapes (recherches, lectures, commandes, réflexion) tiennent sur une ligne repliée, « ▸ 4 étapes ·
   Cherché ×2, Lu, Commande » (pendant qu'il travaille : l'étape en cours) ; un clic la déplie. Ce
   qu'il dit reste bien visible. En bas, le champ et
-  ses boutons dans une même boîte : **+ Contexte**, **Options**, **+ File** à gauche ; à droite le
+  ses boutons dans une même boîte : **+ Contexte** et **Options** à gauche ; à droite le
   **modèle**, le **mode** (ce que Claude a le droit de faire : **Selon les permissions**, **Plan
   seulement**, **Tout autoriser**, **Demander avant**) et le bouton rond **↑** pour envoyer (**■**
   pour arrêter pendant qu'il travaille). Tes messages sont dans une bulle à droite, ses réponses
@@ -693,20 +693,10 @@ panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en
 - **Pendant qu'il travaille**, tu choisis où part ton message :
   - **Envoyer** (Ctrl+Entrée) : tout de suite. Claude le lit entre deux étapes et en tient compte dans
     le travail en cours (« utilise plutôt tel fichier », « ajoute aussi un test »…).
-  - **⏭ Après** (Ctrl+Maj+Entrée) : le message attend dans la file et part tout seul quand Claude a fini.
-    Une liste reste un seul message (pas de découpage) ; la file ne fait pas de commit pour lui.
-    Les images et fichiers joints partent avec lui (marqués ✳ sous son texte dans la file).
-- **File de tâches** : écris plusieurs demandes en liste (`- …`, `1. …`) et clique **+ File**
-  au lieu d'Envoyer : chaque élément devient une tâche (la phrase avant la liste va avec
-  chacune). **Lancer** les envoie une à une dans la même conversation, chacune quand Claude a
-  fini la précédente ; **Commit après chaque tâche** fait un commit (message écrit par Claude)
-  entre deux. Une erreur ou **■ Arrêter** met la file en pause ; une tâche en attente se
-  modifie ou se remonte (↑) ; toute tâche sauf celle en cours se retire (×), et le **×** de la
-  file la ferme.
-  Pour moins de tokens : **Conversation neuve par tâche** (Claude ne relit pas tout l'historique,
-  la conclusion de la tâche d'avant lui est donnée) et un **modèle pour la file** (Haiku ou
-  Sonnet pour des petites tâches, le modèle de la conversation sinon), qu'une tâche en attente
-  peut remplacer par le sien (menu à côté de la tâche).
+  - **⏭ Après** (Ctrl+Maj+Entrée) : le message attend au-dessus du champ et part tout seul quand
+    Claude a fini, avec ses images et fichiers joints (marqués ✳ sous son texte). Plusieurs
+    messages partent dans l'ordre, chacun quand Claude a répondu au précédent ; tant qu'il
+    attend, un message se modifie ou se retire (×).
 
 **✨ à côté du message de commit** (vue Git) : Claude propose le message d'après les changements
 indexés (sinon tous), dans le style des derniers commits du dépôt et d'après ta première demande

@@ -1127,7 +1127,7 @@ impl App {
         let mut ask_act = None;
         let mut resume: Option<bool> = None;
         let (mut chosen_dir, mut move_to, mut ctx_add, mut pick_dir) = (None, None, None, false);
-        let (mut queue_act, mut queued, mut read_commits) = (None, None, false);
+        let (mut queue_act, mut read_commits) = (None, false);
         let (mut image_add, mut open_image): (Option<(Vec<u8>, String)>, Option<PathBuf>) = (None, None);
         // an image file dropped on it goes with the next message (seen at the next frame)
         self.claude.drop_area = Some((ui.ctx().cumulative_pass_nr(), ui.max_rect()));
@@ -1182,7 +1182,6 @@ impl App {
         let conv_id = c.id;
         let cid = |name: &str| egui::Id::new(name).with(conv_id);
         let (bar_id, review_id, input_id, chat_id) = (cid("claude_bar"), cid("claude_review"), cid("claude_input"), cid("claude_chat"));
-        let queue_id = cid("claude_queue");
         let conv = c.id;
         let (model_before, effort_before, mode_before) = (c.model.clone(), c.effort.clone(), c.mode);
         // the panel on the right shows the review of the changes (else the session)
@@ -1557,7 +1556,7 @@ impl App {
                 egui::TopBottomPanel::bottom(input_id).show_inside(ui, |ui| {
                     ui.add_space(6.0);
                     if !c.queue.tasks.is_empty() {
-                        queue_act = claude_queue::queue_ui(ui, &mut c.queue, c.busy, accent, queue_id, models);
+                        queue_act = claude_queue::queue_ui(ui, &mut c.queue, accent);
                     }
                     if !c.attach.is_empty() {
                         let (mut remove, mut toggle) = (None, None);
@@ -1905,12 +1904,6 @@ impl App {
                         let has_text = !c.input.trim().is_empty();
                         // a pasted text (or another context) alone can be sent too
                         let can_send = has_text || !c.attach.is_empty();
-                        let tip = t!("Ajoute la demande à la file de tâches au lieu de l'envoyer.\nUne liste (- …, * …, 1. …) donne une tâche par élément ; la phrase avant la liste va avec chacune.\n« Lancer » les envoie une à une, chacune quand Claude a fini la précédente.", "Adds the request to the task queue instead of sending it.\nA list (- …, * …, 1. …) gives one task per item; the sentence before the list goes with each.\n“Run” sends them one by one, each when Claude is done with the previous one.");
-                        if ui.add_enabled(!c.input.trim().is_empty(), egui::Button::new(t!("+ File", "+ Queue"))).on_hover_text(tip).clicked() {
-                            let n = c.queue.add(&c.input);
-                            c.input.clear();
-                            queued = Some(n);
-                        }
                         let ctx_menu = ui.menu_button(t!("+ Contexte", "+ Context"), |ui| {
                             ui.set_min_width(260.0);
                             for (label, tip, what) in [
@@ -2741,10 +2734,6 @@ impl App {
             // a command of Claude Code: it goes alone, as the other commands
             self.claude_send_text("/compact".into());
         }
-        if let Some(n) = queued {
-            self.set_status(tf!("{n} tâche(s) ajoutée(s) à la file — « Lancer » pour les envoyer une à une", "{n} task(s) added to the queue — “Run” to send them one by one"));
-            self.claude_save();
-        }
         if let Some(a) = queue_act {
             self.claude_queue_act(a);
         }
@@ -2862,7 +2851,8 @@ mod tests {
             ],
             queue: {
                 let mut q = Queue::default();
-                q.add("- a\n- b");
+                q.push_message("a", Vec::new());
+                q.push_message("b", Vec::new());
                 q.running = true;
                 q
             },

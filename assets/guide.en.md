@@ -498,7 +498,7 @@ command and your login: no key to set up.
   reads, commands, thinking) fit on one folded line, “▸ 4 steps · Searched ×2, Read, Ran” (while
   it works: the step in progress); a click unfolds it. What it says stays in sight. At the
   bottom, the field
-  and its buttons in one box: **+ Context**, **Options**, **+ Queue** on the left; on the right the
+  and its buttons in one box: **+ Context** and **Options** on the left; on the right the
   **model**, the **mode** (what Claude is allowed to do: **By permissions**, **Plan only**, **Allow
   everything**, **Ask first**) and the round **↑** button to send (**■** to stop while it works).
   Your messages are in a bubble on the right, its answers below. In a narrow tab with a single
@@ -677,20 +677,10 @@ command and your login: no key to set up.
 - **While it works**, you choose where your message goes:
   - **Send** (Ctrl+Enter): at once. Claude reads it between two steps and takes it into account in the
     work going on (“use that file instead”, “add a test too”…).
-  - **⏭ After** (Ctrl+Shift+Enter): the message waits in the queue and is sent by itself when Claude is
-    done. A list stays one message (no splitting); the queue makes no commit for it.
-    The images and files attached go with it (marked ✳ under its text in the queue).
-- **Task queue**: write several requests as a list (`- …`, `1. …`) and click **+ Queue**
-  instead of Send: each item becomes a task (the sentence before the list goes with each).
-  **Run** sends them one by one in the same conversation, each when Claude is done with the
-  previous one; **Commit after each task** makes a commit (message written by Claude) in
-  between. An error or **■ Stop** pauses the queue; a waiting task can be edited or moved up
-  (↑); any task except the running one can be removed (×), and the **×** of the queue closes
-  it.
-  For fewer tokens: **New conversation per task** (Claude does not read the whole history
-  again, the conclusion of the previous task is given to it) and a **model for the queue**
-  (Haiku or Sonnet for small tasks, the conversation's model otherwise), which a waiting task
-  can replace with its own (menu next to the task).
+  - **⏭ After** (Ctrl+Shift+Enter): the message waits above the field and is sent by itself when
+    Claude is done, with its attached images and files (marked ✳ under its text). Several
+    messages go in order, each when Claude has answered the one before; while it waits, a message
+    can be edited or removed (×).
 
 **✨ next to the commit message** (Git view): Claude suggests the message from the staged
 changes (else all of them), in the style of the last commits of the repository and from your

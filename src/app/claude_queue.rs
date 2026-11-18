@@ -1,5 +1,6 @@
-//! A to-do list for Claude: a long request cut into tasks, sent one after the other in the same
-//! conversation, each when the one before is finished (and committed, if asked).
+//! Messages waiting for Claude: written while it answers (⏭ Après, Ctrl+Maj+Entrée), each sent
+//! whole, with what was given with it, when it has answered the one before; shown above the
+//! field until it leaves.
 
 use super::*;
 use super::claude_ui::Attach;
@@ -8,150 +9,63 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub(super) struct Queue {
     pub(super) tasks: Vec<Task>,
-    /// The next task goes when the current one is finished (not kept between sessions).
+    /// The next message goes when Claude is free (not kept between sessions).
     #[serde(skip)]
     pub(super) running: bool,
-    /// A commit of all the changes after each task, its message written by Claude.
-    pub(super) commit_each: bool,
-    /// Each task in a conversation of its own (the history is not read again: fewer tokens),
-    /// with what the one before did said in a few lines.
-    #[serde(default)]
-    pub(super) fresh_each: bool,
-    /// Model of the tasks without one of their own (a --model value); None: the one of the
-    /// conversation.
-    #[serde(default, deserialize_with = "model_of_before")]
-    pub(super) model: Option<String>,
-    /// Model of the conversation when the queue was started: what the tasks use when no model is chosen.
-    #[serde(skip)]
-    pub(super) base_model: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(super) struct Task {
     pub(super) text: String,
     pub(super) state: TaskState,
-    /// What went wrong, or the first line of its commit.
+    /// What went wrong.
     #[serde(default)]
     pub(super) note: String,
-    /// Model for this task (a --model value); None: the one of the queue.
-    #[serde(default, deserialize_with = "model_of_before")]
-    pub(super) model: Option<String>,
-    /// A message of the chat, sent as it is (written while Claude answered): no commit after it.
-    #[serde(default)]
-    pub(super) plain: bool,
-    /// What was given with the message (images, files, texts) when it was queued: sent with it.
+    /// What was given with the message (images, files, texts) when it was written: sent with it.
     #[serde(default)]
     pub(super) attach: Vec<Attach>,
-}
-
-/// A model kept as an index in `claude::MODELS` (queues of before) or as a --model value.
-fn model_of_before<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum Kept {
-        Index(usize),
-        Value(String),
-    }
-    Ok(Option::<Kept>::deserialize(d)?.map(|k| match k {
-        Kept::Index(i) => crate::claude::MODELS[i.min(crate::claude::MODELS.len() - 1)].0.to_string(),
-        Kept::Value(v) => v,
-    }))
 }
 
 #[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
 pub(super) enum TaskState {
     Waiting,
+    /// (`Committing`: a commit after a task, of the task queue of before.)
+    #[serde(alias = "Committing")]
     Running,
-    Committing,
+    /// Sent and answered (kept by the task queue of before; dropped when loaded).
     Done,
     Failed,
 }
 
 /// What the list asked for during the frame.
 pub(super) enum QueueAct {
-    Start,
-    Pause,
     Remove(usize),
-    Up(usize),
-    /// Waiting again (a failed task).
+    /// Waiting again (one that could not be sent), and the messages go on.
     Retry(usize),
-    ClearDone,
-    /// The list closed: all its tasks go.
+    /// The list closed: all its messages go.
     Close,
 }
 
-/// The tasks of a request: each item of its list ("- …", "* …", "1. …", "2) …", the lines under
-/// an item going with it), else the whole text as one task.
-pub(super) fn split_tasks(text: &str) -> Vec<String> {
-    let item = |l: &str| -> Option<String> {
-        let t = l.trim_start();
-        if let Some(r) = t.strip_prefix("- ").or_else(|| t.strip_prefix("* ")).or_else(|| t.strip_prefix("• ")) {
-            return Some(r.to_string());
-        }
-        let digits = t.chars().take_while(|c| c.is_ascii_digit()).count();
-        let rest = &t[digits..];
-        (digits > 0 && (rest.starts_with(". ") || rest.starts_with(") "))).then(|| rest[2..].to_string())
-    };
-    let mut tasks: Vec<String> = Vec::new();
-    let mut intro: Vec<&str> = Vec::new();
-    for l in text.lines() {
-        match (item(l), tasks.last_mut()) {
-            (Some(t), _) => tasks.push(t),
-            // the lines under an item: part of it
-            (None, Some(last)) if !l.trim().is_empty() => {
-                last.push('\n');
-                last.push_str(l.trim());
-            }
-            (None, None) => intro.push(l),
-            _ => {}
-        }
-    }
-    let tasks: Vec<String> = tasks.into_iter().map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect();
-    if tasks.len() < 2 {
-        let whole = text.trim();
-        return if whole.is_empty() { Vec::new() } else { vec![whole.to_string()] };
-    }
-    // a sentence before the list ("Dans florm :") is said with each task
-    let intro = intro.join("\n").trim().to_string();
-    if intro.is_empty() {
-        tasks
-    } else {
-        tasks.into_iter().map(|t| format!("{intro}\n{t}")).collect()
-    }
-}
-
 impl Queue {
-    pub(super) fn add(&mut self, text: &str) -> usize {
-        let new = split_tasks(text);
-        let n = new.len();
-        self.tasks.extend(new.into_iter().map(|text| Task { text, state: TaskState::Waiting, note: String::new(), model: None, plain: false, attach: Vec::new() }));
-        n
-    }
-
-    /// A message written while Claude answered: one task, sent whole (its lines are not split),
-    /// with what was given with it.
+    /// A message written while Claude answers, with what was given with it.
     pub(super) fn push_message(&mut self, text: &str, attach: Vec<Attach>) {
-        self.tasks.push(Task { text: text.to_string(), state: TaskState::Waiting, note: String::new(), model: None, plain: true, attach });
+        self.tasks.push(Task { text: text.to_string(), state: TaskState::Waiting, note: String::new(), attach });
     }
 
-    /// The task being done or committed.
+    /// The message being sent.
     pub(super) fn current(&self) -> Option<usize> {
-        self.tasks.iter().position(|t| matches!(t.state, TaskState::Running | TaskState::Committing))
-    }
-
-    /// The model task `k` is sent with: its own, else the one of the queue, else the one of the conversation.
-    pub(super) fn model_of(&self, k: usize) -> Option<String> {
-        self.tasks[k].model.clone().or_else(|| self.model.clone()).or_else(|| self.base_model.clone())
+        self.tasks.iter().position(|t| t.state == TaskState::Running)
     }
 
     pub(super) fn next_waiting(&self) -> Option<usize> {
         self.tasks.iter().position(|t| t.state == TaskState::Waiting)
     }
 
-    /// After a restart of Florm, nothing is running any more.
+    /// After a restart of Florm, nothing is being sent any more (the ones answered go).
     pub(super) fn settle(&mut self) {
+        self.tasks.retain(|t| t.state != TaskState::Done);
         for t in &mut self.tasks {
-            if matches!(t.state, TaskState::Running | TaskState::Committing) {
+            if t.state == TaskState::Running {
                 t.state = TaskState::Waiting;
             }
         }
@@ -159,163 +73,66 @@ impl Queue {
     }
 }
 
-/// Width of the column of the buttons at the end of a task's row (the same for every row).
-const ROW_BUTTONS_W: f32 = 170.0;
+/// Width of the column of the buttons at the end of a row (the same for every row).
+const ROW_BUTTONS_W: f32 = 90.0;
 
-/// The list above the field of the chat: the tasks and their state, the buttons of the queue.
-pub(super) fn queue_ui(ui: &mut egui::Ui, q: &mut Queue, busy: bool, accent: Color32, id: egui::Id, models: &[crate::claude::ModelInfo]) -> Option<QueueAct> {
-    use super::claude_ui::{model_choices, model_label};
+/// The list above the field of the chat: the messages waiting, their state, × to drop them.
+pub(super) fn queue_ui(ui: &mut egui::Ui, q: &mut Queue, accent: Color32) -> Option<QueueAct> {
     let mut act = None;
-    let choices: Vec<(String, String)> = model_choices(models).into_iter().filter(|(v, _)| !v.is_empty()).collect();
-    let done = q.tasks.iter().filter(|t| t.state == TaskState::Done).count();
-    let waiting = q.tasks.iter().filter(|t| t.state == TaskState::Waiting).count();
-    let working = q.current().is_some();
-    // wrapped: a narrow panel stays narrow, the buttons go on a second line
+    let sending = q.current().is_some();
     ui.horizontal_wrapped(|ui| {
-        ui.label(RichText::new(tf!("FILE DE TÂCHES · {done}/{}", "TASK QUEUE · {done}/{}", q.tasks.len())).small().strong().color(accent));
-        if done == q.tasks.len() {
-            ui.label(RichText::new(t!("✔ terminée", "✔ done")).small().color(ok()));
-        }
-        if q.running {
-            if ui.small_button("Pause").on_hover_text(t!("La tâche en cours se termine, la suivante attend", "The current task finishes, the next one waits")).clicked() {
-                act = Some(QueueAct::Pause);
-            }
-        } else if waiting > 0 {
-            let tip = t!("Envoie la première tâche en attente, puis chaque suivante quand Claude a fini la précédente (même conversation : il garde le contexte)", "Sends the first waiting task, then each next one when Claude is done with the previous one (same conversation: it keeps the context)");
-            if ui.add_enabled(!busy, filled_button(t!("Lancer", "Run"), accent)).on_hover_text(tip).on_disabled_hover_text(t!("Claude répond encore", "Claude is still answering")).clicked() {
-                act = Some(QueueAct::Start);
-            }
-        }
-        // the model of the tasks without one of their own: a smaller one for small tasks is cheaper and faster
-        let shown = q.model.as_deref().map_or(t!("Modèle de la conversation", "Conversation's model").to_string(), |m| model_label(models, m));
-        egui::ComboBox::from_id_salt(id).selected_text(RichText::new(shown).small()).width(120.0).show_ui(ui, |ui| {
-            ui.selectable_value(&mut q.model, None, t!("Modèle de la conversation", "Conversation's model"));
-            for (value, label) in &choices {
-                ui.selectable_value(&mut q.model, Some(value.clone()), label);
-            }
-        });
-        ui.checkbox(&mut q.commit_each, RichText::new(t!("Commit après chaque tâche", "Commit after each task")).small())
-            .on_hover_text(t!("Quand une tâche est finie : git add -A, message écrit par Claude, git commit, puis la tâche suivante.\nTout ce qui est modifié dans le dépôt part dans le commit.", "When a task is done: git add -A, message written by Claude, git commit, then the next task.\nEverything changed in the repository goes in the commit."));
-        ui.checkbox(&mut q.fresh_each, RichText::new(t!("Conversation neuve par tâche", "New conversation per task")).small()).on_hover_text(
-            t!("Chaque tâche repart d'une conversation vide : Claude ne relit pas tout ce qui a été dit avant (beaucoup moins de tokens sur une longue file).\nLa dernière réponse de la tâche d'avant lui est donnée en quelques lignes.", "Each task starts from an empty conversation: Claude does not read again all that was said before (far fewer tokens on a long queue).\nThe last answer of the previous task is given to it in a few lines."),
-        );
-        if done > 0 && ui.small_button(t!("Retirer les terminées", "Remove the finished ones")).clicked() {
-            act = Some(QueueAct::ClearDone);
-        }
-        // closing the list: its tasks go, not while one of them runs
-        let close = ui.add_enabled(!q.running && !working, egui::Button::new("×").small());
-        if close.on_hover_text(t!("Fermer la file : retire toutes ses tâches", "Close the queue: removes all its tasks")).on_disabled_hover_text(t!("Une tâche tourne : Pause, puis attendre qu'elle finisse", "A task is running: Pause, then wait for it to finish")).clicked() {
+        ui.label(RichText::new(tf!("⏭ EN ATTENTE · {}", "⏭ WAITING · {}", q.tasks.len())).small().strong().color(accent))
+            .on_hover_text(t!("Chacun part quand Claude a répondu au précédent", "Each one goes when Claude has answered the one before"));
+        let close = ui.add_enabled(!sending, egui::Button::new("×").small());
+        if close.on_hover_text(t!("Retirer tous les messages en attente", "Remove all the waiting messages")).on_disabled_hover_text(t!("Un message part en ce moment", "A message is being sent")).clicked() {
             act = Some(QueueAct::Close);
         }
     });
-    let queue_model = q.model.as_deref().map_or(t!("Modèle de la conversation", "Conversation's model").to_string(), |m| model_label(models, m));
-    // the sentence before the list, said with each task: shown once, above them
-    let intro = shared_intro(&q.tasks);
-    if !intro.is_empty() {
-        ui.label(RichText::new(intro.trim()).small().weak());
-    }
-    // the finished tasks folded in one line: a finished queue takes a line, not the whole list
-    let show_done_id = id.with("show_done");
-    let mut show_done = ui.data(|d| d.get_temp::<bool>(show_done_id)).unwrap_or(false);
-    if done > 0 {
-        let arrow = if show_done { "⏷" } else { "⏵" };
-        let line = RichText::new(tf!("{arrow} ✔ {done} terminée(s)", "{arrow} ✔ {done} done")).small().color(ok());
-        if ui.add(egui::Label::new(line).sense(egui::Sense::click())).on_hover_text(t!("Afficher ou masquer les tâches terminées", "Show or hide the finished tasks")).clicked() {
-            show_done = !show_done;
-            ui.data_mut(|d| d.insert_temp(show_done_id, show_done));
-        }
-    }
-    let states: Vec<TaskState> = q.tasks.iter().map(|t| t.state).collect();
     let row_fill = icons::mix(ui.visuals().panel_fill, accent, 0.10);
     let mut number = 0;
-    // the whole width, whatever the width of the tasks shown the frame before
     egui::ScrollArea::vertical().id_salt("claude_queue").auto_shrink([false, true]).max_height(170.0).show(ui, |ui| {
         for (k, t) in q.tasks.iter_mut().enumerate() {
-            if t.state == TaskState::Done && !show_done {
-                continue;
-            }
-            if t.state != TaskState::Done {
-                number += 1;
-            }
-            let running = matches!(t.state, TaskState::Running | TaskState::Committing);
+            number += 1;
+            let running = t.state == TaskState::Running;
             let frame = egui::Frame::none().inner_margin(egui::Margin::symmetric(4.0, 2.0)).rounding(4.0);
             frame.fill(if running { row_fill } else { Color32::TRANSPARENT }).show(ui, |ui| ui.horizontal(|ui| {
                 // a column of its own for the state: the texts start at the same place
                 ui.allocate_ui_with_layout(egui::vec2(22.0, 18.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
                     ui.set_width(22.0);
                     match t.state {
-                        TaskState::Running | TaskState::Committing => {
+                        TaskState::Running => {
                             spinner(ui);
-                        }
-                        TaskState::Done => {
-                            ui.label(RichText::new("✔").color(ok()));
                         }
                         TaskState::Failed => {
                             ui.label(RichText::new("⚠").color(err())).on_hover_text(&t.note);
                         }
-                        TaskState::Waiting => {
+                        _ => {
                             ui.label(RichText::new(format!("{number}.")).weak());
                         }
                     }
                 });
-                let editable = t.state == TaskState::Waiting;
-                // the buttons of the row sit in a column of their own, on the right: the same place in every row
                 let w = (ui.available_width() - ROW_BUTTONS_W).max(80.0);
-                let body = &t.text[intro.len()..];
                 // what goes with it (an image…), under its text: it left the field of the message
                 let given = (!t.attach.is_empty()).then(|| format!("✳ {}", t.attach.iter().map(|a| a.label(None)).collect::<Vec<_>>().join(", ")));
-                if editable {
-                    let mut edited = body.to_string();
-                    ui.allocate_ui_with_layout(egui::vec2(w, 18.0), egui::Layout::top_down(egui::Align::Min), |ui| {
-                        ui.set_width(w);
-                        if ui.add(egui::TextEdit::multiline(&mut edited).desired_rows(1).desired_width(w).layouter(&mut layout_cutting)).changed() {
-                            t.text = format!("{intro}{edited}");
-                        }
-                        if let Some(g) = &given {
-                            ui.add(egui::Label::new(RichText::new(g).small().weak()).truncate());
-                        }
-                    });
-                } else {
-                    let tip = if t.note.is_empty() { t.text.clone() } else { format!("{}\n\n{}", t.text, t.note) };
-                    ui.allocate_ui_with_layout(egui::vec2(w, 18.0), egui::Layout::top_down(egui::Align::Min), |ui| {
-                        ui.set_width(w);
-                        if t.state == TaskState::Done {
-                            // done: its first line is enough, the rest on hover
-                            let first = body.trim().lines().next().unwrap_or("");
-                            ui.add(egui::Label::new(RichText::new(first).weak()).truncate()).on_hover_text(tip);
-                        } else {
-                            ui.add(egui::Label::new(RichText::new(body.trim())).wrap()).on_hover_text(tip);
-                        }
-                        if let Some(g) = &given {
-                            ui.add(egui::Label::new(RichText::new(g).small().weak()).truncate());
-                        }
-                    });
-                }
-                // right to left: the first added is the rightmost, so × stays on the edge
+                ui.allocate_ui_with_layout(egui::vec2(w, 18.0), egui::Layout::top_down(egui::Align::Min), |ui| {
+                    ui.set_width(w);
+                    // still waiting: it can be changed before it goes
+                    if t.state == TaskState::Waiting {
+                        ui.add(egui::TextEdit::multiline(&mut t.text).desired_rows(1).desired_width(w).layouter(&mut layout_cutting));
+                    } else {
+                        let tip = if t.note.is_empty() { t.text.clone() } else { format!("{}\n\n{}", t.text, t.note) };
+                        ui.add(egui::Label::new(RichText::new(t.text.trim())).wrap()).on_hover_text(tip);
+                    }
+                    if let Some(g) = &given {
+                        ui.add(egui::Label::new(RichText::new(g).small().weak()).truncate());
+                    }
+                });
                 ui.allocate_ui_with_layout(egui::vec2(ROW_BUTTONS_W, 18.0), egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    // any task can go, the one running excepted
-                    if !matches!(t.state, TaskState::Running | TaskState::Committing) && ui.small_button("×").on_hover_text(t!("Retirer", "Remove")).clicked() {
+                    if !running && ui.small_button("×").on_hover_text(t!("Retirer", "Remove")).clicked() {
                         act = Some(QueueAct::Remove(k));
-                    }
-                    // above the waiting one before it (a finished one, folded, would not show it moved)
-                    if editable && k > 0 && states[k - 1] == TaskState::Waiting && ui.small_button("↑").on_hover_text(t!("Plus tôt", "Earlier")).clicked() {
-                        act = Some(QueueAct::Up(k));
-                    }
-                    if editable {
-                        // a model for this task only: Haiku for a small one in a list sent with Opus
-                        let shown = t.model.as_deref().map_or(t!("Modèle de la file", "Queue's model").to_string(), |m| model_label(models, m));
-                        egui::ComboBox::from_id_salt(id.with(("task_model", k))).selected_text(RichText::new(shown).small()).width(96.0).show_ui(ui, |ui| {
-                            ui.selectable_value(&mut t.model, None, t!("Modèle de la file", "Queue's model")).on_hover_text(&queue_model);
-                            for (value, label) in &choices {
-                                ui.selectable_value(&mut t.model, Some(value.clone()), label);
-                            }
-                        });
                     }
                     if t.state == TaskState::Failed && ui.small_button(t!("Réessayer", "Retry")).clicked() {
                         act = Some(QueueAct::Retry(k));
-                    }
-                    if t.state == TaskState::Committing {
-                        ui.label(RichText::new("commit…").small().weak());
                     }
                 });
             }));
@@ -325,88 +142,27 @@ pub(super) fn queue_ui(ui: &mut egui::Ui, q: &mut Queue, busy: bool, accent: Col
     act
 }
 
-/// The lines all the tasks begin with (the sentence before the list, said with each by
-/// `split_tasks`), each task having more after them; "" with fewer than two tasks.
-fn shared_intro(tasks: &[Task]) -> String {
-    let [first, rest @ ..] = tasks else { return String::new() };
-    if rest.is_empty() {
-        return String::new();
-    }
-    let mut end = 0;
-    for (i, _) in first.text.match_indices('\n') {
-        let p = &first.text[..=i];
-        if !tasks.iter().all(|t| t.text.starts_with(p) && !t.text[p.len()..].trim().is_empty()) {
-            break;
-        }
-        end = i + 1;
-    }
-    first.text[..end].to_string()
-}
-
-
-/// `git add -A`, a message written by Claude for `wish`, `git commit`; returns the first line of
-/// the message (or says there was nothing to commit).
-pub(super) fn commit_task(dir: &Path, wish: &str) -> Result<String, String> {
-    git::run(dir, &["add", "-A"])?;
-    let diff = git::run(dir, &["diff", "--cached"])?;
-    if diff.trim().is_empty() {
-        return Ok(t!("rien à commiter", "nothing to commit").into());
-    }
-    let recent = git::stdout(dir, &["log", "-12", "--format=%s"]).unwrap_or_default();
-    let msg = crate::claude::commit_message(dir, &diff, &recent, wish)?;
-    git::run(dir, &["commit", "-q", "-m", &msg])?;
-    Ok(msg.lines().next().unwrap_or("").to_string())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn a_message_written_during_an_answer_stays_whole() {
+    fn messages_waiting_for_claude() {
         let mut q = Queue::default();
         q.push_message("Fais ceci :\n- a\n- b", Vec::new());
-        assert_eq!(q.tasks.len(), 1);
-        assert!(q.tasks[0].plain && q.tasks[0].state == TaskState::Waiting);
-        // a request added with + File is cut as before, and is not a plain message
-        q.add("- x\n- y");
-        assert_eq!((q.tasks.len(), q.tasks[1].plain), (3, false));
-    }
-
-    #[test]
-    fn a_request_cut_into_tasks() {
-        assert_eq!(split_tasks("corrige le bug du tri"), ["corrige le bug du tri"]);
-        assert_eq!(split_tasks("- le 2\n- le 3\n  avec un détail\n\n- le 6"), ["le 2", "le 3\navec un détail", "le 6"]);
-        assert_eq!(split_tasks("Dans florm :\n1. le retour à la ligne\n2) le stash"), ["Dans florm :\nle retour à la ligne", "Dans florm :\nle stash"]);
-        // one item only: the whole text
-        assert_eq!(split_tasks("Fais ceci :\n- une chose"), ["Fais ceci :\n- une chose"]);
-        assert!(split_tasks("  \n").is_empty());
-        // a queue saved before the models and the fresh conversations
-        let old: Queue = serde_json::from_str(r#"{"tasks":[{"text":"a","state":"Waiting"}],"commit_each":true}"#).unwrap();
-        assert_eq!((old.model.clone(), old.tasks[0].model.clone(), old.fresh_each, old.commit_each), (None, None, false, true));
-        let mut q = Queue::default();
-        assert_eq!(q.add("- a\n- b"), 2);
+        q.push_message("puis cela", Vec::new());
+        // a list stays one message
+        assert_eq!(q.tasks.len(), 2);
         q.tasks[0].state = TaskState::Running;
         assert_eq!((q.current(), q.next_waiting()), (Some(0), Some(1)));
         q.settle();
         assert_eq!((q.current(), q.next_waiting()), (None, Some(0)));
-        // the model of a task: its own, else the queue's, else the conversation's
-        q.base_model = Some("opus".into());
-        assert_eq!(q.model_of(0).as_deref(), Some("opus"));
-        q.model = Some("sonnet".into());
-        q.tasks[1].model = Some("claude-haiku-4-5".into());
-        assert_eq!((q.model_of(0).as_deref(), q.model_of(1).as_deref()), (Some("sonnet"), Some("claude-haiku-4-5")));
-        // a queue saved with the models as indexes in the list of before
-        let old: Queue = serde_json::from_str(r#"{"tasks":[{"text":"a","state":"Waiting","model":3}],"commit_each":false,"model":1}"#).unwrap();
-        assert_eq!((old.model.as_deref(), old.tasks[0].model.as_deref()), (Some("opus"), Some("haiku")));
-        // the sentence before the list, shown once above the tasks
-        let mut q = Queue::default();
-        q.add("Dans florm :\n- a\n- b");
-        assert_eq!(shared_intro(&q.tasks), "Dans florm :\n");
-        q.add("c");
-        assert_eq!(shared_intro(&q.tasks), "");
-        let mut q = Queue::default();
-        q.add("seule tâche\navec un détail");
-        assert_eq!(shared_intro(&q.tasks), "");
+        // a queue of tasks of before: its fields of then are left, the ones done go, the
+        // commit being made waits again
+        let old: Queue = serde_json::from_str(r#"{"tasks":[{"text":"a","state":"Done"},{"text":"b","state":"Committing","model":"opus","plain":false}],"commit_each":true,"model":1}"#).unwrap();
+        let mut old = old;
+        old.settle();
+        assert_eq!(old.tasks.len(), 1);
+        assert_eq!((old.tasks[0].text.as_str(), old.tasks[0].state), ("b", TaskState::Waiting));
     }
 }
