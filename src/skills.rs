@@ -96,34 +96,48 @@ pub fn plugin_dir() -> Option<PathBuf> {
 /// cannot be made); two skills of the same name get the name of their group in front.
 fn make_plugin(skills: &[Skill], out: &Path) -> Option<PathBuf> {
     let links = out.join("skills");
-    // the links only go: what they point to stays
-    let _ = std::fs::remove_dir_all(&links);
-    if skills.is_empty() {
-        return None;
-    }
-    std::fs::create_dir_all(&links).ok()?;
-    std::fs::create_dir_all(out.join(".claude-plugin")).ok()?;
-    std::fs::write(out.join(".claude-plugin").join("plugin.json"), "{\n  \"name\": \"florm\",\n  \"description\": \"Les skills de Florm / Florm's skills\"\n}\n").ok()?;
-    let mut used: Vec<String> = Vec::new();
+    // the names given to the skills, and the folders they point to
+    let mut wanted: Vec<(String, PathBuf)> = Vec::new();
     for s in skills {
         let slug = |t: &str| t.to_lowercase().chars().map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '-' }).collect::<String>();
         let mut name = slug(&s.name);
-        if used.contains(&name) {
+        if wanted.iter().any(|(n, _)| *n == name) {
             name = slug(&format!("{}-{}", s.group.replace('/', "-"), s.name));
         }
-        if name.is_empty() || used.contains(&name) {
-            continue;
-        }
         let Some(src) = s.path.parent() else { continue };
-        let dst = links.join(&name);
+        if !name.is_empty() && !wanted.iter().any(|(n, _)| *n == name) {
+            wanted.push((name, src.to_path_buf()));
+        }
+    }
+    if wanted.is_empty() {
+        let _ = std::fs::remove_dir_all(&links);
+        return None;
+    }
+    // the same links as the time before: nothing to do (no folder emptied under another window)
+    let have: Vec<(String, Option<PathBuf>)> = std::fs::read_dir(&links)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| (e.file_name().to_string_lossy().into_owned(), std::fs::read_link(e.path()).ok()))
+        .collect();
+    let same = have.len() == wanted.len() && wanted.iter().all(|(n, src)| have.iter().any(|(h, to)| h == n && to.as_ref() == Some(src)));
+    if same && out.join(".claude-plugin").join("plugin.json").is_file() {
+        return Some(out.to_path_buf());
+    }
+    // the links only go: what they point to stays
+    let _ = std::fs::remove_dir_all(&links);
+    std::fs::create_dir_all(&links).ok()?;
+    std::fs::create_dir_all(out.join(".claude-plugin")).ok()?;
+    std::fs::write(out.join(".claude-plugin").join("plugin.json"), "{\n  \"name\": \"florm\",\n  \"description\": \"Les skills de Florm / Florm's skills\"\n}\n").ok()?;
+    for (name, src) in &wanted {
+        let dst = links.join(name);
         #[cfg(unix)]
         let linked = std::os::unix::fs::symlink(src, &dst).is_ok();
         #[cfg(windows)]
         let linked = std::os::windows::fs::symlink_dir(src, &dst).is_ok();
-        if !linked && copy_dir(src, &dst).is_err() {
-            continue;
+        if !linked {
+            let _ = copy_dir(src, &dst);
         }
-        used.push(name);
     }
     Some(out.to_path_buf())
 }
@@ -203,6 +217,11 @@ mod tests {
         for n in ["notes", "perso-notes", "tests-odoo", "scripts-mig", "rapport"] {
             assert!(out.join("skills").join(n).join("SKILL.md").is_file(), "{n}");
         }
+        // the same skills again: the links are left as they are (not made anew)
+        let made = std::fs::symlink_metadata(out.join("skills/notes")).unwrap().modified().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        make_plugin(&s, &out);
+        assert_eq!(std::fs::symlink_metadata(out.join("skills/notes")).unwrap().modified().unwrap(), made);
         // made again: a skill removed goes, the skills themselves stay
         std::fs::remove_dir_all(root.join("perso")).unwrap();
         make_plugin(&list_in(&root), &out);

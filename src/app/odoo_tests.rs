@@ -150,19 +150,26 @@ impl App {
     pub(super) fn test_marks(&mut self, i: usize) -> Vec<(usize, String)> {
         let d = &self.docs[i];
         let Some(path) = d.path.as_deref() else { return Vec::new() };
-        let odoo = odoo_test::is_test_file(path) && odoo_test::module_of(path).is_some();
-        if odoo && !crate::docker::available() || !odoo && crate::test_cmd::runner_of(path).is_none() {
-            return Vec::new();
-        }
-        match self.tests.marks.get(&d.uid) {
-            Some((v, m)) if *v == d.version => m.clone(),
-            _ => {
-                let text = d.rope.to_string();
-                let m = if odoo { odoo_test::tests_in(&text) } else { crate::test_cmd::tests_in(path, &text, &self.test_root(path)) };
-                self.tests.marks.insert(d.uid, (d.version, m.clone()));
-                m
+        // the ones of this version; while typing, the ones before (read again after a pause): the
+        // disk is only asked when the text changed
+        if let Some((v, m)) = self.tests.marks.get(&d.uid) {
+            if *v == d.version || d.last_change.elapsed() < Duration::from_millis(300) {
+                return m.clone();
             }
         }
+        let odoo_file = odoo_test::is_test_file(path);
+        if !odoo_file && crate::test_cmd::runner_of(path).is_none() {
+            return Vec::new();
+        }
+        let odoo = odoo_file && odoo_test::module_of(path).is_some();
+        let text = d.rope.to_string();
+        let m = match odoo {
+            true if !crate::docker::available() => Vec::new(),
+            true => odoo_test::tests_in(&text),
+            false => crate::test_cmd::tests_in(path, &text, &self.test_root(path)),
+        };
+        self.tests.marks.insert(d.uid, (d.version, m.clone()));
+        m
     }
 
 }

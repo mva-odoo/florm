@@ -40,7 +40,17 @@ impl App {
     pub(super) fn debug_default_local(&mut self) -> String {
         match self.debug_project_lang() {
             Lang::Python => self.debug_odoo_bin().map(|b| format!("{b} --workers 0")).unwrap_or_default(),
-            lang => crate::debug_langs::default_command(lang, &self.root.clone().unwrap_or_default()),
+            lang => {
+                let root = self.root.clone().unwrap_or_default();
+                match &self.debug.default_cmd {
+                    Some((r, c)) if *r == root => c.clone(),
+                    _ => {
+                        let c = crate::debug_langs::default_command(lang, &root);
+                        self.debug.default_cmd = Some((root, c.clone()));
+                        c
+                    }
+                }
+            }
         }
     }
 

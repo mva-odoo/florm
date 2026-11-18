@@ -2458,9 +2458,22 @@ impl App {
                                 }
                                 // an image (or a PDF) Claude opened: shown under its line, as the ones given;
                                 // its file gone, the copy Florm kept of what Claude saw
-                                let shown = (name == "Read" && claude::shown_read(summary))
-                                    .then(|| Some(PathBuf::from(summary)).filter(|p| p.exists()).or_else(|| claude::kept_image(tool_id)))
-                                    .flatten();
+                                // looked for once the tool is done, then remembered (not asked to the disk at each frame)
+                                let shown = if name == "Read" && claude::shown_read(summary) {
+                                    let key = egui::Id::new(("read_image", tool_id.as_str()));
+                                    match ui.data(|d| d.get_temp::<Option<PathBuf>>(key)) {
+                                        Some(p) => p,
+                                        None => {
+                                            let p = Some(PathBuf::from(summary)).filter(|p| p.exists()).or_else(|| claude::kept_image(tool_id));
+                                            if result.is_some() {
+                                                ui.data_mut(|d| d.insert_temp(key, p.clone()));
+                                            }
+                                            p
+                                        }
+                                    }
+                                } else {
+                                    None
+                                };
                                 if let Some(p) = shown {
                                     egui::Frame::none().outer_margin(egui::Margin { left: 18.0, top: 2.0, bottom: 4.0, ..Default::default() }).show(ui, |ui| {
                                         if image_thumb(ui, &p, 120.0).clicked() {

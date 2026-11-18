@@ -161,8 +161,10 @@ pub(super) struct DebugUi {
     shut: HashSet<String>,
     /// The odoo-bin of the folder: (folder, its command).
     odoo_bin: Option<(PathBuf, Option<String>)>,
-    /// The language of the project of this folder.
+    /// The language of the project of this folder, and its command by default (Node, Rust, Go:
+    /// read in its files once, not at each frame).
     lang: Option<(PathBuf, Lang)>,
+    default_cmd: Option<(PathBuf, String)>,
     /// The running containers, and when they were read.
     pub(super) containers: Option<(Instant, Vec<String>)>,
     /// The settings of the session are unfolded (else one line sums them up).
