@@ -12,7 +12,6 @@ use crate::keymap::{self, Combo, Keymap, Seq, UNBOUND};
 use crate::lint::{self, Severity};
 use crate::logo;
 use crate::lsp;
-use crate::plugins::{self, Input, Output, Plugin};
 use crate::project::{self, Project, Session, SessionFile, UiState};
 use crate::search::{self, FileHits};
 use crate::sidebar::{self, Node, TreeAction};
@@ -583,10 +582,6 @@ enum Confirm {
     /// git commands that lose something or rewrite what was pushed: run one after the other
     /// when confirmed; `alt`: a second choice (its button and its commands).
     Git { title: String, msg: String, yes: String, label: String, cmds: Vec<Vec<String>>, alt: Option<(String, Vec<Vec<String>>)> },
-    /// The folder has plugins (`.florm/plugins`), not loaded until it is trusted.
-    TrustPlugins(PathBuf),
-    /// The plugins of the shared configuration are new or changed (its repository was pulled).
-    TrustSharedPlugins(PathBuf),
     /// `gh` commands on pull request `n` that cannot be undone (merge, close, delete a comment).
     Gh { title: String, msg: String, yes: String, label: String, repo: PathBuf, cmds: Vec<Vec<String>>, n: u64 },
 }
@@ -996,8 +991,6 @@ pub struct App {
     term: Terminal,
     /// Terminal the installation guides type their commands in (`install_guide`).
     install_term: Option<u64>,
-    plugins: Vec<Plugin>,
-    plugin_cmds: Vec<(usize, usize)>,
     keymap: Keymap,
     chord: bool,
     confirm: Option<Confirm>,
@@ -1085,8 +1078,6 @@ pub struct App {
     /// The conversations kept between sessions (newest first), and whether the last one was
     /// brought back at the first showing of Claude.
     claude_saved: Vec<claude_ui::SavedMeta>,
-    /// Folders whose plugins were asked to be trusted, in this session (asked once).
-    trust_asked: HashSet<PathBuf>,
     claude_loaded: bool,
     /// Use of the plan's quotas (5 hours, 7 days), shared by the conversations and kept between
     /// sessions.
@@ -1255,7 +1246,6 @@ impl App {
             s.text_styles.insert(TextStyle::Heading, FontId::proportional(19.0));
             s.text_styles.insert(TextStyle::Monospace, FontId::monospace(13.5));
         });
-        plugins::install_examples(&config::plugins_dir());
         let mut hl = Highlighting::new(&settings.theme, &config::config_dir().join("themes"));
         if let Some(d) = crate::shared::sub("themes") {
             hl.add_folder(&d);
@@ -1267,7 +1257,7 @@ impl App {
         apply_visuals(egui_ctx, hl.visuals());
         egui_ctx.set_fonts(crate::fonts::definitions(&settings.editor_font, &settings.ui_font, settings.ui_style == "square"));
         egui_extras::install_image_loaders(egui_ctx);
-        let (keymap, _) = Keymap::new(&settings.keys, &[]);
+        let (keymap, _) = Keymap::new(&settings.keys);
         let mut app = App {
             hl,
             docs: Vec::new(),
@@ -1298,8 +1288,6 @@ impl App {
             git: GitUi::default(),
             term: Terminal::new(),
             install_term: None,
-            plugins: Vec::new(),
-            plugin_cmds: Vec::new(),
             keymap,
             chord: false,
             confirm: None,
@@ -1356,7 +1344,6 @@ impl App {
             claude: Default::default(),
             claude_others: Vec::new(),
             claude_saved: claude_ui::load_saved(),
-            trust_asked: HashSet::new(),
             claude_loaded: false,
             claude_limits: claude_ui::load_limits(),
             claude_commands: claude_ui::load_commands(),
@@ -1405,7 +1392,7 @@ impl App {
                 if cwd != config::home() {
                     app.open_project(cwd);
                 } else {
-                    app.reload_plugins();
+                    app.rebuild_keymap();
                 }
                 let p = if p.is_absolute() { p } else { std::env::current_dir().unwrap_or_default().join(p) };
                 app.open_path(p);
@@ -1414,7 +1401,7 @@ impl App {
             None => match last_project {
                 Some(p) => app.open_project(p),
                 None if cwd != config::home() && cwd.parent().is_some() => app.open_project(cwd),
-                None => app.reload_plugins(),
+                None => app.rebuild_keymap(),
             },
         }
         app
@@ -1568,7 +1555,7 @@ impl App {
         // the symbol index starts once the file list is done (they would compete for the disk)
         self.index.symbols = None;
         self.index.symbols_for = None;
-        self.reload_plugins();
+        self.rebuild_keymap();
     }
 
     /// The repository of the file shown becomes the selected one (status bar, Git view) when

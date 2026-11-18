@@ -1,12 +1,11 @@
 //! Shared configuration: a git repository (on GitHub) cloned in the configuration folder, so that
-//! every computer gets the same preferences, templates, themes and plugins. Its layout is fixed,
+//! every computer gets the same preferences, templates and themes. Its layout is fixed,
 //! every part optional:
 //!
 //! ```text
 //! settings.toml   preferences applied over the local ones (only the keys it sets)
 //! templates/      templates, as the local "templates" folder
 //! themes/         .tmTheme files
-//! plugins/        plugins, as the local "plugins" folder
 //! ```
 //!
 //! The `shared_config` setting names it: "login" (the repository login/florm-config),
@@ -150,13 +149,13 @@ pub fn create(spec: &str) -> Result<(String, String), String> {
     Ok((spec, tf!("Dépôt {slug} créé avec la configuration de cet ordinateur", "Repository {slug} created with the configuration of this computer")))
 }
 
-/// Copies the local settings (without the ones of this computer), templates, themes and plugins.
+/// Copies the local settings (without the ones of this computer), templates and themes.
 fn fill_from_local(dir: &Path) -> std::io::Result<()> {
     let cfg = crate::config::config_dir();
     let text = std::fs::read_to_string(crate::config::settings_path()).unwrap_or_default();
     std::fs::write(dir.join("settings.toml"), portable_settings(&text))?;
     std::fs::write(dir.join("README.md"), README)?;
-    for name in ["templates", "themes", "plugins"] {
+    for name in ["templates", "themes"] {
         copy_dir(&cfg.join(name), &dir.join(name))?;
     }
     Ok(())
@@ -180,8 +179,7 @@ fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
     let Ok(rd) = std::fs::read_dir(from) else { return Ok(()) };
     for e in rd.flatten() {
         let (p, name) = (e.path(), e.file_name());
-        // the example plugins come with Florm on every computer
-        if name == ".git" || name == "examples" && from.ends_with("plugins") {
+        if name == ".git" {
             continue;
         }
         if p.is_dir() {
@@ -242,8 +240,7 @@ Florm récupère ce dépôt sur chaque ordinateur où il est indiqué (Préfére
 - `settings.toml` : préférences, appliquées par-dessus celles de l'ordinateur (seulement les\n\
   clés écrites ici ; les tables comme `[keys]` sont fusionnées) ;\n\
 - `templates/` : modèles (un fichier par modèle, comme le dossier local) ;\n\
-- `themes/` : thèmes `.tmTheme` ;\n\
-- `plugins/` : plugins.\n\n\
+- `themes/` : thèmes `.tmTheme`.\n\n\
 Les préférences modifiées dans Florm et présentes ici sont écrites ici aussi ; les nouveaux\n\
 modèles et thèmes sont créés ici. « Publier » enregistre et pousse les changements.\n";
 

@@ -1,4 +1,4 @@
-//! Settings and plugins.
+//! Settings: read again, the keymap built from them.
 
 use super::*;
 
@@ -105,7 +105,7 @@ impl App {
         }
     }
 
-    /// Preferences, templates, themes and plugins read again (the shared ones changed).
+    /// Preferences, templates and themes read again (the shared ones changed).
     pub(super) fn reload_shared(&mut self) {
         // read first: the shared folder depends on `shared_config`
         let _ = config::load();
@@ -114,107 +114,14 @@ impl App {
         }
         self.reload_settings();
         self.templates = crate::templates::load_all();
-        self.reload_plugins();
-    }
-
-    pub(super) fn reload_plugins(&mut self) {
-        let mut dirs = vec![config::plugins_dir()];
-        // the plugins of the shared configuration: its repository can be pushed to by others, so
-        // they run only once trusted as they are now
-        if let Some(shared) = crate::shared::sub("plugins").filter(|p| plugins::has_plugins(p)) {
-            if plugins::is_shared_trusted(&shared) {
-                dirs.push(shared);
-            } else if self.confirm.is_none() && self.trust_asked.insert(shared.clone()) {
-                self.confirm = Some(Confirm::TrustSharedPlugins(shared));
-            }
-        }
-        // the plugins of the folder run commands: only once it is trusted
-        if let Some(r) = self.root.clone() {
-            let local = r.join(".florm").join("plugins");
-            if plugins::has_plugins(&local) {
-                if plugins::is_trusted(&r) {
-                    dirs.push(local);
-                } else if self.confirm.is_none() && self.trust_asked.insert(r.clone()) {
-                    self.confirm = Some(Confirm::TrustPlugins(r));
-                }
-            }
-        }
-        let (p, errs) = plugins::load_all(&dirs);
-        for e in errs {
-            self.log(e);
-        }
-        self.plugins = p;
-        self.plugin_cmds = self
-            .plugins
-            .iter()
-            .enumerate()
-            .flat_map(|(pi, p)| (0..p.commands.len()).map(move |ci| (pi, ci)))
-            .collect();
-        self.rebuild_keymap();
     }
 
     pub(super) fn rebuild_keymap(&mut self) {
-        let pk: Vec<(String, Cmd)> = self
-            .plugin_cmds
-            .iter()
-            .enumerate()
-            .filter_map(|(k, &(pi, ci))| self.plugins[pi].commands[ci].keys.clone().map(|key| (key, Cmd::Plugin(k))))
-            .collect();
-        let (km, errs) = Keymap::new(&self.settings.keys, &pk);
+        let (km, errs) = Keymap::new(&self.settings.keys);
         self.keymap = km;
         for e in errs {
             self.log(e);
         }
     }
 
-    pub(super) fn run_plugin(&mut self, k: usize) {
-        let Some(&(pi, ci)) = self.plugin_cmds.get(k) else { return };
-        let def = self.plugins[pi].commands[ci].clone();
-        let dir = self.plugins[pi].dir.clone();
-        let env = self.plugin_env(self.active);
-        let (uid, version, inputs, output) = match self.docs.get(self.active) {
-            Some(d) => {
-                let all_empty = d.sels.iter().all(|s| s.is_empty());
-                let (inputs, whole) = match def.input {
-                    Input::None => (vec![String::new()], false),
-                    Input::Buffer => (vec![d.rope.to_string()], true),
-                    Input::Selection if all_empty => (vec![d.rope.to_string()], true),
-                    Input::Selection => (d.sels.iter().map(|s| d.slice(s.start(), s.end())).collect(), false),
-                };
-                let output =
-                    if whole && def.output == Output::ReplaceSelection { Output::ReplaceBuffer } else { def.output };
-                (d.uid, d.version, inputs, output)
-            }
-            None => (0, 0, vec![String::new()], Output::Panel),
-        };
-        self.set_status(format!("Plugin : {}…", def.title));
-        let title = def.title.clone();
-        self.jobs.spawn(move || {
-            let mut outs = Vec::new();
-            for inp in &inputs {
-                match plugins::exec(&dir, &def.run, inp, &env) {
-                    Ok(o) => outs.push(o),
-                    Err(e) => return JobResult::Plugin { uid, version, title, output, result: Err(e) },
-                }
-            }
-            JobResult::Plugin { uid, version, title, output, result: Ok(outs) }
-        });
-    }
-
-    pub(super) fn plugin_env(&self, idx: usize) -> Vec<(String, String)> {
-        let mut env = Vec::new();
-        if let Some(r) = &self.root {
-            env.push(("FLORM_PROJECT".into(), r.display().to_string()));
-        }
-        if let Some(d) = self.docs.get(idx) {
-            if let Some(p) = &d.path {
-                env.push(("FLORM_FILE".into(), p.display().to_string()));
-            }
-            let (l, c) = d.line_col(d.primary_sel().head);
-            env.push(("FLORM_LINE".into(), (l + 1).to_string()));
-            env.push(("FLORM_COLUMN".into(), (c + 1).to_string()));
-            env.push(("FLORM_SYNTAX".into(), d.syntax.clone()));
-        }
-        env
-    }
 }

@@ -36,7 +36,6 @@ mod lsp;
 mod odoo_test;
 mod os;
 mod pick;
-mod plugins;
 mod project;
 mod rebase;
 mod remote;

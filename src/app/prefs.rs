@@ -971,14 +971,6 @@ impl App {
                         actions.push(Cmd::OpenSettingsFile);
                     }
                 });
-                pref_row(ui, rc, "Plugins", &config::plugins_dir().display().to_string(), |ui| {
-                    if ui.button(t!("Recharger", "Reload")).clicked() {
-                        actions.push(Cmd::ReloadPlugins);
-                    }
-                    if ui.button(t!("Ouvrir le dossier", "Open the folder")).clicked() {
-                        actions.push(Cmd::OpenPluginsFolder);
-                    }
-                });
                 pref_row(ui, rc, t!("Historique de recherche", "Search history"), t!("Recherches et filtres mémorisés.", "Remembered searches and filters."), |ui| {
                     if ui.button(t!("Effacer", "Clear")).clicked() {
                         actions.push(Cmd::ClearSearchHistory);
@@ -1034,13 +1026,8 @@ impl App {
 
     // ------------------------------------------------------------------ editable shortcuts
 
-    /// Human name of a command (palette label, or "plugin : title").
+    /// Human name of a command (its palette label).
     fn cmd_name(&self, cmd: Cmd) -> String {
-        if let Cmd::Plugin(k) = cmd {
-            if let Some(&(pi, ci)) = self.plugin_cmds.get(k) {
-                return format!("plugin {} : {}", self.plugins[pi].name, self.plugins[pi].commands[ci].title);
-            }
-        }
         commands::ALL.iter().find(|(_, _, c)| *c == cmd).map(|(id, l, _)| commands::label(id, l).to_string()).unwrap_or_else(|| format!("{cmd:?}"))
     }
 

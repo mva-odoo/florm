@@ -6,14 +6,8 @@ impl App {
     pub(super) fn process_jobs(&mut self) {
         while let Ok(r) = self.jobs.rx.try_recv() {
             match r {
-                JobResult::Analyzed { uid, version, reload, diags, base, log } => {
-                    for l in log {
-                        self.log(l);
-                    }
+                JobResult::Analyzed { uid, diags, base, .. } => {
                     if let Some(d) = self.docs.iter_mut().find(|d| d.uid == uid) {
-                        if reload && d.version == version {
-                            let _ = d.reload_from_disk();
-                        }
                         if let Some((dg, linter)) = diags {
                             d.diagnostics = dg;
                             d.lint_version = d.version;
@@ -608,74 +602,8 @@ impl App {
                         s.cursor = None;
                     }
                 }
-                JobResult::Plugin { uid, version, title, output, result } => {
-                    self.apply_plugin_result(uid, version, title, output, result)
-                }
             }
         }
     }
 
-    fn apply_plugin_result(&mut self, uid: u64, version: u64, title: String, output: Output, result: Result<Vec<String>, String>) {
-        let outs = match result {
-            Ok(o) => o,
-            Err(e) => {
-                self.log(format!("[{title}] {e}"));
-                self.bottom = Some(BottomTab::Output);
-                self.set_error(tf!("Plugin « {title} » : erreur", "Plugin “{title}”: error"));
-                return;
-            }
-        };
-        match output {
-            Output::None => {}
-            Output::Panel => {
-                self.log(format!("── {title} ──"));
-                for o in outs {
-                    self.log(o);
-                }
-                self.bottom = Some(BottomTab::Output);
-            }
-            Output::NewTab => self.new_scratch(title, outs.join("\n"), "Plain Text", false),
-            _ => {
-                let Some(doc) = self.docs.iter_mut().find(|d| d.uid == uid) else { return };
-                if doc.version != version {
-                    self.set_status(t!("Le document a changé pendant le plugin : résultat ignoré", "The document changed during the plugin: result ignored"));
-                    return;
-                }
-                // Keep the trailing newline only if the input had one.
-                let fit = |input: &str, out: String| -> String {
-                    if !input.ends_with('\n') {
-                        out.strip_suffix('\n').map(String::from).unwrap_or(out)
-                    } else {
-                        out
-                    }
-                };
-                match output {
-                    Output::ReplaceBuffer => {
-                        let cur = doc.rope.to_string();
-                        let new = fit(&cur, outs.concat());
-                        doc.set_text(&new);
-                    }
-                    Output::ReplaceSelection if outs.len() == doc.sels.len() => {
-                        let items: Vec<Edit> = doc
-                            .sels
-                            .iter()
-                            .zip(outs)
-                            .map(|(s, o)| {
-                                let t = fit(&doc.slice(s.start(), s.end()), o);
-                                let n = t.chars().count();
-                                Edit { start: s.start(), end: s.end(), text: t, anchor: 0, head: n }
-                            })
-                            .collect();
-                        doc.edit(EditKind::Other, items);
-                    }
-                    Output::Insert => {
-                        let t = fit("", outs.concat());
-                        doc.insert_text(&t, false);
-                    }
-                    _ => {}
-                }
-                self.set_status(tf!("Plugin « {title} » : OK", "Plugin “{title}”: OK"));
-            }
-        }
-    }
 }

@@ -13,14 +13,6 @@ impl App {
                     .filter(|(_, l, c)| !l.is_empty() && crate::features::cmd_on(*c) && *c != Cmd::CommandPalette)
                     .map(|(id, l, c)| Item { label: commands::label(id, l).to_string(), detail: self.keymap.label(*c), action: Action::Cmd(*c) })
                     .collect();
-                for (k, &(pi, ci)) in self.plugin_cmds.iter().enumerate() {
-                    let p = &self.plugins[pi];
-                    v.push(Item {
-                        label: format!("{} : {}", p.name, p.commands[ci].title),
-                        detail: self.keymap.label(Cmd::Plugin(k)),
-                        action: Action::Cmd(Cmd::Plugin(k)),
-                    });
-                }
                 // `#`: the views, terminals and conversations (only listed after a #)
                 v.extend(self.view_items("# "));
                 v.into()
@@ -886,26 +878,6 @@ impl App {
                     tf!("« {name} » a été modifié par un autre programme depuis son ouverture.\nEnregistrer remplace cette version par la tienne.", "“{name}” was changed by another program since it was opened.\nSaving replaces that version with yours."),
                 )
             }
-            Confirm::TrustPlugins(root) => {
-                let name = root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                (
-                    t!("Plugins du dossier", "Plugins of the folder"),
-                    tf!(
-                        "« {name} » contient des plugins (.florm/plugins). Ils peuvent lancer n'importe quelle commande sur ta machine, par exemple à chaque enregistrement d'un fichier.\nFais-leur confiance seulement si tu sais d'où vient ce dossier. Sans confiance, ils ne sont pas chargés.",
-                        "“{name}” holds plugins (.florm/plugins). They can run any command on your machine, for instance each time a file is saved.\nTrust them only if you know where this folder comes from. Without trust, they are not loaded."
-                    ),
-                )
-            }
-            Confirm::TrustSharedPlugins(dir) => {
-                let name = dir.parent().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                (
-                    t!("Plugins de la configuration partagée", "Plugins of the shared configuration"),
-                    tf!(
-                        "Les plugins de la configuration partagée « {name} » sont nouveaux ou ont changé. Ils peuvent lancer n'importe quelle commande sur ta machine, par exemple à chaque enregistrement d'un fichier.\nFais-leur confiance seulement si tu fais confiance à l'auteur de ce dépôt. Chaque changement (par exemple un pull) redemandera confiance. Sans confiance, ils ne sont pas chargés.",
-                        "The plugins of the shared configuration “{name}” are new or have changed. They can run any command on your machine, for instance each time a file is saved.\nTrust them only if you trust the author of this repository. Each change (for instance a pull) asks for trust again. Without trust, they are not loaded."
-                    ),
-                )
-            }
             Confirm::DropStash(_, what) => (t!("Supprimer le stash", "Delete the stash"), tf!("Supprimer définitivement « {what} » ?\nSes changements seront perdus.", "Delete “{what}” for good?\nIts changes will be lost.")),
             Confirm::Git { title, msg, .. } | Confirm::Gh { title, msg, .. } => (title.as_str(), msg.clone()),
             Confirm::ReplaceInFiles => {
@@ -929,7 +901,7 @@ impl App {
                 ui.painter().rect_filled(screen, 0.0, Color32::from_black_alpha(90));
             });
         // what loses something (or cannot be undone) is not chosen by Entrée alone
-        let careful = matches!(c, Confirm::TrustPlugins(_) | Confirm::TrustSharedPlugins(_) | Confirm::Delete(_) | Confirm::DropStash(..) | Confirm::DiffOp { .. } | Confirm::ReplaceInFiles | Confirm::Overwrite(_) | Confirm::Git { .. } | Confirm::Gh { .. });
+        let careful = matches!(c, Confirm::Delete(_) | Confirm::DropStash(..) | Confirm::DiffOp { .. } | Confirm::ReplaceInFiles | Confirm::Overwrite(_) | Confirm::Git { .. } | Confirm::Gh { .. });
         let (yes, no) = match c {
             Confirm::CloseTab(_) => (t!("Enregistrer", "Save"), Some(t!("Ne pas enregistrer", "Don't save"))),
             Confirm::Quit => (t!("Tout enregistrer et quitter", "Save all and quit"), Some(t!("Quitter sans enregistrer", "Quit without saving"))),
@@ -939,8 +911,6 @@ impl App {
             Confirm::ReplaceInFiles => (t!("Remplacer", "Replace"), None),
             Confirm::DiffOp { .. } => (t!("Oui, annuler le changement", "Yes, undo the change"), None),
             Confirm::DropStash(..) => (t!("Supprimer", "Delete"), None),
-            Confirm::TrustPlugins(_) => (t!("Faire confiance à ce dossier", "Trust this folder"), None),
-            Confirm::TrustSharedPlugins(_) => (t!("Faire confiance à ces plugins", "Trust these plugins"), None),
             Confirm::Git { yes, alt, .. } => (yes.as_str(), alt.as_ref().map(|(l, _)| l.as_str())),
             Confirm::Gh { yes, .. } => (yes.as_str(), None),
             Confirm::Overwrite(_) => (t!("Écraser avec ma version", "Overwrite with mine"), Some(t!("Recharger la version du disque", "Reload the version on disk"))),
@@ -1036,20 +1006,6 @@ impl App {
         match (c, choice) {
             (Confirm::DiffOp { label, op, .. }, 1) => self.run_diff_op(label, op),
             (Confirm::DropStash(hash, _), 1) => self.stash_act(super::git_actions::StashAct::Drop(hash)),
-            (Confirm::TrustSharedPlugins(dir), 1) => match crate::plugins::trust_shared(&dir) {
-                Ok(()) => {
-                    self.reload_plugins();
-                    self.set_status(t!("Plugins partagés chargés", "Shared plugins loaded"));
-                }
-                Err(e) => self.set_error(tf!("Confiance non enregistrée : {e}", "Trust not saved: {e}")),
-            },
-            (Confirm::TrustPlugins(root), 1) => match crate::plugins::trust(&root) {
-                Ok(()) => {
-                    self.reload_plugins();
-                    self.set_status(t!("Plugins du dossier chargés", "Plugins of the folder loaded"));
-                }
-                Err(e) => self.set_error(tf!("Confiance non enregistrée : {e}", "Trust not saved: {e}")),
-            },
             (Confirm::Git { label, cmds, alt, .. }, 1 | 2) => {
                 let cmds = if choice == 2 { alt.map(|(_, c)| c).unwrap_or_default() } else { cmds };
                 if let (Some(repo), false) = (self.repo.clone(), cmds.is_empty()) {

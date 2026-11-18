@@ -40,8 +40,6 @@ impl App {
     /// The menus (in the menu bar, or under ☰ in the status bar when the bar is hidden).
     pub(in crate::app) fn menus(&self, ui: &mut egui::Ui, pending: &mut Vec<Cmd>) {
         let km = &self.keymap;
-        let plugins = &self.plugins;
-        let plugin_cmds = &self.plugin_cmds;
         let mut item = |ui: &mut egui::Ui, label: &str, cmd: Cmd| {
             // GitHub, the debugger, Claude turned off: their entries go
             if !crate::features::cmd_on(cmd) {
@@ -161,12 +159,6 @@ impl App {
         ui.menu_button(t!("Outils", "Tools"), |ui| {
             item(ui, t!("Linter le fichier", "Lint the file"), Cmd::Lint);
             ui.separator();
-            for (k, &(pi, ci)) in plugin_cmds.iter().enumerate() {
-                item(ui, &plugins[pi].commands[ci].title, Cmd::Plugin(k));
-            }
-            if !plugin_cmds.is_empty() {
-                ui.separator();
-            }
             item(ui, "✳ Claude", Cmd::Claude);
             // also when docker is missing: the view then tells how to install it
             item(ui, t!("Docker (conteneurs et logs)", "Docker (containers and logs)"), Cmd::Docker);
@@ -181,8 +173,6 @@ impl App {
             item(ui, t!("Nouveau modèle…", "New template…"), Cmd::NewTemplate);
             item(ui, t!("Dossier des modèles", "Templates folder"), Cmd::OpenTemplatesFolder);
             ui.separator();
-            item(ui, t!("Recharger les plugins", "Reload plugins"), Cmd::ReloadPlugins);
-            item(ui, t!("Dossier des plugins", "Plugins folder"), Cmd::OpenPluginsFolder);
             ui.separator();
             item(ui, t!("Synchroniser la configuration partagée", "Synchronize the shared configuration"), Cmd::SharedSync);
             item(ui, t!("Publier la configuration partagée", "Publish the shared configuration"), Cmd::SharedPublish);

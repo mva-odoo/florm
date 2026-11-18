@@ -1,10 +1,9 @@
-//! Background work (git, linters, plugins, file indexing) on threads; results
+//! Background work (git, linters, file indexing) on threads; results
 //! come back to the UI thread through a channel polled every frame.
 
 use crate::git;
 use crate::history;
 use crate::lint::Diagnostic;
-use crate::plugins::Output;
 use crate::search;
 use crate::split;
 use eframe::egui;
@@ -100,13 +99,10 @@ pub enum JobResult {
     PrLog(String, Result<String, String>),
     Analyzed {
         uid: u64,
-        version: u64,
-        reload: bool,
         /// diagnostics and the linter that produced them
         diags: Option<(Vec<Diagnostic>, String)>,
         /// File content in HEAD (None: untracked / no repository)
         base: Option<String>,
-        log: Vec<String>,
     },
     /// Go to file scored in the background: the query and its number, every match (to narrow
     /// the next letter) and the best ones, in order.
@@ -194,7 +190,6 @@ pub enum JobResult {
     RemoteConnected(crate::remote::Target, Result<PathBuf, String>),
     /// Host of an SSH project mounted: the project to open (`switch`: from another project).
     RemoteMounted { path: PathBuf, switch: bool, result: Result<(), String> },
-    Plugin { uid: u64, version: u64, title: String, output: Output, result: Result<Vec<String>, String> },
 }
 
 /// `f` on each item, `threads` at a time, the results in the order of the items: for the same

@@ -130,9 +130,6 @@ impl App {
         if config::is_settings_file(path) {
             self.reload_settings();
         }
-        if path.file_name().is_some_and(|n| n == "plugin.toml") {
-            self.reload_plugins();
-        }
         self.analyze(idx, true);
         self.git_refresh();
         if let Some(t) = self.tree.as_mut() {
@@ -140,9 +137,8 @@ impl App {
         }
     }
 
-    /// Lints (in-process now, external in background), runs on_save hooks, updates git gutter marks.
+    /// Lints (in-process now, external in background), updates git gutter marks.
     pub(super) fn analyze(&mut self, idx: usize, saving: bool) {
-        let env = self.plugin_env(idx);
         let Some(doc) = self.docs.get_mut(idx) else { return };
         let Some(path) = doc.path.clone() else { return };
         if doc.view != document::View::Text {
@@ -154,34 +150,14 @@ impl App {
                 doc.lint_version = doc.version;
             }
         }
-        let (uid, version) = (doc.uid, doc.version);
-        let hooks: Vec<(PathBuf, String, bool)> = if saving {
-            self.plugins
-                .iter()
-                .flat_map(|p| p.hooks_for("on_save", &path).map(move |h| (p.dir.clone(), h.run.clone(), h.reload)))
-                .collect()
-        } else {
-            Vec::new()
-        };
+        let uid = doc.uid;
         let lint_on = self.settings.lint_on_save || !saving;
         let root = self.repo_for(&path).or_else(|| self.root.clone());
         let cfg = self.lint_config();
         let text = self.docs[idx].rope.to_string();
         self.jobs.spawn(move || {
-            let mut log = Vec::new();
-            let mut reload = false;
-            for (dir, run, rl) in hooks {
-                match plugins::exec(&dir, &run, "", &env) {
-                    Ok(o) if !o.trim().is_empty() => log.push(o),
-                    Ok(_) => {}
-                    Err(e) => log.push(e),
-                }
-                reload |= rl;
-            }
-            // a formatting hook rewrote the file: lint what is on disk now
-            let text = if reload { std::fs::read_to_string(&path).unwrap_or(text) } else { text };
             let diags = if lint_on { lint::lint_external(&path, &text, root.as_deref(), &cfg) } else { None };
-            JobResult::Analyzed { uid, version, reload, diags, base: git::head_text(&path), log }
+            JobResult::Analyzed { uid, diags, base: git::head_text(&path) }
         });
     }
 

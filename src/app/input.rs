@@ -739,10 +739,6 @@ impl App {
             OpenSettingsFile => {
                 self.open_path(config::settings_path());
             }
-            ReloadPlugins => {
-                self.reload_plugins();
-                self.set_status(tf!("{} plugin(s) chargé(s)", "{} plugin(s) loaded", self.plugins.len()));
-            }
             CheckUpdate => self.check_update(true),
             SharedSync => self.shared_job(crate::shared::Op::Sync),
             SharedPublish => self.shared_job(crate::shared::Op::Publish),
@@ -764,12 +760,6 @@ impl App {
                     .map(|e| e.to_string_lossy().to_lowercase())
                     .unwrap_or_default();
                 self.open_prompt(Prompt::NewTemplate { body, ext });
-            }
-            OpenPluginsFolder => {
-                let dir = config::plugins_dir();
-                let _ = std::fs::create_dir_all(&dir);
-                self.log(tf!("Dossier des plugins : {}", "Plugins folder: {}", dir.display()));
-                self.open_path(dir.join("README.md"));
             }
             RefreshTree => {
                 if let Some(t) = self.tree.as_mut() {
@@ -834,7 +824,6 @@ impl App {
                     self.git_refresh();
                 }
             }
-            Plugin(k) => self.run_plugin(k),
             _ => {}
         }
     }

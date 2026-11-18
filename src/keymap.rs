@@ -321,7 +321,7 @@ pub struct Keymap {
 }
 
 impl Keymap {
-    pub fn new(user: &HashMap<String, String>, plugin_keys: &[(String, Cmd)]) -> (Self, Vec<String>) {
+    pub fn new(user: &HashMap<String, String>) -> (Self, Vec<String>) {
         let chord_start = Combo::parse("ctrl+k").unwrap();
         let mut km = Keymap { map: HashMap::new(), chords: HashMap::new(), chord_start, labels: HashMap::new() };
         let mut errors = Vec::new();
@@ -330,9 +330,6 @@ impl Keymap {
         }
         for (k, id) in CHORDS {
             km.bind(&format!("ctrl+k {k}"), Some(commands::by_id(id).expect(id)), &mut errors);
-        }
-        for (k, cmd) in plugin_keys {
-            km.bind(k, Some(*cmd), &mut errors);
         }
         // user entries: sorted so the result does not depend on HashMap order
         let mut user: Vec<(&String, &String)> = user.iter().collect();
@@ -466,7 +463,7 @@ mod tests {
         user.insert("ctrl+alt+shift+d".to_string(), "select_next".to_string());
         user.insert("ctrl+k ctrl+b".to_string(), UNBOUND.to_string());
         user.insert("ctrl+b".to_string(), UNBOUND.to_string());
-        let (km, errs) = Keymap::new(&user, &[]);
+        let (km, errs) = Keymap::new(&user);
         assert!(errs.is_empty(), "{errs:?}");
         let d = Combo::parse("ctrl+d").unwrap();
         assert_eq!(km.lookup(d, false), None);
@@ -487,7 +484,7 @@ mod tests {
 
     #[test]
     fn navigation_and_git_shortcuts() {
-        let (km, errs) = Keymap::new(&HashMap::new(), &[]);
+        let (km, errs) = Keymap::new(&HashMap::new());
         assert!(errs.is_empty(), "{errs:?}");
         let k = |s: &str| km.lookup_seq(&parse_seq(s).unwrap());
         assert_eq!(k("alt+minus"), Some(Cmd::NavBack));

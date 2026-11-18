@@ -425,8 +425,8 @@ impl App {
     fn refresh_git_base(&mut self, i: usize) {
         let Some(d) = self.docs.get(i) else { return };
         let Some(path) = d.path.clone() else { return };
-        let (uid, version) = (d.uid, d.version);
-        self.jobs.spawn(move || JobResult::Analyzed { uid, version, reload: false, diags: None, base: git::head_text(&path), log: Vec::new() });
+        let uid = d.uid;
+        self.jobs.spawn(move || JobResult::Analyzed { uid, diags: None, base: git::head_text(&path) });
     }
 }
 

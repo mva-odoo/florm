@@ -141,7 +141,6 @@ L'édition, la recherche, la coloration, l'index des symboles (F12, complétion)
 | Formatage Python | `ruff` | Ctrl+Alt+F, « Corriger automatiquement » |
 | Lint JavaScript | `eslint` (sinon `node`) | Soulignements dans les fichiers JS |
 | Complétion intelligente, F2 renommer | un serveur de langage | Voir plus bas |
-| Plugins d'exemple | `python3` | Les plugins écrits en Python |
 | Icônes du terminal | une Nerd Font | Les symboles des prompts (starship, powerline) |
 
 ### Tout installer sous Windows
@@ -151,7 +150,7 @@ Dans PowerShell, d'un coup (chaque ligne est facultative) :
 ```powershell
 winget install Git.Git                  # Git (aussi demandé par Claude Code)
 winget install GitHub.cli               # Pull requests ; puis : gh auth login
-winget install Python.Python.3.13       # lint Python, plugins
+winget install Python.Python.3.13       # lint Python
 winget install OpenJS.NodeJS.LTS        # lint JavaScript, serveurs de langage npm
 winget install Docker.DockerDesktop     # vue Docker
 irm https://claude.ai/install.ps1 | iex # Claude Code ; puis : claude (pour se connecter)
@@ -309,7 +308,6 @@ flake8 --version || ruff --version
 | Plusieurs dépôts | Les dépôts git présents dans le dossier ouvert (jusqu'à 3 niveaux) sont tous détectés ; la vue Git a un sélecteur de dépôt et suit automatiquement le dépôt du fichier actif |
 | Linters | XML et JSON en direct (intégrés). **Python pendant la frappe** avec flake8 (ou ruff, pyflakes, pylint : `python_linter` dans les préférences), lancé depuis la racine du dépôt pour lire `setup.cfg` / `.flake8` / `tox.ini` / `pyproject.toml`. Survol d'un soulignement = message, clic droit = « Ignorer (# noqa) », **Ctrl+.** (ou l'ampoule) = corrections rapides : importer le nom manquant (index du projet), `# noqa`, `ruff --fix`, Claude, actions du serveur de langage. **Codes à ignorer par linter** (flake8, ruff, pylint, eslint) dans Préférences → Lint. Sans linter installé : bouton « Installer flake8 » dans Problèmes (installé dans `~/.local/share/florm/pytools`, sans toucher au Python système). JS via `eslint` → `node --check`. **Formatage** : Ctrl+Alt+F (`ruff format`, seulement les lignes sélectionnées s'il y a une sélection), « Corriger automatiquement » (`ruff --fix`), `format_on_save` dans les préférences |
 | Terminal | Ctrl+` (ou Ctrl+Alt+T) : vrai terminal comme dans VS Code (shell interactif dans un pseudo-terminal : couleurs, complétion Tab, ↑ historique, `vim`, `htop`, `less`…). Plusieurs terminaux (＋ en haut du panneau, les autres dans ▾), sélection à la souris, Ctrl+C interrompt (ou copie la sélection), Ctrl+V colle, molette pour l'historique. **Terminal dans un onglet de l'éditeur** (Ctrl+Shift+`, ou ⇱ Onglet) : il se place à côté d'un fichier comme tout onglet. Shell : `$SHELL` (ou `cmd` sous Windows), modifiable dans les préférences |
-| Plugins | Commandes et hooks dans n'importe quel langage, voir [plugins/README.md](plugins/README.md). Ceux d'un projet (`.florm/plugins`) ne sont chargés qu'après avoir fait confiance au dossier |
 | Modèles | Ctrl+Alt+N : vues Odoo (formulaire, liste, recherche, héritage), action, menu, modèle Python, champ calculé, `__manifest__.py`, droits d'accès… insérés au curseur avec `${model}`, `${Model}`, `${module}` remplis d'après le fichier courant. Déclencheurs comme les snippets : `ipdb` + Tab → `import ipdb; ipdb.set_trace()`, `odoo_form`, `odoo_model`… Les siens avec Outils → Nouveau modèle… (depuis la sélection, rangé tout seul dans le dossier des modèles : `log` → `log.py`, déclencheur `log`). **Préférences → Modèles** pour les créer et les modifier |
 | Pull requests GitHub | Ctrl+Alt+R. Par `gh` (sans token : `gh auth login` une fois) : liste des PR, description, commits, diff, commentaires sous les lignes du diff comme sur GitHub (aussi dans la marge de l'éditeur), répondre, résoudre, commenter une ligne, **suggestions appliquées** dans les fichiers en un clic, checkout |
 | Claude | Ctrl+Alt+C : conversation avec Claude Code dans le panneau du bas, ou dans un onglet avec ⇱ (commande `claude`, sans clé), et à côté **la revue de ce qu'il a changé, bloc par bloc : garder ou rejeter**. ✨ dans la vue Git : message de commit proposé d'après le diff et la demande. **File de tâches** : une liste de demandes (+ File) envoyées une à une, un commit après chacune si coché. **Moins de tokens** : questions à choix avant de coder, définitions citées jointes, un commit comme contexte, conversation neuve par tâche, modèle choisi pour la file ou par tâche |
@@ -393,7 +391,6 @@ flake8 --version || ruff --version
 | Ctrl+Shift+M | Problèmes (lint) |
 | Ctrl+Shift+B | Blame de la ligne (suit le curseur ; Ctrl+Shift+B à nouveau pour masquer) |
 | Ctrl+Alt+B | Historique complet de la ligne (tous les commits qui l'ont modifiée, avec leur diff) |
-| F5 | (plugin d'exemple) exécuter le fichier Python |
 
 Sous macOS, Ctrl = Cmd. **Tous les raccourcis se modifient** dans Préférences → Raccourcis : clic sur un raccourci, puis la nouvelle combinaison (Échap annule) ; les conflits sont signalés, « ↺ » rétablit le raccourci par défaut et « × » le supprime. Ils sont enregistrés dans la section `[keys]` de `settings.toml` (`"none"` désactive une combinaison).
 
@@ -422,14 +419,13 @@ déposés dans `~/.config/florm/themes/` sont chargés au démarrage.
 
 ### Configuration partagée entre plusieurs ordinateurs
 
-Les préférences, modèles, thèmes et plugins peuvent venir d'un dépôt GitHub, le même sur chaque PC. Le dépôt a une forme fixe, chaque partie est facultative :
+Les préférences, modèles et thèmes peuvent venir d'un dépôt GitHub, le même sur chaque PC. Le dépôt a une forme fixe, chaque partie est facultative :
 
 ```text
 florm-config/
 ├── settings.toml   # préférences appliquées par-dessus celles de l'ordinateur
 ├── templates/      # modèles (un fichier par modèle, comme le dossier local)
-├── themes/         # thèmes .tmTheme
-└── plugins/        # plugins
+└── themes/         # thèmes .tmTheme
 ```
 
 Dans Préférences → Avancé → **Configuration partagée** (ou `shared_config` dans settings.toml), indiquez `login` (le dépôt `login/florm-config`), `owner/repo` ou une adresse git. Florm le clone dans `~/.config/florm/shared/` (avec `gh` s'il est installé, donc aussi les dépôts privés) et le met à jour à chaque démarrage.

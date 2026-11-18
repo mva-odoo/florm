@@ -7,7 +7,6 @@ use eframe::egui::{self, Align2, Color32, CursorIcon, Event, FontId, Id, Key, Mo
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -15,21 +14,6 @@ use std::sync::{Arc, Mutex};
 const SCROLLBACK: usize = 3_000;
 /// Most bytes of output kept as text by a session that keeps it.
 const CAPTURE: usize = 1 << 20;
-
-/// Command line run through the shell, for plugins (not the interactive terminal).
-#[cfg(windows)]
-pub fn shell_command(cmd: &str, _shell: Option<&str>) -> Command {
-    let mut c = crate::os::command("cmd");
-    c.args(["/C", cmd]);
-    c
-}
-
-#[cfg(not(windows))]
-pub fn shell_command(cmd: &str, shell: Option<&str>) -> Command {
-    let mut c = crate::os::command(shell.unwrap_or("sh"));
-    c.arg("-c").arg(cmd);
-    c
-}
 
 /// Base of the focus ids of the terminal grids (shortcuts other than a few global ones go to the shell).
 fn term_id() -> Id {

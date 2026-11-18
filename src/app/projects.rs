@@ -6,7 +6,7 @@ impl App {
     pub(super) fn open_project(&mut self, path: PathBuf) {
         if crate::remote::needs_mount(&path) {
             self.remote_mount(path, false);
-            self.reload_plugins();
+            self.rebuild_keymap();
             return;
         }
         self.set_root(path);
@@ -78,7 +78,7 @@ impl App {
         self.git = GitUi::default();
         self.search.gen.store(u64::MAX, Ordering::SeqCst);
         self.search = self.fresh_search();
-        self.reload_plugins();
+        self.rebuild_keymap();
     }
 
     /// Session of the project; with hot exit, unsaved contents go in `backups` (file name, text).

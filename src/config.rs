@@ -106,7 +106,7 @@ pub struct Settings {
     /// Files saved by themselves: "off", "focus" (when Florm loses the focus or another tab is
     /// shown), "delay" (a second after the last keystroke).
     pub auto_save: String,
-    /// Shell used by the terminal panel (plugins always use `sh` / `cmd`).
+    /// Shell used by the terminal panel.
     pub shell: Option<String>,
     /// "ctrl+shift+r" = "git_push", chords as "ctrl+k ctrl+b".
     pub keys: HashMap<String, String>,
@@ -156,7 +156,7 @@ pub struct Settings {
     pub pr_show_resolved: bool,
     /// A new pull request is created as a draft.
     pub pr_draft: bool,
-    /// Shared configuration (settings.toml, templates/, themes/, plugins/) in a git repository:
+    /// Shared configuration (settings.toml, templates/, themes/) in a git repository:
     /// "login" (login/florm-config on GitHub), "owner/repo" or a git address; empty: none.
     pub shared_config: String,
 }
@@ -384,7 +384,7 @@ pr_default_who = "mine"
 pr_show_resolved = false
 pr_draft = false
 # configuration partagée entre ordinateurs : un dépôt GitHub avec settings.toml, templates/,
-# themes/ et plugins/ ; "login" (= login/florm-config), "owner/repo" ou une adresse git
+# et themes/ ; "login" (= login/florm-config), "owner/repo" ou une adresse git
 shared_config = ""
 
 [keys]
@@ -461,10 +461,6 @@ pub fn data_dir() -> PathBuf {
 
 pub fn settings_path() -> PathBuf {
     config_dir().join("settings.toml")
-}
-
-pub fn plugins_dir() -> PathBuf {
-    config_dir().join("plugins")
 }
 
 /// Where new themes are saved: the shared configuration when there is one.
