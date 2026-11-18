@@ -327,17 +327,21 @@ impl App {
             self.save_session();
         }
         // Live lint for in-process linters (XML/JSON), debounced.
-        if let Some(d) = self.docs.get_mut(self.active) {
-            if d.lint_version != d.version {
-                if let Some(lang) = d.path.as_deref().and_then(lint::lang_of).filter(|l| lint::is_in_process(l)) {
-                    let el = d.last_change.elapsed();
-                    if el >= Duration::from_millis(300) {
-                        d.diagnostics = lint::lint_in_process(lang, &d.rope.to_string());
-                        d.lint_version = d.version;
-                    } else {
-                        ctx.request_repaint_after(Duration::from_millis(310) - el);
-                    }
-                }
+        let due = self.docs.get(self.active).filter(|d| d.lint_version != d.version).and_then(|d| {
+            let path = d.path.clone()?;
+            let lang = lint::lang_of(&path).filter(|l| lint::is_in_process(l))?;
+            let el = d.last_change.elapsed();
+            if el < Duration::from_millis(300) {
+                ctx.request_repaint_after(Duration::from_millis(310) - el);
+                return None;
+            }
+            Some((lang, path, d.rope.to_string(), d.version))
+        });
+        if let Some((lang, path, text, version)) = due {
+            let diags = self.lint_here(lang, &path, &text);
+            if let Some(d) = self.docs.get_mut(self.active) {
+                d.diagnostics = diags;
+                d.lint_version = version;
             }
         }
         // Live diff against HEAD for the gutter, debounced while typing.

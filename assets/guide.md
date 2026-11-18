@@ -309,6 +309,19 @@ interactif** (clic droit → « Rebase interactif à partir d'ici… »), l'acti
   masque un panneau latéral (la revue de Claude), pleine quand il est affiché. Git, les Préférences et le découpage d'un commit
   sont des onglets comme les autres : Échap revient à l'onglet d'avant, Ctrl+W les ferme.
 
+## Erreurs dans le code
+
+Les problèmes sont soulignés dans le code et listés dans **Problèmes** (panneau du bas) :
+
+- **Python** : le premier linter installé (`flake8`, sinon `ruff`, `pyflakes`, `pylint` ; Préférences →
+  Lint), pendant la frappe. **JavaScript** : `eslint`, à l'enregistrement.
+- **XML et JSON** : un fichier mal formé (balise non fermée, mal imbriquée, guillemet oublié), en direct.
+- **XML d'un module Odoo** : une référence à un identifiant qui n'existe nulle part (la vue héritée
+  `inherit_id`, un `t-call`, le `parent` ou l'`action` d'un menu, une action `%(…)d`, un groupe), et
+  une vue ou un template défini deux fois dans le même fichier. Une référence n'est vérifiée que si
+  son module est dans le projet ouvert, et les identifiants créés par Odoo lui-même (`model_…`,
+  `field_…`) ou par du code Python ne sont pas signalés : pas de fausse alerte.
+
 ## Tests Odoo
 
 Les tests Odoo tournent dans un conteneur Docker, réglé une fois dans **Préférences → Tests**

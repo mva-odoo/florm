@@ -306,6 +306,19 @@ one of the commits.
   review of Claude), filled when it is shown. Git, the Preferences and the split of a commit are
   tabs like the others: Escape goes back to the previous tab, Ctrl+W closes them.
 
+## Errors in the code
+
+Problems are underlined in the code and listed in **Problems** (bottom panel):
+
+- **Python**: the first linter installed (`flake8`, else `ruff`, `pyflakes`, `pylint`; Preferences →
+  Lint), while typing. **JavaScript**: `eslint`, on save.
+- **XML and JSON**: a badly formed file (unclosed or badly nested tag, missing quote), live.
+- **XML of an Odoo module**: a reference to an id that exists nowhere (the view inherited with
+  `inherit_id`, a `t-call`, the `parent` or `action` of a menu, a `%(…)d` action, a group), and a view
+  or template defined twice in the same file. A reference is only checked when its module is in the
+  open project, and the ids made by Odoo itself (`model_…`, `field_…`) or by Python code are not
+  reported: no false alarm.
+
 ## Odoo tests
 
 The Odoo tests run in a Docker container, set once in **Preferences → Tests** (the container, and

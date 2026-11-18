@@ -271,10 +271,27 @@ pub fn extract(text: &str, syntax: &str, tab: usize) -> Vec<Symbol> {
         static M: OnceLock<Regex> = OnceLock::new();
         M.get_or_init(|| Regex::new(r#"\bmodel="([^"]+)""#).unwrap())
     };
+    let xml = matches!(syntax, "XML" | "HTML");
+    let open_tag = {
+        static T: OnceLock<Regex> = OnceLock::new();
+        T.get_or_init(|| Regex::new(r#"<(?:record|template|menuitem|act_window|report)\b[^>]*$"#).unwrap())
+    };
     for (i, l) in lines.iter().enumerate() {
         if l.len() > 2000 {
             continue;
         }
+        // an XML tag whose attributes go on the next lines (`<menuitem` then `id="…"` below): read up
+        // to its `>`, the symbol stays on the line of the tag
+        let joined;
+        let l: &str = if xml && open_tag.is_match(l) {
+            joined = lines[i..lines.len().min(i + 12)].iter().scan(false, |done, x| (!*done).then(|| {
+                *done = x.contains('>');
+                *x
+            })).collect::<Vec<_>>().join(" ");
+            &joined
+        } else {
+            l
+        };
         for rule in rules {
             let Some(c) = rule.re.captures(l) else { continue };
             let name = c[1].trim().to_string();
@@ -343,6 +360,16 @@ mod tests {
         let p: Vec<&str> = path_at(&s, 7).iter().map(|s| s.name.as_str()).collect();
         assert_eq!(p, ["Account", "compute"]);
         assert!(path_at(&s, 12).is_empty());
+    }
+
+    #[test]
+    fn an_xml_tag_on_several_lines() {
+        let xml = "<odoo>\n    <menuitem\n        name=\"POS\"\n        id=\"menu_point_root\"\n        sequence=\"5\"/>\n    <record model=\"ir.ui.view\"\n            id=\"view_x\">\n    </record>\n</odoo>\n";
+        let v = extract(xml, "XML", 4);
+        let found: Vec<(&str, usize)> = v.iter().map(|s| (s.name.as_str(), s.line)).collect();
+        // on the line of the tag, where « Aller au symbole » takes you
+        assert_eq!(found, [("menu_point_root", 1), ("view_x", 5)]);
+        assert_eq!(v[1].detail, "ir.ui.view");
     }
 
     #[test]

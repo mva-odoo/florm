@@ -34,6 +34,7 @@ mod local_history;
 mod logo;
 mod lsp;
 mod odoo_test;
+mod odoo_xml;
 mod os;
 mod pick;
 mod project;
