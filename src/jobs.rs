@@ -69,6 +69,10 @@ pub enum JobResult {
     InlineAi(u64, Result<crate::claude::Inline, String>),
     /// Suggestion of the AI completion (number of the request); empty: nothing to suggest.
     AiComplete(u64, Result<String, String>),
+    /// Where GitHub Copilot stands ("OK", "NotSignedIn"…), after a check, an installation or a sign-in.
+    CopilotState(Result<String, String>),
+    /// The code to type on GitHub to sign Copilot in, and the page to type it in.
+    CopilotCode(Result<(String, String), String>),
     /// The repository pull requests go to, and its default branch.
     GhBase(PathBuf, Result<(String, String), String>),
     /// What the window « Créer une pull request » needs from git, read off the UI thread:

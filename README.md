@@ -132,6 +132,7 @@ L'édition, la recherche, la coloration, l'index des symboles (F12, complétion)
 | Vue Git, commit, push, diff, rebase | `git` | Tout ce qui touche à Git |
 | Pull requests GitHub | `gh` (GitHub CLI), connecté | Onglet Pull requests, « Créer une PR » |
 | Claude dans l'éditeur | `claude` (Claude Code), connecté | Onglet Claude, ✨ message de commit |
+| Complétion par GitHub Copilot (au choix) | rien : Florm télécharge `copilot-language-server` (Préférences → Éditeur) ; un abonnement Copilot | Suite proposée en gris pendant la frappe |
 | Vue Docker | `docker` | Onglet Docker (absent sans docker) |
 | Vue SQL | `psql` (client PostgreSQL) | Onglet SQL : requêtes, résultats, EXPLAIN ANALYZE |
 | Comparer, historique local | `git` | Comparer deux fichiers / dossiers, avec le presse-papiers, avec une version de l'historique local |

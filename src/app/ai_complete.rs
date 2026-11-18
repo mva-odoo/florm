@@ -4,8 +4,10 @@
 
 use super::*;
 
-/// Pause in typing before a suggestion is asked.
+/// Pause in typing before a suggestion is asked: Claude starts a process each time, Copilot's
+/// server runs and answers fast (made for it).
 const PAUSE: Duration = Duration::from_millis(700);
+const PAUSE_COPILOT: Duration = Duration::from_millis(300);
 
 #[derive(Default)]
 pub(super) struct AiComplete {
@@ -21,11 +23,65 @@ pub(super) struct AiComplete {
     manual: bool,
     /// The last error was shown in the status bar (not again at each pause).
     error_shown: bool,
+    /// GitHub Copilot: where it stands (None: not asked yet), a step running (install, sign-in),
+    /// the code to type on GitHub while signing in.
+    pub(super) copilot: Option<Result<String, String>>,
+    pub(super) copilot_busy: bool,
+    pub(super) copilot_code: Option<(String, String)>,
 }
 
 impl App {
     fn ai_complete_on(&self) -> bool {
-        self.settings.ai_complete && crate::features::on(crate::features::Feature::Claude)
+        self.settings.ai_complete && (self.copilot_chosen() || crate::features::on(crate::features::Feature::Claude))
+    }
+
+    pub(super) fn copilot_chosen(&self) -> bool {
+        self.settings.ai_complete_source == "copilot"
+    }
+
+    /// Asks where Copilot stands (installed, signed in), on a thread.
+    pub(super) fn copilot_check(&mut self) {
+        self.ai.copilot_busy = true;
+        self.jobs.spawn(|| JobResult::CopilotState(if crate::copilot::program().is_none() { Ok("Missing".into()) } else { crate::copilot::status() }));
+    }
+
+    /// Downloads Copilot's server (a while: about 160 MB), then says where it stands.
+    pub(super) fn copilot_install(&mut self) {
+        self.ai.copilot_busy = true;
+        self.jobs.spawn(|| JobResult::CopilotState(crate::copilot::install().and_then(|_| crate::copilot::status())));
+    }
+
+    /// Starts the sign-in: the code to type comes back, then the page opens.
+    pub(super) fn copilot_sign_in(&mut self) {
+        self.ai.copilot_busy = true;
+        self.jobs.spawn(|| JobResult::CopilotCode(crate::copilot::sign_in()));
+    }
+
+    pub(super) fn copilot_sign_out(&mut self) {
+        self.ai.copilot_busy = true;
+        self.jobs.spawn(|| JobResult::CopilotState(crate::copilot::sign_out().and_then(|_| crate::copilot::status())));
+    }
+
+    pub(super) fn copilot_state(&mut self, r: Result<String, String>) {
+        self.ai.copilot_busy = false;
+        self.ai.copilot_code = None;
+        self.ai.error_shown = false;
+        self.ai.copilot = Some(r);
+    }
+
+    pub(super) fn copilot_code(&mut self, r: Result<(String, String), String>) {
+        match r {
+            // already signed in
+            Ok((code, _)) if code.is_empty() => self.copilot_check(),
+            Ok((code, uri)) => {
+                self.egui_ctx.copy_text(code.clone());
+                self.egui_ctx.open_url(egui::OpenUrl::new_tab(&uri));
+                self.ai.copilot_code = Some((code, uri));
+                // waits on a thread until the code is typed on GitHub
+                self.jobs.spawn(|| JobResult::CopilotState(crate::copilot::finish_sign_in()));
+            }
+            Err(e) => self.copilot_state(Err(e)),
+        }
     }
 
     /// The active document, when a suggestion can go at its cursor: text, editable, one cursor
@@ -72,7 +128,8 @@ impl App {
             let keeping = kept.is_some();
             d.ghost = kept;
             self.ai.asked = None;
-            self.ai.at = (changed && on && !keeping).then(|| Instant::now() + PAUSE);
+            let pause = if self.copilot_chosen() { PAUSE_COPILOT } else { PAUSE };
+            self.ai.at = (changed && on && !keeping).then(|| Instant::now() + pause);
             if !keeping {
                 for o in self.docs.iter_mut().filter(|o| o.uid != state.0) {
                     o.ghost = None;
@@ -109,6 +166,19 @@ impl App {
         let key = (d.uid, d.version, head);
         let dir = d.path.as_deref().and_then(|p| self.repo_for(p)).or_else(|| self.root.clone()).unwrap_or_else(std::env::temp_dir);
         let file = d.path.as_ref().map(|p| p.strip_prefix(&dir).unwrap_or(p).display().to_string()).unwrap_or_else(|| d.syntax.clone());
+        // GitHub Copilot: the whole file (its server picks what it needs), the cursor as LSP counts it
+        if self.copilot_chosen() {
+            let path = d.path.clone().unwrap_or_else(|| dir.join(format!("sans-titre-{}", d.uid)));
+            let text = d.rope.to_string();
+            let line_start = d.rope.line_to_char(line);
+            let col: usize = d.slice(line_start, head).encode_utf16().count();
+            let (syntax, tab, spaces) = (d.syntax.clone(), self.settings.tab_size, self.settings.translate_tabs_to_spaces);
+            self.ai.n += 1;
+            let n = self.ai.n;
+            self.ai.asked = Some((n, key.0, key.1, key.2));
+            self.jobs.spawn(move || JobResult::AiComplete(n, crate::copilot::complete(&path, &syntax, &text, line, col, tab, spaces).map(|t| crate::claude::clean_completion(&t, "", ""))));
+            return;
+        }
         let accounts = self.claude_accounts();
         let account = match self.settings.ai_complete_account.as_str() {
             "" => crate::claude_account::find(&accounts, &self.settings.claude_account).dir.clone(),
@@ -134,7 +204,8 @@ impl App {
             }
             Ok(_) => {
                 if manual {
-                    self.set_status(t!("Claude n'a rien à proposer ici", "Claude has nothing to suggest here"));
+                    let who = if self.copilot_chosen() { "Copilot" } else { "Claude" };
+                    self.set_status(tf!("{who} n'a rien à proposer ici", "{who} has nothing to suggest here"));
                 }
             }
             Err(e) => {

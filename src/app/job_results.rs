@@ -217,6 +217,8 @@ impl App {
                 JobResult::AiReview(key, r) => self.ai_review_loaded(key, r),
                 JobResult::InlineAi(n, r) => self.inline_ai_loaded(n, r),
                 JobResult::AiComplete(n, r) => self.ai_complete_loaded(n, r),
+                JobResult::CopilotState(r) => self.copilot_state(r),
+                JobResult::CopilotCode(r) => self.copilot_code(r),
                 JobResult::GhBase(repo, r) => self.gh_base_loaded(repo, r),
                 JobResult::PrCreateInfo { repo, branch, upstream, remotes, title, body, refs } => self.pr_create_info(repo, branch, upstream, remotes, title, body, refs),
                 JobResult::GhBranchPrs(repo, branch, r) => self.gh_branch_prs_loaded(repo, branch, r),

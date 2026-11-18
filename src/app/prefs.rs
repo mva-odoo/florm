@@ -253,6 +253,12 @@ impl App {
                 (a.name, label)
             })
             .collect();
+        // Copilot asked where it stands once the preferences show it
+        if sec == PrefSection::Editor && self.copilot_chosen() && self.ai.copilot.is_none() && !self.ai.copilot_busy {
+            self.copilot_check();
+        }
+        let (copilot, copilot_busy, copilot_code, self_accent) = (self.ai.copilot.clone(), self.ai.copilot_busy, self.ai.copilot_code.clone(), self.hl.colors.accent);
+        let mut copilot_act: Option<CopilotAct> = None;
         let s = &mut self.settings;
         // to write in the log once the settings are no longer borrowed
         let mut note: Option<String> = None;
@@ -465,23 +471,84 @@ impl App {
                 pref_row(ui, rc, t!("Fermeture automatique", "Auto-close brackets"), t!("Ferme automatiquement ( [ { \" ' ` et entoure la sélection.", "Closes ( [ { \" ' ` automatically and surrounds the selection."), |ui| {
                     toggle_switch(ui, &mut s.auto_pair);
                 });
-                pref_row(ui, rc, t!("Complétion par IA", "AI completion"), t!("Quand tu t'arrêtes de taper en fin de ligne, Claude (Haiku) propose la suite en gris : Tab la prend, Échap ou une autre touche l'ignore. Peu de tokens : seulement les lignes autour du curseur. Alt+\\ demande une proposition à tout moment, même désactivée.", "When you stop typing at the end of a line, Claude (Haiku) suggests what follows in grey: Tab takes it, Escape or another key ignores it. Few tokens: only the lines around the cursor. Alt+\\ asks for a suggestion at any time, even when turned off."), |ui| {
-                    toggle_switch(ui, &mut s.ai_complete);
-                    // the subscription that pays for it, when there are several accounts
-                    if accounts.len() > 1 {
-                        let default = t!("Compte par défaut", "Default account");
-                        let shown = accounts.iter().find(|a| a.0 == s.ai_complete_account).map_or(default.to_string(), |a| a.1.clone());
-                        egui::ComboBox::from_id_salt("ai_complete_account")
-                            .selected_text(shown)
-                            .show_ui(ui, |ui| {
-                                ui.selectable_value(&mut s.ai_complete_account, String::new(), default);
-                                for (name, label) in &accounts {
-                                    ui.selectable_value(&mut s.ai_complete_account, name.clone(), label);
+                pref_row(ui, rc, t!("Complétion par IA", "AI completion"), t!("Quand tu t'arrêtes de taper en fin de ligne, l'IA choisie propose la suite en gris : Tab la prend, Échap ou une autre touche l'ignore. Claude (Haiku) : avec ton abonnement Claude, un peu plus lent. GitHub Copilot : fait pour ça, plus rapide, avec un abonnement Copilot. Alt+\\ demande une proposition à tout moment, même désactivée.", "When you stop typing at the end of a line, the AI chosen suggests what follows in grey: Tab takes it, Escape or another key ignores it. Claude (Haiku): with your Claude plan, a bit slower. GitHub Copilot: made for it, faster, with a Copilot plan. Alt+\\ asks for a suggestion at any time, even when turned off."), |ui| {
+                    ui.vertical(|ui| {
+                        ui.horizontal(|ui| {
+                            toggle_switch(ui, &mut s.ai_complete);
+                            let shown = if s.ai_complete_source == "copilot" { "GitHub Copilot" } else { "Claude (Haiku)" };
+                            egui::ComboBox::from_id_salt("ai_complete_source").selected_text(shown).show_ui(ui, |ui| {
+                                ui.selectable_value(&mut s.ai_complete_source, "claude".to_string(), "Claude (Haiku)");
+                                ui.selectable_value(&mut s.ai_complete_source, "copilot".to_string(), "GitHub Copilot");
+                            });
+                            // the subscription that pays for it, when there are several accounts
+                            if s.ai_complete_source != "copilot" && accounts.len() > 1 {
+                                let default = t!("Compte par défaut", "Default account");
+                                let shown = accounts.iter().find(|a| a.0 == s.ai_complete_account).map_or(default.to_string(), |a| a.1.clone());
+                                egui::ComboBox::from_id_salt("ai_complete_account")
+                                    .selected_text(shown)
+                                    .show_ui(ui, |ui| {
+                                        ui.selectable_value(&mut s.ai_complete_account, String::new(), default);
+                                        for (name, label) in &accounts {
+                                            ui.selectable_value(&mut s.ai_complete_account, name.clone(), label);
+                                        }
+                                    })
+                                    .response
+                                    .on_hover_text(t!("Le compte Claude (son abonnement) dont le quota paie les propositions", "The Claude account (its subscription) whose quota pays for the suggestions"));
+                            }
+                        });
+                        // Copilot: where it stands, and the one step to take (install, sign in)
+                        if s.ai_complete_source == "copilot" {
+                            ui.horizontal_wrapped(|ui| {
+                                if copilot_busy {
+                                    spinner(ui);
                                 }
-                            })
-                            .response
-                            .on_hover_text(t!("Le compte Claude (son abonnement) dont le quota paie les propositions", "The Claude account (its subscription) whose quota pays for the suggestions"));
-                    }
+                                match &copilot {
+                                    None => {
+                                        ui.label(RichText::new(t!("Vérification de Copilot…", "Checking Copilot…")).weak());
+                                    }
+                                    Some(Ok(st)) if st == "Missing" => {
+                                        ui.label(RichText::new(t!("Copilot n'est pas installé.", "Copilot is not installed.")).color(warn()));
+                                        if ui.add_enabled(!copilot_busy, egui::Button::new(t!("Installer Copilot (environ 160 Mo)", "Install Copilot (about 160 MB)"))).on_hover_text(t!("Florm télécharge le serveur officiel de GitHub Copilot dans son dossier, sans npm ni droits administrateur", "Florm downloads GitHub Copilot's official server into its folder, without npm nor admin rights")).clicked() {
+                                            copilot_act = Some(CopilotAct::Install);
+                                        }
+                                    }
+                                    Some(Ok(st)) if st == "OK" || st == "MaybeOk" => {
+                                        ui.label(RichText::new(t!("✔ Connecté à GitHub", "✔ Signed in to GitHub")).color(ok()));
+                                        if ui.add_enabled(!copilot_busy, egui::Button::new(t!("Se déconnecter", "Sign out")).small()).clicked() {
+                                            copilot_act = Some(CopilotAct::SignOut);
+                                        }
+                                    }
+                                    Some(Ok(st)) if st == "NotAuthorized" => {
+                                        ui.label(RichText::new(t!("Ce compte GitHub n'a pas d'abonnement Copilot.", "This GitHub account has no Copilot plan.")).color(warn()));
+                                        if ui.add_enabled(!copilot_busy, egui::Button::new(t!("Changer de compte", "Change account")).small()).clicked() {
+                                            copilot_act = Some(CopilotAct::SignOut);
+                                        }
+                                    }
+                                    Some(Ok(_)) => match &copilot_code {
+                                        Some((code, uri)) => {
+                                            ui.label(t!("Tape ce code sur GitHub (copié) :", "Type this code on GitHub (copied):"));
+                                            ui.label(RichText::new(code).monospace().strong().color(self_accent));
+                                            if ui.link(uri).clicked() {
+                                                ui.ctx().open_url(egui::OpenUrl::new_tab(uri));
+                                            }
+                                        }
+                                        None => {
+                                            ui.label(RichText::new(t!("Pas connecté à GitHub.", "Not signed in to GitHub.")).color(warn()));
+                                            if ui.add_enabled(!copilot_busy, egui::Button::new(t!("Se connecter à GitHub", "Sign in to GitHub"))).clicked() {
+                                                copilot_act = Some(CopilotAct::SignIn);
+                                            }
+                                        }
+                                    },
+                                    Some(Err(e)) => {
+                                        ui.label(RichText::new(e.lines().next().unwrap_or("")).color(err()));
+                                        if ui.add_enabled(!copilot_busy, egui::Button::new("⟳").small()).on_hover_text(t!("Vérifier à nouveau", "Check again")).clicked() {
+                                            copilot_act = Some(CopilotAct::Check);
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                    });
                 });
                 pref_row(ui, rc, t!("Supprimer les espaces en fin de ligne", "Trim trailing whitespace"), t!("À chaque enregistrement.", "On every save."), |ui| {
                     toggle_switch(ui, &mut s.trim_trailing_whitespace_on_save);
@@ -932,6 +999,13 @@ impl App {
             self.log(n);
         }
         self.pending.extend(actions);
+        match copilot_act {
+            Some(CopilotAct::Install) => self.copilot_install(),
+            Some(CopilotAct::SignIn) => self.copilot_sign_in(),
+            Some(CopilotAct::SignOut) => self.copilot_sign_out(),
+            Some(CopilotAct::Check) => self.copilot_check(),
+            None => {}
+        }
         self.apply_settings_change(&before);
         if let Some(a) = self.prefs.key_action.take() {
             match a {
@@ -1127,6 +1201,10 @@ impl App {
         if s.auto_save != before.auto_save {
             self.persist("auto_save", config::toml_str(&s.auto_save));
         }
+        if s.ai_complete_source != before.ai_complete_source {
+            self.persist("ai_complete_source", config::toml_str(&s.ai_complete_source));
+            self.ai.copilot = None;
+        }
         if s.ai_complete_account != before.ai_complete_account {
             self.persist("ai_complete_account", config::toml_str(&s.ai_complete_account));
         }
@@ -1269,4 +1347,12 @@ fn feature_toggle(ui: &mut egui::Ui, rc: &mut RowCtx, sec: PrefSection, s: &mut 
             toggle_switch(ui, on);
         });
     }
+}
+
+/// What the Copilot part of the AI completion asks.
+enum CopilotAct {
+    Install,
+    SignIn,
+    SignOut,
+    Check,
 }

@@ -624,6 +624,10 @@ command and your login: no key to set up.
   lines around the cursor, without tools or CLAUDE.md (about a tenth of a cent per suggestion);
   it takes one to two seconds to come. With several Claude accounts, the 👤 menu next to the
   option chooses the one whose subscription pays for the suggestions (by default: the default account).
+  **With GitHub Copilot** (the menu next to the switch): the suggestions come faster (usually under
+  a second), with a Copilot plan. **Install Copilot** downloads its official server (about 160 MB)
+  into Florm's folder, without npm nor admin rights; **Sign in to GitHub** copies a code and opens
+  the page to type it in, once and for all.
 - **Give lines or files to Claude**: when hovering a line number, click the **✳** on its left
   (the line, or the selected lines); right click in the editor → **Ask Claude about the
   selection…** (**Ctrl+Alt+K**) or **Add … to Claude's context**; right click on a file or a

@@ -638,6 +638,10 @@ panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en
   désactivée. Peu de tokens : seulement les lignes autour du curseur, sans outils ni CLAUDE.md
   (environ un dixième de centime la proposition) ; il faut une à deux secondes pour qu'elle arrive. Avec plusieurs comptes Claude, le menu 👤 à côté
   de l'option choisit celui dont l'abonnement paie les propositions (par défaut : le compte par défaut).
+  **Avec GitHub Copilot** (le menu à côté de l'interrupteur) : les propositions arrivent plus vite (en
+  général moins d'une seconde), avec un abonnement Copilot. **Installer Copilot** télécharge son
+  serveur officiel (environ 160 Mo) dans le dossier de Florm, sans npm ni droits administrateur ;
+  **Se connecter à GitHub** copie un code et ouvre la page où le taper, une fois pour toutes.
 - **Donner des lignes ou des fichiers à Claude** : au survol d'un numéro de ligne, clic sur le
   **✳** à sa gauche (la ligne, ou les lignes sélectionnées) ; clic droit dans l'éditeur →
   **Demander à Claude à propos de la sélection…** (**Ctrl+Alt+K**) ou **Ajouter … au contexte** ;

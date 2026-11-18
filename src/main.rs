@@ -9,6 +9,7 @@ mod claude;
 mod claude_account;
 mod commands;
 mod config;
+mod copilot;
 mod conflict;
 mod dap;
 mod diff;
