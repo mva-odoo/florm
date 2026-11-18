@@ -288,7 +288,7 @@ impl BottomTab {
         (BottomTab::Output, icons::ViewIcon::Output, "Sortie"),
         (BottomTab::Claude, icons::ViewIcon::Claude, "Claude"),
         (BottomTab::Git, icons::ViewIcon::Git, "Git"),
-        (BottomTab::Pulls, icons::ViewIcon::PullRequests, "GitHub"),
+        (BottomTab::Pulls, icons::ViewIcon::PullRequests, "Pull requests (GitHub)"),
         (BottomTab::Debug, icons::ViewIcon::Debug, "Débogage"),
     ];
 

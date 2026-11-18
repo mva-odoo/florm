@@ -124,6 +124,24 @@ impl App {
                 if let Some(p) = chosen {
                     self.apply_pick(p, false);
                 }
+                // the views of every day, one click away: Claude, Git, the pull requests
+                let accent = self.hl.colors.accent;
+                let active_view = self.docs.get(self.active).map(|d| d.view);
+                for (tab, icon, view, label, cmd) in [
+                    (BottomTab::Claude, icons::ViewIcon::Claude, crate::document::View::Claude, "Claude", Cmd::Claude),
+                    (BottomTab::Git, icons::ViewIcon::Git, crate::document::View::Git, "Git", Cmd::ShowGit),
+                    (BottomTab::Pulls, icons::ViewIcon::PullRequests, crate::document::View::PullRequests, t!("Pull requests (GitHub)", "Pull requests (GitHub)"), Cmd::PullRequests),
+                ] {
+                    if !tab.feature_on() {
+                        continue;
+                    }
+                    let shown = (self.bottom == Some(tab) && !self.view_in_tab(tab)) || active_view == Some(view);
+                    let keys = self.keymap.label(cmd);
+                    let tip = if keys.is_empty() { label.to_string() } else { format!("{label} ({keys})") };
+                    if view_button(ui, icon, if shown { accent } else { ui.visuals().weak_text_color() }).on_hover_text(tip).clicked() {
+                        self.toggle_tool(tab);
+                    }
+                }
                 ui.separator();
                 // only for a text (not on the welcome page, a diff, the preferences…)
                 if let Some(d) = self.docs.get(self.active).filter(|d| d.view == crate::document::View::Text) {
@@ -454,6 +472,16 @@ impl App {
             None => {}
         }
     }
+}
+
+/// The button of a view in the status bar: its icon alone, in `color` (the accent when shown).
+fn view_button(ui: &mut egui::Ui, icon: icons::ViewIcon, color: Color32) -> egui::Response {
+    let (rect, r) = ui.allocate_exact_size(egui::vec2(24.0, 22.0), Sense::click());
+    if r.hovered() {
+        ui.painter().rect_filled(rect, 4.0, ui.visuals().widgets.hovered.weak_bg_fill);
+    }
+    icons::paint_view(ui.painter(), rect.center(), icon, color);
+    r
 }
 
 /// A state of the status bar: the icon of its view and a short text, without a frame.

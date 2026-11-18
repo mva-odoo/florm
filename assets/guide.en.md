@@ -20,12 +20,12 @@ Every shortcut can be changed in **Preferences → Shortcuts** (Ctrl+,).
 | **Alt+Z** | Word wrap of the lines that are too long (display only; ↑ ↓ follow the rows) |
 
 The breadcrumbs above the code are clickable: a folder shows its content, the file lists its
-symbols, a class or a function takes you there. The views (Claude, Git, GitHub,
+symbols, a class or a function takes you there. The views (Claude, Git, Pull requests (GitHub),
 terminal…) have none: they keep the whole height.
 
 Two open files of the same name: their folder shows in grey after the title (`input.rs …/app`). A file with errors shows how many in red (`9+` beyond nine).
 
-On the right of the tab strip: **+** opens an empty text tab (Ctrl+N), **▾** a view in a tab, each with its icon: Search, Claude, Git, GitHub, Debug, then Terminal, Preferences and Welcome. When the tabs no longer fit in the strip, ‹ › scroll them and the same **▾** lists all the open tabs at the top.
+On the right of the tab strip: **+** opens an empty text tab (Ctrl+N), **▾** a view in a tab, each with its icon: Search, Claude, Git, Pull requests (GitHub), Debug, then Terminal, Preferences and Welcome. When the tabs no longer fit in the strip, ‹ › scroll them and the same **▾** lists all the open tabs at the top.
 
 **Groups of tabs**: right click a tab → **Add to a group** (an existing one or **+ New
 group**). The tabs of a group stay side by side, with a band of its color and its name before
@@ -96,7 +96,7 @@ sidebar shown or not.
 ## Bottom panel and status bar
 
 One simple rule: **files (and what reads like them: diffs, pull requests) go in the
-tabs; the views that come along (search, terminal, Claude, Git, GitHub, debug, problems,
+tabs; the views that come along (search, terminal, Claude, Git, Pull requests (GitHub), debug, problems,
 output) each have one place**, which you choose.
 
 - **The bottom panel shows one view at a time**, without a row of tabs: its name at the top left,
@@ -106,10 +106,11 @@ output) each have one place**, which you choose.
   **Ctrl+Shift+J** shows or hides it.
 - **⇱ / ⇲ in the header of a view** puts it in a tab or in the bottom panel, and Florm remembers:
   its shortcut, the palette, the status bar and ▾ then open it in the same place. A view that
-  already has its tab is shown there, never in two places. By default Git, GitHub and the
+  already has its tab is shown there, never in two places. By default Git, Pull requests (GitHub) and the
   debugger open in a tab, the others at the bottom (`views_in_tab` in settings.toml).
 - **The status bar only shows what is going on**: on the left the button of the bottom panel
-  (click: show or hide it, right click: open a view); on the right the branch (**↑** commits to
+  (click: show or hide it, right click: open a view), then the icons of **Claude**, **Git** and
+  **Pull requests** (a click opens or closes the view, coloured when it is shown); on the right the branch (**↑** commits to
   push, **↓** to pull, **●** changed files) of the repository of the file shown (it follows the
   tabs; a repository chosen in the Git view stays until the next file shown), then, only when it is the case, Claude (**working**,
   or **✔** when it has finished: a click shows the answer), the
@@ -297,7 +298,7 @@ one of the commits.
 - In the bottom panel, **one terminal at a time**: its folder at the top, **+** opens another,
   **⇱** sends it to a tab (**at the bottom** in the tab brings it back). The other terminals are in
   **▾**, under “Terminal”: click to switch, **×** on hover to close it.
-- All the views (Search, Git, GitHub, Claude, Debug, Terminal) have the same buttons at
+- All the views (Search, Git, Pull requests (GitHub), Claude, Debug, Terminal) have the same buttons at
   the right of their header, in the same order: **⟳** read again, **in a tab / at the
   bottom** (a small window: with a tab on top, or a band at the bottom; remembered for next time), **⋯** the other actions
   and options. The layout buttons all look alike: the four corners maximize a panel in its view

@@ -20,12 +20,12 @@ Tous les raccourcis se changent dans **Préférences → Raccourcis** (Ctrl+,).
 | **Alt+Z** | Retour à la ligne automatique des lignes trop longues (l'affichage seulement ; ↑ ↓ suivent les rangées) |
 
 Le fil d'Ariane au-dessus du code est cliquable : un dossier montre son contenu, le fichier
-liste ses symboles, une classe ou une fonction y emmène. Les vues (Claude, Git, GitHub,
+liste ses symboles, une classe ou une fonction y emmène. Les vues (Claude, Git, Pull requests (GitHub),
 terminal…) n'en ont pas : elles gardent toute la hauteur.
 
 Deux fichiers ouverts du même nom : leur dossier s'affiche en gris après le titre (`input.rs …/app`). Un fichier avec des erreurs montre leur nombre en rouge (`9+` au-delà de neuf).
 
-À droite de la barre d'onglets : **+** ouvre un onglet texte vide (Ctrl+N), **▾** une vue dans un onglet, chacune avec son icône : Recherche, Claude, Git, GitHub, Débogage, puis Terminal, Préférences et Accueil. Quand les onglets ne tiennent plus dans la barre, ‹ › les font défiler et le même **▾** liste en haut tous les onglets ouverts.
+À droite de la barre d'onglets : **+** ouvre un onglet texte vide (Ctrl+N), **▾** une vue dans un onglet, chacune avec son icône : Recherche, Claude, Git, Pull requests (GitHub), Débogage, puis Terminal, Préférences et Accueil. Quand les onglets ne tiennent plus dans la barre, ‹ › les font défiler et le même **▾** liste en haut tous les onglets ouverts.
 
 **Groupes d'onglets** : clic droit sur un onglet → **Ajouter à un groupe** (un existant ou
 **+ Nouveau groupe**). Les onglets d'un groupe restent côte à côte, avec une bande de sa couleur
@@ -96,7 +96,7 @@ bas ouvert et la barre latérale affichée ou non.
 ## Panneau du bas et barre d'état
 
 Une règle simple : **les fichiers (et ce qui se lit comme eux : diff, pull request)
-vont dans les onglets ; les vues qui t'accompagnent (recherche, terminal, Claude, Git, GitHub,
+vont dans les onglets ; les vues qui t'accompagnent (recherche, terminal, Claude, Git, Pull requests (GitHub),
 débogage, problèmes, sortie) ont chacune une seule place**, que tu choisis.
 
 - **Le panneau du bas montre une vue à la fois**, sans rangée d'onglets : son nom en haut à gauche,
@@ -106,10 +106,11 @@ débogage, problèmes, sortie) ont chacune une seule place**, que tu choisis.
   **Ctrl+Shift+J** l'affiche ou le masque.
 - **⇱ / ⇲ dans l'en-tête d'une vue** la met dans un onglet ou dans le panneau du bas, et Florm s'en
   souvient : son raccourci, la palette, la barre d'état et ▾ l'ouvriront ensuite au même endroit.
-  Une vue qui a déjà son onglet s'y affiche, jamais à deux endroits. Par défaut Git, GitHub
+  Une vue qui a déjà son onglet s'y affiche, jamais à deux endroits. Par défaut Git, Pull requests (GitHub)
   et le débogage s'ouvrent en onglet, les autres en bas (`views_in_tab` dans settings.toml).
 - **La barre d'état ne montre que ce qui se passe** : à gauche le bouton du panneau du bas (clic :
-  l'afficher ou le masquer, clic droit : ouvrir une vue) ; à droite la branche (**↑** commits à
+  l'afficher ou le masquer, clic droit : ouvrir une vue), puis les icônes de **Claude**, **Git** et
+  **Pull requests** (un clic ouvre ou ferme la vue, en couleur quand elle est affichée) ; à droite la branche (**↑** commits à
   pousser, **↓** à récupérer, **●** fichiers modifiés) du dépôt du fichier affiché (il suit les
   onglets ; un dépôt choisi dans la vue Git reste jusqu'au prochain fichier affiché), puis, seulement quand c'est le cas, Claude
   (**au travail**, ou **✔** quand il a fini : un clic montre la réponse), le débogage (**en cours** / **en pause**), et les problèmes. Au repos, elle est presque vide.
@@ -300,7 +301,7 @@ interactif** (clic droit → « Rebase interactif à partir d'ici… »), l'acti
 - Dans le panneau du bas, **un terminal à la fois** : son dossier en haut, **+** en ouvre un autre,
   **⇱** l'envoie dans un onglet (**en bas** dans l'onglet le ramène). Les autres terminaux sont dans
   **▾**, sous « Terminal » : clic pour y passer, **×** au survol pour le fermer.
-- Toutes les vues (Recherche, Git, GitHub, Claude, Débogage, Terminal) ont à droite de
+- Toutes les vues (Recherche, Git, Pull requests (GitHub), Claude, Débogage, Terminal) ont à droite de
   leur en-tête les mêmes boutons, dans le même ordre : **⟳** relire, **en onglet / en bas**
   (une petite fenêtre : avec un onglet en haut, ou une bande en bas ; retenu pour la prochaine fois), **⋯** les autres actions et
   options. Les boutons de disposition se ressemblent tous : les quatre coins agrandissent un
