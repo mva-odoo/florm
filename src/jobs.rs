@@ -62,6 +62,8 @@ pub enum JobResult {
     QueueCommit(u64, Result<String, String>),
     /// Remarks of an AI review (key of what was reviewed: a pull request, the changes not committed).
     AiReview(String, Result<Vec<crate::claude::ReviewNote>, String>),
+    /// Claude's answer about a remark of a review: (key of the review, id of the remark).
+    AiRefined { key: String, id: u64, result: Result<(String, Option<String>), String> },
     /// Answer of Claude on a selection in the editor (number of the question).
     InlineAi(u64, Result<crate::claude::Inline, String>),
     /// Suggestion of the AI completion (number of the request); empty: nothing to suggest.

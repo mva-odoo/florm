@@ -461,6 +461,12 @@ palette).
   suggestion), and **double-click a line** to comment on it.
 - A box before each file marks it **viewed**: it folds and GitHub remembers it for your review
   (“3/10 viewed” on top).
+- **✳ AI review**: Claude reads the PR over and proposes remarks under the lines of the diff;
+  nothing is sent. Each one is **kept**, edited (✏) or dropped (×), then **Publish** sends the
+  kept ones as one GitHub review. **💬** on a remark talks it over with Claude to refine it
+  (“shorter”, “in English”, “are you sure? look at `_compute_total`”): it answers under the remark
+  and rewrites it when needed, **↶ Previous version** goes back. Also in the Git view, for the
+  changes not committed yet.
 - At the bottom of the conversation, the merge box, in the color of the state (red blocked,
   orange something missing, green ready): where the PR stands (**Review required**,
   **Conflicts**, **Behind**, **Ready to merge**…), the **checks** (the failing ones always shown,

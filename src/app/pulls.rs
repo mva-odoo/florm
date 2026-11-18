@@ -1020,6 +1020,7 @@ impl App {
                 let body = general.join("\n\n");
                 self.pr_job(tf!("Revue publiée ({count} remarque(s))", "Review published ({count} remark(s))"), Some(n), Some(DRAFT_AI.into()), move || github::review(&repo, n, &commit, &body, &on_lines));
             }
+            Some(PrAct::Ai(ai_review::NoteAct::Ask(k))) => self.ai_ask(true, k),
             Some(PrAct::Ai(a)) => {
                 if let Some((path, line)) = self.pr.ai.apply(a) {
                     self.pr_open_file(&path, line);

@@ -12,6 +12,26 @@ pub(super) struct AiNote {
     pub(super) keep: bool,
     /// Its text shown as a field to change it (else rendered).
     editing: bool,
+    /// Who it is, for the answers of Claude about it.
+    id: u64,
+    /// The talk with Claude about it: (written by the developer, text).
+    thread: Vec<(bool, String)>,
+    /// The field of the talk is shown, and what is being written in it.
+    chat: bool,
+    draft: String,
+    /// Claude is answering.
+    asking: bool,
+    /// Its text before Claude rewrote it (↶ brings it back).
+    before: Option<String>,
+    /// The field of the talk takes the keyboard (once, as it opens).
+    focus: bool,
+}
+
+impl AiNote {
+    fn new(note: ReviewNote) -> Self {
+        static N: AtomicU64 = AtomicU64::new(1);
+        AiNote { note, keep: false, editing: false, id: N.fetch_add(1, Ordering::Relaxed), thread: Vec::new(), chat: false, draft: String::new(), asking: false, before: None, focus: false }
+    }
 }
 
 #[derive(Default)]
@@ -25,6 +45,11 @@ pub(super) struct AiReview {
     error: Option<String>,
     /// The answer arrived (no remark: nothing to say).
     done: bool,
+    /// What the changes are, their diff (None: read again, the changes not committed) and the
+    /// language of the remarks: for the talks about a remark.
+    about: String,
+    diff: Option<String>,
+    language: String,
 }
 
 /// What a remark asked for during the frame.
@@ -32,6 +57,8 @@ pub(super) enum NoteAct {
     /// Open the file at this line.
     Open(String, usize),
     Dismiss(usize),
+    /// Send what is written in the talk of a remark to Claude.
+    Ask(usize),
     /// Close the review (its remarks are forgotten).
     Close,
 }
@@ -64,7 +91,7 @@ impl AiReview {
             NoteAct::Dismiss(k) if k < self.notes.len() => {
                 self.notes.remove(k);
             }
-            NoteAct::Dismiss(_) => {}
+            NoteAct::Dismiss(_) | NoteAct::Ask(_) => {}
             NoteAct::Close => *self = AiReview::default(),
         }
         None
@@ -131,6 +158,11 @@ pub(super) fn note_card(ui: &mut egui::Ui, cache: &mut egui_commonmark::CommonMa
                     if ui.small_button("×").on_hover_text(t!("Écarter cette remarque", "Drop this remark")).clicked() {
                         *act = Some(NoteAct::Dismiss(k));
                     }
+                    let talk = if n.thread.is_empty() { "💬".to_string() } else { format!("💬 {}", n.thread.len()) };
+                    if ui.small_button(talk).on_hover_text(t!("En discuter avec Claude pour l'affiner (plus court, en anglais, tu es sûr ?…)", "Talk it over with Claude to refine it (shorter, in English, are you sure?…)")).clicked() {
+                        n.chat = !n.chat;
+                        n.focus = n.chat;
+                    }
                     let (edit, tip) = if n.editing { (t!("✔ Fini", "✔ Done"), t!("Revenir au rendu", "Back to the rendering")) } else { ("✏", t!("Modifier le texte avant de le garder", "Edit the text before keeping it")) };
                     if ui.small_button(edit).on_hover_text(tip).clicked() {
                         n.editing = !n.editing;
@@ -156,12 +188,59 @@ pub(super) fn note_card(ui: &mut egui::Ui, cache: &mut egui_commonmark::CommonMa
                     github::Part::Suggestion(code) => suggestion(ui, &code),
                 }
             }
+            if n.before.is_some() {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(t!("✳ Réécrite par Claude", "✳ Rewritten by Claude")).small().color(color));
+                    if ui.small_button(t!("↶ Version d'avant", "↶ Previous version")).clicked() {
+                        if let Some(b) = n.before.take() {
+                            n.note.body = b;
+                        }
+                    }
+                });
+            }
+            if n.chat || n.asking {
+                talk(ui, cache, k, n, color, act);
+            }
         });
     // the edge, of the color of its kind
     let r = frame.response.rect;
     let edge = egui::Rect::from_min_size(r.min, egui::vec2(4.0, r.height()));
     ui.painter().rect_filled(edge, egui::Rounding { nw: 8.0, sw: 8.0, ne: 0.0, se: 0.0 }, color);
     ui.add_space(5.0);
+}
+
+/// The talk with Claude about a remark: what was said, then the field (Enter sends).
+fn talk(ui: &mut egui::Ui, cache: &mut egui_commonmark::CommonMarkCache, k: usize, n: &mut AiNote, color: Color32, act: &mut Option<NoteAct>) {
+    let weak = ui.visuals().weak_text_color();
+    ui.add_space(6.0);
+    ui.separator();
+    for (dev, text) in &n.thread {
+        if *dev {
+            ui.label(RichText::new(format!("{} {text}", t!("Toi :", "You:"))).strong());
+        } else {
+            ui.horizontal_top(|ui| {
+                ui.label(RichText::new("✳").color(color));
+                ui.vertical(|ui| super::md::markdown(ui, cache, None, text));
+            });
+        }
+    }
+    if n.asking {
+        ui.horizontal(|ui| {
+            ui.spinner();
+            ui.label(RichText::new(t!("Claude réfléchit…", "Claude is thinking…")).small().color(weak));
+        });
+        return;
+    }
+    ui.horizontal(|ui| {
+        let r = crate::input::add(ui, egui::TextEdit::singleline(&mut n.draft).desired_width((ui.available_width() - 80.0).max(120.0)).hint_text(t!("Plus court, en anglais, tu es sûr ? regarde…", "Shorter, in English, are you sure? look at…")));
+        if std::mem::take(&mut n.focus) {
+            r.request_focus();
+        }
+        let enter = r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+        if (enter || ui.add_enabled(!n.draft.trim().is_empty(), egui::Button::new(t!("Envoyer", "Send"))).clicked()) && !n.draft.trim().is_empty() {
+            *act = Some(NoteAct::Ask(k));
+        }
+    });
 }
 
 /// The code a remark proposes instead of its line, in green, with « Copier ».
@@ -274,7 +353,7 @@ impl App {
             Ok(notes) => {
                 rev.done = true;
                 let n = notes.len();
-                rev.notes = notes.into_iter().map(|note| AiNote { note, keep: false, editing: false }).collect();
+                rev.notes = notes.into_iter().map(AiNote::new).collect();
                 if n == 0 {
                     t!("Revue IA : rien à redire", "AI review: nothing to say").to_string()
                 } else {
@@ -297,6 +376,8 @@ impl App {
         let Some(repo) = self.history.repo.clone().or_else(|| self.repo.clone()) else { return };
         let wish = self.claude.wish.clone().filter(|_| self.claude.dir.as_ref() == Some(&repo)).unwrap_or_default();
         self.git.ai.start(repo.clone(), "wip");
+        self.git.ai.language = t!("français", "English").into();
+        self.git.ai.about = if wish.trim().is_empty() { String::new() } else { tf!("Ce que le développeur voulait faire : {wish}", "What the developer meant to do: {wish}") };
         let key = self.git.ai.key.clone();
         self.set_status(t!("Revue IA des changements non commités…", "AI review of the uncommitted changes…"));
         self.jobs.spawn(move || {
@@ -316,6 +397,9 @@ impl App {
     pub(super) fn ai_review_pr(&mut self, repo: PathBuf, d: &github::PrDetail) {
         let (n, diff, about) = (d.number, d.diff.clone(), tf!("Pull request « {} »\n{}", "Pull request “{}”\n{}", d.title, d.body));
         self.pr.ai.start(repo.clone(), &format!("pr{n}"));
+        self.pr.ai.about = about.clone();
+        self.pr.ai.diff = Some(diff.clone());
+        self.pr.ai.language = t!("celle du titre et de la description de la pull request (l'anglais s'ils sont en anglais)", "the one of the title and description of the pull request").into();
         let key = self.pr.ai.key.clone();
         self.set_status(tf!("Revue IA de la PR #{n}…", "AI review of PR #{n}…"));
         self.jobs.spawn(move || {
@@ -348,7 +432,54 @@ impl App {
     }
 
     /// A remark asked something in the view of the changes not committed.
+    /// What is written in the talk of remark `k` (of the review of the pull request, else of the
+    /// changes not committed) sent to Claude; its answer comes in `ai_refined`.
+    pub(super) fn ai_ask(&mut self, pr: bool, k: usize) {
+        let rev = if pr { &mut self.pr.ai } else { &mut self.git.ai };
+        let Some(repo) = rev.repo.clone() else { return };
+        let Some(n) = rev.notes.get_mut(k) else { return };
+        let ask = std::mem::take(&mut n.draft).trim().to_string();
+        if ask.is_empty() || n.asking {
+            return;
+        }
+        n.thread.push((true, ask));
+        n.asking = true;
+        let (note, thread, id) = (n.note.clone(), n.thread.clone(), n.id);
+        let (key, about, diff, language) = (rev.key.clone(), rev.about.clone(), rev.diff.clone(), rev.language.clone());
+        self.jobs.spawn(move || {
+            let diff = match diff {
+                Some(d) => Ok(d),
+                None => super::git_view::worktree_diff(&repo, &["diff", "HEAD"]),
+            };
+            let result = diff.and_then(|d| claude::refine_note(&repo, &note, &claude::diff_of_file(&d, &note.path), &about, &thread, &language));
+            JobResult::AiRefined { key, id, result }
+        });
+    }
+
+    /// Claude's answer about a remark: in its talk, and its new text in place of the old one.
+    pub(super) fn ai_refined(&mut self, key: String, id: u64, result: Result<(String, Option<String>), String>) {
+        let rev = if self.pr.ai.key == key { &mut self.pr.ai } else if self.git.ai.key == key { &mut self.git.ai } else { return };
+        let Some(n) = rev.notes.iter_mut().find(|n| n.id == id) else { return };
+        n.asking = false;
+        match result {
+            Ok((reply, body)) => {
+                if !reply.is_empty() {
+                    n.thread.push((false, reply));
+                }
+                if let Some(b) = body.filter(|b| *b != n.note.body) {
+                    n.before = Some(std::mem::replace(&mut n.note.body, b));
+                }
+            }
+            Err(e) => n.thread.push((false, format!("⚠ {}", e.lines().next().unwrap_or("")))),
+        }
+        self.pr_update_notes();
+    }
+
     pub(super) fn ai_wip_act(&mut self, a: NoteAct) {
+        if let NoteAct::Ask(k) = a {
+            self.ai_ask(false, k);
+            return;
+        }
         let repo = self.git.ai.repo.clone();
         if let (Some((path, line)), Some(repo)) = (self.git.ai.apply(a), repo) {
             let Some(path) = crate::os::inside_repo(&repo, &path) else {
@@ -396,7 +527,7 @@ mod tests {
         let first = r.key.clone();
         r.start(PathBuf::from("/r"), "wip");
         assert_ne!(first, r.key);
-        let note = |line| AiNote { note: ReviewNote { path: "x.py".into(), line, side: "RIGHT".into(), severity: "bug".into(), body: "?".into() }, keep: line == 2, editing: false };
+        let note = |line| AiNote { keep: line == 2, ..AiNote::new(ReviewNote { path: "x.py".into(), line, side: "RIGHT".into(), severity: "bug".into(), body: "?".into() }) };
         r.notes = vec![note(2), note(9)];
         assert_eq!(r.rows(Some(&d)), vec![Some(6), None]);
         assert_eq!(r.kept().count(), 1);
@@ -405,5 +536,52 @@ mod tests {
         assert_eq!(r.apply(NoteAct::Open("x.py".into(), 9)), Some(("x.py".to_string(), 9)));
         r.apply(NoteAct::Close);
         assert!(!r.shown() && r.notes.is_empty());
+    }
+
+    /// Claude's answer about a remark: said in its talk, the remark rewritten, ↶ possible; an
+    /// answer for a review gone is dropped.
+    #[test]
+    fn a_remark_refined() {
+        let dir = std::env::temp_dir().join(format!("florm_ai_refine_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (conf, proj) = (dir.join("conf"), dir.join("proj"));
+        std::fs::create_dir_all(&conf).unwrap();
+        std::fs::create_dir_all(&proj).unwrap();
+        std::fs::write(conf.join("settings.toml"), "check_updates = false\nlsp = false\n").unwrap();
+        let _lock = config::TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("FLORM_CONFIG", &conf);
+        let ctx = egui::Context::default();
+        let mut app = App::with_ctx(&ctx, Some(proj.clone()));
+        app.pr.ai.start(proj.clone(), "pr1");
+        app.pr.ai.notes = vec![AiNote::new(ReviewNote { path: "x.py".into(), line: 2, side: "RIGHT".into(), severity: "nit".into(), body: "Long texte.".into() })];
+        let (key, id) = (app.pr.ai.key.clone(), app.pr.ai.notes[0].id);
+        app.pr.ai.notes[0].asking = true;
+        app.ai_refined(key.clone(), id, Ok(("Voilà, plus court.".into(), Some("Court.".into()))));
+        let n = &app.pr.ai.notes[0];
+        assert!(!n.asking);
+        assert_eq!(n.note.body, "Court.");
+        assert_eq!(n.before.as_deref(), Some("Long texte."));
+        assert_eq!(n.thread, vec![(false, "Voilà, plus court.".to_string())]);
+        // an answer that keeps the remark as it is
+        app.ai_refined(key, id, Ok(("Elle est juste.".into(), None)));
+        assert_eq!(app.pr.ai.notes[0].note.body, "Court.");
+        // for an earlier review: dropped
+        app.ai_refined("pr1#old".into(), id, Ok(("x".into(), Some("y".into()))));
+        assert_eq!(app.pr.ai.notes[0].thread.len(), 2);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// With the real Claude Code: `cargo test a_remark_talked_over_with_claude -- --ignored`.
+    #[test]
+    #[ignore]
+    fn a_remark_talked_over_with_claude() {
+        let dir = std::env::temp_dir();
+        let diff = "diff --git a/calc.py b/calc.py\n--- a/calc.py\n+++ b/calc.py\n@@ -1,2 +1,2 @@\n def mean(xs):\n-    return sum(xs) / len(xs)\n+    return sum(xs) / max(len(xs), 1)\n";
+        let note = ReviewNote { path: "calc.py".into(), line: 2, side: "RIGHT".into(), severity: "risk".into(), body: "Une liste vide donne 0 au lieu d'une erreur : est-ce voulu ? Ça peut cacher un bug en amont.".into() };
+        let thread = vec![(true, "Réécris-la en anglais, en une phrase.".to_string())];
+        let (reply, body) = claude::refine_note(&dir, &note, diff, "", &thread, "français").unwrap();
+        eprintln!("reply: {reply}\nbody: {body:?}");
+        let body = body.expect("rewritten");
+        assert!(body.to_lowercase().contains("empty"), "{body}");
     }
 }

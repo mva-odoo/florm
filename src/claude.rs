@@ -1413,6 +1413,70 @@ pub fn review(dir: &Path, diff: &str, about: &str, language: &str) -> Result<Vec
     parse_review(&text)
 }
 
+/// The part of `diff` about the file `path` (all of it when it is not found, or for a remark on
+/// the whole), at most 60 000 characters.
+pub fn diff_of_file(diff: &str, path: &str) -> String {
+    let mut out = String::new();
+    let mut inside = false;
+    for l in diff.split_inclusive('\n') {
+        if l.starts_with("diff --git ") {
+            inside = !path.is_empty() && (l.trim_end().ends_with(&format!(" b/{path}")) || l.contains(&format!(" a/{path} ")));
+        }
+        if inside {
+            out.push_str(l);
+        }
+    }
+    let out = if out.is_empty() { diff } else { &out };
+    out.chars().take(60_000).collect()
+}
+
+/// A remark of a review talked over with the developer: Claude answers `thread` (the
+/// developer's words and its own answers, `true` for the developer's), and rewrites the remark
+/// when it should change. Returns its answer and the new text of the remark (None: unchanged).
+pub fn refine_note(dir: &Path, note: &ReviewNote, diff: &str, about: &str, thread: &[(bool, String)], language: &str) -> Result<(String, Option<String>), String> {
+    let place = if note.path.is_empty() { t!("l'ensemble des changements", "the whole of the changes").to_string() } else { format!("{}:{} ({})", note.path, note.line, note.side) };
+    let mut prompt = tf!(
+        "Tu as fait une revue de code ; voici une de tes remarques, sur {place} :\n\n{}\n\nLe développeur en discute avec toi pour l'affiner. \
+         Le diff du fichier est sur l'entrée standard (chaque ligne commence par sa position : [R12] nouvelle version, [L7] ancienne) ; \
+         tu peux lire les fichiers du dépôt. Réponds-lui, puis réécris la remarque si elle doit changer (plus juste, plus courte, \
+         dans une autre langue, avec un bloc ```suggestion…), sinon laisse body vide.\n\
+         Réponds uniquement par un objet JSON, sans texte autour ni bloc de code : {{\"reply\": \"ta réponse, courte\", \"body\": \"la remarque réécrite, ou \"\"\"}}.\n\
+         Langue de la remarque : {language}.",
+        "You made a code review; here is one of your remarks, on {place}:\n\n{}\n\nThe developer talks it over with you to refine it. \
+         The diff of the file is on the standard input (each line starts with its position: [R12] new version, [L7] old one); \
+         you may read the files of the repository. Answer them, then rewrite the remark when it should change (more accurate, \
+         shorter, in another language, with a ```suggestion block…), else leave body empty.\n\
+         Answer only with a JSON object, without text around it or code block: {{\"reply\": \"your answer, short\", \"body\": \"the remark rewritten, or \"\"\"}}.\n\
+         Language of the remark: {language}.",
+        note.body
+    );
+    if !about.trim().is_empty() {
+        prompt.push_str(t!("\n\nCe que font ces changements :\n", "\n\nWhat these changes do:\n"));
+        prompt.push_str(about.trim());
+    }
+    prompt.push_str(t!("\n\nLa discussion :", "\n\nThe talk:"));
+    for (dev, text) in thread {
+        let who = if *dev { t!("Développeur", "Developer") } else { t!("Toi", "You") };
+        prompt.push_str(&format!("\n{who} : {text}"));
+    }
+    let numbered: String = number_diff(diff).chars().take(60_000).collect();
+    let text = run_once(dir, &["-p", &prompt, "--output-format", "text", "--tools", "Read,Grep,Glob", "--no-session-persistence"], numbered)?;
+    parse_refined(&text)
+}
+
+/// `{"reply": …, "body": …}`, found in the answer (a model may write around it).
+fn parse_refined(text: &str) -> Result<(String, Option<String>), String> {
+    let (a, b) = (text.find('{'), text.rfind('}'));
+    let v: Value = match (a, b) {
+        (Some(a), Some(b)) if a < b => serde_json::from_str(&text[a..=b]).map_err(|e| format!("{e} : {}", text.trim()))?,
+        // no JSON: the whole answer is the reply
+        _ => return Ok((text.trim().to_string(), None)),
+    };
+    let s = |k: &str| v[k].as_str().unwrap_or("").trim().to_string();
+    let body = s("body");
+    Ok((s("reply"), (!body.is_empty()).then_some(body)))
+}
+
 /// The diff with the position of each line in front of it, so the model does not count lines.
 fn number_diff(diff: &str) -> String {
     let mut out = String::with_capacity(diff.len() + diff.len() / 4);
@@ -1749,6 +1813,16 @@ mod tests {
         // the other files: the end of their path
         assert_eq!(read("/home/u/src/florm/src/app/md.rs"), "src/app/md.rs");
         assert_eq!(short_path("C:\\Users\\u\\Pictures\\a.png"), "u/Pictures/a.png");
+    }
+
+    #[test]
+    fn a_remark_talked_over() {
+        assert_eq!(parse_refined("Voilà :\n{\"reply\": \"Oui, plus court.\", \"body\": \"Ajoute `strip()`.\"}").unwrap(), ("Oui, plus court.".into(), Some("Ajoute `strip()`.".into())));
+        assert_eq!(parse_refined("{\"reply\": \"Elle reste juste.\", \"body\": \"\"}").unwrap(), ("Elle reste juste.".into(), None));
+        assert_eq!(parse_refined("juste du texte").unwrap(), ("juste du texte".into(), None));
+        let diff = "diff --git a/x.py b/x.py\n+a\ndiff --git a/y.py b/y.py\n+b\n";
+        assert_eq!(diff_of_file(diff, "y.py"), "diff --git a/y.py b/y.py\n+b\n");
+        assert_eq!(diff_of_file(diff, ""), diff);
     }
 
     #[test]

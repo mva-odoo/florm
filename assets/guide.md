@@ -467,6 +467,12 @@ avec `gh auth login` (connexion par le navigateur). Sans `gh`, la vue explique c
   résoudre, appliquer une suggestion), et **double-clic sur une ligne** pour la commenter.
 - Une case avant chaque fichier le marque **vu** : il se replie et GitHub s'en souvient pour
   ta revue (« 3/10 vu(s) » en haut).
+- **✳ Revue IA** : Claude relit la PR et propose des remarques sous les lignes du diff ; rien
+  n'est envoyé. Chacune se **garde**, se modifie (✏) ou s'écarte (×), puis **Publier** envoie
+  celles gardées en une revue GitHub. **💬** sur une remarque en discute avec Claude pour
+  l'affiner (« plus court », « en anglais », « tu es sûr ? regarde `_compute_total` ») : il
+  répond sous la remarque et la réécrit si besoin, **↶ Version d'avant** revient en arrière.
+  Aussi dans la vue Git, pour les changements pas encore commités.
 - En bas de la conversation, le cadre de fusion, dans la couleur de l'état (rouge bloquée, orange
   s'il manque quelque chose, vert prête) : où en est la PR (**Revue requise**, **Conflits**, **En
   retard**, **Prête à fusionner**…), les **checks** (ceux en échec toujours visibles, un clic pour
