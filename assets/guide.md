@@ -530,7 +530,7 @@ panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en
   clignoter ou non, et le son (Carillon, Clochette, Goutte, Bip, Accord, Micro-ondes, ou aucun ; ▶ pour
   écouter).
 - **/** au début du champ : les commandes de Claude Code (`/usage`, `/context`, `/compact`,
-  `/clear`, `/model`, tes skills `/florm:nom`…) : **Tab** (ou ↑ ↓) passe d'une à l'autre, **Entrée** ou un clic complète. Elles partent seules, sans le
+  `/clear`, `/model`, tes skills `/florm:nom`…) : **Tab** (ou ↑ ↓) passe d'une à l'autre, **Entrée** ou un clic complète, **Échap** ferme la liste. Elles partent seules, sans le
   contexte. **/btw question** pose une question à côté, même pendant que Claude travaille : la
   réponse s'affiche au-dessus du champ et n'entre pas dans la conversation. **/status** : version,
   modèle, session, dossier. Celles de l'interface terminal seulement (`/doctor`…) s'ouvrent dans
@@ -548,7 +548,7 @@ panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en
 - **# au début d'un message** : la ligne n'est pas envoyée, elle est retenue dans le CLAUDE.md du
   projet ou dans ta mémoire perso (`~/.claude/CLAUDE.md`), au choix.
 - **@ dans le champ** : les fichiers du projet qui correspondent à ce qui est tapé ; **Tab** (ou
-  ↑ ↓) passe de l'un à l'autre, **Entrée** complète, et le fichier part avec le message.
+  ↑ ↓) passe de l'un à l'autre, **Entrée** complète (**Échap** ferme la liste), et le fichier part avec le message.
 - **🌿** (worktree) : une nouvelle conversation sur une branche à elle, dans son propre dossier (un
   worktree git), pour faire travailler plusieurs Claude en même temps sans qu'ils se gênent.
   Chaque conversation a son onglet et continue de travailler même quand elle n'est pas affichée.

@@ -72,6 +72,10 @@ pub(super) struct AgentRun {
 
 #[derive(Default)]
 pub(super) struct ClaudeUi {
+    /// A list of completions (`/` commands, `@` files) was shown at the last frame: Escape closes it.
+    pub(super) completing: bool,
+    /// The field as it was when Escape closed the list: no list until it changes.
+    pub(super) dismissed: Option<String>,
     /// Number of the conversation (0: the first one), and the editor tab showing it (document
     /// uid; None: the bottom panel).
     pub(super) id: u64,
@@ -1776,8 +1780,12 @@ impl App {
                     // a list of completions shown: the field keeps Tab (else egui gives the focus to the
                     // next button before the list reads the key, and the next letters go nowhere)
                     let mut completing = false;
+                    let dismissed = c.dismissed.as_deref() == Some(c.input.as_str());
+                    if !dismissed {
+                        c.dismissed = None;
+                    }
                     // `@` being typed: the matching files of the project; Enter or a click completes it
-                    if let Some((start, typed)) = mention.as_ref().filter(|_| !c.tools.mention.1.is_empty()) {
+                    if let Some((start, typed)) = mention.as_ref().filter(|_| !c.tools.mention.1.is_empty() && !dismissed) {
                         let matching = &c.tools.mention.1;
                         completing = true;
                         let mut pick = None;
@@ -1812,7 +1820,7 @@ impl App {
                             c.focus = true;
                         }
                     }
-                    if let Some(typed) = c.input.strip_prefix('/').filter(|t| !t.contains(char::is_whitespace)) {
+                    if let Some(typed) = c.input.strip_prefix('/').filter(|t| !t.contains(char::is_whitespace) && !dismissed) {
                         let typed = typed.to_lowercase();
                         let first = commands.iter().filter(|(n, _)| n.starts_with(&typed));
                         let inside = commands.iter().filter(|(n, _)| !n.starts_with(&typed) && n.contains(&typed));
@@ -1872,7 +1880,8 @@ impl App {
                     );
                     // a list of completions opened by what was just typed: the field keeps Tab from now
                     // on (else egui moves the focus with the next Tab, before the list takes it)
-                    if resp.has_focus() && opens_completion(&c.input) {
+                    c.completing = completing && resp.has_focus();
+                    if resp.has_focus() && opens_completion(&c.input) && c.dismissed.as_deref() != Some(c.input.as_str()) {
                         ui.memory_mut(|m| m.set_focus_lock_filter(field_id, egui::EventFilter { tab: true, horizontal_arrows: true, vertical_arrows: true, escape: false }));
                     }
                     if to_end {
@@ -3039,6 +3048,19 @@ mod tests {
         assert_eq!(app.claude.input, "/");
         let field_choice = field.with(("command_choice", String::new()));
         assert_eq!(ctx.data(|d| d.get_temp::<usize>(field_choice)), Some(2));
+        // Escape: the list goes, the field keeps « / » and the focus; a letter brings it back
+        assert!(app.claude.completing);
+        app.exec(&ctx, Cmd::Escape);
+        let frame = |app: &mut App, events: Vec<egui::Event>| {
+            let _ = ctx.run(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 700.0))), events, ..Default::default() }, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| app.claude_show(ui, None));
+            });
+        };
+        frame(&mut app, Vec::new());
+        assert!(!app.claude.completing && app.claude.input == "/" && ctx.memory(|m| m.has_focus(field)));
+        frame(&mut app, vec![egui::Event::Text("c".into())]);
+        frame(&mut app, Vec::new());
+        assert!(app.claude.completing, "{:?}", app.claude.input);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

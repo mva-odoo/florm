@@ -237,6 +237,11 @@ impl App {
                 if self.lsp.signature.take().is_some() {
                     return;
                 }
+                // the list of the commands or files of the field of Claude: closed, the field kept
+                if std::mem::take(&mut self.claude.completing) {
+                    self.claude.dismissed = Some(self.claude.input.clone());
+                    return;
+                }
                 let peek_open = self.docs.get(self.active).is_some_and(|d| d.peek.is_some());
                 if self.overlay.take().is_some() || self.confirm.take().is_some() {
                 } else if self.zen {
