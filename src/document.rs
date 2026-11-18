@@ -238,8 +238,6 @@ pub enum View {
     PullRequests,
     /// Conversation with Claude Code, and the review of its changes.
     Claude,
-    /// The Docker containers and their logs.
-    Docker,
     /// The debugger: variables, call stack, breakpoints, console.
     Debug,
     /// The Git view: branch, commit, graph of the commits and their diffs.

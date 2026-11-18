@@ -722,8 +722,8 @@ impl App {
                     });
                 });
             }
-            PrefSection::Docker => {
-                pref_row(ui, rc, t!("Conteneur des tests Odoo", "Odoo tests container"), t!("Le conteneur où tournent les tests Odoo (Tests dans la vue Docker).", "The container the Odoo tests run in (Tests in the Docker view)."), |ui| {
+            PrefSection::Tests => {
+                pref_row(ui, rc, t!("Conteneur des tests Odoo", "Odoo tests container"), t!("Le conteneur Docker où tournent les tests Odoo (Ctrl+F6, ▶ dans la marge des fichiers de test).", "The Docker container the Odoo tests run in (Ctrl+F6, ▶ in the gutter of test files)."), |ui| {
                     crate::input::add(ui, egui::TextEdit::singleline(&mut s.odoo_test_container).desired_width(260.0).font(egui::TextStyle::Monospace));
                 });
                 pref_row_wide(ui, rc, t!("Commande des tests Odoo", "Odoo tests command"), t!("Lancée dans le conteneur, {tags} est remplacé par les tags. Vide : la commande par défaut.", "Run in the container, {tags} is replaced by the tags. Empty: the default command."), |ui| {

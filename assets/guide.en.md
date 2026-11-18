@@ -10,7 +10,7 @@ Every shortcut can be changed in **Preferences → Shortcuts** (Ctrl+,).
 | Shortcut | Action |
 |---|---|
 | **Ctrl+P** | Go to a file of the project. `name:42` opens it at line 42, `:42` goes to line 42 of the current file |
-| **Ctrl+K** | The views apart from the commands: Search, Terminal, Claude, Git, Docker…, the terminals and the conversations, then the Ctrl+K… chords with their name. Type to filter; **Ctrl+K Ctrl+B**, **Ctrl+K V**… keep their role |
+| **Ctrl+K** | The views apart from the commands: Search, Terminal, Claude, Git…, the terminals and the conversations, then the Ctrl+K… chords with their name. Type to filter; **Ctrl+K Ctrl+B**, **Ctrl+K V**… keep their role |
 | **Ctrl+Shift+P** | Command palette. A leading **`#`** lists the views, the terminals and the conversations: `#git`, `#dock`, `#term`, `#claude` |
 | **Alt** alone | Everything from the keyboard: one or two letters on each visible button, tab, box or field; typing them clicks it (Esc closes). Can be turned off in Preferences → Editor |
 | **Ctrl+R** | Go to a class, a function, an Odoo record of the file |
@@ -20,12 +20,12 @@ Every shortcut can be changed in **Preferences → Shortcuts** (Ctrl+,).
 | **Alt+Z** | Word wrap of the lines that are too long (display only; ↑ ↓ follow the rows) |
 
 The breadcrumbs above the code are clickable: a folder shows its content, the file lists its
-symbols, a class or a function takes you there. The views (Claude, Git, GitHub, Docker,
+symbols, a class or a function takes you there. The views (Claude, Git, GitHub,
 terminal…) have none: they keep the whole height.
 
 Two open files of the same name: their folder shows in grey after the title (`input.rs …/app`). A file with errors shows how many in red (`9+` beyond nine).
 
-On the right of the tab strip: **+** opens an empty text tab (Ctrl+N), **▾** a view in a tab, each with its icon: Search, Claude, Git, GitHub, Docker, Debug, then Terminal, Preferences and Welcome. When the tabs no longer fit in the strip, ‹ › scroll them and the same **▾** lists all the open tabs at the top.
+On the right of the tab strip: **+** opens an empty text tab (Ctrl+N), **▾** a view in a tab, each with its icon: Search, Claude, Git, GitHub, Debug, then Terminal, Preferences and Welcome. When the tabs no longer fit in the strip, ‹ › scroll them and the same **▾** lists all the open tabs at the top.
 
 **Groups of tabs**: right click a tab → **Add to a group** (an existing one or **+ New
 group**). The tabs of a group stay side by side, with a band of its color and its name before
@@ -96,7 +96,7 @@ sidebar shown or not.
 ## Bottom panel and status bar
 
 One simple rule: **files (and what reads like them: diffs, pull requests) go in the
-tabs; the views that come along (search, terminal, Claude, Git, GitHub, Docker, debug, problems,
+tabs; the views that come along (search, terminal, Claude, Git, GitHub, debug, problems,
 output) each have one place**, which you choose.
 
 - **The bottom panel shows one view at a time**, without a row of tabs: its name at the top left,
@@ -106,13 +106,13 @@ output) each have one place**, which you choose.
   **Ctrl+Shift+J** shows or hides it.
 - **⇱ / ⇲ in the header of a view** puts it in a tab or in the bottom panel, and Florm remembers:
   its shortcut, the palette, the status bar and ▾ then open it in the same place. A view that
-  already has its tab is shown there, never in two places. By default Git, GitHub, Docker and the
+  already has its tab is shown there, never in two places. By default Git, GitHub and the
   debugger open in a tab, the others at the bottom (`views_in_tab` in settings.toml).
 - **The status bar only shows what is going on**: on the left the button of the bottom panel
   (click: show or hide it, right click: open a view); on the right the branch (**↑** commits to
   push, **↓** to pull, **●** changed files) of the repository of the file shown (it follows the
   tabs; a repository chosen in the Git view stays until the next file shown), then, only when it is the case, Claude (**working**,
-  or **✔** when it has finished: a click shows the answer), the running Docker containers, the
+  or **✔** when it has finished: a click shows the answer), the
   debugger (**running** / **paused**), and the problems. At rest, it is almost empty.
 - The Preferences: **Ctrl+,**, the menu or the palette.
 
@@ -297,7 +297,7 @@ one of the commits.
 - In the bottom panel, **one terminal at a time**: its folder at the top, **+** opens another,
   **⇱** sends it to a tab (**at the bottom** in the tab brings it back). The other terminals are in
   **▾**, under “Terminal”: click to switch, **×** on hover to close it.
-- All the views (Search, Git, GitHub, Docker, Claude, Debug, Terminal) have the same buttons at
+- All the views (Search, Git, GitHub, Claude, Debug, Terminal) have the same buttons at
   the right of their header, in the same order: **⟳** read again, **in a tab / at the
   bottom** (a small window: with a tab on top, or a band at the bottom; remembered for next time), **⋯** the other actions
   and options. The layout buttons all look alike: the four corners maximize a panel in its view
@@ -305,30 +305,18 @@ one of the commits.
   review of Claude), filled when it is shown. Git, the Preferences and the split of a commit are
   tabs like the others: Escape goes back to the previous tab, Ctrl+W closes them.
 
-## Docker
+## Odoo tests
 
-**Docker** in the palette (“docker”) or **Tools → Docker (containers and logs)**: the list of
-containers on the left, their logs on the right. **In a tab** shows it large in the editor, **at
-the bottom** brings it back to the bottom. The list is read again every few seconds.
+The Odoo tests run in a Docker container, set once in **Preferences → Tests** (the container, and
+the command if the default one does not suit; `{tags}` in it is replaced by the tags).
 
-- **List**: the containers are grouped by `docker compose` project. The dot next to the name is
-  green when it runs, yellow when it restarts, is paused or is not *healthy*, red when it is
-  dead, grey when it is stopped.
-- **■ / ▶** next to a container: stop or start it. For a project, **■ all** stops all its
-  containers, from the bottom of the list up; **▶ all** starts the stopped ones in the order of
-  the list, each once the previous one is ready (*healthy*). The dotted handle on the left can be
-  dragged to change that order.
-- **⬆ compose up** (or **⬆** on a project): `docker compose up -d` in the bottom panel. Also creates and
-  starts the services that have no container yet, and recreates those whose configuration changed.
-- **Logs**: click a container, its logs show on the right. If it restarts, the logs start again by
-  themselves. The button at the top right of the logs makes them larger (click it again to give the
-  list its room back).
-  - In its bar: **⟳ Restart**, **■ Stop** (or **▶ Start**), **>_ Terminal** (a shell in the
-    container, `docker exec`, in a tab).
-  - **Attached**: a container waiting for input (ipdb…) receives what you type, and **Ctrl+C**
-    interrupts it. Otherwise the logs are read-only.
-- **🧪 Tests**: runs Odoo tests in the container. The tags are typed in the field
-  (`:MyClass`, `/my_module`, `:MyClass.test_x`); **▾** brings back those already run.
+- **Run**: “Odoo: run tests…” in the palette, or **Ctrl+F6** the first time. Florm asks for the tags, those of
+  the code under the cursor already filled (`:MyClass`, `/my_module`, `:MyClass.test_x`); **Enter**
+  runs. Without a container set, the preferences open at the right place.
+- **Ctrl+F6** then runs the last tags again, from anywhere; **Ctrl+Shift+F6** the test under the
+  cursor; the **▶** in the gutter of a test file runs that one.
+- The output shows in the bottom panel (an `ipdb` in a test works there), the summary in the status
+  bar; **Ctrl+click** on a `File "…", line N` line opens the file.
 
 ## Debugger
 
@@ -570,8 +558,8 @@ command and your login: no key to set up.
   goes to the clipboard), then Ctrl+V. The image shows as a thumbnail above the field, then in the
   message sent; a click opens it full size.
 - **Florm context**: when Claude starts, Florm tells it what it knows of the project: how to run
-  the **Odoo tests** (the container and command set in the Docker view, the last tags), the
-  **Docker containers**, the **commit message rules** (the project's, else yours) and the branch
+  the **Odoo tests** (the container and command set in Preferences → Tests, the last tags), the
+  **commit message rules** (the project's, else yours) and the branch
   and version you work on. Claude then runs the tests in the right container, proposes them as
   boxes to tick after a change, and writes its commits like ✨. The **Session** panel shows what it
   was told (hover “Florm context”).

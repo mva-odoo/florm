@@ -166,12 +166,6 @@ pub enum JobResult {
     /// Changes left after a refresh or a partial commit (with its short hash and subject).
     SplitChanges { result: Result<Vec<split::FileChange>, String>, committed: Option<(String, String)> },
     SplitEnded { aborted: bool, result: Result<String, String> },
-    /// Newer release of Florm (`manual`: asked from the menu, so "up to date" is shown too).
-    /// The containers, and the compose projects of the open folder.
-    DockerList(Result<Vec<crate::docker::Container>, String>, Vec<crate::docker::Compose>),
-    /// `None`: the container did not change since its logs were shown.
-    DockerFollow { name: String, result: Result<Option<crate::docker::Follow>, String> },
-    DockerDone { label: String, result: Result<(), String> },
     /// Odoo tests ready to run in a container.
     TestsReady { tags: String, result: Result<crate::docker::Exec, String> },
     /// The debugger checked what it needs and found the program (or not).

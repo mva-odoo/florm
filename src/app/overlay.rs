@@ -186,6 +186,7 @@ impl App {
         let query = match &p {
             Prompt::OpenFolder => with_sep(&root),
             Prompt::OpenFile | Prompt::CompareWith => with_sep(&root),
+            Prompt::TestTags(draft) => draft.clone(),
             Prompt::SaveAs => match self.docs.get(self.active).and_then(|d| d.path.clone()) {
                 Some(path) => path.display().to_string(),
                 None => with_sep(&root),
@@ -236,6 +237,7 @@ impl App {
                 Prompt::OpenFolder => t!("Ouvrir le dossier", "Open the folder").into(),
                 Prompt::OpenFile => t!("Ouvrir le fichier", "Open the file").into(),
                 Prompt::CompareWith => t!("Comparer le fichier avec   (un fichier, ou un dossier pour comparer son dossier ; Tab complète)", "Compare the file with   (a file, or a folder to compare its folder; Tab completes)").into(),
+                Prompt::TestTags(_) => t!("Tests Odoo à lancer   (tags : /module, :Classe.test_methode ; Entrée lance)", "Odoo tests to run   (tags: /module, :Class.test_method; Enter runs)").into(),
                 Prompt::SaveAs => t!("Enregistrer sous", "Save as").into(),
                 Prompt::NewFile(d) => tf!("Nouveau fichier dans {}", "New file in {}", d.display()),
                 Prompt::NewFolder(d) => tf!("Nouveau dossier dans {}", "New folder in {}", d.display()),
@@ -690,6 +692,7 @@ impl App {
                 let path = self.resolve(PathBuf::from(&text));
                 self.open_path(path);
             }
+            Prompt::TestTags(_) => self.run_tests(text),
             Prompt::CompareWith => {
                 let path = self.resolve(PathBuf::from(&text));
                 self.compare_with(path);

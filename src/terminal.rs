@@ -441,18 +441,6 @@ impl Terminal {
         });
     }
 
-    /// Runs `argv` in a terminal shown by another view (`embedded_ui`); returns its id.
-    pub fn open_embedded(&mut self, ctx: &egui::Context, argv: &[String], prefill: &[u8], cwd: Option<PathBuf>) -> Result<u64, String> {
-        let mut s = Session::spawn_argv(&argv.iter().map(String::as_str).collect::<Vec<_>>(), prefill, cwd.unwrap_or_else(|| self.cwd()), ctx, false)?;
-        s.id = self.next_id;
-        s.embedded = true;
-        s.cmd = Some(argv.to_vec());
-        self.next_id += 1;
-        let id = s.id;
-        self.sessions.push(s);
-        Ok(id)
-    }
-
     /// Runs `argv` (not a shell) in the bottom panel, its output kept as text (`output`); Enter
     /// once it ended runs it again. Returns its id.
     pub fn open_command_panel(&mut self, ctx: &egui::Context, argv: &[String], cwd: Option<PathBuf>) -> Result<u64, String> {
@@ -548,22 +536,6 @@ impl Terminal {
     /// Whether the program of session `id` ended (or the session is gone).
     pub fn exited(&self, id: u64) -> bool {
         self.sessions.iter().find(|s| s.id == id).is_none_or(|s| s.exited.load(Ordering::Relaxed))
-    }
-
-    /// Gives the keyboard to session `id` at the next frame.
-    pub fn focus(&mut self, id: u64) {
-        self.focus_tab = Some(id);
-    }
-
-    /// The grid of an embedded session. Returns true when Enter was pressed after its program ended
-    /// (the view starts it again).
-    pub fn embedded_ui(&mut self, ui: &mut egui::Ui, id: u64, colors: Colors, light: bool) -> bool {
-        let Some(i) = self.sessions.iter().position(|s| s.id == id) else { return false };
-        let focus = self.focus_tab == Some(id);
-        if focus {
-            self.focus_tab = None;
-        }
-        matches!(self.grid(ui, i, focus, colors, light), Some(GridAct::Restart))
     }
 
     /// Whether some terminal is left for the bottom panel.

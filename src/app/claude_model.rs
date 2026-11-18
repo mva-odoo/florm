@@ -14,7 +14,6 @@ impl App {
         let branch = git::head_branch(dir).map(|b| (self.repo_label(&repo), b));
         let ctx = claude::FlormContext {
             tests,
-            containers: self.docker_containers(),
             commit_rules: claude::commit_rules(dir),
             repo: branch,
             version: self.version.clone(),

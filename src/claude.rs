@@ -22,14 +22,12 @@ pub fn not_installed() -> String {
 pub const MODELS: [(&str, &str); 5] = [("", "Modèle par défaut"), ("opus", "Opus"), ("sonnet", "Sonnet"), ("haiku", "Haiku (rapide)"), ("fable", "Fable")];
 
 /// What Florm knows of the project, given to Claude at the start of each conversation (see
-/// `florm_context`): how the tests are run, the containers, the commit rules, where the user is.
+/// `florm_context`): how the tests are run, the commit rules, where the user is.
 #[derive(Default)]
 pub struct FlormContext {
     /// The container of the Odoo tests, the command run in it (`{tags}` for the tags) and the
     /// last tags run.
     pub tests: Option<(String, String, Vec<String>)>,
-    /// The Docker containers known: (name, image, running).
-    pub containers: Vec<(String, String, bool)>,
     /// The rules of the commit messages (the project's, else the user's).
     pub commit_rules: String,
     /// The repository of the file shown and its branch.
@@ -52,10 +50,6 @@ pub fn florm_context(ctx: &FlormContext) -> String {
             s += &tf!("\nDerniers tags lancés : {}.", "\nLast tags run: {}.", history.iter().take(5).map(|t| format!("`{t}`")).collect::<Vec<_>>().join(", "));
         }
         parts.push(s);
-    }
-    if !ctx.containers.is_empty() {
-        let list = ctx.containers.iter().map(|(n, img, up)| format!("- `{n}` ({img}){}", if *up { "" } else { t!(", arrêté", ", stopped") })).collect::<Vec<_>>().join("\n");
-        parts.push(tf!("## Conteneurs Docker\n{list}", "## Docker containers\n{list}"));
     }
     if !ctx.commit_rules.trim().is_empty() {
         parts.push(tf!(
@@ -647,7 +641,7 @@ impl Session {
         if !effort.is_empty() {
             args.extend(["--effort", effort]);
         }
-        // what Florm knows of the project (tests, containers, commit rules): see `florm_context`
+        // what Florm knows of the project (tests, commit rules): see `florm_context`
         if !system.is_empty() {
             args.extend(["--append-system-prompt", system]);
         }
@@ -1698,7 +1692,6 @@ mod tests {
         assert!(florm_context(&FlormContext::default()).is_empty());
         let ctx = FlormContext {
             tests: Some(("odoo-17".into(), String::new(), vec!["/sale".into()])),
-            containers: vec![("odoo-17".into(), "odoo:17".into(), true), ("db".into(), "postgres".into(), false)],
             commit_rules: "[TAG] Zone : quoi".into(),
             repo: Some(("odoo".into(), "17.0-fix".into())),
             version: "17.0".into(),
@@ -1706,7 +1699,7 @@ mod tests {
         let t = florm_context(&ctx);
         // the exact command, in the container, with the tags to fill
         assert!(t.contains("docker exec odoo-17 odoo --stop-after-init --test-enable --test-tags {tags}"), "{t}");
-        assert!(t.contains("`/sale`") && t.contains("`db` (postgres)") && t.contains("[TAG] Zone : quoi") && t.contains("17.0-fix"));
+        assert!(t.contains("`/sale`") && t.contains("[TAG] Zone : quoi") && t.contains("17.0-fix"));
     }
 
     #[test]

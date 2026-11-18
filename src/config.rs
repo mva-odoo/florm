@@ -126,10 +126,7 @@ pub struct Settings {
     pub odoo_test_history: Vec<String>,
     /// Container the tests run in.
     pub odoo_test_container: String,
-    /// Order of the services of each compose project in the Docker view (▶ tout starts them in
-    /// it, ■ tout stops them the other way): project → services.
-    pub docker_order: HashMap<String, Vec<String>>,
-    /// Views opened in an editor tab rather than in the bottom panel: "git", "pulls", "docker",
+    /// Views opened in an editor tab rather than in the bottom panel: "git", "pulls",
     /// "debug" (search and Claude have their own setting). ⇱ / ⇲ in a view change it.
     pub views_in_tab: Vec<String>,
     /// Debugger: the container the program runs in, empty for this computer.
@@ -241,8 +238,7 @@ impl Default for Settings {
             odoo_test_command: String::new(),
             odoo_test_history: Vec::new(),
             odoo_test_container: String::new(),
-            docker_order: HashMap::new(),
-            views_in_tab: ["git", "pulls", "docker", "debug"].map(String::from).to_vec(),
+            views_in_tab: ["git", "pulls", "debug"].map(String::from).to_vec(),
             debug_target: String::new(),
             debug_mode: "launch".into(),
             debug_command: String::new(),
@@ -323,9 +319,9 @@ claude_accounts = []
 claude_account = ""
 # dossiers dont les conversations utilisent un compte : "dossier=nom du compte"
 claude_account_folders = []
-# vues qui s'ouvrent dans un onglet plutôt que dans le panneau du bas ("git", "pulls", "docker", "debug") ;
+# vues qui s'ouvrent dans un onglet plutôt que dans le panneau du bas ("git", "pulls", "debug") ;
 # ⇱ / ⇲ dans l'en-tête d'une vue changent ce choix
-views_in_tab = ["git", "pulls", "docker", "debug"]
+views_in_tab = ["git", "pulls", "debug"]
 # barre de mise en forme au-dessus du Markdown (le texte reste modifiable à la main)
 markdown_toolbar = true
 # branche et branche distante des dépôts git sur leur dossier dans l'arborescence
@@ -622,14 +618,6 @@ fn set_setting_in(p: &std::path::Path, key: &str, value: &str) -> Result<(), Str
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn docker_order_table() {
-        let order = vec!["postgresql".to_string(), "dns".into()];
-        let line = format!("docker_order = {{ {} = {} }}", toml_str("dockerized-saas"), toml_str_array(&order));
-        let s: Settings = toml::from_str(&line).unwrap();
-        assert_eq!(s.docker_order.get("dockerized-saas"), Some(&order));
-    }
 
     #[test]
     fn set_setting_keeps_comments() {

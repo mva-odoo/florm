@@ -10,7 +10,7 @@ Tous les raccourcis se changent dans **Préférences → Raccourcis** (Ctrl+,).
 | Raccourci | Action |
 |---|---|
 | **Ctrl+P** | Aller à un fichier du projet. `nom:42` ouvre à la ligne 42, `:42` va à la ligne 42 du fichier courant |
-| **Ctrl+K** | Les vues à part des commandes : Recherche, Terminal, Claude, Git, Docker…, les terminaux et les conversations, puis les combinaisons Ctrl+K… avec leur nom. Tape pour filtrer ; **Ctrl+K Ctrl+B**, **Ctrl+K V**… gardent leur rôle |
+| **Ctrl+K** | Les vues à part des commandes : Recherche, Terminal, Claude, Git…, les terminaux et les conversations, puis les combinaisons Ctrl+K… avec leur nom. Tape pour filtrer ; **Ctrl+K Ctrl+B**, **Ctrl+K V**… gardent leur rôle |
 | **Ctrl+Shift+P** | Palette de commandes (les accents sont facultatifs : « theme » trouve « Choisir le thème… »). **`#`** en tête liste les vues, les terminaux et les conversations : `#git`, `#dock`, `#term`, `#claude` |
 | **Alt** seul | Tout au clavier : une ou deux lettres sur chaque bouton, onglet, case ou champ visible ; les taper le clique (Échap ferme). Se désactive dans Préférences → Éditeur |
 | **Ctrl+R** | Aller à une classe, une fonction, un record Odoo du fichier |
@@ -21,11 +21,11 @@ Tous les raccourcis se changent dans **Préférences → Raccourcis** (Ctrl+,).
 
 Le fil d'Ariane au-dessus du code est cliquable : un dossier montre son contenu, le fichier
 liste ses symboles, une classe ou une fonction y emmène. Les vues (Claude, Git, GitHub,
-Docker, terminal…) n'en ont pas : elles gardent toute la hauteur.
+terminal…) n'en ont pas : elles gardent toute la hauteur.
 
 Deux fichiers ouverts du même nom : leur dossier s'affiche en gris après le titre (`input.rs …/app`). Un fichier avec des erreurs montre leur nombre en rouge (`9+` au-delà de neuf).
 
-À droite de la barre d'onglets : **+** ouvre un onglet texte vide (Ctrl+N), **▾** une vue dans un onglet, chacune avec son icône : Recherche, Claude, Git, GitHub, Docker, Débogage, puis Terminal, Préférences et Accueil. Quand les onglets ne tiennent plus dans la barre, ‹ › les font défiler et le même **▾** liste en haut tous les onglets ouverts.
+À droite de la barre d'onglets : **+** ouvre un onglet texte vide (Ctrl+N), **▾** une vue dans un onglet, chacune avec son icône : Recherche, Claude, Git, GitHub, Débogage, puis Terminal, Préférences et Accueil. Quand les onglets ne tiennent plus dans la barre, ‹ › les font défiler et le même **▾** liste en haut tous les onglets ouverts.
 
 **Groupes d'onglets** : clic droit sur un onglet → **Ajouter à un groupe** (un existant ou
 **+ Nouveau groupe**). Les onglets d'un groupe restent côte à côte, avec une bande de sa couleur
@@ -97,7 +97,7 @@ bas ouvert et la barre latérale affichée ou non.
 
 Une règle simple : **les fichiers (et ce qui se lit comme eux : diff, pull request)
 vont dans les onglets ; les vues qui t'accompagnent (recherche, terminal, Claude, Git, GitHub,
-Docker, débogage, problèmes, sortie) ont chacune une seule place**, que tu choisis.
+débogage, problèmes, sortie) ont chacune une seule place**, que tu choisis.
 
 - **Le panneau du bas montre une vue à la fois**, sans rangée d'onglets : son nom en haut à gauche,
   **▾** pour passer à une autre (avec son raccourci, et ce qui attend : nombre de problèmes, ● quand
@@ -106,14 +106,13 @@ Docker, débogage, problèmes, sortie) ont chacune une seule place**, que tu cho
   **Ctrl+Shift+J** l'affiche ou le masque.
 - **⇱ / ⇲ dans l'en-tête d'une vue** la met dans un onglet ou dans le panneau du bas, et Florm s'en
   souvient : son raccourci, la palette, la barre d'état et ▾ l'ouvriront ensuite au même endroit.
-  Une vue qui a déjà son onglet s'y affiche, jamais à deux endroits. Par défaut Git, GitHub, Docker
+  Une vue qui a déjà son onglet s'y affiche, jamais à deux endroits. Par défaut Git, GitHub
   et le débogage s'ouvrent en onglet, les autres en bas (`views_in_tab` dans settings.toml).
 - **La barre d'état ne montre que ce qui se passe** : à gauche le bouton du panneau du bas (clic :
   l'afficher ou le masquer, clic droit : ouvrir une vue) ; à droite la branche (**↑** commits à
   pousser, **↓** à récupérer, **●** fichiers modifiés) du dépôt du fichier affiché (il suit les
   onglets ; un dépôt choisi dans la vue Git reste jusqu'au prochain fichier affiché), puis, seulement quand c'est le cas, Claude
-  (**au travail**, ou **✔** quand il a fini : un clic montre la réponse), les conteneurs Docker
-  démarrés, le débogage (**en cours** / **en pause**), et les problèmes. Au repos, elle est presque vide.
+  (**au travail**, ou **✔** quand il a fini : un clic montre la réponse), le débogage (**en cours** / **en pause**), et les problèmes. Au repos, elle est presque vide.
 - Les Préférences : **Ctrl+,**, le menu ou la palette.
 
 ## Rechercher dans le dossier (Ctrl+Shift+F)
@@ -301,7 +300,7 @@ interactif** (clic droit → « Rebase interactif à partir d'ici… »), l'acti
 - Dans le panneau du bas, **un terminal à la fois** : son dossier en haut, **+** en ouvre un autre,
   **⇱** l'envoie dans un onglet (**en bas** dans l'onglet le ramène). Les autres terminaux sont dans
   **▾**, sous « Terminal » : clic pour y passer, **×** au survol pour le fermer.
-- Toutes les vues (Recherche, Git, GitHub, Docker, Claude, Débogage, Terminal) ont à droite de
+- Toutes les vues (Recherche, Git, GitHub, Claude, Débogage, Terminal) ont à droite de
   leur en-tête les mêmes boutons, dans le même ordre : **⟳** relire, **en onglet / en bas**
   (une petite fenêtre : avec un onglet en haut, ou une bande en bas ; retenu pour la prochaine fois), **⋯** les autres actions et
   options. Les boutons de disposition se ressemblent tous : les quatre coins agrandissent un
@@ -309,30 +308,19 @@ interactif** (clic droit → « Rebase interactif à partir d'ici… »), l'acti
   masque un panneau latéral (la revue de Claude), pleine quand il est affiché. Git, les Préférences et le découpage d'un commit
   sont des onglets comme les autres : Échap revient à l'onglet d'avant, Ctrl+W les ferme.
 
-## Docker
+## Tests Odoo
 
-**Docker** dans la palette (« docker ») ou **Outils → Docker (conteneurs et logs)** : la liste des conteneurs à
-gauche, leurs logs à droite. **En onglet** la met en grand dans l'éditeur, **en bas** la ramène en bas. La liste
-est relue toutes les quelques secondes.
+Les tests Odoo tournent dans un conteneur Docker, réglé une fois dans **Préférences → Tests**
+(le conteneur, et la commande si celle par défaut ne convient pas ; `{tags}` y est remplacé par les
+tags).
 
-- **Liste** : les conteneurs sont groupés par projet `docker compose`. Le rond à côté du nom est
-  vert quand il tourne, jaune s'il redémarre, est en pause ou n'est pas *healthy*, rouge s'il
-  est mort, gris s'il est arrêté.
-- **■ / ▶** à côté d'un conteneur : l'arrêter ou le démarrer. Pour un projet, **■ tout** arrête
-  tous ses conteneurs, du bas de la liste vers le haut ; **▶ tout** démarre les arrêtés dans
-  l'ordre de la liste, chacun une fois le précédent prêt (*healthy*). La poignée à points à gauche
-  se glisse pour changer cet ordre.
-- **⬆ compose up** (ou **⬆** sur un projet) : `docker compose up -d` dans le panneau du bas. Crée et démarre
-  aussi les services qui n'ont pas encore de conteneur, et recrée ceux dont la configuration a changé.
-- **Logs** : clique sur un conteneur, ses logs s'affichent à droite. S'il redémarre, les logs
-  repartent tout seuls. Le bouton en haut à droite des logs les agrandit (la liste reprend sa place
-  en cliquant à nouveau).
-  - Dans sa barre : **⟳ Redémarrer**, **■ Arrêter** (ou **▶ Démarrer**), **>_ Terminal** (un shell
-    dans le conteneur, `docker exec`, dans le panneau du bas).
-  - **Attaché** : un conteneur qui attend une saisie (ipdb…) reçoit ce que tu tapes, et
-    **Ctrl+C** l'interrompt. Sinon les logs sont en lecture seule.
-- **🧪 Tests** : lance des tests Odoo dans le conteneur. Les tags se tapent dans le champ
-  (`:MaClasse`, `/mon_module`, `:MaClasse.test_x`) ; **▾** reprend ceux déjà lancés.
+- **Lancer** : « Odoo : lancer des tests… » dans la palette, ou **Ctrl+F6** la première fois. Florm demande les tags,
+  ceux du code sous le curseur déjà remplis (`:MaClasse`, `/mon_module`, `:MaClasse.test_x`) ;
+  **Entrée** lance. Sans conteneur réglé, les préférences s'ouvrent au bon endroit.
+- **Ctrl+F6** relance ensuite les derniers tags, de n'importe où ; **Ctrl+Maj+F6** le test sous le
+  curseur ; le **▶** dans la marge d'un fichier de test lance celui-là.
+- La sortie s'affiche dans le panneau du bas (un `ipdb` dans un test s'y pilote), le résumé dans la
+  barre d'état ; **Ctrl+clic** sur une ligne `File "…", line N` ouvre le fichier.
 
 ## Débogueur
 
@@ -583,8 +571,8 @@ panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en
   L'image apparaît en miniature au-dessus du champ, puis dans le message envoyé ; un clic l'ouvre
   en grand.
 - **Contexte Florm** : au démarrage de Claude, Florm lui dit ce qu'il sait du projet : comment
-  lancer les **tests Odoo** (le conteneur et la commande réglés dans la vue Docker, les derniers
-  tags), les **conteneurs Docker**, les **consignes des messages de commit** (celles du projet, sinon
+  lancer les **tests Odoo** (le conteneur et la commande réglés dans Préférences → Tests, les derniers
+  tags), les **consignes des messages de commit** (celles du projet, sinon
   les tiennes) et la branche et la version où tu travailles. Claude lance alors les tests dans le
   bon conteneur, te les propose en cases à cocher après une modification, et écrit ses commits
   comme ✨. Le panneau **Session** montre ce qui lui a été dit (survol de « Contexte Florm »).

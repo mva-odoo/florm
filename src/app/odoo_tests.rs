@@ -1,6 +1,6 @@
-//! Odoo tests run in a Docker container: from the Docker view (☑ Tests, tags filled from the
-//! code under the cursor, the last ones kept), again from anywhere (Ctrl+F6), or from the ▶ of
-//! the gutter of a test file. A run goes to the bottom panel's terminal (an `ipdb` in a test works there);
+//! Odoo tests run in a Docker container (set in Preferences → Tests): tags asked with those of
+//! the code under the cursor already filled, the last ones again from anywhere (Ctrl+F6), or the
+//! ▶ of the gutter of a test file. A run goes to the bottom panel's terminal (an `ipdb` in a test works there);
 //! its summary goes to the status bar, its tracebacks open their file with Ctrl+clic.
 
 use super::*;
@@ -16,9 +16,6 @@ struct Run {
 
 #[derive(Default)]
 pub(super) struct Tests {
-    /// The tests row of the Docker view is open.
-    pub(super) open: bool,
-    pub(super) draft: String,
     run: Option<Run>,
     /// Tests of the open test files, for the gutter: uid → (version, (line, tags)).
     marks: HashMap<u64, (u64, Vec<(usize, String)>)>,
@@ -36,16 +33,20 @@ impl App {
         odoo_test::tags_at(d.path.as_deref()?, &d.rope.to_string(), line)
     }
 
-    /// Runs the tests `tags` in the container of the tests (asked in the Docker view when there
-    /// is none yet).
+    /// Runs the tests `tags` in the container of the tests: without tags, they are asked (those of
+    /// the code under the cursor filled); without a container, the preferences show where to set it.
     pub(super) fn run_tests(&mut self, tags: String) {
         let tags = tags.trim().to_string();
         let container = self.settings.odoo_test_container.clone();
-        if container.is_empty() || tags.is_empty() {
-            self.tests.draft = if tags.is_empty() { self.test_tags_here().unwrap_or_default() } else { tags };
-            self.tests.open = true;
-            self.open_docker();
-            self.set_status(t!("Choisissez le conteneur des tests, puis ▶ Lancer", "Choose the tests container, then ▶ Run"));
+        if container.is_empty() {
+            self.prefs.section = PrefSection::Tests;
+            self.open_settings();
+            self.set_status(t!("Indique le conteneur Docker des tests Odoo, puis relance (Ctrl+F6)", "Set the Docker container of the Odoo tests, then run again (Ctrl+F6)"));
+            return;
+        }
+        if tags.is_empty() {
+            let draft = self.test_tags_here().or_else(|| self.settings.odoo_test_history.first().cloned()).unwrap_or_default();
+            self.open_prompt(Prompt::TestTags(draft));
             return;
         }
         let h = &mut self.settings.odoo_test_history;
@@ -57,16 +58,6 @@ impl App {
         let cmd = odoo_test::command(&self.settings.odoo_test_command, &tags);
         self.set_status(tf!("Tests {tags} dans {container}…", "Tests {tags} in {container}…"));
         self.jobs.spawn(move || JobResult::TestsReady { result: crate::docker::exec_in(&container, &cmd), tags });
-    }
-
-    /// In the Docker view: the chosen container becomes the one of the tests.
-    pub(super) fn run_tests_in(&mut self, container: String, tags: String) {
-        if self.settings.odoo_test_container != container {
-            self.settings.odoo_test_container = container.clone();
-            self.persist("odoo_test_container", config::toml_str(&container));
-        }
-        self.tests.open = false;
-        self.run_tests(tags);
     }
 
     pub(super) fn tests_ready(&mut self, tags: String, result: Result<crate::docker::Exec, String>) {
@@ -137,54 +128,4 @@ impl App {
         }
     }
 
-    /// The tests row of the Docker view, under the bar of the container `name`.
-    pub(super) fn tests_row(&mut self, ui: &mut egui::Ui, name: &str) {
-        let mut run = None;
-        ui.horizontal(|ui| {
-            ui.label("Tags");
-            let r = crate::input::add(ui, egui::TextEdit::singleline(&mut self.tests.draft).desired_width(280.0).hint_text(t!(":MaClasse, /mon_module, :MaClasse.test_x", ":MyClass, /my_module, :MyClass.test_x")).font(egui::TextStyle::Monospace));
-            if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                run = Some(self.tests.draft.clone());
-            }
-            let history = &self.settings.odoo_test_history;
-            ui.add_enabled_ui(!history.is_empty(), |ui| {
-                ui.menu_button("▾", |ui| {
-                    for t in history {
-                        if ui.button(RichText::new(t).monospace()).clicked() {
-                            self.tests.draft = t.clone();
-                            ui.close_menu();
-                        }
-                    }
-                })
-                .response
-                .on_hover_text(t!("Tags lancés récemment", "Recently run tags"));
-            });
-            if let Some(here) = self.test_tags_here() {
-                if ui.small_button(format!("↳ {here}")).on_hover_text(t!("D'après le curseur dans le dernier fichier", "From the cursor in the last file")).clicked() {
-                    self.tests.draft = here;
-                }
-            }
-            if ui.add_enabled(!self.tests.draft.trim().is_empty(), egui::Button::new(t!("▶ Lancer", "▶ Run"))).on_hover_text(t!("Ctrl+F6 relance ensuite le dernier, de n'importe où", "Ctrl+F6 then runs the last one again, from anywhere")).clicked() {
-                run = Some(self.tests.draft.clone());
-            }
-            // the command run, rarely changed: under ⋯
-            let mut save = false;
-            ui.menu_button(RichText::new("⋯").strong(), |ui| {
-                ui.set_min_width(420.0);
-                ui.label(RichText::new(t!("Commande lancée dans le conteneur ({tags} : les tags)", "Command run in the container ({tags}: the tags)")).small().weak());
-                let r = crate::input::add(ui, egui::TextEdit::singleline(&mut self.settings.odoo_test_command).desired_width(f32::INFINITY).hint_text(odoo_test::DEFAULT_COMMAND).font(egui::TextStyle::Monospace));
-                // saved as typed: the menu may close before the field loses the focus
-                save = r.changed();
-            })
-            .response
-            .on_hover_text(t!("La commande des tests", "The command of the tests"));
-            if save {
-                let c = config::toml_str(&self.settings.odoo_test_command);
-                self.persist("odoo_test_command", c);
-            }
-        });
-        if let Some(tags) = run {
-            self.run_tests_in(name.to_string(), tags);
-        }
-    }
 }

@@ -16,7 +16,6 @@ impl App {
             BottomTab::Search => self.docs.iter().position(in_editor(document::View::Search)),
             // each Claude tab is a conversation of its own: it stays
             BottomTab::Pulls => self.docs.iter().position(in_editor(document::View::PullRequests)),
-            BottomTab::Docker => self.docs.iter().position(in_editor(document::View::Docker)),
             BottomTab::Debug => self.docs.iter().position(in_editor(document::View::Debug)),
             BottomTab::Git => self.docs.iter().position(in_editor(document::View::Git)),
             _ => None,
@@ -31,7 +30,6 @@ impl App {
             BottomTab::Claude => self.claude_prepare(),
             BottomTab::Git => self.git_view_load(),
             BottomTab::Pulls => self.pulls_load(),
-            BottomTab::Docker => self.docker_load(),
             BottomTab::Debug => self.debug.focus_console = true,
             BottomTab::Problems | BottomTab::Output => {}
         }
@@ -50,7 +48,6 @@ impl App {
             }
             BottomTab::Git => self.open_git_view(),
             BottomTab::Pulls => self.open_pulls(),
-            BottomTab::Docker => self.open_docker(),
             BottomTab::Debug => self.open_debug(),
             BottomTab::Problems | BottomTab::Output => self.show_bottom(tab, false),
         }
@@ -64,7 +61,6 @@ impl App {
             BottomTab::Claude => !self.claude_has_bottom(),
             BottomTab::Git => tab_of(document::View::Git),
             BottomTab::Pulls => tab_of(document::View::PullRequests),
-            BottomTab::Docker => tab_of(document::View::Docker),
             BottomTab::Debug => tab_of(document::View::Debug),
             BottomTab::Terminal | BottomTab::Problems | BottomTab::Output => false,
         }
@@ -223,7 +219,7 @@ impl App {
             self.last_bottom = t;
         }
         // Claude, git and the pull requests need room for their bars and content
-        let min_h = if matches!(self.bottom, Some(BottomTab::Claude | BottomTab::Git | BottomTab::Pulls | BottomTab::Docker | BottomTab::Debug)) { 360.0 } else { 80.0 };
+        let min_h = if matches!(self.bottom, Some(BottomTab::Claude | BottomTab::Git | BottomTab::Pulls | BottomTab::Debug)) { 360.0 } else { 80.0 };
         egui::TopBottomPanel::bottom("bottom").resizable(true).default_height(230.0).height_range(min_h..=900.0).show(
             ctx,
             |ui| {
@@ -283,9 +279,6 @@ impl App {
                     }
                     Some(BottomTab::Pulls) => {
                         egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.pulls_ui(ui));
-                    }
-                    Some(BottomTab::Docker) => {
-                        egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.docker_ui(ui));
                     }
                     Some(BottomTab::Debug) => {
                         egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.debug_ui(ui));

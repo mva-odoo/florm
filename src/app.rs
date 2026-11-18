@@ -38,7 +38,6 @@ mod screenshot;
 mod md;
 mod quick_fix;
 mod pulls;
-mod docker_view;
 mod debugger;
 mod view_tabs;
 mod remote_ui;
@@ -261,7 +260,6 @@ enum BottomTab {
     Claude,
     Git,
     Pulls,
-    Docker,
     Debug,
 }
 
@@ -283,7 +281,7 @@ impl BottomTab {
     }
 
     /// The views of the bottom panel, in the order of its ▾ menu.
-    const ALL: [(BottomTab, icons::ViewIcon, &'static str); 9] = [
+    const ALL: [(BottomTab, icons::ViewIcon, &'static str); 8] = [
         (BottomTab::Search, icons::ViewIcon::Search, "Recherche"),
         (BottomTab::Problems, icons::ViewIcon::Problems, "Problèmes"),
         (BottomTab::Terminal, icons::ViewIcon::Terminal, "Terminal"),
@@ -291,12 +289,10 @@ impl BottomTab {
         (BottomTab::Claude, icons::ViewIcon::Claude, "Claude"),
         (BottomTab::Git, icons::ViewIcon::Git, "Git"),
         (BottomTab::Pulls, icons::ViewIcon::PullRequests, "GitHub"),
-        (BottomTab::Docker, icons::ViewIcon::Docker, "Docker"),
         (BottomTab::Debug, icons::ViewIcon::Debug, "Débogage"),
     ];
 
-    /// The views offered. Docker is always there: without the docker command, its view explains
-    /// how to install it.
+    /// The views offered: those of the parts turned on.
     fn shown() -> impl Iterator<Item = (BottomTab, icons::ViewIcon, &'static str)> {
         Self::ALL.into_iter().filter(|(t, ..)| t.feature_on()).map(|(t, i, l)| {
             let l = match l {
@@ -325,7 +321,6 @@ impl BottomTab {
             BottomTab::Claude => Cmd::Claude,
             BottomTab::Git => Cmd::ShowGit,
             BottomTab::Pulls => Cmd::PullRequests,
-            BottomTab::Docker => Cmd::Docker,
             BottomTab::Debug => Cmd::Debug,
         }
     }
@@ -358,6 +353,8 @@ enum Prompt {
     NewTemplate { body: String, ext: String },
     /// The other file (or folder) to compare the active file with.
     CompareWith,
+    /// Tags of the Odoo tests to run (`/module`, `:TestClass.test_method`…).
+    TestTags(String),
 }
 
 use git::BranchPick;
@@ -1065,7 +1062,6 @@ pub struct App {
     quick_fix: Option<quick_fix::QuickFix>,
     /// GitHub pull requests tab.
     pr: pulls::PrUi,
-    docker: docker_view::DockerUi,
     tests: odoo_tests::Tests,
     /// The debugger (F5): its session, the breakpoints of the project.
     debug: debugger::DebugUi,
@@ -1139,7 +1135,7 @@ enum PrefSection {
     Git,
     PullRequests,
     Claude,
-    Docker,
+    Tests,
     Debug,
     Terminal,
     Keys,
@@ -1155,7 +1151,7 @@ const PREF_SECTIONS: [(PrefSection, &str, &str); 12] = [
     (PrefSection::Git, "Git", "Git"),
     (PrefSection::PullRequests, "Pull requests", "Pull requests"),
     (PrefSection::Claude, "Claude", "Claude"),
-    (PrefSection::Docker, "Docker", "Docker"),
+    (PrefSection::Tests, "Tests", "Tests"),
     (PrefSection::Debug, "Débogueur", "Debugger"),
     (PrefSection::Terminal, "Terminal", "Terminal"),
     (PrefSection::Keys, "Raccourcis", "Shortcuts"),
@@ -1337,7 +1333,6 @@ impl App {
                 pr.apply_settings(&settings.pr_default_state, &settings.pr_default_who, settings.pr_show_resolved);
                 pr
             },
-            docker: Default::default(),
             tests: Default::default(),
             debug: Default::default(),
             gh: Default::default(),
@@ -1782,7 +1777,6 @@ fn doc_tab(d: &Document) -> (TabIcon<'_>, String) {
         View::Help => Some(ViewIcon::Help),
         View::Welcome => Some(ViewIcon::Welcome),
         View::PullRequests => Some(ViewIcon::PullRequests),
-        View::Docker => Some(ViewIcon::Docker),
         View::Debug => Some(ViewIcon::Debug),
         View::Git | View::History | View::Conflicts => Some(ViewIcon::Git),
         View::Settings => Some(ViewIcon::Settings),
@@ -2775,21 +2769,21 @@ mod font_tests {
             all(&mut app);
             assert_eq!(app.bottom, Some(tab));
         }
-        // a view has one place: ⇲ keeps Docker in the bottom panel, its shortcut opens it there,
+        // a view has one place: ⇲ keeps Git in the bottom panel, its shortcut opens it there,
         // ⇱ puts it back in a tab, and the shortcut then shows that tab
-        let docker_tab = |app: &App| app.docs.iter().any(|d| d.view == document::View::Docker);
-        app.move_view(BottomTab::Docker, false);
+        let git_tab = |app: &App| app.docs.iter().any(|d| d.view == document::View::Git);
+        app.move_view(BottomTab::Git, false);
         app.bottom = None;
-        app.open_tool(BottomTab::Docker);
-        assert_eq!(app.bottom, Some(BottomTab::Docker));
-        assert!(!docker_tab(&app));
-        app.move_view(BottomTab::Docker, true);
-        assert!(docker_tab(&app));
+        app.open_tool(BottomTab::Git);
+        assert_eq!(app.bottom, Some(BottomTab::Git));
+        assert!(!git_tab(&app));
+        app.move_view(BottomTab::Git, true);
+        assert!(git_tab(&app));
         app.bottom = Some(BottomTab::Terminal);
-        app.open_tool(BottomTab::Docker);
-        assert!(app.showing(document::View::Docker));
+        app.open_tool(BottomTab::Git);
+        assert!(app.showing(document::View::Git));
         assert_eq!(app.bottom, Some(BottomTab::Terminal));
-        assert!(app.settings.views_in_tab.contains(&"docker".to_string()));
+        assert!(app.settings.views_in_tab.contains(&"git".to_string()));
         // Ctrl+K opens the list of the views; a chord still works after it, Échap closes it
         let press = |app: &mut App, key: Key, modifiers: egui::Modifiers| {
             let ev = egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers };

@@ -155,10 +155,6 @@ impl App {
                 egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.pulls_ui(ui));
                 None
             }
-            document::View::Docker => {
-                egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.docker_ui(ui));
-                None
-            }
             document::View::Debug => {
                 egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.debug_ui(ui));
                 None

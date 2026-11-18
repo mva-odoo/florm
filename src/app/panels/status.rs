@@ -251,10 +251,6 @@ impl App {
                         }
                         None => {}
                     }
-                    let running = self.docker_running();
-                    if running > 0 && state_chip(ui, icons::ViewIcon::Docker, &running.to_string(), weak).on_hover_text(tf!("Docker : {running} conteneur(s) démarré(s)", "Docker: {running} running container(s)")).clicked() {
-                        self.toggle_tool(BottomTab::Docker);
-                    }
                     // the conversations: finished and not seen yet, waiting for you, working
                     let (busy, waiting, done) = self.claude_states();
                     if let Some((id, lit)) = done {

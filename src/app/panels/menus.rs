@@ -162,8 +162,6 @@ impl App {
             item(ui, t!("Linter le fichier", "Lint the file"), Cmd::Lint);
             ui.separator();
             item(ui, "✳ Claude", Cmd::Claude);
-            // also when docker is missing: the view then tells how to install it
-            item(ui, t!("Docker (conteneurs et logs)", "Docker (containers and logs)"), Cmd::Docker);
             item(ui, t!("Débogage (F5)", "Debug (F5)"), Cmd::Debug);
             item(ui, t!("TODO / FIXME du projet", "TODO / FIXME of the project"), Cmd::ListTodos);
             ui.separator();

@@ -231,7 +231,6 @@ impl App {
         use document::View;
         Some(match d.view {
             View::Claude => format!("claude:{}", self.claude_tab_key(d.uid)),
-            View::Docker => "docker".into(),
             View::PullRequests => "pulls".into(),
             View::Debug => "debug".into(),
             View::Search => "search".into(),
@@ -253,7 +252,6 @@ impl App {
             ("pulls", _) if !on(Feature::GitHub) => return false,
             ("debug", _) if !on(Feature::Debugger) => return false,
             ("claude", key) => self.claude_restore_tab(key.parse().unwrap_or(0)),
-            ("docker", _) => self.open_docker(),
             ("pulls", _) => self.open_pulls(),
             ("debug", _) => self.open_debug(),
             ("git", _) => self.open_git_view(),

@@ -400,11 +400,11 @@ impl App {
             ShowOutput => self.bottom = Some(BottomTab::Output),
             ShowGit => self.open_tool(BottomTab::Git),
             PullRequests => self.open_tool(BottomTab::Pulls),
-            Docker => self.open_tool(BottomTab::Docker),
             TestAgain => match self.settings.odoo_test_history.first().cloned() {
                 Some(t) => self.run_tests(t),
                 None => self.run_tests(String::new()),
             },
+            TestRun => self.run_tests(String::new()),
             TestHere => match self.test_tags_here() {
                 Some(t) => self.run_tests(t),
                 None => self.set_status(t!("Pas de test ni de module Odoo sous le curseur", "No Odoo test or module under the cursor")),

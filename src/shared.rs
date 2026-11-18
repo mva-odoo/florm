@@ -21,7 +21,7 @@ pub const DEFAULT_REPO: &str = "florm-config";
 /// Commands run, or permissions of Claude: they stay on each computer (a shared repository must not
 /// set them: it could run any command on every computer that syncs it).
 pub const LOCAL_KEYS: &[&str] = &[
-    "shared_config", "odoo_test_history", "odoo_test_container", "docker_order", "shell", "debug_target", "debug_command", "debug_python",
+    "shared_config", "odoo_test_history", "odoo_test_container", "shell", "debug_target", "debug_command", "debug_python",
     "debug_docker_command", "odoo_test_command", "lsp_servers", "python_linter", "python_lint_args", "claude_perms", "claude_allow", "claude_deny",
 ];
 
@@ -260,7 +260,7 @@ mod tests {
 
     #[test]
     fn local_keys_stay_local() {
-        let text = "theme = \"Florm\"\nshell = \"fish\"\ndocker_order = { a = [\"b\"] }\nshared_config = \"mva\"\n\n[keys]\n\"ctrl+r\" = \"git_push\"\n";
+        let text = "theme = \"Florm\"\nshell = \"fish\"\nshared_config = \"mva\"\n\n[keys]\n\"ctrl+r\" = \"git_push\"\n";
         assert_eq!(portable_settings(text), "theme = \"Florm\"\n\n[keys]\n\"ctrl+r\" = \"git_push\"\n");
     }
 }
