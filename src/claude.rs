@@ -22,12 +22,9 @@ pub fn not_installed() -> String {
 pub const MODELS: [(&str, &str); 5] = [("", "Modèle par défaut"), ("opus", "Opus"), ("sonnet", "Sonnet"), ("haiku", "Haiku (rapide)"), ("fable", "Fable")];
 
 /// What Florm knows of the project, given to Claude at the start of each conversation (see
-/// `florm_context`): how the tests are run, the commit rules, where the user is.
+/// `florm_context`): the commit rules, where the user is.
 #[derive(Default)]
 pub struct FlormContext {
-    /// The container of the Odoo tests, the command run in it (`{tags}` for the tags) and the
-    /// last tags run.
-    pub tests: Option<(String, String, Vec<String>)>,
     /// The rules of the commit messages (the project's, else the user's).
     pub commit_rules: String,
     /// The repository of the file shown and its branch.
@@ -40,17 +37,6 @@ pub struct FlormContext {
 /// language of the interface; empty when Florm knows nothing worth saying.
 pub fn florm_context(ctx: &FlormContext) -> String {
     let mut parts: Vec<String> = Vec::new();
-    if let Some((container, command, history)) = &ctx.tests {
-        let cmd = if command.trim().is_empty() { crate::odoo_test::DEFAULT_COMMAND } else { command.as_str() };
-        let mut s = tf!(
-            "## Tests Odoo\nLes tests se lancent dans le conteneur Docker `{container}`, pas sur la machine : `docker exec {container} {cmd}` (remplace {{tags}} par les tags, ex. `/sale_stock` ou `/sale_stock:TestClass.test_method`). Après une modification, propose les tests à lancer sous forme de liste à cocher (`- [ ] …`) ; lance-les quand on te le demande.",
-            "## Odoo tests\nThe tests run in the Docker container `{container}`, not on the machine: `docker exec {container} {cmd}` (replace {{tags}} with the tags, e.g. `/sale_stock` or `/sale_stock:TestClass.test_method`). After a change, propose the tests to run as a list to tick (`- [ ] …`); run them when asked."
-        );
-        if !history.is_empty() {
-            s += &tf!("\nDerniers tags lancés : {}.", "\nLast tags run: {}.", history.iter().take(5).map(|t| format!("`{t}`")).collect::<Vec<_>>().join(", "));
-        }
-        parts.push(s);
-    }
     if !ctx.commit_rules.trim().is_empty() {
         parts.push(tf!(
             "## Messages de commit\nQuand tu fais un commit, suis ces consignes :\n{}",
@@ -1691,15 +1677,12 @@ mod tests {
     fn florm_tells_claude_what_it_knows() {
         assert!(florm_context(&FlormContext::default()).is_empty());
         let ctx = FlormContext {
-            tests: Some(("odoo-17".into(), String::new(), vec!["/sale".into()])),
             commit_rules: "[TAG] Zone : quoi".into(),
             repo: Some(("odoo".into(), "17.0-fix".into())),
             version: "17.0".into(),
         };
         let t = florm_context(&ctx);
-        // the exact command, in the container, with the tags to fill
-        assert!(t.contains("docker exec odoo-17 odoo --stop-after-init --test-enable --test-tags {tags}"), "{t}");
-        assert!(t.contains("`/sale`") && t.contains("[TAG] Zone : quoi") && t.contains("17.0-fix"));
+        assert!(t.contains("[TAG] Zone : quoi") && t.contains("17.0-fix"), "{t}");
     }
 
     #[test]

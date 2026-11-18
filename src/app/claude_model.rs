@@ -8,12 +8,9 @@ impl App {
     /// What Florm knows of the project of `dir`, for Claude's system prompt (`claude::florm_context`):
     /// the tests container and command, the containers, the commit rules, the branch.
     pub(super) fn florm_context(&self, dir: &Path) -> String {
-        let s = &self.settings;
-        let tests = (!s.odoo_test_container.is_empty()).then(|| (s.odoo_test_container.clone(), s.odoo_test_command.clone(), s.odoo_test_history.clone()));
         let repo = self.repo_for(dir).unwrap_or_else(|| dir.to_path_buf());
         let branch = git::head_branch(dir).map(|b| (self.repo_label(&repo), b));
         let ctx = claude::FlormContext {
-            tests,
             commit_rules: claude::commit_rules(dir),
             repo: branch,
             version: self.version.clone(),
