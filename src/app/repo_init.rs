@@ -35,6 +35,7 @@ impl App {
         let Some(st) = self.repo_init.as_mut() else { return };
         let mut open = true;
         let (mut go, mut cancel) = (false, false);
+        modal_backdrop(ctx);
         egui::Window::new(t!("Nouveau dépôt git", "New git repository"))
             .open(&mut open)
             .collapsible(false)

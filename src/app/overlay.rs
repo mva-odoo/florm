@@ -951,6 +951,7 @@ impl App {
         let no_loses = matches!(c, Confirm::CloseTab(_) | Confirm::Quit | Confirm::QuitClaude(_) | Confirm::Delete(_) | Confirm::SwitchProject(_));
         let accent = self.hl.colors.accent;
         let (icon, icon_color) = if careful || no_loses { ("⚠", warn()) } else { ("?", accent) };
+        modal_backdrop(ctx);
         egui::Window::new(title)
             .id(egui::Id::new("confirm"))
             .title_bar(false)
@@ -961,7 +962,7 @@ impl App {
             .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
                 // a fixed width: the message (often a path) wraps the same way every time
-                ui.set_width(460.0);
+                ui.set_width(500.0);
                 let v = ui.visuals().clone();
                 ui.horizontal(|ui| {
                     let (r, _) = ui.allocate_exact_size(egui::vec2(30.0, 30.0), Sense::hover());
@@ -970,9 +971,19 @@ impl App {
                     ui.add_space(6.0);
                     ui.label(RichText::new(title).size(17.0).strong());
                 });
-                ui.add_space(12.0);
-                ui.add(egui::Label::new(RichText::new(msg).size(14.0)).wrap());
-                ui.add_space(20.0);
+                ui.add_space(14.0);
+                // the first line says what happens (the question), the next ones explain it: each a
+                // paragraph of its own, quieter, with room between (in one block it read as a wall)
+                let mut lines = msg.lines().map(str::trim).filter(|l| !l.is_empty());
+                if let Some(first) = lines.next() {
+                    ui.add(egui::Label::new(RichText::new(first).size(15.0).color(v.strong_text_color())).wrap());
+                }
+                let detail = icons::mix(v.text_color(), v.window_fill, 0.22);
+                for line in lines {
+                    ui.add_space(8.0);
+                    ui.add(egui::Label::new(RichText::new(line).size(13.5).color(detail)).wrap());
+                }
+                ui.add_space(22.0);
                 let mut buttons = Vec::new();
                 // one row of a fixed height: a layout from the right would take all the height
                 // left, and the window would grow to the whole screen

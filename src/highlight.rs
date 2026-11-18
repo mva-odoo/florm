@@ -294,8 +294,10 @@ impl Highlighting {
             // straight corners and flat popups, framed by a line instead of a shadow
             v.window_rounding = Rounding::ZERO;
             v.menu_rounding = Rounding::ZERO;
-            v.window_shadow = egui::epaint::Shadow::NONE;
-            v.popup_shadow = egui::epaint::Shadow::NONE;
+            // a sharp shadow, offset and without blur: square too, but the window stands out
+            let hard = Color32::from_black_alpha(if v.dark_mode { 150 } else { 45 });
+            v.window_shadow = egui::epaint::Shadow { offset: egui::vec2(6.0, 6.0), blur: 0.0, spread: 0.0, color: hard };
+            v.popup_shadow = egui::epaint::Shadow { offset: egui::vec2(3.0, 3.0), blur: 0.0, spread: 0.0, color: hard };
             for w in [&mut v.widgets.noninteractive, &mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active, &mut v.widgets.open] {
                 w.rounding = Rounding::ZERO;
             }
@@ -323,7 +325,8 @@ impl Highlighting {
         v.hyperlink_color = c.accent;
         v.selection.bg_fill = mix(c.bg, mix(c.accent, c.accent2, 0.6), 0.38);
         v.selection.stroke = Stroke::new(1.0_f32, mix(c.accent, c.bg, 0.15));
-        v.window_stroke = Stroke::new(1.0_f32, shade(14));
+        // the edge of the windows and menus: seen against the view behind (shade 14 hardly was)
+        v.window_stroke = Stroke::new(1.0_f32, shade(34));
         v.window_rounding = Rounding::same(12.0);
         v.menu_rounding = Rounding::same(10.0);
         let shadow = Color32::from_black_alpha(if light { 40 } else { 110 });

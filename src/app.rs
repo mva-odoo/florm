@@ -235,6 +235,17 @@ fn card_over(ui: &egui::Ui, rect: egui::Rect, outside: Color32, border: egui::St
     p.add(egui::Shape::line(path, border));
 }
 
+/// Behind a dialog: the rest of Florm darkened, and its clicks ignored until the dialog is closed
+/// (drawn between the panels and the windows). Without it a dialog looked like part of the view.
+fn modal_backdrop(ctx: &egui::Context) {
+    let screen = ctx.screen_rect();
+    egui::Area::new(egui::Id::new("modal_backdrop")).order(egui::Order::PanelResizeLine).fixed_pos(screen.min).show(ctx, |ui| {
+        let (rect, _) = ui.allocate_exact_size(screen.size(), egui::Sense::click_and_drag());
+        let dark = if ui.visuals().dark_mode { 120 } else { 70 };
+        ui.painter().rect_filled(rect, 0.0, Color32::from_black_alpha(dark));
+    });
+}
+
 fn filled_button(text: impl Into<String>, fill: Color32) -> egui::Button<'static> {
     egui::Button::new(RichText::new(text.into()).color(text_on(fill)).strong()).fill(fill)
 }

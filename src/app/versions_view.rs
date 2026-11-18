@@ -145,6 +145,7 @@ impl App {
         names.dedup();
         let mut act: Option<Act> = None;
         let mut open = true;
+        modal_backdrop(ctx);
         egui::Window::new(t!("Versions côte à côte", "Versions side by side"))
             .open(&mut open)
             .collapsible(false)

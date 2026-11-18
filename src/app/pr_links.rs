@@ -235,6 +235,7 @@ impl App {
         }
         let mut open = true;
         let (mut create, mut cancel, mut write) = (false, false, false);
+        modal_backdrop(ctx);
         egui::Window::new(t!("Créer une pull request", "Create a pull request"))
             .open(&mut open)
             .collapsible(false)
@@ -274,10 +275,11 @@ impl App {
                     ui.label(RichText::new(t!("Titre", "Title")).weak());
                     crate::input::add(ui, egui::TextEdit::singleline(&mut c.title).desired_width(f32::INFINITY));
                     ui.end_row();
+                    // never wrapped: in the narrow first column they went one letter per line
                     ui.vertical(|ui| {
-                        ui.label(RichText::new("Description").weak());
+                        ui.add(egui::Label::new(RichText::new("Description").weak()).extend());
                         let can = base.is_some() && !c.base_remote.is_empty() && !c.writing && !c.busy;
-                        if crate::features::on(crate::features::Feature::Claude) && ui.add_enabled(can, egui::Button::new(t!("✳ Rédiger", "✳ Write")).small()).on_hover_text(t!("Claude rédige la description à partir des commits et du diff de la branche (si elle est vide)", "Claude writes the description from the commits and the diff of the branch (if it is empty)")).clicked() {
+                        if crate::features::on(crate::features::Feature::Claude) && ui.add_enabled(can, egui::Button::new(t!("✳ Rédiger", "✳ Write")).small().wrap_mode(egui::TextWrapMode::Extend)).on_hover_text(t!("Claude rédige la description à partir des commits et du diff de la branche (si elle est vide)", "Claude writes the description from the commits and the diff of the branch (if it is empty)")).clicked() {
                             write = true;
                         }
                         if c.writing {

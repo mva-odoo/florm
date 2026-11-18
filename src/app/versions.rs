@@ -138,6 +138,7 @@ impl App {
         let mut open = true;
         let (mut go, mut cancel, mut fetch) = (false, false, false);
         let folder = git::version_folder(&st.branch);
+        modal_backdrop(ctx);
         egui::Window::new(t!("Ajouter une version", "Add a version"))
             .open(&mut open)
             .collapsible(false)
