@@ -407,7 +407,7 @@ impl App {
             TestRun => self.run_tests(String::new()),
             TestHere => match self.test_tags_here() {
                 Some(t) => self.run_tests(t),
-                None => self.set_status(t!("Pas de test ni de module Odoo sous le curseur", "No Odoo test or module under the cursor")),
+                None => self.set_status(t!("Pas de test sous le curseur (Odoo, pytest, jest, cargo, go)", "No test under the cursor (Odoo, pytest, jest, cargo, go)")),
             },
             DebugTestHere => match self.test_tags_here() {
                 Some(t) => self.debug_test(t),

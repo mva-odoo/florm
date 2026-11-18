@@ -325,13 +325,26 @@ Les problèmes sont soulignés dans le code et listés dans **Problèmes** (pann
   son module est dans le projet ouvert, et les identifiants créés par Odoo lui-même (`model_…`,
   `field_…`) ou par du code Python ne sont pas signalés : pas de fausse alerte.
 
+## Tests (pytest, jest, cargo, go)
+
+Les tests de n'importe quel projet se lancent sur cet ordinateur, sans rien régler :
+
+- **pytest** pour `test_*.py` et `*_test.py` (le `pytest` du `.venv` du projet s'il y en a un),
+  **jest** (ou **vitest**, si `package.json` le demande) pour `*.test.js`, `*.spec.ts`…,
+  **cargo test** pour les `#[test]` d'un fichier Rust, **go test** pour `*_test.go`.
+- Le **▶** dans la marge d'un test le lance ; **Ctrl+Maj+F6** lance le test sous le curseur,
+  **Ctrl+F6** relance le dernier. La commande est montrée telle quelle (`pytest tests/test_a.py::TestX::test_y`,
+  `cargo test app::calc::tests::adds`…) : dans « Tests : lancer des tests… », on peut la modifier avant
+  Entrée. Un projet dans un sous-dossier commence par `cd sous-dossier && `.
+- La sortie s'affiche dans le panneau du bas, le résumé (✔ ou ⚠, réussis et en échec) dans la barre d'état.
+
 ## Tests Odoo
 
 Les tests Odoo tournent dans un conteneur Docker, réglé une fois dans **Préférences → Tests**
 (le conteneur, et la commande si celle par défaut ne convient pas ; `{tags}` y est remplacé par les
 tags).
 
-- **Lancer** : « Odoo : lancer des tests… » dans la palette, ou **Ctrl+F6** la première fois. Florm demande les tags,
+- **Lancer** : « Tests : lancer des tests… » dans la palette, ou **Ctrl+F6** la première fois. Florm demande les tags,
   ceux du code sous le curseur déjà remplis (`:MaClasse`, `/mon_module`, `:MaClasse.test_x`) ;
   **Entrée** lance. Sans conteneur réglé, les préférences s'ouvrent au bon endroit.
 - **Ctrl+F6** relance ensuite les derniers tags, de n'importe où ; **Ctrl+Maj+F6** le test sous le

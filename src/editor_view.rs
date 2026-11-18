@@ -64,7 +64,7 @@ pub struct ViewOpts<'a> {
     pub rulers: &'a [usize],
     /// Comments of a pull request on lines: (line, text), marked in the gutter.
     pub notes: &'a [(usize, String)],
-    /// Odoo tests of the file: (line, tags), a ▶ in the gutter runs them.
+    /// Tests of the file: (line, Odoo tags or command), a ▶ in the gutter runs them.
     pub tests: &'a [(usize, String)],
     /// Breakpoints can be put in the gutter (`Document::breakpoints`).
     pub breakpoints: bool,
@@ -532,10 +532,11 @@ fn text_area(
                         msgs.push(if bps.contains(&l) { t!("● Clic : retirer le point d'arrêt (F9)", "● Click: remove the breakpoint (F9)") } else { t!("● Clic : point d'arrêt du débogueur (F9)", "● Click: debugger breakpoint (F9)") }.into());
                     } else if let Some(tags) = test_at(l).filter(|_| p.x >= gx + test_x && p.x < gx + test_x + test_w) {
                         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
-                        msgs.push(if crate::features::on(crate::features::Feature::Debugger) {
-                            tf!("▶ Clic : lancer {tags} dans le conteneur des tests (Ctrl+F6 : relancer) · clic droit : le déboguer", "▶ Click: run {tags} in the tests container (Ctrl+F6: run again) · right click: debug it")
-                        } else {
-                            tf!("▶ Clic : lancer {tags} dans le conteneur des tests (Ctrl+F6 : relancer)", "▶ Click: run {tags} in the tests container (Ctrl+F6: run again)")
+                        let odoo = crate::test_cmd::parse(tags).is_none();
+                        msgs.push(match (odoo, crate::features::on(crate::features::Feature::Debugger)) {
+                            (true, true) => tf!("▶ Clic : lancer {tags} dans le conteneur des tests (Ctrl+F6 : relancer) · clic droit : le déboguer", "▶ Click: run {tags} in the tests container (Ctrl+F6: run again) · right click: debug it"),
+                            (true, false) => tf!("▶ Clic : lancer {tags} dans le conteneur des tests (Ctrl+F6 : relancer)", "▶ Click: run {tags} in the tests container (Ctrl+F6: run again)"),
+                            (false, _) => tf!("▶ Clic : lancer « {tags} » (Ctrl+F6 : relancer)", "▶ Click: run “{tags}” (Ctrl+F6: run again)"),
                         });
                     }
                     if p.x >= gx + gutter_w - 8.0 && doc.hunks.iter().any(|h| h.contains(l)) {

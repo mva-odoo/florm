@@ -322,12 +322,25 @@ Problems are underlined in the code and listed in **Problems** (bottom panel):
   open project, and the ids made by Odoo itself (`model_…`, `field_…`) or by Python code are not
   reported: no false alarm.
 
+## Tests (pytest, jest, cargo, go)
+
+The tests of any project run on this computer, with nothing to set:
+
+- **pytest** for `test_*.py` and `*_test.py` (the `pytest` of the project's `.venv` if there is one),
+  **jest** (or **vitest**, if `package.json` asks for it) for `*.test.js`, `*.spec.ts`…,
+  **cargo test** for the `#[test]` of a Rust file, **go test** for `*_test.go`.
+- The **▶** in the gutter of a test runs it; **Ctrl+Shift+F6** runs the test under the cursor,
+  **Ctrl+F6** the last one again. The command is shown as it is (`pytest tests/test_a.py::TestX::test_y`,
+  `cargo test app::calc::tests::adds`…): in “Tests: run tests…”, it can be changed before Enter.
+  A project in a sub-folder starts with `cd sub-folder && `.
+- The output shows in the bottom panel, the summary (✔ or ⚠, passed and failed) in the status bar.
+
 ## Odoo tests
 
 The Odoo tests run in a Docker container, set once in **Preferences → Tests** (the container, and
 the command if the default one does not suit; `{tags}` in it is replaced by the tags).
 
-- **Run**: “Odoo: run tests…” in the palette, or **Ctrl+F6** the first time. Florm asks for the tags, those of
+- **Run**: “Tests: run tests…” in the palette, or **Ctrl+F6** the first time. Florm asks for the tags, those of
   the code under the cursor already filled (`:MyClass`, `/my_module`, `:MyClass.test_x`); **Enter**
   runs. Without a container set, the preferences open at the right place.
 - **Ctrl+F6** then runs the last tags again, from anywhere; **Ctrl+Shift+F6** the test under the

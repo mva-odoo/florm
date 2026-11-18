@@ -78,6 +78,10 @@ impl App {
     /// The Odoo test `tags` under the debugger: in the container of the debugger, else in the one
     /// of the tests when there is no odoo-bin here.
     pub(in crate::app) fn debug_test(&mut self, tags: String) {
+        if crate::test_cmd::parse(&tags).is_some() {
+            self.set_status(t!("Le débogage de ce test n'est pas encore possible : ▶ le lance", "Debugging this test is not possible yet: ▶ runs it"));
+            return;
+        }
         let mut cfg = self.debug_config();
         cfg.mode = Mode::Launch;
         if cfg.target == Target::Local && cfg.command.trim().is_empty() && !self.settings.odoo_test_container.is_empty() {
