@@ -617,11 +617,12 @@ panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en
   version où tu travailles. Claude écrit alors ses commits comme ✨. Pour lui apprendre à lancer
   tes tests (un conteneur, des tags…), un **skill** de Claude Code s'en charge mieux : il ne sert
   que quand c'est utile.
-- **Mes skills** (Préférences → Claude) : un seul dossier pour tous tes skills, donné à chaque
-  conversation de Claude, quel que soit le compte ; Claude les voit sous le nom `florm:nom`.
-  **+ Nouveau skill** crée un `SKILL.md` à remplir (sa `description` dit à Claude quand s'en
-  servir). Avec une configuration partagée, le dossier est dedans : les mêmes skills sur chaque
-  ordinateur, envoyés par **Publier**. Le panneau **Session** montre ce qui lui a été dit (survol de « Contexte Florm »).
+- **Mes skills** (Préférences → Claude) : un dossier à toi pour tous tes skills (un dépôt GitHub
+  à part, par exemple), donné à chaque conversation de Claude quel que soit le compte : aucun
+  projet n'a à les contenir. **Choisir…** le désigne ; range-le comme tu veux, chaque `SKILL.md`
+  trouvé est un skill, même dans des sous-dossiers par thème. Claude les voit sous le nom
+  `florm:nom`. **+ Nouveau skill** crée un `SKILL.md` à remplir (sa `description` dit à Claude
+  quand s'en servir). Sans dossier choisi : `skills/` de la configuration partagée. Le panneau **Session** montre ce qui lui a été dit (survol de « Contexte Florm »).
 - **Cases à cocher** : quand la dernière réponse de Claude propose des choses à faire (`- [ ]`),
   coche celles que tu veux puis **✔ Envoyer ma réponse** : Claude reçoit « Ok, tu peux faire : … »
   avec ce qui est coché, et « Pas pour l'instant : … » avec le reste.

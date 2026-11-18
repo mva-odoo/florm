@@ -420,7 +420,7 @@ florm-config/
 ├── settings.toml   # préférences appliquées par-dessus celles de l'ordinateur
 ├── templates/      # modèles (un fichier par modèle, comme le dossier local)
 ├── themes/         # thèmes .tmTheme
-└── skills/         # skills de Claude (un dossier par skill, avec son SKILL.md)
+└── skills/         # skills de Claude (chaque SKILL.md, même en sous-dossiers ; ou un dépôt à part : Préférences → Claude → Mes skills)
 ```
 
 Dans Préférences → Avancé → **Configuration partagée** (ou `shared_config` dans settings.toml), indiquez `login` (le dépôt `login/florm-config`), `owner/repo` ou une adresse git. Florm le clone dans `~/.config/florm/shared/` (avec `gh` s'il est installé, donc aussi les dépôts privés) et le met à jour à chaque démarrage.

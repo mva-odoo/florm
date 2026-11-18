@@ -160,6 +160,8 @@ pub struct Settings {
     /// Shared configuration (settings.toml, templates/, themes/) in a git repository:
     /// "login" (login/florm-config on GitHub), "owner/repo" or a git address; empty: none.
     pub shared_config: String,
+    /// The folder of the skills of Claude (empty: `skills/` of the shared configuration).
+    pub skills_dir: String,
 }
 
 impl Settings {
@@ -259,6 +261,7 @@ impl Default for Settings {
             pr_show_resolved: false,
             pr_draft: false,
             shared_config: String::new(),
+            skills_dir: String::new(),
         }
     }
 }
@@ -393,6 +396,9 @@ pr_draft = false
 # configuration partagée entre ordinateurs : un dépôt GitHub avec settings.toml, templates/,
 # et themes/ ; "login" (= login/florm-config), "owner/repo" ou une adresse git
 shared_config = ""
+# dossier des skills de Claude, donnés à chaque conversation (vide = skills/ de la configuration
+# partagée) ; n'importe quel rangement, chaque SKILL.md trouvé est un skill
+skills_dir = ""
 
 [keys]
 # Raccourcis personnalisés : "combinaison" = "id_de_commande"
@@ -512,6 +518,7 @@ pub fn load() -> (Settings, Option<String>) {
         Err(e) => return (Settings::default(), Some(format!("settings.toml : {e}"))),
     };
     crate::shared::set_spec(table.get("shared_config").and_then(|v| v.as_str()).unwrap_or(""));
+    crate::skills::set_dir(table.get("skills_dir").and_then(|v| v.as_str()).unwrap_or(""));
     let mut err = None;
     if let Some(sp) = crate::shared::settings_path().filter(|sp| sp.is_file()) {
         match std::fs::read_to_string(&sp).map_err(|e| e.to_string()).and_then(|t| toml::from_str::<toml::Table>(&t).map_err(|e| e.to_string())) {

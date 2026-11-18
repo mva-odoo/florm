@@ -234,6 +234,17 @@ impl App {
             });
     }
 
+    /// The folder of the skills of Claude chosen (empty: the default one); the next
+    /// conversations get its skills.
+    pub(super) fn skills_dir_set(&mut self, dir: String) {
+        self.settings.skills_dir = dir;
+        crate::skills::set_dir(&self.settings.skills_dir);
+        self.persist("skills_dir", config::toml_str(&self.settings.skills_dir));
+        self.prefs.skills = None;
+        let n = crate::skills::list().len();
+        self.set_status(tf!("Skills de Claude : {n} dans {}, pour les prochaines conversations", "Claude's skills: {n} in {}, for the next conversations", crate::skills::dir().display()));
+    }
+
     fn prefs_section(&mut self, ui: &mut egui::Ui, sec: PrefSection, rc: &mut RowCtx) {
         let before = self.settings.clone();
         let mut actions: Vec<Cmd> = Vec::new();
@@ -725,17 +736,39 @@ impl App {
                     self.prefs.skills = Some((Instant::now(), crate::skills::list()));
                 }
                 let mut open_skill: Option<PathBuf> = None;
-                let mut new_skill = false;
-                let shared = crate::shared::dir().is_some();
-                let help = if shared {
-                    t!("Un dossier de skills donné à chaque conversation de Claude, quel que soit le compte, rangé dans la configuration partagée : les mêmes sur chaque ordinateur (« Publier » les envoie). Claude les voit sous le nom florm:nom.", "A folder of skills given to every conversation of Claude, whatever the account, kept in the shared configuration: the same on every computer (“Publish” sends them). Claude sees them as florm:name.")
-                } else {
-                    t!("Un dossier de skills donné à chaque conversation de Claude, quel que soit le compte. Claude les voit sous le nom florm:nom.", "A folder of skills given to every conversation of Claude, whatever the account. Claude sees them as florm:name.")
-                };
+                let (mut new_skill, mut pick_skills, mut default_skills) = (false, false, false);
+                let chosen = s.skills_dir.trim().to_string();
+                let folder = crate::skills::dir();
+                let help = t!(
+                    "Un dossier à toi (un dépôt GitHub, par exemple) dont les skills sont donnés à chaque conversation de Claude, quel que soit le compte : aucun projet n'a à les contenir. Range-les comme tu veux : chaque SKILL.md trouvé, même dans des sous-dossiers, est un skill. Claude les voit sous le nom florm:nom. Sans dossier choisi : skills/ de la configuration partagée.",
+                    "A folder of yours (a GitHub repository, say) whose skills are given to every conversation of Claude, whatever the account: no project has to hold them. Arrange them as you like: every SKILL.md found, even in sub-folders, is a skill. Claude sees them as florm:name. Without a folder chosen: skills/ of the shared configuration."
+                );
                 let skills = self.prefs.skills.as_ref().map(|(_, v)| v.as_slice()).unwrap_or(&[]);
                 pref_row_wide(ui, rc, t!("Mes skills", "My skills"), help, |ui| {
+                    ui.horizontal(|ui| {
+                        let shown = if chosen.is_empty() { tf!("{} (par défaut)", "{} (default)", folder.display()) } else { chosen.clone() };
+                        ui.label(RichText::new(shown).monospace().small());
+                        if ui.small_button(t!("Choisir…", "Choose…")).on_hover_text(t!("Le dossier de tes skills", "The folder of your skills")).clicked() {
+                            pick_skills = true;
+                        }
+                        if !chosen.is_empty() && ui.small_button("↺").on_hover_text(t!("Revenir au dossier par défaut", "Back to the default folder")).clicked() {
+                            default_skills = true;
+                        }
+                        if ui.small_button(t!("Ouvrir", "Open")).on_hover_text(t!("Dans le gestionnaire de fichiers", "In the file manager")).clicked() {
+                            let _ = std::fs::create_dir_all(&folder);
+                            let _ = crate::os::reveal(&folder);
+                        }
+                    });
+                    let mut group: Option<&str> = None;
                     for sk in skills {
+                        if group != Some(sk.group.as_str()) {
+                            group = Some(sk.group.as_str());
+                            if !sk.group.is_empty() {
+                                ui.label(RichText::new(format!("{}/", sk.group)).small().strong());
+                            }
+                        }
                         ui.horizontal(|ui| {
+                            ui.add_space(if sk.group.is_empty() { 0.0 } else { 12.0 });
                             if ui.link(RichText::new(&sk.name).monospace()).on_hover_text(sk.path.display().to_string()).clicked() {
                                 open_skill = Some(sk.path.clone());
                             }
@@ -743,21 +776,20 @@ impl App {
                         });
                     }
                     if skills.is_empty() {
-                        ui.label(RichText::new(t!("Aucun pour l'instant.", "None yet.")).small().weak());
+                        ui.label(RichText::new(t!("Aucun skill dans ce dossier pour l'instant.", "No skill in this folder yet.")).small().weak());
                     }
-                    ui.horizontal(|ui| {
-                        if ui.button(t!("+ Nouveau skill", "+ New skill")).on_hover_text(t!("Crée un SKILL.md à remplir et l'ouvre", "Creates a SKILL.md to fill and opens it")).clicked() {
-                            new_skill = true;
-                        }
-                        if ui.button(t!("Ouvrir le dossier", "Open the folder")).on_hover_text(crate::skills::dir().display().to_string()).clicked() {
-                            let d = crate::skills::dir().join("skills");
-                            let _ = std::fs::create_dir_all(&d);
-                            let _ = crate::os::reveal(&d);
-                        }
-                    });
+                    if ui.button(t!("+ Nouveau skill", "+ New skill")).on_hover_text(t!("Crée un SKILL.md à remplir dans ce dossier et l'ouvre (à déplacer dans un sous-dossier si tu veux)", "Creates a SKILL.md to fill in this folder and opens it (to move into a sub-folder if you like)")).clicked() {
+                        new_skill = true;
+                    }
                 });
+                let taken: Vec<String> = skills.iter().map(|s| s.name.clone()).collect();
+                if pick_skills {
+                    self.file_dialog(crate::os::Pick::SkillsDir);
+                }
+                if default_skills {
+                    self.skills_dir_set(String::new());
+                }
                 if new_skill {
-                    let taken: Vec<String> = skills.iter().map(|s| s.name.clone()).collect();
                     let name = (1..).map(|k| if k == 1 { t!("nouveau-skill", "new-skill").to_string() } else { format!("{}-{k}", t!("nouveau-skill", "new-skill")) }).find(|n| !taken.contains(n)).unwrap_or_default();
                     match crate::skills::create(&name) {
                         Ok(p) => open_skill = Some(p),

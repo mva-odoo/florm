@@ -286,6 +286,8 @@ pub enum Pick {
     AccountProject,
     /// The configuration folder of a Claude account.
     AccountConfig,
+    /// The folder of the skills of Claude.
+    SkillsDir,
 }
 
 /// File chooser of the desktop (GTK, KDE…) through the xdg portal. Blocks until the dialog is
@@ -307,8 +309,9 @@ pub fn portal_pick(kind: Pick, dir: &Path, name: Option<&str>) -> Result<Vec<Pat
         Pick::ClaudeDir => ("OpenFile", t!("Le dossier où Claude travaille", "The folder Claude works in")),
         Pick::AccountProject => ("OpenFile", t!("Un dossier dont les conversations utilisent ce compte", "A folder whose conversations use this account")),
         Pick::AccountConfig => ("OpenFile", t!("Le dossier de configuration de ce compte Claude", "The configuration folder of this Claude account")),
+        Pick::SkillsDir => ("OpenFile", t!("Le dossier de tes skills de Claude", "The folder of your skills of Claude")),
     };
-    if matches!(kind, Pick::Folder | Pick::ClaudeDir | Pick::AccountProject | Pick::AccountConfig) {
+    if matches!(kind, Pick::Folder | Pick::ClaudeDir | Pick::AccountProject | Pick::AccountConfig | Pick::SkillsDir) {
         opts.insert("directory", Value::from(true));
     }
     if kind == Pick::Image {
