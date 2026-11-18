@@ -272,7 +272,7 @@ pub fn locate(program: &str) -> bool {
         return true;
     }
     let home = crate::config::home();
-    let usual: Vec<PathBuf> = vec![home.join(".local/bin"), "/usr/local/bin".into(), "/opt/homebrew/bin".into(), home.join(".cargo/bin")];
+    let usual: Vec<PathBuf> = vec![home.join(".local/bin"), "/usr/local/bin".into(), "/opt/homebrew/bin".into(), home.join(".cargo/bin"), home.join("go/bin")];
     match usual.into_iter().find(|d| has(d)) {
         Some(dir) => {
             let mut dirs: Vec<PathBuf> = std::env::split_paths(&path).collect();

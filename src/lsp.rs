@@ -32,12 +32,27 @@ pub fn language_of(path: &Path) -> Option<(&'static str, &'static str)> {
     })
 }
 
-/// Executable in PATH.
+/// Executable in PATH, else in the folders where `go install`, `cargo install` and `pip install
+/// --user` put them (often missing from the PATH of a program started from the desktop).
 pub fn in_path(name: &str) -> Option<PathBuf> {
     let exts: &[&str] = if cfg!(windows) { &[".exe", ".cmd", ".bat", ""] } else { &[""] };
-    std::env::split_paths(&std::env::var_os("PATH")?).find_map(|d| {
-        exts.iter().map(|e| d.join(format!("{name}{e}"))).find(|p| p.is_file())
-    })
+    let path: Vec<PathBuf> = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
+    path.into_iter().chain(tool_dirs()).find_map(|d| exts.iter().map(|e| d.join(format!("{name}{e}"))).find(|p| p.is_file()))
+}
+
+/// `$GOPATH/bin` (`~/go/bin`), `~/.cargo/bin`, `~/.local/bin`.
+fn tool_dirs() -> Vec<PathBuf> {
+    let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from);
+    let mut out = Vec::new();
+    match std::env::var_os("GOPATH") {
+        Some(g) => out.extend(std::env::split_paths(&g).map(|d| d.join("bin"))),
+        None => out.extend(home.as_ref().map(|h| h.join("go").join("bin"))),
+    }
+    if let Some(h) = &home {
+        out.push(h.join(".cargo").join("bin"));
+        out.push(h.join(".local").join("bin"));
+    }
+    out
 }
 
 /// Settings given to the servers. Florm shows the problems of its linters (flake8, ruff…), not

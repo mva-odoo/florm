@@ -556,6 +556,11 @@ impl Document {
     }
 
     /// The problems sent by the language server.
+    /// The problems found by the linters (not the language server).
+    pub fn lint_diagnostics(&self) -> &[Diagnostic] {
+        &self.lint_diagnostics
+    }
+
     pub fn set_lsp_diagnostics(&mut self, v: Vec<Diagnostic>) {
         self.lsp_diagnostics = v;
         self.merge_diagnostics();

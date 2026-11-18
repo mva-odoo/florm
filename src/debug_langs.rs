@@ -272,14 +272,9 @@ fn pick_artifact(json_lines: &str, test: bool) -> Option<String> {
 
 // ------------------------------------------------------------------ Go
 
-/// delve: in the PATH, else where `go install` puts it.
+/// delve: in the PATH, else where `go install` puts it (see `lsp::in_path`).
 fn find_dlv() -> Option<String> {
-    let exe = if cfg!(windows) { "dlv.exe" } else { "dlv" };
-    in_path("dlv").or_else(|| {
-        let gopath = std::env::var_os("GOPATH").map(PathBuf::from).or_else(|| std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(|h| PathBuf::from(h).join("go")))?;
-        let p = gopath.join("bin").join(exe);
-        p.is_file().then(|| p.to_string_lossy().into_owned())
-    })
+    in_path("dlv")
 }
 
 fn go(words: &[String], cwd: &Path) -> Result<Prepared, Failure> {

@@ -184,9 +184,11 @@ impl App {
             let s = d.primary_sel();
             let uri = d.path.as_ref().map(|p| lsp::path_to_uri(p));
             let line = d.rope.char_to_line(s.head);
-            // the problems of the line, for the fixes of the server (ruff server…)
-            let diagnostics: Vec<serde_json::Value> = d
-                .diagnostics
+            // the server's own problems of the line as it sent them, then the linters' ones (ruff server…)
+            let line_of = |it: &serde_json::Value| it["range"]["start"]["line"].as_u64().map(|l| l as usize);
+            let raw: Vec<serde_json::Value> = self.lsp.raw_diagnostics.get(&uid).map_or(Vec::new(), |v| v.iter().filter(|it| line_of(it) == Some(line)).cloned().collect());
+            let mut diagnostics: Vec<serde_json::Value> = d
+                .lint_diagnostics()
                 .iter()
                 .filter(|g| g.line == line)
                 .map(|g| {
@@ -201,7 +203,19 @@ impl App {
                     })
                 })
                 .collect();
-            let range = serde_json::json!({ "start": lsp::to_position(&d.rope, s.start()), "end": lsp::to_position(&d.rope, s.end()) });
+            // the cursor away from the problem: the range of the problem (rust-analyzer only fixes
+            // the problems the range touches)
+            let cur = lsp::to_position(&d.rope, s.head);
+            let touches = |it: &serde_json::Value| {
+                let (a, b) = (&it["range"]["start"], &it["range"]["end"]);
+                let key = |p: &serde_json::Value| (p["line"].as_u64().unwrap_or(0), p["character"].as_u64().unwrap_or(0));
+                key(a) <= key(&cur) && key(&cur) <= key(b)
+            };
+            let range = match raw.first() {
+                Some(first) if s.start() == s.end() && !raw.iter().any(touches) => first["range"].clone(),
+                _ => serde_json::json!({ "start": lsp::to_position(&d.rope, s.start()), "end": lsp::to_position(&d.rope, s.end()) }),
+            };
+            diagnostics.splice(0..0, raw);
             if let (Some(uri), Some(cl)) = (uri, self.lsp.manager.client(ci)) {
                 let params = serde_json::json!({ "textDocument": { "uri": uri }, "range": range, "context": { "diagnostics": diagnostics, "triggerKind": 1 } });
                 let id = cl.request("textDocument/codeAction", params);
@@ -220,7 +234,17 @@ impl App {
     pub(super) fn code_actions_loaded(&mut self, ci: usize, uid: u64, v: serde_json::Value) {
         let Some(q) = self.quick_fix.as_mut().filter(|q| q.uid == uid) else { return };
         q.waiting = false;
-        for a in v.as_array().into_iter().flatten() {
+        // the fixes of the problem first (the preferred one on top), the refactors and the rest after
+        let rank = |a: &serde_json::Value| match (a["isPreferred"].as_bool() == Some(true), a["kind"].as_str().unwrap_or("")) {
+            (true, _) => 0,
+            (_, k) if k.starts_with("quickfix") => 1,
+            (_, k) if k.starts_with("source.organizeImports") || k.starts_with("source.fixAll") => 2,
+            (_, k) if k.starts_with("refactor") => 3,
+            _ => 4,
+        };
+        let mut actions: Vec<&serde_json::Value> = v.as_array().into_iter().flatten().collect();
+        actions.sort_by_key(|a| rank(a));
+        for a in actions {
             if a.get("disabled").is_some() {
                 continue;
             }
@@ -397,5 +421,57 @@ mod tests {
         assert_eq!(import_line(&d("#!/usr/bin/env python\n\"\"\"Doc\non two lines.\n\"\"\"\nx = 1\n")), 4);
         assert_eq!(import_line(&d("x = 1\n")), 0);
         assert_eq!(import_line(&d("# -*- coding: utf-8 -*-\nimport logging\n\n_logger = 1\n")), 2);
+    }
+}
+
+#[cfg(test)]
+mod lsp_tests {
+    use super::*;
+
+    /// With gopls (when installed): the cursor away from a name used without its import, the
+    /// server's fix is offered all the same, and applying it adds the import.
+    #[test]
+    fn the_import_of_a_language_server() {
+        if !crate::tools::locate("gopls") {
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("florm_qf_gopls_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (conf, proj) = (dir.join("conf"), dir.join("proj"));
+        std::fs::create_dir_all(&conf).unwrap();
+        std::fs::create_dir_all(&proj).unwrap();
+        std::fs::write(conf.join("settings.toml"), "check_updates = false\nlsp = true\n").unwrap();
+        std::fs::write(proj.join("go.mod"), "module t\n\ngo 1.21\n").unwrap();
+        let file = proj.join("main.go");
+        std::fs::write(&file, "package main\n\nfunc main() { println(strings.ToUpper(\"a\")) }\n").unwrap();
+        let _lock = config::TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("FLORM_CONFIG", &conf);
+        let ctx = egui::Context::default();
+        let mut app = App::with_ctx(&ctx, Some(proj.clone()));
+        assert!(app.open_path(file.clone()));
+        let wait = |app: &mut App, what: &str, done: &dyn Fn(&App) -> bool| {
+            let until = Instant::now() + Duration::from_secs(60);
+            while !done(app) {
+                assert!(Instant::now() < until, "trop long : {what}");
+                app.lsp_frame(&ctx);
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        };
+        wait(&mut app, "l'erreur de gopls", &|a| a.docs[a.active].diagnostics.iter().any(|d| d.line == 2));
+        // the cursor at the start of the line, away from `strings`
+        let at = app.docs[app.active].rope.line_to_char(2);
+        let d = &mut app.docs[app.active];
+        d.sels = vec![Sel::range(at, at)];
+        d.primary = 0;
+        app.quick_fix_open(&ctx);
+        wait(&mut app, "les corrections de gopls", &|a| a.quick_fix.as_ref().is_some_and(|q| !q.waiting));
+        let titles: Vec<String> = app.quick_fix.as_ref().map(|q| q.items.iter().map(|i| i.0.clone()).collect()).unwrap_or_default();
+        let k = titles.iter().position(|t| t.contains("\"strings\"")).unwrap_or_else(|| panic!("{titles:?}"));
+        // the fix of the problem before the other actions of gopls
+        assert!(titles[..k].iter().all(|t| !t.starts_with("Browse")), "{titles:?}");
+        let fix = app.quick_fix.take().unwrap().items.swap_remove(k).1;
+        app.quick_fix_apply(fix, &ctx);
+        wait(&mut app, "l'import ajouté", &|a| a.docs[a.active].rope.to_string().contains("import \"strings\""));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

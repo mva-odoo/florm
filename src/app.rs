@@ -948,6 +948,9 @@ struct LspUi {
     /// The signature of the call being typed: (document uid, line, label, range of the
     /// parameter in it, documentation), shown above the cursor.
     signature: Option<(u64, usize, String, Option<(usize, usize)>, String)>,
+    /// The diagnostics of the server for each document (uid), as it sent them: given back to it
+    /// with a request of code actions (its fixes need their range, code and data).
+    raw_diagnostics: HashMap<u64, Vec<serde_json::Value>>,
 }
 
 pub struct App {

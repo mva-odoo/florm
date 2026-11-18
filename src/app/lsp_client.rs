@@ -486,6 +486,7 @@ impl App {
     fn lsp_diagnostics(&mut self, uri: &str, items: &[serde_json::Value]) {
         let Some(path) = lsp::uri_to_path(uri) else { return };
         let Some(d) = self.docs.iter_mut().find(|d| d.path.as_ref().is_some_and(|p| *p == path || crate::os::canon(p) == crate::os::canon(&path))) else { return };
+        self.lsp.raw_diagnostics.insert(d.uid, items.to_vec());
         let diags = items
             .iter()
             .filter_map(|it| {
