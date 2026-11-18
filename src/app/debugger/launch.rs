@@ -12,26 +12,58 @@ impl App {
         self.debug.odoo_bin.as_ref().and_then(|(_, c)| c.clone())
     }
 
-    /// The program launched here when none is set: the odoo-bin of the folder.
+    /// The language of the project opened, from its files (looked at once per folder).
+    pub(super) fn debug_project_lang(&mut self) -> Lang {
+        let root = self.root.clone().unwrap_or_default();
+        match &self.debug.lang {
+            Some((r, l)) if *r == root => *l,
+            _ => {
+                let l = crate::debug_langs::of_project(&root);
+                self.debug.lang = Some((root, l));
+                l
+            }
+        }
+    }
+
+    /// The command set for the language of the project, and the key of its setting.
+    pub(super) fn debug_command_setting(&mut self) -> (&mut String, &'static str) {
+        match self.debug_project_lang() {
+            Lang::Python => (&mut self.settings.debug_command, "debug_command"),
+            Lang::Node => (&mut self.settings.debug_command_node, "debug_command_node"),
+            Lang::Native => (&mut self.settings.debug_command_native, "debug_command_native"),
+            Lang::Go => (&mut self.settings.debug_command_go, "debug_command_go"),
+        }
+    }
+
+    /// The program launched here when none is set: the odoo-bin of the folder (Python), `cargo
+    /// run`, `go run .`, `npm start`…
     pub(super) fn debug_default_local(&mut self) -> String {
-        self.debug_odoo_bin().map(|b| format!("{b} --workers 0")).unwrap_or_default()
+        match self.debug_project_lang() {
+            Lang::Python => self.debug_odoo_bin().map(|b| format!("{b} --workers 0")).unwrap_or_default(),
+            lang => crate::debug_langs::default_command(lang, &self.root.clone().unwrap_or_default()),
+        }
     }
 
     pub(super) fn debug_local_command(&mut self) -> String {
-        let c = self.settings.debug_command.trim().to_string();
+        let c = self.debug_command_setting().0.trim().to_string();
         if c.is_empty() { self.debug_default_local() } else { c }
     }
 
     pub(super) fn debug_config(&mut self) -> dap::Config {
-        let target = if self.settings.debug_target.is_empty() { Target::Local } else { Target::Docker(self.settings.debug_target.clone()) };
+        let project = self.debug_project_lang();
+        // a container and « attach » are for Python
+        let python = project == Lang::Python;
+        let target = if !python || self.settings.debug_target.is_empty() { Target::Local } else { Target::Docker(self.settings.debug_target.clone()) };
         let command = match &target {
             Target::Local => self.debug_local_command(),
             Target::Docker(_) => Some(self.settings.debug_docker_command.trim()).filter(|c| !c.is_empty()).unwrap_or(DOCKER_COMMAND).to_string(),
         };
+        let lang = if target == Target::Local { crate::debug_langs::of_command(&command).unwrap_or(project) } else { Lang::Python };
         let s = &self.settings;
         dap::Config {
+            lang,
             target,
-            mode: if s.debug_mode == "attach" { Mode::Attach } else { Mode::Launch },
+            mode: if s.debug_mode == "attach" && lang == Lang::Python { Mode::Attach } else { Mode::Launch },
             command,
             cwd: self.root.clone().unwrap_or_else(|| std::env::current_dir().unwrap_or_default()),
             python: Some(s.debug_python.trim()).filter(|p| !p.is_empty()).unwrap_or(if cfg!(windows) { "python" } else { "python3" }).to_string(),
@@ -39,7 +71,7 @@ impl App {
             port: s.debug_port,
             just_my_code: s.debug_just_my_code,
             // attach: Florm waits for the program to listen (it may be started after)
-            wait: s.debug_mode == "attach",
+            wait: s.debug_mode == "attach" && lang == Lang::Python,
         }
     }
 
@@ -78,11 +110,25 @@ impl App {
     /// The Odoo test `tags` under the debugger: in the container of the debugger, else in the one
     /// of the tests when there is no odoo-bin here.
     pub(in crate::app) fn debug_test(&mut self, tags: String) {
-        if crate::test_cmd::parse(&tags).is_some() {
-            self.set_status(t!("Le débogage de ce test n'est pas encore possible : ▶ le lance", "Debugging this test is not possible yet: ▶ runs it"));
+        let mut cfg = self.debug_config();
+        // pytest, jest, cargo test, go test: their command under the debugger of their language
+        if let Some((dir, argv)) = crate::test_cmd::parse(&tags) {
+            let root = self.root.clone().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+            cfg.cwd = dir.map_or(root.clone(), |d| root.join(d));
+            cfg.command = argv.iter().map(|w| if w.chars().all(|c| c.is_alphanumeric() || "_-./:=".contains(c)) { w.clone() } else { format!("'{}'", w.replace('\'', "")) }).collect::<Vec<_>>().join(" ");
+            cfg.lang = crate::debug_langs::of_command(&cfg.command).unwrap_or(Lang::Python);
+            cfg.target = Target::Local;
+            cfg.mode = Mode::Launch;
+            cfg.wait = false;
+            let title = tf!("Test {tags}", "Test {tags}");
+            if self.debug.session.is_some() {
+                self.debug.next = Some((cfg, title));
+                self.debug_stop();
+                return;
+            }
+            self.debug_launch(cfg, title);
             return;
         }
-        let mut cfg = self.debug_config();
         cfg.mode = Mode::Launch;
         if cfg.target == Target::Local && cfg.command.trim().is_empty() && !self.settings.odoo_test_container.is_empty() {
             cfg.target = Target::Docker(self.settings.odoo_test_container.clone());
@@ -146,6 +192,9 @@ impl App {
         let d = &self.debug;
         // the debugger turned off: the breakpoints kept do not wait for a program
         let want = !d.auto_off && d.bps.values().any(|v| !v.is_empty()) && crate::features::on(crate::features::Feature::Debugger);
+        // only debugpy listens for Florm to attach
+        let want = want && self.debug_project_lang() == Lang::Python;
+        let d = &self.debug;
         if !want {
             // nothing to wait for any more (breakpoints removed): the waiting stops
             if d.session.as_ref().is_some_and(|s| s.auto && !s.connected) {
@@ -218,6 +267,7 @@ impl App {
             Err(f) => {
                 let msg = match &f {
                     dap::Failure::NoDebugpy { place, .. } => tf!("debugpy n'est pas installé {place}", "debugpy is not installed {place}"),
+                    dap::Failure::Missing { tool, .. } => tf!("{tool} n'est pas installé", "{tool} is not installed"),
                     dap::Failure::Other(e) => e.clone(),
                 };
                 if auto {
@@ -237,9 +287,14 @@ impl App {
         };
         let ctx = self.egui_ctx.clone();
         let repaint = move || ctx.request_repaint();
+        let server = match &p.transport {
+            dap::Transport::Serve { port, .. } => Some(*port),
+            _ => None,
+        };
         let client = match &p.transport {
             dap::Transport::Spawn { argv, cwd } => dap::Client::spawn(argv, cwd.as_deref(), repaint),
             dap::Transport::Tcp(host, port) => dap::Client::connect(host, *port, repaint),
+            dap::Transport::Serve { argv, cwd, port } => dap::Client::serve(argv, cwd.as_deref(), *port, repaint),
         };
         let mut client = match client {
             Ok(c) => c,
@@ -259,9 +314,10 @@ impl App {
         let seq = client.request(
             "initialize",
             json!({
-                "clientID": "florm", "clientName": "Florm", "adapterID": "debugpy", "locale": if crate::i18n::en() { "en" } else { "fr" },
+                "clientID": "florm", "clientName": "Florm", "adapterID": cfg.lang.adapter_id(), "locale": if crate::i18n::en() { "en" } else { "fr" },
                 "linesStartAt1": true, "columnsStartAt1": true, "pathFormat": "path",
                 "supportsVariableType": true, "supportsRunInTerminalRequest": true, "supportsProgressReporting": false,
+                "supportsStartDebuggingRequest": true,
             }),
         );
         let mut pending = HashMap::new();
@@ -296,6 +352,8 @@ impl App {
             connected: false,
             auto,
             cfg,
+            server,
+            parents: Vec::new(),
         });
     }
 

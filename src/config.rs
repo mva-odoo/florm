@@ -133,8 +133,12 @@ pub struct Settings {
     pub debug_target: String,
     /// "launch" (Florm starts the program) or "attach" (it listens with debugpy).
     pub debug_mode: String,
-    /// Program launched here and its arguments; empty: the odoo-bin of the folder.
+    /// Python program launched here and its arguments; empty: the odoo-bin of the folder.
     pub debug_command: String,
+    /// The same for Node, Rust / C and Go; empty: `npm start`, `cargo run`, `go run .`…
+    pub debug_command_node: String,
+    pub debug_command_native: String,
+    pub debug_command_go: String,
     /// Program launched in the container; empty: `debug::DOCKER_COMMAND`.
     pub debug_docker_command: String,
     /// Python of this computer (with debugpy).
@@ -242,6 +246,9 @@ impl Default for Settings {
             debug_target: String::new(),
             debug_mode: "launch".into(),
             debug_command: String::new(),
+            debug_command_node: String::new(),
+            debug_command_native: String::new(),
+            debug_command_go: String::new(),
             debug_docker_command: String::new(),
             debug_python: if cfg!(windows) { "python".into() } else { "python3".into() },
             debug_port: 5678,
@@ -366,13 +373,17 @@ exclude = ["__pycache__/", "*.pyc", "node_modules/", ".venv/", "*.egg-info/"]
 index_max_files = 150000
 # chercher une nouvelle version de Florm au démarrage (releases GitHub)
 check_updates = true
-# tests Odoo dans un conteneur (vue Docker → ☑ Tests) : commande lancée, {tags} = les tags
+# tests Odoo dans un conteneur (Préférences → Tests) : commande lancée, {tags} = les tags
 # vide = "odoo --stop-after-init --test-enable --test-tags {tags}"
 odoo_test_command = ""
-# débogueur (F5, vue Débogage) : programme lancé sur cet ordinateur (vide = l'odoo-bin du dossier)
-# et dans un conteneur (vide = "odoo --workers 0 --http-port 8070")
+# débogueur (F5, vue Débogage) : programme Python lancé sur cet ordinateur (vide = l'odoo-bin du
+# dossier) et dans un conteneur (vide = "odoo --workers 0 --http-port 8070") ; ceux de Node, Rust /
+# C et Go (vides = npm start ou le "main" de package.json, cargo run, go run .)
 debug_command = ""
 debug_docker_command = ""
+debug_command_node = ""
+debug_command_native = ""
+debug_command_go = ""
 # pull requests : état affiché au départ ("open", "merged", "closed", "all"), auteur ("mine",
 # "all", "to_review", "reviewed"), conversations résolues affichées, nouvelle PR en brouillon
 pr_default_state = "open"

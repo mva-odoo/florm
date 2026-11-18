@@ -1,4 +1,5 @@
-//! Debugger for Python (Odoo) through the Debug Adapter Protocol and debugpy, like VS Code.
+//! Debugger for Python (Odoo) through the Debug Adapter Protocol and debugpy, like VS Code (the
+//! other languages: see `debug_langs`).
 //! The adapter runs here or in a Docker container (`docker exec -i <c> python3 -m
 //! debugpy.adapter`): a program in a container is debugged without publishing any port, its
 //! files are found here through the mounts of the container, and the program runs in a
@@ -21,6 +22,8 @@ pub enum Incoming {
     Request { seq: i64, command: String, arguments: Value },
     /// A line of its error output ("No module named debugpy"…).
     Stderr(String),
+    /// A line of the output of an adapter run as a server (delve, js-debug).
+    Log(String),
     /// The adapter is gone.
     Closed,
 }
@@ -79,6 +82,51 @@ impl Client {
         Ok(Client { out, rx, seq: 0, child: None })
     }
 
+    /// The adapter is a server (`dlv dap --listen`, js-debug): `argv` is started, then reached at
+    /// `127.0.0.1:port` once it listens (on a thread: the requests sent meanwhile wait).
+    pub fn serve(argv: &[String], cwd: Option<&Path>, port: u16, repaint: impl Fn() + Send + Clone + 'static) -> Result<Client, String> {
+        let first = argv.first().ok_or("commande vide")?;
+        let mut cmd = crate::os::command(first);
+        cmd.args(&argv[1..]).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        if let Some(d) = cwd.filter(|d| d.is_dir()) {
+            cmd.current_dir(d);
+        }
+        let mut child = cmd.spawn().map_err(|e| format!("{first} : {e}"))?;
+        let (tx, rx) = channel();
+        for (pipe, err) in [(child.stdout.take().map(|p| Box::new(p) as Box<dyn Read + Send>), false), (child.stderr.take().map(|p| Box::new(p) as Box<dyn Read + Send>), true)] {
+            let (tx, repaint) = (tx.clone(), repaint.clone());
+            let Some(pipe) = pipe else { continue };
+            std::thread::spawn(move || {
+                for line in BufReader::new(pipe).lines().map_while(Result::ok) {
+                    if tx.send(if err { Incoming::Stderr(line) } else { Incoming::Log(line) }).is_err() {
+                        break;
+                    }
+                    repaint();
+                }
+            });
+        }
+        let (out, out_rx) = channel::<String>();
+        std::thread::spawn(move || {
+            let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+            let started = std::time::Instant::now();
+            let s = loop {
+                match TcpStream::connect_timeout(&addr, Duration::from_secs(1)) {
+                    Ok(s) => break s,
+                    Err(_) if started.elapsed() < Duration::from_secs(20) => std::thread::sleep(Duration::from_millis(100)),
+                    Err(e) => {
+                        let _ = tx.send(Incoming::Stderr(format!("127.0.0.1:{port} : {e}")));
+                        let _ = tx.send(Incoming::Closed);
+                        repaint();
+                        return;
+                    }
+                }
+            };
+            let Ok(r) = s.try_clone() else { return };
+            pump(r, s, tx, out_rx, repaint);
+        });
+        Ok(Client { out, rx, seq: 0, child: Some(child) })
+    }
+
     /// Sends a request; its sequence number, which its response carries.
     pub fn request(&mut self, command: &str, arguments: Value) -> i64 {
         self.seq += 1;
@@ -99,8 +147,14 @@ impl Client {
     }
 }
 
-fn start(reader: impl Read + Send + 'static, mut writer: impl Write + Send + 'static, tx: Sender<Incoming>, repaint: impl Fn() + Send + 'static) -> Sender<String> {
+fn start(reader: impl Read + Send + 'static, writer: impl Write + Send + 'static, tx: Sender<Incoming>, repaint: impl Fn() + Send + 'static) -> Sender<String> {
     let (out, out_rx) = channel::<String>();
+    pump(reader, writer, tx, out_rx, repaint);
+    out
+}
+
+/// The messages of `out_rx` written to the adapter, and what it sends read, on two threads.
+fn pump(reader: impl Read + Send + 'static, mut writer: impl Write + Send + 'static, tx: Sender<Incoming>, out_rx: Receiver<String>, repaint: impl Fn() + Send + 'static) {
     std::thread::spawn(move || {
         for msg in out_rx {
             let frame = format!("Content-Length: {}\r\n\r\n{msg}", msg.len());
@@ -123,7 +177,6 @@ fn start(reader: impl Read + Send + 'static, mut writer: impl Write + Send + 'st
         let _ = tx.send(Incoming::Closed);
         repaint();
     });
-    out
 }
 
 fn parse(v: Value) -> Option<Incoming> {
@@ -162,6 +215,8 @@ pub enum Mode {
 
 #[derive(Clone, Debug)]
 pub struct Config {
+    /// The language of the program: its debugger (debugpy, js-debug, gdb or lldb, delve).
+    pub lang: crate::debug_langs::Lang,
     pub target: Target,
     pub mode: Mode,
     /// Launch: the program and its arguments ("./odoo-bin -c odoo.conf -d db").
@@ -183,6 +238,8 @@ pub struct Config {
 pub enum Transport {
     Spawn { argv: Vec<String>, cwd: Option<PathBuf> },
     Tcp(String, u16),
+    /// An adapter started as a server on this port of this computer (delve, js-debug).
+    Serve { argv: Vec<String>, cwd: Option<PathBuf>, port: u16 },
 }
 
 /// Ready to start: how to reach the adapter, and the request to send it.
@@ -199,6 +256,9 @@ pub struct Prepared {
 pub enum Failure {
     /// debugpy is not installed where the program runs: the command that installs it.
     NoDebugpy { install: Vec<String>, place: String },
+    /// The debugger of another language is missing: its name, what it is for, the command that
+    /// installs it.
+    Missing { tool: String, why: String, install: Vec<String> },
     Other(String),
 }
 
@@ -232,6 +292,9 @@ while True:
 
 /// Checks what is needed and finds the program (in the background: it runs `docker`).
 pub fn prepare(cfg: &Config) -> Result<Prepared, Failure> {
+    if cfg.lang != crate::debug_langs::Lang::Python {
+        return crate::debug_langs::prepare(cfg);
+    }
     let common = |mut a: Value| {
         a["justMyCode"] = json!(cfg.just_my_code);
         a["showReturnValue"] = json!(true);
@@ -406,6 +469,13 @@ pub fn program(command: &str, find: impl Fn(&str) -> Option<String>) -> Result<P
     }
     let name = words.remove(0);
     let path = find(&name).ok_or_else(|| tf!("Programme introuvable : {name}", "Program not found: {name}"))?;
+    // a script of a virtualenv (`.venv/bin/pytest`): run with the Python of that virtualenv
+    if python.is_none() {
+        let bin = Path::new(&path).parent().map(Path::to_path_buf).unwrap_or_default();
+        if bin.join("activate").is_file() || bin.join("activate.bat").is_file() {
+            python = ["python", "python3", "python.exe"].iter().map(|n| bin.join(n)).find(|p| p.is_file()).map(|p| p.to_string_lossy().into_owned());
+        }
+    }
     Ok(Program { program: Some(path), module: None, args: words, python })
 }
 
@@ -521,6 +591,20 @@ mod tests {
     }
 
     #[test]
+    fn a_script_of_a_virtualenv_runs_with_its_python() {
+        let dir = std::env::temp_dir().join(format!("florm_dap_venv_{}", std::process::id()));
+        let bin = dir.join(".venv").join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        for f in ["activate", "python", "pytest"] {
+            std::fs::write(bin.join(f), "").unwrap();
+        }
+        let p = program(".venv/bin/pytest tests/test_a.py::test_x", |n| Some(dir.join(n).to_string_lossy().into_owned())).unwrap();
+        assert_eq!(p.python.as_deref(), Some(bin.join("python").to_string_lossy().as_ref()));
+        assert_eq!(p.args, ["tests/test_a.py::test_x"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn programs() {
         let find = |n: &str| Some(format!("/bin/{n}"));
         let p = program("./odoo-bin -c 'mon odoo.conf' -d db", find).unwrap();
@@ -595,7 +679,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("t.py");
         std::fs::write(&file, "def f(x):\n    y = x * 2\n    return y\n\nprint(f(21))\n").unwrap();
-        let cfg = Config { target: Target::Local, mode: Mode::Launch, command: "t.py".into(), cwd: dir.clone(), python, host: String::new(), port: 5678, just_my_code: false, wait: false };
+        let cfg = Config { lang: crate::debug_langs::Lang::Python, target: Target::Local, mode: Mode::Launch, command: "t.py".into(), cwd: dir.clone(), python, host: String::new(), port: 5678, just_my_code: false, wait: false };
         let p = prepare(&cfg).unwrap_or_else(|e| panic!("{e:?}"));
         let Transport::Spawn { argv, cwd } = p.transport else { panic!() };
         let mut c = Client::spawn(&argv, cwd.as_deref(), || {}).unwrap();

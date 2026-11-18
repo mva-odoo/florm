@@ -349,11 +349,20 @@ tags).
 
 ## Débogueur
 
-Comme celui de VS Code, pour Python et Odoo, sur cet ordinateur ou dans un conteneur Docker.
-**Débogage** dans la palette, ou **▾ → Débogage** dans le panneau du bas. Pendant une session, la
-barre d'état affiche **en cours** ou **en pause** : un clic montre la vue.
+Comme celui de VS Code, pour Python (et Odoo, aussi dans un conteneur Docker), Node, Rust, C et
+Go. **Débogage** dans la palette, ou **▾ → Débogage** dans le panneau du bas. Pendant une session,
+la barre d'état affiche **en cours** ou **en pause** : un clic montre la vue.
 
-- **Point d'arrêt** : clic à gauche des numéros de ligne d'un fichier Python (ou **F9**). Un rond
+- **Node, Rust, C, Go** : Florm reconnaît le projet (`package.json`, `Cargo.toml`, `go.mod`) et
+  lance sur cet ordinateur `npm start` (ou le `main` de `package.json`), `cargo run`, `go run .` ;
+  **Modifier…** change la commande (`node app.js --port 3000`, `cargo run -- --verbose`,
+  `go run ./cmd/app`). Le débogueur de chacun :
+  - **Node** : js-debug, celui de VS Code, téléchargé une fois (1 Mo) et vérifié ;
+  - **Rust et C** : `lldb-dap`, sinon `gdb` (version 14 ou plus). Florm compile d'abord
+    (`cargo build`) ;
+  - **Go** : delve (`dlv`), cherché aussi dans `~/go/bin`.
+  S'il manque, la vue le dit, avec un bouton **Installer**.
+- **Point d'arrêt** : clic à gauche des numéros de ligne (ou **F9**). Un rond
   rouge. Dans la liste **Points d'arrêt**, une **condition** (`self.id == 7`) ne s'arrête que
   quand elle est vraie. Ils suivent les lignes quand le fichier change et sont gardés avec le projet.
 - **F5** démarre. En haut de la vue : **Où** (cet ordinateur ou un conteneur), **Lancer** ou
@@ -381,12 +390,13 @@ barre d'état affiche **en cours** ou **en pause** : un clic montre la vue.
   **Variables** (clic pour déplier `self`, un recordset…), l'**Espion** (des expressions
   réévaluées à chaque arrêt), la **Pile d'appels** (clic sur un appel : sa ligne et ses
   variables, en vert). Le survol d'un nom montre sa valeur (`self.partner_id.name`).
-- **Console** (à droite) : du Python évalué dans le cadre en pause,
-  `self.env['res.partner'].search([])`, `x = 2`. ↑ ↓ reprennent les précédents.
+- **Console** (à droite) : une expression évaluée dans le cadre en pause (en Python :
+  `self.env['res.partner'].search([])`, `x = 2`). ↑ ↓ reprennent les précédents.
 - **F10** ligne suivante, **F11** entrer dans l'appel, **Maj+F11** finir la fonction, **F5**
   continuer, **F6** pause, **Maj+F5** arrêter, **Ctrl+Maj+F5** redémarrer.
-- **Tests Odoo** : clic droit sur le **▶** d'un test dans la marge (ou **Alt+F6**) le lance sous le
-  débogueur, dans le conteneur choisi (sinon celui des tests).
+- **Tests** : clic droit sur le **▶** d'un test dans la marge (ou **Alt+F6**) le lance sous le
+  débogueur : un test Odoo dans le conteneur choisi (sinon celui des tests), un test pytest, jest,
+  `cargo test` ou `go test` sur cet ordinateur.
 - **Exceptions** : s'arrêter sur celles que rien n'intercepte, sur toutes (Odoo en lève beaucoup),
   ou quand une sort du code du projet. **Mon code seulement** n'entre pas dans le code d'Odoo ni
   des bibliothèques.

@@ -136,6 +136,10 @@ impl App {
     pub(super) fn debug_send_exceptions(&mut self) {
         let filters: Vec<String> = self.settings.debug_exceptions.iter().filter(|f| ["raised", "uncaught", "userUnhandled"].contains(&f.as_str())).cloned().collect();
         let Some(s) = self.debug.session.as_mut() else { return };
+        // the filters are those of debugpy: the other adapters have their own
+        if s.cfg.lang != Lang::Python {
+            return;
+        }
         let seq = s.client.request("setExceptionBreakpoints", json!({ "filters": filters }));
         s.pending.insert(seq, Req::Other);
     }

@@ -12,6 +12,7 @@ mod config;
 mod copilot;
 mod conflict;
 mod dap;
+mod debug_langs;
 mod diff;
 mod docker;
 mod document;

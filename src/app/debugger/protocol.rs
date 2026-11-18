@@ -50,6 +50,8 @@ impl App {
             Incoming::Request { seq, command, arguments } => {
                 if command == "runInTerminal" {
                     self.debug_run_in_terminal(seq, arguments);
+                } else if command == "startDebugging" {
+                    self.debug_child_session(seq, arguments);
                 } else if let Some(s) = self.debug.session.as_mut() {
                     s.client.respond(seq, &command, false, json!({}));
                 }
@@ -57,6 +59,7 @@ impl App {
             // while waiting (container stopped…): written once, not at each try
             Incoming::Stderr(l) if self.debug.session.as_ref().is_some_and(|s| !s.connected) => self.debug_auto_note(Cat::Err, l),
             Incoming::Stderr(l) => self.debug_note(Cat::Err, l),
+            Incoming::Log(l) => self.debug_note(Cat::Info, l),
             Incoming::Closed => self.debug_end(t!("Débogage terminé", "Debugging ended").into()),
         }
     }
@@ -231,6 +234,38 @@ impl App {
             }
             _ => {}
         }
+    }
+
+    /// js-debug runs the program in a session of its own, opened at its port: Florm goes on with
+    /// it (the breakpoints, the pauses, the stop), the first one kept for the adapter to live.
+    pub(super) fn debug_child_session(&mut self, seq: i64, args: Value) {
+        let ctx = self.egui_ctx.clone();
+        let Some(s) = self.debug.session.as_mut() else { return };
+        let Some(port) = s.server else {
+            s.client.respond(seq, "startDebugging", false, json!({}));
+            return;
+        };
+        s.client.respond(seq, "startDebugging", true, json!({}));
+        let child = match dap::Client::connect("127.0.0.1", port, move || ctx.request_repaint()) {
+            Ok(c) => c,
+            Err(e) => {
+                self.debug_note(Cat::Err, e);
+                return;
+            }
+        };
+        let parent = std::mem::replace(&mut s.client, child);
+        s.parents.push(parent);
+        s.request = if args["request"] == "attach" { "attach" } else { "launch" };
+        s.args = args["configuration"].clone();
+        s.configured = false;
+        s.pending.clear();
+        let init = json!({
+            "clientID": "florm", "clientName": "Florm", "adapterID": s.cfg.lang.adapter_id(),
+            "linesStartAt1": true, "columnsStartAt1": true, "pathFormat": "path",
+            "supportsVariableType": true, "supportsRunInTerminalRequest": true, "supportsStartDebuggingRequest": true,
+        });
+        let seq = s.client.request("initialize", init);
+        s.pending.insert(seq, Req::Initialize);
     }
 
     /// The adapter asks to run the program in a terminal: a tab of Florm (in the container with

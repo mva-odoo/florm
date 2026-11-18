@@ -5,6 +5,7 @@
 
 use super::*;
 use crate::dap::{self, Incoming, Mode, Target};
+use crate::debug_langs::Lang;
 use crate::project::SessionBreakpoint;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -27,7 +28,7 @@ const STACK_LEVELS: usize = 60;
 
 /// Files that can have breakpoints.
 pub(crate) fn debuggable(path: &Path) -> bool {
-    path.extension().is_some_and(|e| e == "py")
+    path.extension().and_then(|e| e.to_str()).is_some_and(|e| ["py", "js", "mjs", "cjs", "ts", "jsx", "tsx", "rs", "go", "c", "cc", "cpp", "h", "hpp"].contains(&e))
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -125,6 +126,11 @@ struct Session {
     connected: bool,
     /// Started by itself (attach mode with breakpoints), not by F5.
     auto: bool,
+    /// The port of an adapter started as a server (js-debug opens its sessions there).
+    server: Option<u16>,
+    /// The sessions `client` was opened from (js-debug: the program runs in a child session);
+    /// kept for their adapter to live.
+    parents: Vec<dap::Client>,
 }
 
 #[derive(Default)]
@@ -155,6 +161,8 @@ pub(super) struct DebugUi {
     shut: HashSet<String>,
     /// The odoo-bin of the folder: (folder, its command).
     odoo_bin: Option<(PathBuf, Option<String>)>,
+    /// The language of the project of this folder.
+    lang: Option<(PathBuf, Lang)>,
     /// The running containers, and when they were read.
     pub(super) containers: Option<(Instant, Vec<String>)>,
     /// The settings of the session are unfolded (else one line sums them up).
@@ -330,6 +338,80 @@ mod tests {
         // the breakpoint is kept in the session of the project
         assert_eq!(app.debug_session_breakpoints().len(), 1);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// F5 on a project of another language, with its real debugger: stopped at the breakpoint,
+    /// the argument read, then to the end. `FLORM_TEST_DEBUG_LANGS=1 cargo test debug_langs_end`
+    /// (needs cargo and gdb or lldb-dap, go and delve, node and the network for js-debug).
+    #[test]
+    fn debug_langs_end_to_end() {
+        if std::env::var("FLORM_TEST_DEBUG_LANGS").is_err() {
+            return;
+        }
+        let rust = ("rust", vec![("Cargo.toml", "[package]\nname = \"t\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"), ("src/main.rs", "fn f(x: i32) -> i32 {\n    let y = x * 2;\n    y\n}\nfn main() {\n    println!(\"result {}\", f(21));\n}\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn t() {\n        assert_eq!(super::f(21), 42);\n    }\n}\n")], "src/main.rs", 1);
+        let go = ("go", vec![("go.mod", "module t\n\ngo 1.21\n"), ("main.go", "package main\n\nimport \"fmt\"\n\nfunc f(x int) int {\n\ty := x * 2\n\treturn y\n}\n\nfunc main() { fmt.Println(\"result\", f(21)) }\n"), ("main_test.go", "package main\n\nimport \"testing\"\n\nfunc TestF(t *testing.T) {\n\tif f(21) != 42 {\n\t\tt.Fatal(\"f\")\n\t}\n}\n")], "main.go", 6);
+        let node = ("node", vec![("package.json", "{\"main\": \"index.js\"}"), ("index.js", "function f(x) {\n  const y = x * 2;\n  return y;\n}\nconsole.log('result', f(21));\n")], "index.js", 2);
+        let only = std::env::var("FLORM_TEST_DEBUG_LANGS").unwrap_or_default();
+        for (name, files, main, line) in [rust, go, node] {
+            if !only.is_empty() && only != "1" && !only.split(',').any(|o| o == name) {
+                continue;
+            }
+            let dir = std::env::temp_dir().join(format!("florm_debug_{name}_{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            let (conf, proj) = (dir.join("conf"), dir.join("proj"));
+            std::fs::create_dir_all(&conf).unwrap();
+            for (f, text) in &files {
+                std::fs::create_dir_all(proj.join(f).parent().unwrap()).unwrap();
+                std::fs::write(proj.join(f), text).unwrap();
+            }
+            std::fs::write(conf.join("settings.toml"), "check_updates = false\nlsp = false\n").unwrap();
+            let _lock = config::TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+            std::env::set_var("FLORM_CONFIG", &conf);
+            let ctx = egui::Context::default();
+            let mut app = App::with_ctx(&ctx, Some(proj.clone()));
+            assert!(app.open_path(proj.join(main)));
+            let i = app.active;
+            app.docs[i].bp_pick = Some(line);
+            app.debug_frame();
+            app.debug_start_or_continue();
+            let wait = |app: &mut App, what: &str, done: &dyn Fn(&App) -> bool| {
+                let until = Instant::now() + Duration::from_secs(180);
+                while !done(app) {
+                    assert!(Instant::now() < until, "{name} : trop long : {what}\n{:#?}", app.debug.console.iter().map(|c| c.1.clone()).collect::<Vec<_>>());
+                    app.process_jobs();
+                    app.debug_frame();
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+            };
+            let var = |app: &App, n: &str| -> Option<String> {
+                let s = app.debug.session.as_ref()?;
+                s.vars.values().flatten().find(|v| v.name == n).map(|v| v.value.clone())
+            };
+            wait(&mut app, "arrêt au point d'arrêt", &|app| var(app, "x").is_some());
+            assert_eq!(var(&app, "x").as_deref(), Some("21"), "{name}");
+            let i = app.active;
+            assert_eq!(app.debug_exec_line(i).map(|l| l.0), Some(line), "{name}");
+            app.debug_step("continue");
+            wait(&mut app, "fin du programme", &|app| app.debug.session.is_none());
+            let said: String = app.debug.console.iter().map(|c| c.1.clone()).collect::<Vec<_>>().join("\n");
+            assert!(said.contains("result 42") || said.contains("result\t42") || name == "rust", "{name} : {said}");
+            // a test of the gutter (right click on its ▶): the same breakpoint, reached from the test
+            let test = match name {
+                "rust" => crate::test_cmd::tests_in(&proj.join(main), &files[1].1.replace("\\n", "\n"), &proj),
+                "go" => crate::test_cmd::tests_in(&proj.join("main_test.go"), files[2].1, &proj),
+                _ => Vec::new(),
+            };
+            assert!(name == "node" || !test.is_empty(), "{name} : pas de test trouvé");
+            if let Some((_, cmd)) = test.first() {
+                eprintln!("{name} : {cmd}");
+                app.debug_test(cmd.clone());
+                wait(&mut app, "arrêt dans le test", &|app| var(app, "x").is_some());
+                assert_eq!(var(&app, "x").as_deref(), Some("21"), "{name} : {cmd}");
+                app.debug_step("continue");
+                wait(&mut app, "fin du test", &|app| app.debug.session.is_none());
+            }
+            let _ = std::fs::remove_dir_all(&dir);
+        }
     }
 
     /// A breakpoint, nothing else (launch mode, no F5): Florm waits by itself, the program is started

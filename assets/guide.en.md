@@ -345,11 +345,19 @@ the command if the default one does not suit; `{tags}` in it is replaced by the 
 
 ## Debugger
 
-Like VS Code's, for Python and Odoo, on this computer or in a Docker container. **Debug** in the
-palette, or **▾ → Debug** in the bottom panel. During a session, the status bar shows **running**
-or **paused**: a click shows the view.
+Like VS Code's, for Python (and Odoo, also in a Docker container), Node, Rust, C and Go. **Debug**
+in the palette, or **▾ → Debug** in the bottom panel. During a session, the status bar shows
+**running** or **paused**: a click shows the view.
 
-- **Breakpoint**: click left of the line numbers of a Python file (or **F9**). A red dot. In the
+- **Node, Rust, C, Go**: Florm recognizes the project (`package.json`, `Cargo.toml`, `go.mod`) and
+  runs on this computer `npm start` (or the `main` of `package.json`), `cargo run`, `go run .`;
+  **Edit…** changes the command (`node app.js --port 3000`, `cargo run -- --verbose`,
+  `go run ./cmd/app`). The debugger of each:
+  - **Node**: js-debug, VS Code's, downloaded once (1 MB) and checked;
+  - **Rust and C**: `lldb-dap`, else `gdb` (version 14 and up). Florm builds first (`cargo build`);
+  - **Go**: delve (`dlv`), also looked for in `~/go/bin`.
+  When it is missing, the view says so, with an **Install** button.
+- **Breakpoint**: click left of the line numbers (or **F9**). A red dot. In the
   **Breakpoints** list, a **condition** (`self.id == 7`) only stops when it is true. They follow
   the lines when the file changes and are kept with the project.
 - **F5** starts. At the top of the view: **Where** (this computer or a container), **Launch** or
@@ -376,12 +384,13 @@ or **paused**: a click shows the view.
   **Variables** (click to unfold `self`, a recordset…), the **Watch** (expressions evaluated again
   at each stop), the **Call stack** (click on a call: its line and its variables, in green).
   Hovering a name shows its value (`self.partner_id.name`).
-- **Console** (on the right): Python evaluated in the paused frame,
-  `self.env['res.partner'].search([])`, `x = 2`. ↑ ↓ bring back the previous ones.
+- **Console** (on the right): an expression evaluated in the paused frame (in Python:
+  `self.env['res.partner'].search([])`, `x = 2`). ↑ ↓ bring back the previous ones.
 - **F10** next line, **F11** step into the call, **Shift+F11** finish the function, **F5**
   continue, **F6** pause, **Shift+F5** stop, **Ctrl+Shift+F5** restart.
-- **Odoo tests**: right click on the **▶** of a test in the gutter (or **Alt+F6**) runs it under
-  the debugger, in the chosen container (else the tests' one).
+- **Tests**: right click on the **▶** of a test in the gutter (or **Alt+F6**) runs it under the
+  debugger: an Odoo test in the chosen container (else the tests' one), a pytest, jest,
+  `cargo test` or `go test` one on this computer.
 - **Exceptions**: stop on those nothing catches, on all of them (Odoo raises many), or when one
   leaves the code of the project. **My code only** does not step into the code of Odoo nor of the
   libraries.

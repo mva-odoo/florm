@@ -259,6 +259,15 @@ impl App {
                     }
                 });
             }
+            Some(dap::Failure::Missing { tool, why, install }) => {
+                let (tool, why, install) = (tool.clone(), why.clone(), install.clone());
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(RichText::new(tf!("{tool} n'est pas installé : {why}.", "{tool} is not installed: {why}.")).color(highlight::red()));
+                    if ui.button(tf!("Installer {tool}", "Install {tool}")).on_hover_text(install.join(" ")).clicked() {
+                        *act = Some(DebugAct::Install(install));
+                    }
+                });
+            }
             Some(dap::Failure::Other(e)) => {
                 ui.label(RichText::new(e).color(highlight::red()));
             }
@@ -268,6 +277,12 @@ impl App {
 
     pub(super) fn debug_settings_row(&mut self, ui: &mut egui::Ui, act: &mut Option<DebugAct>) {
         let weak = ui.visuals().weak_text_color();
+        let lang = self.debug_project_lang();
+        if lang != Lang::Python {
+            self.debug_command_row(ui, act, lang);
+            return;
+        }
+        let odoo = self.debug_odoo_bin().is_some();
         let here = t!("Cet ordinateur", "This computer").to_string();
         let containers = if crate::docker::available() { self.debug_containers() } else { Some(Vec::new()) };
         let target = self.settings.debug_target.clone();
@@ -310,7 +325,7 @@ impl App {
             } else {
                 ui.label(RichText::new(t!("Commande", "Command")).small().color(weak));
                 let (value, hint, key) = if target.is_empty() {
-                    (&mut self.settings.debug_command, if default_local.is_empty() { "./odoo-bin -c odoo.conf -d ma_base --workers 0".to_string() } else { default_local.clone() }, "debug_command")
+                    (&mut self.settings.debug_command, if default_local.is_empty() { crate::debug_langs::example(Lang::Python).to_string() } else { default_local.clone() }, "debug_command")
                 } else {
                     (&mut self.settings.debug_docker_command, DOCKER_COMMAND.to_string(), "debug_docker_command")
                 };
@@ -324,16 +339,51 @@ impl App {
                 }
             }
             let mut mine = self.settings.debug_just_my_code;
-            if ui.checkbox(&mut mine, t!("Mon code seulement", "My code only")).on_hover_text(t!("Ne pas entrer dans le code d'Odoo ni des bibliothèques (justMyCode) : les points d'arrêt n'y sont pas pris non plus", "Do not step into the code of Odoo nor of the libraries (justMyCode): the breakpoints there are not taken either")).changed() {
+            let tip = if odoo {
+                t!("Ne pas entrer dans le code d'Odoo ni des bibliothèques (justMyCode) : les points d'arrêt n'y sont pas pris non plus", "Do not step into the code of Odoo nor of the libraries (justMyCode): the breakpoints there are not taken either")
+            } else {
+                t!("Ne pas entrer dans le code des bibliothèques (justMyCode) : les points d'arrêt n'y sont pas pris non plus", "Do not step into the code of the libraries (justMyCode): the breakpoints there are not taken either")
+            };
+            if ui.checkbox(&mut mine, t!("Mon code seulement", "My code only")).on_hover_text(tip).changed() {
                 self.settings.debug_just_my_code = mine;
                 self.persist("debug_just_my_code", mine.to_string());
             }
         });
-        let help = match (target.is_empty(), mode_attach) {
-            (true, false) => t!("Lance la commande ici, dans le panneau du bas, sous le débogueur. --workers 0 : un seul processus, chaque requête passe par les points d'arrêt.", "Runs the command here, in the bottom panel, under the debugger. --workers 0: one process, every request goes through the breakpoints.").to_string(),
-            (false, false) => t!("Lance la commande dans le conteneur, sous le débogueur, à côté de l'Odoo qui y tourne (un autre port). Ses fichiers montés s'ouvrent ici, les autres en lecture seule. Clic droit sur le ▶ d'un test (ou Alt+F6) : déboguer ce test.", "Runs the command in the container, under the debugger, next to the Odoo running there (another port). Its mounted files open here, the others read only. Right click on the ▶ of a test (or Alt+F6): debug this test.").to_string(),
-            (true, true) => tf!("Avec un point d'arrêt, Florm attend tout seul que le programme écoute, puis s'y attache, à chaque lancement. Lancez-le avec « Copier la commande » (python3 -m debugpy --listen {} ./odoo-bin … --workers 0), dans le terminal de Florm ou le vôtre.", "With a breakpoint, Florm waits by itself for the program to listen, then attaches to it, at each run. Start it with “Copy the command” (python3 -m debugpy --listen {} ./odoo-bin … --workers 0), in Florm's terminal or yours.", self.settings.debug_port),
-            (false, true) => tf!("Dans le conteneur, Odoo doit tourner avec debugpy (command: du docker-compose.yml) : python3 -m debugpy --listen 127.0.0.1:{} /usr/bin/odoo … --workers 0. Florm s'y connecte par docker exec : aucun port à publier.", "In the container, Odoo must run with debugpy (command: of docker-compose.yml): python3 -m debugpy --listen 127.0.0.1:{} /usr/bin/odoo … --workers 0. Florm connects to it through docker exec: no port to publish.", self.settings.debug_port),
+        let port = self.settings.debug_port;
+        let help = match (target.is_empty(), mode_attach, odoo) {
+            (true, false, true) => t!("Lance la commande ici, dans le panneau du bas, sous le débogueur. --workers 0 : un seul processus, chaque requête passe par les points d'arrêt.", "Runs the command here, in the bottom panel, under the debugger. --workers 0: one process, every request goes through the breakpoints.").to_string(),
+            (true, false, false) => t!("Lance la commande ici, dans le panneau du bas, sous le débogueur (python3 main.py, python3 -m paquet, pytest…).", "Runs the command here, in the bottom panel, under the debugger (python3 main.py, python3 -m package, pytest…).").to_string(),
+            (false, false, _) => t!("Lance la commande dans le conteneur, sous le débogueur, à côté de l'Odoo qui y tourne (un autre port). Ses fichiers montés s'ouvrent ici, les autres en lecture seule. Clic droit sur le ▶ d'un test (ou Alt+F6) : déboguer ce test.", "Runs the command in the container, under the debugger, next to the Odoo running there (another port). Its mounted files open here, the others read only. Right click on the ▶ of a test (or Alt+F6): debug this test.").to_string(),
+            (true, true, true) => tf!("Avec un point d'arrêt, Florm attend tout seul que le programme écoute, puis s'y attache, à chaque lancement. Lancez-le avec « Copier la commande » (python3 -m debugpy --listen {port} ./odoo-bin … --workers 0), dans le terminal de Florm ou le vôtre.", "With a breakpoint, Florm waits by itself for the program to listen, then attaches to it, at each run. Start it with “Copy the command” (python3 -m debugpy --listen {port} ./odoo-bin … --workers 0), in Florm's terminal or yours."),
+            (true, true, false) => tf!("Avec un point d'arrêt, Florm attend tout seul que le programme écoute, puis s'y attache, à chaque lancement. Lancez-le avec « Copier la commande » (python3 -m debugpy --listen {port} main.py), dans le terminal de Florm ou le vôtre.", "With a breakpoint, Florm waits by itself for the program to listen, then attaches to it, at each run. Start it with “Copy the command” (python3 -m debugpy --listen {port} main.py), in Florm's terminal or yours."),
+            (false, true, _) => tf!("Dans le conteneur, Odoo doit tourner avec debugpy (command: du docker-compose.yml) : python3 -m debugpy --listen 127.0.0.1:{port} /usr/bin/odoo … --workers 0. Florm s'y connecte par docker exec : aucun port à publier.", "In the container, Odoo must run with debugpy (command: of docker-compose.yml): python3 -m debugpy --listen 127.0.0.1:{port} /usr/bin/odoo … --workers 0. Florm connects to it through docker exec: no port to publish."),
+        };
+        ui.label(RichText::new(help).small().color(weak));
+    }
+
+    /// The settings of a Node, Rust / C or Go project: only the command, run here.
+    fn debug_command_row(&mut self, ui: &mut egui::Ui, act: &mut Option<DebugAct>, lang: Lang) {
+        let weak = ui.visuals().weak_text_color();
+        let default = self.debug_default_local();
+        let hint = if default.is_empty() { crate::debug_langs::example(lang).to_string() } else { default };
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(lang.name()).small().strong());
+            ui.add_space(6.0);
+            ui.label(RichText::new(t!("Commande", "Command")).small().color(weak));
+            let (value, key) = self.debug_command_setting();
+            let r = crate::input::add(ui, egui::TextEdit::singleline(value).hint_text(hint).font(egui::TextStyle::Monospace).desired_width((ui.available_width() - 20.0).max(160.0)));
+            if r.lost_focus() {
+                let v = config::toml_str(value);
+                self.persist(key, v);
+                if ui.input(|i| i.key_pressed(Key::Enter)) {
+                    *act = Some(DebugAct::Start);
+                }
+            }
+        });
+        let help = match lang {
+            Lang::Native => t!("Florm compile (cargo build, ou cargo test --no-run pour un test) puis lance le programme sous lldb-dap ou gdb. Les arguments du programme après -- (cargo run -- --port 8080).", "Florm builds (cargo build, or cargo test --no-run for a test) then runs the program under lldb-dap or gdb. The arguments of the program after -- (cargo run -- --port 8080)."),
+            Lang::Go => t!("Lancé sous delve (go run ., go run ./cmd/app --port 8080, go test ./pkg -run TestX).", "Run under delve (go run ., go run ./cmd/app --port 8080, go test ./pkg -run TestX)."),
+            _ => t!("Lancé sous js-debug, le débogueur de VS Code, téléchargé la première fois (node app.js, npm start, npx jest fichier). Sa sortie va dans la console ci-dessous.", "Run under js-debug, the debugger of VS Code, downloaded the first time (node app.js, npm start, npx jest file). Its output goes to the console below."),
         };
         ui.label(RichText::new(help).small().color(weak));
     }

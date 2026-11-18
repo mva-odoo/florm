@@ -739,9 +739,18 @@ impl App {
                 pref_row(ui, rc, t!("Port (s'attacher)", "Port (attach)"), t!("Le port sur lequel debugpy écoute (dans le conteneur, pour Docker).", "The port debugpy listens on (in the container, for Docker)."), |ui| {
                     ui.add(egui::DragValue::new(&mut s.debug_port).range(1..=65535));
                 });
-                pref_row_wide(ui, rc, t!("Commande sur cet ordinateur", "Command on this computer"), t!("Lancée sous le débogueur (lancer), dans le panneau du bas. Vide : l'odoo-bin du dossier.", "Run under the debugger (launch), in the bottom panel. Empty: the odoo-bin of the folder."), |ui| {
-                    crate::input::add(ui, egui::TextEdit::singleline(&mut s.debug_command).desired_width(f32::INFINITY).font(egui::TextStyle::Monospace).hint_text("./odoo-bin -c odoo.conf -d ma_base --workers 0"));
+                pref_row_wide(ui, rc, t!("Commande Python sur cet ordinateur", "Python command on this computer"), t!("Lancée sous le débogueur (lancer), dans le panneau du bas. Vide : l'odoo-bin du dossier s'il y en a un.", "Run under the debugger (launch), in the bottom panel. Empty: the odoo-bin of the folder if there is one."), |ui| {
+                    crate::input::add(ui, egui::TextEdit::singleline(&mut s.debug_command).desired_width(f32::INFINITY).font(egui::TextStyle::Monospace).hint_text("python3 main.py"));
                 });
+                for (label, value, hint, help) in [
+                    ("Node", &mut s.debug_command_node, "node app.js", t!("Sous js-debug, le débogueur de VS Code (téléchargé la première fois). Vide : le main de package.json, sinon npm start.", "Under js-debug, the debugger of VS Code (downloaded the first time). Empty: the main of package.json, else npm start.")),
+                    ("Rust / C", &mut s.debug_command_native, "cargo run", t!("Compilé puis lancé sous lldb-dap ou gdb. Vide : cargo run.", "Built then run under lldb-dap or gdb. Empty: cargo run.")),
+                    ("Go", &mut s.debug_command_go, "go run .", t!("Sous delve (go install github.com/go-delve/delve/cmd/dlv@latest). Vide : go run .", "Under delve (go install github.com/go-delve/delve/cmd/dlv@latest). Empty: go run .")),
+                ] {
+                    pref_row_wide(ui, rc, &tf!("Commande {label}", "{label} command"), help, |ui| {
+                        crate::input::add(ui, egui::TextEdit::singleline(value).desired_width(f32::INFINITY).font(egui::TextStyle::Monospace).hint_text(hint));
+                    });
+                }
                 pref_row_wide(ui, rc, t!("Commande dans le conteneur", "Command in the container"), t!("Lancée dans le conteneur sous le débogueur. Vide : la commande par défaut.", "Run in the container under the debugger. Empty: the default command."), |ui| {
                     crate::input::add(ui, egui::TextEdit::singleline(&mut s.debug_docker_command).desired_width(f32::INFINITY).font(egui::TextStyle::Monospace).hint_text(super::debugger::DOCKER_COMMAND));
                 });
@@ -1210,6 +1219,11 @@ impl App {
         }
         if s.debug_docker_command != before.debug_docker_command {
             self.persist("debug_docker_command", config::toml_str(&s.debug_docker_command));
+        }
+        for (key, now, was) in [("debug_command_node", &s.debug_command_node, &before.debug_command_node), ("debug_command_native", &s.debug_command_native, &before.debug_command_native), ("debug_command_go", &s.debug_command_go, &before.debug_command_go)] {
+            if now != was {
+                self.persist(key, config::toml_str(now));
+            }
         }
         if s.debug_command != before.debug_command {
             self.persist("debug_command", config::toml_str(&s.debug_command));
