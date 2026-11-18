@@ -1,5 +1,5 @@
 //! Shared configuration: a git repository (on GitHub) cloned in the configuration folder, so that
-//! every computer gets the same preferences, templates and themes. Its layout is fixed,
+//! every computer gets the same preferences, templates, themes and skills. Its layout is fixed,
 //! every part optional:
 //!
 //! ```text
@@ -149,13 +149,13 @@ pub fn create(spec: &str) -> Result<(String, String), String> {
     Ok((spec, tf!("Dépôt {slug} créé avec la configuration de cet ordinateur", "Repository {slug} created with the configuration of this computer")))
 }
 
-/// Copies the local settings (without the ones of this computer), templates and themes.
+/// Copies the local settings (without the ones of this computer), templates, themes and skills.
 fn fill_from_local(dir: &Path) -> std::io::Result<()> {
     let cfg = crate::config::config_dir();
     let text = std::fs::read_to_string(crate::config::settings_path()).unwrap_or_default();
     std::fs::write(dir.join("settings.toml"), portable_settings(&text))?;
     std::fs::write(dir.join("README.md"), README)?;
-    for name in ["templates", "themes"] {
+    for name in ["templates", "themes", "skills"] {
         copy_dir(&cfg.join(name), &dir.join(name))?;
     }
     Ok(())
@@ -240,9 +240,10 @@ Florm récupère ce dépôt sur chaque ordinateur où il est indiqué (Préfére
 - `settings.toml` : préférences, appliquées par-dessus celles de l'ordinateur (seulement les\n\
   clés écrites ici ; les tables comme `[keys]` sont fusionnées) ;\n\
 - `templates/` : modèles (un fichier par modèle, comme le dossier local) ;\n\
-- `themes/` : thèmes `.tmTheme`.\n\n\
+- `themes/` : thèmes `.tmTheme` ;\n\
+- `skills/` : skills de Claude (`skills/nom/SKILL.md`), donnés à chaque conversation.\n\n\
 Les préférences modifiées dans Florm et présentes ici sont écrites ici aussi ; les nouveaux\n\
-modèles et thèmes sont créés ici. « Publier » enregistre et pousse les changements.\n";
+modèles, thèmes et skills sont créés ici. « Publier » enregistre et pousse les changements.\n";
 
 #[cfg(test)]
 mod tests {

@@ -721,6 +721,53 @@ impl App {
                         }
                     });
                 });
+                if self.prefs.skills.as_ref().is_none_or(|(t, _)| t.elapsed() > Duration::from_secs(3)) {
+                    self.prefs.skills = Some((Instant::now(), crate::skills::list()));
+                }
+                let mut open_skill: Option<PathBuf> = None;
+                let mut new_skill = false;
+                let shared = crate::shared::dir().is_some();
+                let help = if shared {
+                    t!("Un dossier de skills donné à chaque conversation de Claude, quel que soit le compte, rangé dans la configuration partagée : les mêmes sur chaque ordinateur (« Publier » les envoie). Claude les voit sous le nom florm:nom.", "A folder of skills given to every conversation of Claude, whatever the account, kept in the shared configuration: the same on every computer (“Publish” sends them). Claude sees them as florm:name.")
+                } else {
+                    t!("Un dossier de skills donné à chaque conversation de Claude, quel que soit le compte. Claude les voit sous le nom florm:nom.", "A folder of skills given to every conversation of Claude, whatever the account. Claude sees them as florm:name.")
+                };
+                let skills = self.prefs.skills.as_ref().map(|(_, v)| v.as_slice()).unwrap_or(&[]);
+                pref_row_wide(ui, rc, t!("Mes skills", "My skills"), help, |ui| {
+                    for sk in skills {
+                        ui.horizontal(|ui| {
+                            if ui.link(RichText::new(&sk.name).monospace()).on_hover_text(sk.path.display().to_string()).clicked() {
+                                open_skill = Some(sk.path.clone());
+                            }
+                            ui.add(egui::Label::new(RichText::new(&sk.description).small().weak()).truncate());
+                        });
+                    }
+                    if skills.is_empty() {
+                        ui.label(RichText::new(t!("Aucun pour l'instant.", "None yet.")).small().weak());
+                    }
+                    ui.horizontal(|ui| {
+                        if ui.button(t!("+ Nouveau skill", "+ New skill")).on_hover_text(t!("Crée un SKILL.md à remplir et l'ouvre", "Creates a SKILL.md to fill and opens it")).clicked() {
+                            new_skill = true;
+                        }
+                        if ui.button(t!("Ouvrir le dossier", "Open the folder")).on_hover_text(crate::skills::dir().display().to_string()).clicked() {
+                            let d = crate::skills::dir().join("skills");
+                            let _ = std::fs::create_dir_all(&d);
+                            let _ = crate::os::reveal(&d);
+                        }
+                    });
+                });
+                if new_skill {
+                    let taken: Vec<String> = skills.iter().map(|s| s.name.clone()).collect();
+                    let name = (1..).map(|k| if k == 1 { t!("nouveau-skill", "new-skill").to_string() } else { format!("{}-{k}", t!("nouveau-skill", "new-skill")) }).find(|n| !taken.contains(n)).unwrap_or_default();
+                    match crate::skills::create(&name) {
+                        Ok(p) => open_skill = Some(p),
+                        Err(e) => self.set_error(tf!("Skill non créé : {e}", "Skill not created: {e}")),
+                    }
+                    self.prefs.skills = None;
+                }
+                if let Some(p) = open_skill {
+                    self.open_path(p);
+                }
             }
             PrefSection::Tests => {
                 pref_row(ui, rc, t!("Conteneur des tests Odoo", "Odoo tests container"), t!("Le conteneur Docker où tournent les tests Odoo (Ctrl+F6, ▶ dans la marge des fichiers de test).", "The Docker container the Odoo tests run in (Ctrl+F6, ▶ in the gutter of test files)."), |ui| {
@@ -939,7 +986,7 @@ impl App {
                 let mut open_shared = false;
                 let help = match &shared_dir {
                     Some(d) => tf!("Récupérée dans {}. Publier envoie les changements (préférences, modèles, thèmes) sur GitHub.", "Fetched in {}. Publish sends the changes (preferences, templates, themes) to GitHub.", d.display()),
-                    None => t!("Un dépôt GitHub avec settings.toml, templates/, themes/ et plugins/, utilisé sur chaque ordinateur : « login » (= login/florm-config), « owner/repo » ou une adresse git. « Créer » le fait sur GitHub (privé, avec gh) à partir de cet ordinateur.", "A GitHub repository with settings.toml, templates/, themes/ and plugins/, used on every computer: “login” (= login/florm-config), “owner/repo” or a git address. “Create” makes it on GitHub (private, with gh) from this computer.").to_string(),
+                    None => t!("Un dépôt GitHub avec settings.toml, templates/, themes/ et skills/, utilisé sur chaque ordinateur : « login » (= login/florm-config), « owner/repo » ou une adresse git. « Créer » le fait sur GitHub (privé, avec gh) à partir de cet ordinateur.", "A GitHub repository with settings.toml, templates/, themes/ and skills/, used on every computer: “login” (= login/florm-config), “owner/repo” or a git address. “Create” makes it on GitHub (private, with gh) from this computer.").to_string(),
                 };
                 pref_row_wide(ui, rc, t!("Configuration partagée", "Shared configuration"), &help, |ui| {
                     let r = crate::input::add(ui, egui::TextEdit::singleline(shared).desired_width(220.0).font(egui::TextStyle::Monospace).hint_text("login/florm-config"));

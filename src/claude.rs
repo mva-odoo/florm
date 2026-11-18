@@ -677,6 +677,11 @@ impl Session {
         if !system.is_empty() {
             args.extend(["--append-system-prompt", system]);
         }
+        // the skills of the user, whatever the account: see `skills`
+        let skills = crate::skills::plugin_dir().map(|d| d.to_string_lossy().into_owned());
+        if let Some(d) = &skills {
+            args.extend(["--plugin-dir", d.as_str()]);
+        }
         let mut child = crate::claude_account::command_for(account)
             .args(&args)
             .current_dir(dir)

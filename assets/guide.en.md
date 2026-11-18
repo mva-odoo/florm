@@ -601,7 +601,11 @@ command and your login: no key to set up.
 - **Florm context**: when Claude starts, Florm tells it what it knows of the project: the
   **commit message rules** (the project's, else yours) and the branch and version you work on.
   Claude then writes its commits like ✨. To teach it how to run your tests (a container, tags…),
-  a Claude Code **skill** does it better: it is only used when useful. The **Session** panel shows what it
+  a Claude Code **skill** does it better: it is only used when useful.
+- **My skills** (Preferences → Claude): one folder for all your skills, given to every
+  conversation of Claude, whatever the account; Claude sees them as `florm:name`. **+ New skill**
+  creates a `SKILL.md` to fill (its `description` tells Claude when to use it). With a shared
+  configuration, the folder is in it: the same skills on every computer, sent by **Publish**. The **Session** panel shows what it
   was told (hover “Florm context”).
 - **Boxes to tick**: when Claude's last answer proposes things to do (`- [ ]`), tick the ones
   you want then **✔ Send my answer**: Claude gets “Ok, go ahead with: …” with what is ticked,

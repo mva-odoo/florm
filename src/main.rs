@@ -43,6 +43,7 @@ mod rebase;
 mod remote;
 mod search;
 mod shared;
+mod skills;
 mod sidebar;
 mod sound;
 mod split;

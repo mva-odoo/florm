@@ -413,13 +413,14 @@ déposés dans `~/.config/florm/themes/` sont chargés au démarrage.
 
 ### Configuration partagée entre plusieurs ordinateurs
 
-Les préférences, modèles et thèmes peuvent venir d'un dépôt GitHub, le même sur chaque PC. Le dépôt a une forme fixe, chaque partie est facultative :
+Les préférences, modèles, thèmes et skills de Claude peuvent venir d'un dépôt GitHub, le même sur chaque PC. Le dépôt a une forme fixe, chaque partie est facultative :
 
 ```text
 florm-config/
 ├── settings.toml   # préférences appliquées par-dessus celles de l'ordinateur
 ├── templates/      # modèles (un fichier par modèle, comme le dossier local)
-└── themes/         # thèmes .tmTheme
+├── themes/         # thèmes .tmTheme
+└── skills/         # skills de Claude (un dossier par skill, avec son SKILL.md)
 ```
 
 Dans Préférences → Avancé → **Configuration partagée** (ou `shared_config` dans settings.toml), indiquez `login` (le dépôt `login/florm-config`), `owner/repo` ou une adresse git. Florm le clone dans `~/.config/florm/shared/` (avec `gh` s'il est installé, donc aussi les dépôts privés) et le met à jour à chaque démarrage.

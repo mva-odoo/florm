@@ -1181,6 +1181,8 @@ enum KeyAction {
 }
 
 struct PrefsUi {
+    /// The skills of the user, read again every few seconds while shown.
+    skills: Option<(Instant, Vec<crate::skills::Skill>)>,
     /// shortcut being recorded
     capture: Option<Capture>,
     /// shortcut waiting for confirmation because it is already used
@@ -1212,7 +1214,7 @@ struct PrefsUi {
 
 impl Default for PrefsUi {
     fn default() -> Self {
-        PrefsUi { capture: None, proposed: None, key_action: None, section: PrefSection::Appearance, filter: String::new(), lint_args: String::new(), lint_ignore: Default::default(), theme_draft: None, template: None, shell: String::new(), exclude: String::new(), shared: String::new(), rulers: String::new(), font_list: None, font_list_loading: false, accounts: Default::default() }
+        PrefsUi { skills: None, capture: None, proposed: None, key_action: None, section: PrefSection::Appearance, filter: String::new(), lint_args: String::new(), lint_ignore: Default::default(), theme_draft: None, template: None, shell: String::new(), exclude: String::new(), shared: String::new(), rulers: String::new(), font_list: None, font_list_loading: false, accounts: Default::default() }
     }
 }
 
