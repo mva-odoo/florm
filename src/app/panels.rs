@@ -340,6 +340,28 @@ impl App {
                 }
             }
         }
+        // Spelling of the Markdown, comments and commit messages, debounced; the dictionary is
+        // loaded (downloaded the first time) on a thread when first needed.
+        let spell_on = self.settings.spell_check;
+        if let Some(d) = self.docs.get_mut(self.active) {
+            let kind = d.path.as_deref().and_then(crate::spell::kind_of).filter(|_| spell_on && d.rope.len_bytes() < 2_000_000);
+            match kind {
+                None if !d.spelling.is_empty() => d.spelling.clear(),
+                Some(kind) if d.spell_version != d.version => {
+                    let el = d.last_change.elapsed();
+                    if el < Duration::from_millis(400) {
+                        ctx.request_repaint_after(Duration::from_millis(410) - el);
+                    } else {
+                        let repaint = ctx.clone();
+                        if let Some(dict) = crate::spell::dict(move || repaint.request_repaint()) {
+                            d.spelling = crate::spell::check(&d.rope.to_string(), kind, &dict);
+                            d.spell_version = d.version;
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
         // Live diff against HEAD for the gutter, debounced while typing.
         if let Some(d) = self.docs.get_mut(self.active) {
             if d.diff_version != d.version {

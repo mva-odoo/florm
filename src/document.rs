@@ -131,6 +131,9 @@ pub struct Document {
     lint_diagnostics: Vec<Diagnostic>,
     lsp_diagnostics: Vec<Diagnostic>,
     pub lint_version: u64,
+    /// The words the spell checker does not know, and the version they are of.
+    pub spelling: Vec<crate::spell::Misspelled>,
+    pub spell_version: u64,
     pub git_marks: HashMap<usize, GitMark>,
     /// File content in HEAD, the live diff is computed against it.
     pub git_base: Option<String>,
@@ -595,6 +598,8 @@ impl Document {
             lint_diagnostics: Vec::new(),
             lsp_diagnostics: Vec::new(),
             lint_version: 0,
+            spelling: Vec::new(),
+            spell_version: u64::MAX,
             git_marks: HashMap::new(),
             git_base: None,
             hunks: Vec::new(),

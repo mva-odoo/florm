@@ -67,38 +67,8 @@ pub fn program() -> Option<PathBuf> {
 /// it and unpacks it into Florm's data folder.
 pub fn install() -> Result<(), String> {
     let plat = platform().ok_or_else(|| t!("Copilot n'existe pas pour ce système", "Copilot does not exist for this system").to_string())?;
-    let meta_url = format!("https://registry.npmjs.org/@github/copilot-language-server-{plat}/latest");
-    let meta: Value = serde_json::from_str(&curl_text(&meta_url)?).map_err(|e| e.to_string())?;
-    let tarball = meta["dist"]["tarball"].as_str().ok_or("npm : pas de fichier")?.to_string();
-    let integrity = meta["dist"]["integrity"].as_str().unwrap_or("").to_string();
     let dir = install_dir();
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let file = dir.join("server.tgz");
-    let out = crate::os::command("curl")
-        .args(["-fsSL", "--max-time", "900", "-o"])
-        .arg(&file)
-        .arg(&tarball)
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|_| t!("curl est introuvable", "curl was not found").to_string())?;
-    if !out.status.success() {
-        return Err(tf!("Téléchargement impossible : {}", "Cannot download: {}", String::from_utf8_lossy(&out.stderr).trim()));
-    }
-    // the SHA-512 npm gives ("sha512-<base64>"): a broken or changed download is not run
-    if let Some(want) = integrity.strip_prefix("sha512-").and_then(base64) {
-        use sha2::{Digest, Sha512};
-        let got = Sha512::digest(std::fs::read(&file).map_err(|e| e.to_string())?);
-        if got.as_slice() != want.as_slice() {
-            let _ = std::fs::remove_dir_all(&dir);
-            return Err(t!("Le fichier téléchargé est abîmé (empreinte différente) : réessaie", "The downloaded file is damaged (different checksum): try again").into());
-        }
-    }
-    let out = crate::os::command("tar").arg("-xzf").arg(&file).arg("-C").arg(&dir).stdin(Stdio::null()).output().map_err(|_| t!("tar est introuvable", "tar was not found").to_string())?;
-    let _ = std::fs::remove_file(&file);
-    if !out.status.success() {
-        return Err(tf!("Décompression impossible : {}", "Cannot unpack: {}", String::from_utf8_lossy(&out.stderr).trim()));
-    }
+    crate::npm::fetch(&format!("@github/copilot-language-server-{plat}"), "latest", &dir, 900)?;
     let exe = dir.join("package").join(exe_name());
     #[cfg(unix)]
     {
@@ -113,22 +83,6 @@ pub fn install() -> Result<(), String> {
     Ok(())
 }
 
-fn curl_text(url: &str) -> Result<String, String> {
-    let out = crate::os::command("curl")
-        .args(["-fsSL", "--max-time", "30", url])
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|_| t!("curl est introuvable", "curl was not found").to_string())?;
-    if !out.status.success() {
-        return Err(tf!("Le registre npm ne répond pas : {}", "npm's registry does not answer: {}", String::from_utf8_lossy(&out.stderr).trim()));
-    }
-    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
-}
-
-/// Standard base64 decoded (`None`: not base64).
-fn base64(text: &str) -> Option<Vec<u8>> {
-    crate::claude::base64_decode(text)
-}
 
 /// The server running: requests sent from any thread, answers dispatched by id.
 struct Server {
@@ -351,9 +305,9 @@ mod tests {
 
     #[test]
     fn base64_of_npm() {
-        assert_eq!(base64("aGVsbG8=").unwrap(), b"hello");
-        assert_eq!(base64("Zm9vYmFy").unwrap(), b"foobar");
-        assert!(base64("pas*base64").is_none());
+        assert_eq!(crate::claude::base64_decode("aGVsbG8=").unwrap(), b"hello");
+        assert_eq!(crate::claude::base64_decode("Zm9vYmFy").unwrap(), b"foobar");
+        assert!(crate::claude::base64_decode("pas*base64").is_none());
     }
 
     #[test]

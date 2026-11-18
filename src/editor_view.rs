@@ -895,7 +895,9 @@ fn text_area(
         }
 
         // a bulb at the end of the cursor line when it has a problem: the corrections rapides
-        if focused && (first..=last).contains(&caret) && doc.diagnostics.iter().any(|d| d.line == caret) {
+        let caret_col = doc.primary_sel().head - doc.rope.line_to_char(caret.min(doc.rope.len_lines().saturating_sub(1)));
+        let misspelled_here = doc.spelling.iter().any(|m| m.line == caret && (m.col..=m.col + m.len).contains(&caret_col));
+        if focused && (first..=last).contains(&caret) && (doc.diagnostics.iter().any(|d| d.line == caret) || misspelled_here) {
             let end = at(caret, doc.vcol(caret, doc.line_len(caret)));
             let center = Pos2::new(end.x + 1.5 * cw, end.y + rh * 0.45);
             let r = ui.interact(Rect::from_center_size(center, egui::vec2(cw * 1.6, rh)), id.with("bulb"), Sense::click());
@@ -930,6 +932,22 @@ fn text_area(
                     up = !up;
                 }
                 painter.add(Shape::line(pts, Stroke::new(1.0_f32, color)));
+            }
+        }
+
+        // words the spell checker does not know: blue dots under them, quieter than a problem
+        let dots = highlight::blue().gamma_multiply(0.8);
+        for m in doc.spelling.iter().filter(|m| (first..=last).contains(&m.line) && !rm.is_hidden(m.line)) {
+            let ll = doc.line_len(m.line);
+            let (v0, v1) = (doc.vcol(m.line, m.col.min(ll)), doc.vcol(m.line, (m.col + m.len).min(ll)));
+            for (k, a, b) in wraps.spans(m.line, v0, v1.max(v0 + 1)) {
+                let y = line_y(m.line) + (k + 1) as f32 * rh - 1.5;
+                let mut x = text_x + a as f32 * cw + 1.0;
+                let x1 = text_x + b as f32 * cw;
+                while x < x1 {
+                    painter.circle_filled(Pos2::new(x, y), 0.9, dots);
+                    x += 3.0;
+                }
             }
         }
 

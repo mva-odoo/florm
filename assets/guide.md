@@ -735,6 +735,13 @@ Le **HTML** courant s'affiche aussi : `<br>`, `<b>`, `<i>`, `<kbd>`, `<img>`, `<
 
 ## Écrire
 
+- **Orthographe** : les mots inconnus du Markdown, des commentaires du code et des messages de
+  commit sont soulignés de points bleus, en français et en anglais à la fois (les noms propres,
+  le code, les adresses et les identifiants sont laissés de côté). **Ctrl+.** sur un mot propose
+  ses corrections, ou **l'ajoute à ton dictionnaire** (`dictionary.txt`, dans la configuration
+  partagée s'il y en a une). Les dictionnaires (Grammalecte pour le français, SCOWL pour
+  l'anglais) sont téléchargés la première fois, environ 550 ko. Se désactive dans Préférences →
+  Éditeur → Orthographe.
 - **Alt+Maj+→** élargit la sélection pas à pas : le mot, l'intérieur de la chaîne, la chaîne avec
   ses guillemets, l'intérieur des parenthèses (crochets, accolades), avec elles, la ligne, le bloc
   de même indentation, tout le fichier. **Alt+Maj+←** revient au pas d'avant.

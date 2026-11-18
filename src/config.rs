@@ -23,6 +23,8 @@ pub struct Settings {
     /// corners, no shadows, the interface in the editor's monospaced font, like a terminal).
     pub ui_style: String,
     pub show_minimap: bool,
+    /// Spell checking of the Markdown, the comments and the commit messages (French and English).
+    pub spell_check: bool,
     /// Brackets colored by level of nesting.
     pub rainbow_brackets: bool,
     /// Spaces and tabs shown in the editor (· and →).
@@ -190,6 +192,7 @@ impl Default for Settings {
             ui_font: String::new(),
             ui_style: "rounded".into(),
             show_minimap: true,
+            spell_check: true,
             rainbow_brackets: true,
             show_whitespace: false,
             word_wrap: false,
@@ -285,6 +288,9 @@ ui_font = ""
 # style de l'interface : "rounded" (coins arrondis, ombres) ou "square" (coins droits, sans ombres, police de l'éditeur partout, comme un terminal)
 ui_style = "rounded"
 show_minimap = true
+# orthographe (français et anglais) du Markdown, des commentaires et des messages de commit ;
+# les dictionnaires sont téléchargés la première fois
+spell_check = true
 # crochets colorés selon leur niveau d'imbrication
 rainbow_brackets = true
 # espaces et tabulations visibles dans l'éditeur (· et →)

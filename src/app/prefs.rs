@@ -446,6 +446,12 @@ impl App {
                 pref_row(ui, rc, "Minimap", t!("Aperçu du fichier à droite de l'éditeur.", "Overview of the file on the right of the editor."), |ui| {
                     toggle_switch(ui, &mut s.show_minimap);
                 });
+                pref_row(ui, rc, t!("Orthographe", "Spelling"), t!("Souligne en pointillés les mots inconnus du Markdown, des commentaires du code et des messages de commit, en français et en anglais ; Ctrl+. propose des corrections ou ajoute le mot à ton dictionnaire. Les dictionnaires (Grammalecte, SCOWL) sont téléchargés la première fois.", "Underlines with dots the unknown words of the Markdown, the comments of the code and the commit messages, in French and English; Ctrl+. offers corrections or adds the word to your dictionary. The dictionaries (Grammalecte, SCOWL) are downloaded the first time."), |ui| {
+                    toggle_switch(ui, &mut s.spell_check);
+                    if let Some(e) = crate::spell::failure() {
+                        ui.label(RichText::new(tf!("⚠ Dictionnaires non téléchargés : {e} (réessayé au prochain démarrage)", "⚠ Dictionaries not downloaded: {e} (tried again at the next start)")).small().color(ui.visuals().error_fg_color));
+                    }
+                });
                 pref_row(ui, rc, t!("Retour à la ligne automatique", "Word wrap"), t!("Les lignes plus longues que l'éditeur continuent sur les rangées suivantes, coupées après un espace et indentées comme la ligne (Alt+Z). Le fichier n'est pas modifié.", "Lines longer than the editor go on over the next rows, cut after a space and indented like the line (Alt+Z). The file is not changed."), |ui| {
                     toggle_switch(ui, &mut s.word_wrap);
                 });
@@ -1243,6 +1249,7 @@ impl App {
         }
         let bools = [
             ("show_minimap", s.show_minimap, before.show_minimap),
+            ("spell_check", s.spell_check, before.spell_check),
             ("rainbow_brackets", s.rainbow_brackets, before.rainbow_brackets),
             ("show_whitespace", s.show_whitespace, before.show_whitespace),
             ("word_wrap", s.word_wrap, before.word_wrap),

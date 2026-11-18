@@ -134,6 +134,7 @@ L'édition, la recherche, la coloration, l'index des symboles (F12, complétion)
 | Claude dans l'éditeur | `claude` (Claude Code), connecté | Onglet Claude, ✨ message de commit |
 | Complétion par GitHub Copilot (au choix) | rien : Florm télécharge `copilot-language-server` (Préférences → Éditeur) ; un abonnement Copilot | Suite proposée en gris pendant la frappe |
 | Tests | `pytest`, `npx jest`, `cargo`, `go` | Tests du projet, lancés par le ▶ de la marge |
+| Orthographe | rien (dictionnaires téléchargés par Florm, ~550 ko) | Mots inconnus du Markdown, des commentaires et des commits, en français et en anglais |
 | Tests Odoo | `docker` | Tests lancés dans le conteneur réglé dans Préférences → Tests |
 | Comparer, historique local | `git` | Comparer deux fichiers / dossiers, avec le presse-papiers, avec une version de l'historique local |
 | Débogueur | `debugpy` (Python), là où tourne le programme ; `gdb` 14+ ou `lldb-dap` (Rust, C) ; `dlv` (Go) ; `node` (js-debug, téléchargé par Florm) | Points d'arrêt, variables, pas à pas (F5) ; Florm propose de l'installer |

@@ -719,6 +719,12 @@ In the preview (and in Claude's answers), **Mermaid sequence diagrams** (` ```me
 
 ## Writing
 
+- **Spelling**: the unknown words of the Markdown, the comments of the code and the commit
+  messages are underlined with blue dots, in French and English at once (the proper nouns, the
+  code, the addresses and the identifiers are left out). **Ctrl+.** on a word offers its
+  corrections, or **adds it to your dictionary** (`dictionary.txt`, in the shared configuration
+  if there is one). The dictionaries (Grammalecte for French, SCOWL for English) are downloaded
+  the first time, about 550 KB. Turned off in Preferences → Editor → Spelling.
 - **Alt+Shift+→** expands the selection step by step: the word, the inside of the string, the
   string with its quotes, the inside of the parentheses (brackets, braces), with them, the line,
   the block of the same indentation, the whole file. **Alt+Shift+←** goes back one step.

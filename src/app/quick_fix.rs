@@ -17,6 +17,10 @@ pub(super) struct QuickFix {
 pub(super) enum Fix {
     /// Text inserted at a char position of the document (an import).
     Insert(usize, String),
+    /// The chars a..b of the document replaced (a word misspelled by its correction).
+    Replace(usize, usize, String),
+    /// A word added to the dictionary of the user.
+    AddWord(String),
     Cmd(Cmd),
     /// Claude in the editor on the line, with this request.
     Claude(String),
@@ -130,6 +134,19 @@ impl App {
         let problems: Vec<&lint::Diagnostic> = d.diagnostics.iter().filter(|g| g.line == line).collect();
         let python = d.path.as_ref().is_some_and(|p| lint::lang_of(p) == Some("python"));
         let mut out: Vec<(String, Fix)> = Vec::new();
+        // a word the spell checker does not know, under the cursor: its corrections, or into the dictionary
+        let col = d.primary_sel().head - d.rope.line_to_char(line);
+        if let Some(m) = d.spelling.iter().find(|m| m.line == line && (m.col..=m.col + m.len).contains(&col)) {
+            let a = d.rope.line_to_char(line) + m.col;
+            if let Some(dict) = crate::spell::dict(|| {}) {
+                for w in dict.suggest(&m.word, 5) {
+                    if !d.read_only {
+                        out.push((tf!("Orthographe : {w}", "Spelling: {w}"), Fix::Replace(a, a + m.len, w)));
+                    }
+                }
+            }
+            out.push((tf!("Ajouter « {} » au dictionnaire", "Add “{}” to the dictionary", m.word), Fix::AddWord(m.word.clone())));
+        }
         // a name used without its import: the import, from the project index or the standard library
         if python && !d.read_only {
             let at = d.rope.line_to_char(import_line(d));
@@ -266,6 +283,21 @@ impl App {
                     self.set_status(tf!("Ajouté : {}", "Added: {}", text.trim()));
                 }
             }
+            Fix::Replace(a, b, text) => {
+                if let Some(d) = self.docs.get_mut(self.active) {
+                    d.replace_keep(EditKind::Other, vec![(a, b, text)]);
+                }
+            }
+            Fix::AddWord(w) => match crate::spell::add_word(&w) {
+                Ok(()) => {
+                    // checked again everywhere with the new word
+                    for d in &mut self.docs {
+                        d.spell_version = u64::MAX;
+                    }
+                    self.set_status(tf!("« {w} » ajouté au dictionnaire ({})", "“{w}” added to the dictionary ({})", crate::spell::my_words_path().display()));
+                }
+                Err(e) => self.set_error(tf!("Dictionnaire : {e}", "Dictionary: {e}")),
+            },
             Fix::Cmd(cmd) => self.pending.push(cmd),
             Fix::Claude(ask) => {
                 self.inline_ai_open();
@@ -472,6 +504,49 @@ mod lsp_tests {
         let fix = app.quick_fix.take().unwrap().items.swap_remove(k).1;
         app.quick_fix_apply(fix, &ctx);
         wait(&mut app, "l'import ajouté", &|a| a.docs[a.active].rope.to_string().contains("import \"strings\""));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A word misspelled in a Markdown file: dotted, Ctrl+. offers its correction and to add it
+    /// to the dictionary; added, it is no longer underlined.
+    #[test]
+    fn a_misspelled_word_corrected_or_added() {
+        let dir = std::env::temp_dir().join(format!("florm_qf_spell_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (conf, proj) = (dir.join("conf"), dir.join("proj"));
+        std::fs::create_dir_all(&conf).unwrap();
+        std::fs::create_dir_all(&proj).unwrap();
+        std::fs::write(conf.join("settings.toml"), "check_updates = false\nlsp = false\n").unwrap();
+        let file = proj.join("notes.md");
+        std::fs::write(&file, "Le fichierr et flormesque.\n").unwrap();
+        let _lock = config::TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("FLORM_CONFIG", &conf);
+        crate::spell::use_words(&["le", "et", "fichier", "fichiers"]);
+        let ctx = egui::Context::default();
+        let mut app = App::with_ctx(&ctx, Some(proj.clone()));
+        assert!(app.open_path(file.clone()));
+        let check = |app: &mut App| {
+            app.docs[app.active].last_change = Instant::now() - Duration::from_secs(1);
+            app.periodic(&ctx);
+            app.docs[app.active].spelling.iter().map(|m| m.word.clone()).collect::<Vec<_>>()
+        };
+        assert_eq!(check(&mut app), ["fichierr", "flormesque"]);
+        // Ctrl+. on « fichierr »: its correction first, then the dictionary
+        let d = &mut app.docs[app.active];
+        d.sels = vec![Sel::range(5, 5)];
+        d.primary = 0;
+        let fixes = app.local_fixes(app.active);
+        assert_eq!(fixes[0].0, t!("Orthographe : fichier", "Spelling: fichier"));
+        let fix = app.local_fixes(app.active).swap_remove(0).1;
+        app.quick_fix_apply(fix, &ctx);
+        assert_eq!(app.docs[app.active].rope.to_string(), "Le fichier et flormesque.\n");
+        // « flormesque » into the dictionary: no longer underlined
+        let d = &mut app.docs[app.active];
+        d.sels = vec![Sel::range(16, 16)];
+        let add = app.local_fixes(app.active).into_iter().find(|f| matches!(f.1, Fix::AddWord(_))).unwrap().1;
+        app.quick_fix_apply(add, &ctx);
+        assert!(check(&mut app).is_empty());
+        assert!(std::fs::read_to_string(crate::spell::my_words_path()).unwrap().contains("flormesque"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
