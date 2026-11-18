@@ -45,7 +45,6 @@ mod shared;
 mod sidebar;
 mod sound;
 mod split;
-mod sql;
 mod update;
 mod view_bar;
 mod symbols;

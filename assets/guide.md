@@ -25,7 +25,7 @@ Docker, terminal…) n'en ont pas : elles gardent toute la hauteur.
 
 Deux fichiers ouverts du même nom : leur dossier s'affiche en gris après le titre (`input.rs …/app`). Un fichier avec des erreurs montre leur nombre en rouge (`9+` au-delà de neuf).
 
-À droite de la barre d'onglets : **+** ouvre un onglet texte vide (Ctrl+N), **▾** une vue dans un onglet, chacune avec son icône : Recherche, Claude, Git, GitHub, Docker, Débogage, puis Terminal, SQL, Préférences et Accueil. Quand les onglets ne tiennent plus dans la barre, ‹ › les font défiler et le même **▾** liste en haut tous les onglets ouverts.
+À droite de la barre d'onglets : **+** ouvre un onglet texte vide (Ctrl+N), **▾** une vue dans un onglet, chacune avec son icône : Recherche, Claude, Git, GitHub, Docker, Débogage, puis Terminal, Préférences et Accueil. Quand les onglets ne tiennent plus dans la barre, ‹ › les font défiler et le même **▾** liste en haut tous les onglets ouverts.
 
 **Groupes d'onglets** : clic droit sur un onglet → **Ajouter à un groupe** (un existant ou
 **+ Nouveau groupe**). Les onglets d'un groupe restent côte à côte, avec une bande de sa couleur
@@ -95,7 +95,7 @@ bas ouvert et la barre latérale affichée ou non.
 
 ## Panneau du bas et barre d'état
 
-Une règle simple : **les fichiers (et ce qui se lit comme eux : diff, pull request, résultat SQL)
+Une règle simple : **les fichiers (et ce qui se lit comme eux : diff, pull request)
 vont dans les onglets ; les vues qui t'accompagnent (recherche, terminal, Claude, Git, GitHub,
 Docker, débogage, problèmes, sortie) ont chacune une seule place**, que tu choisis.
 
@@ -308,28 +308,6 @@ interactif** (clic droit → « Rebase interactif à partir d'ici… »), l'acti
   panneau dans sa vue (Échap pour revenir), une fenêtre avec une colonne à droite affiche ou
   masque un panneau latéral (la revue de Claude), pleine quand il est affiché. Git, les Préférences et le découpage d'un commit
   sont des onglets comme les autres : Échap revient à l'onglet d'avant, Ctrl+W les ferme.
-
-## SQL (PostgreSQL)
-
-**Outils → SQL** (ou « sql » dans la palette) : un onglet pour interroger une base PostgreSQL
-avec la commande `psql` (le client seul suffit).
-
-- En haut, **Base** : la liste des bases du serveur ; tape quelques lettres pour trouver la
-  bonne, ↑ ↓ et Entrée pour la choisir. ⟳ relit la liste. **Serveur** reste vide pour le
-  PostgreSQL de cette machine ; sinon `host=… port=… user=…` ou `postgresql://user@host:port`.
-  Le mot de passe va dans `~/.pgpass` (ou la variable `PGPASSWORD`) plutôt que dans le champ.
-- La requête, colorée ; **▶ Exécuter** ou **Ctrl+Entrée**. Sa zone est petite : tire son bord du
-  bas pour l'agrandir. Le résultat s'affiche en tableau (colonnes redimensionnables, `NULL` en
-  gris, clic sur une valeur pour la copier, **Copier (tableur)** pour tout coller dans un
-  tableur), avec le nombre de lignes et le temps. **■ Arrêter** interrompt une requête trop longue.
-- **⏱ EXPLAIN ANALYZE** : le plan de la requête en arbre d'étapes, comme sur explain.dalibo.com.
-  Pour chaque étape : sa part du temps d'exécution (une barre, rouge à partir de la moitié,
-  orange à partir d'un cinquième), son temps propre, les lignes données et celles prévues (⚠ quand
-  l'estimation se trompe d'un facteur 10 : statistiques à revoir), la table et l'index lus, et ses
-  conditions (filtre, jointure, tri, buffers). La requête est exécutée dans une transaction
-  annulée ensuite : un `UPDATE` ou un `DELETE` ne change rien. **Copier le plan (JSON)** le donne
-  tel quel, à coller dans explain.dalibo.com pour encore plus de détails.
-- La base, le serveur et la requête sont gardés avec le projet.
 
 ## Docker
 

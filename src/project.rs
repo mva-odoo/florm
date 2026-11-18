@@ -50,11 +50,6 @@ pub struct Session {
     /// index. Empty: all of them.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub version: String,
-    /// The connection and the query of the SQL view.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub sql_conn: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub sql_query: String,
     /// The conversations of the list of the Claude tab (their key in the history of Claude).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub claude_listed: Vec<u64>,

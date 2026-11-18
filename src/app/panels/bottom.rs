@@ -383,7 +383,6 @@ impl App {
         ui.separator();
         for (cmd, icon, label) in [
             (Cmd::NewTerminalTab, icons::ViewIcon::Terminal, t!("Terminal", "Terminal")),
-            (Cmd::OpenSql, icons::ViewIcon::Sql, "SQL"),
             (Cmd::OpenSettings, icons::ViewIcon::Settings, t!("Préférences", "Preferences")),
             (Cmd::ShowWelcome, icons::ViewIcon::Welcome, t!("Accueil", "Welcome")),
         ] {

@@ -132,8 +132,6 @@ impl App {
             bottom: self.bottom.map(|b| b.key()),
             sidebar_hidden: !self.show_sidebar,
             version: self.version.clone(),
-            sql_conn: crate::sql::split_password(&self.sql.conn()).0,
-            sql_query: self.sql.query.clone(),
             claude_listed: self.claude_listed_keys(),
         };
         (session, backups)
@@ -152,11 +150,7 @@ impl App {
         self.index.recent.clear();
         self.debug_set_breakpoints(Vec::new());
         let Some(root) = self.root.clone() else { return };
-        let Some(s) = project::load_session(&root) else {
-            self.sql.set_conn("");
-            self.sql.query.clear();
-            return;
-        };
+        let Some(s) = project::load_session(&root) else { return };
         self.debug_set_breakpoints(s.breakpoints.clone());
         self.index.recent = s.recent.iter().filter(|p| p.is_file()).cloned().collect();
         if !s.search_include.is_empty() {
@@ -230,8 +224,6 @@ impl App {
             self.focused_pane = self.docs.get(*i).map_or(0, |d| d.pane);
         }
         self.show_sidebar = !s.sidebar_hidden;
-        self.sql.set_conn(&s.sql_conn);
-        self.sql.query = s.sql_query.clone();
         self.claude_restore_listed(&s.claude_listed);
         if let Some(b) = s.bottom.as_deref().and_then(BottomTab::from_key).filter(|b| b.feature_on()) {
             self.show_bottom(b, false);
@@ -250,7 +242,6 @@ impl App {
         Some(match d.view {
             View::Claude => format!("claude:{}", self.claude_tab_key(d.uid)),
             View::Docker => "docker".into(),
-            View::Sql => "sql".into(),
             View::PullRequests => "pulls".into(),
             View::Debug => "debug".into(),
             View::Search => "search".into(),
@@ -273,7 +264,6 @@ impl App {
             ("debug", _) if !on(Feature::Debugger) => return false,
             ("claude", key) => self.claude_restore_tab(key.parse().unwrap_or(0)),
             ("docker", _) => self.open_docker(),
-            ("sql", _) => self.open_sql(),
             ("pulls", _) => self.open_pulls(),
             ("debug", _) => self.open_debug(),
             ("git", _) => self.open_git_view(),

@@ -25,7 +25,7 @@ terminal…) have none: they keep the whole height.
 
 Two open files of the same name: their folder shows in grey after the title (`input.rs …/app`). A file with errors shows how many in red (`9+` beyond nine).
 
-On the right of the tab strip: **+** opens an empty text tab (Ctrl+N), **▾** a view in a tab, each with its icon: Search, Claude, Git, GitHub, Docker, Debug, then Terminal, SQL, Preferences and Welcome. When the tabs no longer fit in the strip, ‹ › scroll them and the same **▾** lists all the open tabs at the top.
+On the right of the tab strip: **+** opens an empty text tab (Ctrl+N), **▾** a view in a tab, each with its icon: Search, Claude, Git, GitHub, Docker, Debug, then Terminal, Preferences and Welcome. When the tabs no longer fit in the strip, ‹ › scroll them and the same **▾** lists all the open tabs at the top.
 
 **Groups of tabs**: right click a tab → **Add to a group** (an existing one or **+ New
 group**). The tabs of a group stay side by side, with a band of its color and its name before
@@ -95,7 +95,7 @@ sidebar shown or not.
 
 ## Bottom panel and status bar
 
-One simple rule: **files (and what reads like them: diffs, pull requests, SQL results) go in the
+One simple rule: **files (and what reads like them: diffs, pull requests) go in the
 tabs; the views that come along (search, terminal, Claude, Git, GitHub, Docker, debug, problems,
 output) each have one place**, which you choose.
 
@@ -304,28 +304,6 @@ one of the commits.
   (Escape to come back), a window with a column on the right shows or hides a side panel (the
   review of Claude), filled when it is shown. Git, the Preferences and the split of a commit are
   tabs like the others: Escape goes back to the previous tab, Ctrl+W closes them.
-
-## SQL (PostgreSQL)
-
-**Tools → SQL** (or “sql” in the palette): a tab to query a PostgreSQL database with the `psql`
-command (the client alone is enough).
-
-- On top, **Database**: the list of the databases of the server; type a few letters to find the
-  right one, ↑ ↓ and Enter to choose it. ⟳ reads the list again. **Server** stays empty for the
-  PostgreSQL of this machine; else `host=… port=… user=…` or `postgresql://user@host:port`. The
-  password goes in `~/.pgpass` (or the `PGPASSWORD` variable) rather than in the field.
-- The query, colored; **▶ Run** or **Ctrl+Enter**. Its area is small: drag its lower edge to make
-  it taller. The result shows as a table (resizable columns, `NULL` in grey, click a value to copy
-  it, **Copy (spreadsheet)** to paste it all in a spreadsheet), with the number of rows and the
-  time. **■ Stop** interrupts a query too long.
-- **⏱ EXPLAIN ANALYZE**: the plan of the query as a tree of steps, as on explain.dalibo.com. For
-  each step: its share of the execution time (a bar, red from half of it, orange from a fifth),
-  its own time, the rows given and those expected (⚠ when the estimate is off by a factor of 10:
-  statistics to check), the table and index read, and its conditions (filter, join, sort,
-  buffers). The query runs in a transaction rolled back afterwards: an `UPDATE` or a `DELETE`
-  changes nothing. **Copy the plan (JSON)** gives it as is, to paste in explain.dalibo.com for
-  even more detail.
-- The database, the server and the query are kept with the project.
 
 ## Docker
 
