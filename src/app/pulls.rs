@@ -98,9 +98,6 @@ pub(super) struct PrUi {
     choices_asked: bool,
     /// The pull request just created from here: GitHub takes a few seconds to know it.
     created: Option<u64>,
-    /// Logins being typed to add a reviewer, an assignee.
-    new_reviewer: String,
-    new_assignee: String,
     /// Index in `MERGE_METHODS`, and the branch deleted once merged.
     merge_method: usize,
     delete_branch: bool,
@@ -644,7 +641,7 @@ impl App {
                         // reviewers, assignees, labels, milestone on the right, like on GitHub
                         egui::SidePanel::right("pr_side").resizable(true).default_width(230.0).width_range(170.0..=420.0).show_inside(ui, |ui| {
                             egui::ScrollArea::vertical().id_salt("pr_side_scroll").auto_shrink([false, false]).show(ui, |ui| {
-                                side_info(ui, d, &mut p.new_reviewer, &mut p.new_assignee, p.choices.as_ref(), p.busy, &mut act);
+                                side_info(ui, d, p.choices.as_ref(), p.busy, &mut act);
                             });
                         });
                         // like GitHub: everything that happened, oldest first, on a line; then whether it
@@ -1492,7 +1489,7 @@ fn merge_box(ui: &mut egui::Ui, d: &github::PrDetail, method: &mut usize, delete
 
 /// Reviewers, assignees, labels and milestone, each with what changes them.
 #[allow(clippy::too_many_arguments)]
-fn side_info(ui: &mut egui::Ui, d: &github::PrDetail, new_reviewer: &mut String, new_assignee: &mut String, choices: Option<&(Vec<github::Label>, Vec<String>)>, busy: bool, act: &mut Option<PrAct>) {
+fn side_info(ui: &mut egui::Ui, d: &github::PrDetail, choices: Option<&(Vec<github::Label>, Vec<String>)>, busy: bool, act: &mut Option<PrAct>) {
     let n = d.number;
     let edit = |label: String, more: &[&str]| PrAct::Gh { label, cmds: vec![github::pr_args("edit", n, more)], draft: None };
     // each part under a line, its title in small bold, as on GitHub
@@ -1506,35 +1503,71 @@ fn side_info(ui: &mut egui::Ui, d: &github::PrDetail, new_reviewer: &mut String,
         ui.label(RichText::new(text).small().strong().color(ui.visuals().text_color()));
         ui.add_space(2.0);
     };
-    // a list of logins, ✖ to take one off, a field to add one
-    let mut people = |ui: &mut egui::Ui, list: &[String], new: &mut String, add: &str, remove: &str, hint: &str| {
+    // a list of logins, each with its state (a reviewer) and ✖ to take one off; adding one is done on
+    // GitHub, which completes the logins (a field to type them here was more trouble than help)
+    let ok_c = ok();
+    let people = |ui: &mut egui::Ui, list: &[(String, String)], remove: &str, act: &mut Option<PrAct>| {
         if list.is_empty() {
             ui.label(RichText::new(t!("Personne", "Nobody")).weak());
         }
-        for who in list {
+        for (who, state) in list {
             ui.horizontal(|ui| {
                 avatar(ui, who.rsplit('/').next().unwrap_or(who), 18.0);
                 ui.label(who);
-                if ui.add_enabled(!busy, egui::Button::new("✖").small().frame(false)).on_hover_text(t!("Retirer", "Remove")).clicked() {
-                    *act = Some(edit(tf!("{who} retiré(e)", "{who} removed"), &[remove, who]));
-                }
+                let (icon, color, tip) = match state.as_str() {
+                    "APPROVED" => ("✔", ok_c, t!("A approuvé", "Approved")),
+                    "CHANGES_REQUESTED" => ("✖", err(), t!("Demande des changements", "Requested changes")),
+                    "COMMENTED" => ("💬", ui.visuals().weak_text_color(), t!("A commenté", "Commented")),
+                    "DISMISSED" => ("⊘", ui.visuals().weak_text_color(), t!("Relecture écartée", "Review dismissed")),
+                    "PENDING" => ("⏳", warn(), t!("Relecture demandée, en attente", "Review asked, waiting")),
+                    _ => ("", ui.visuals().weak_text_color(), ""),
+                };
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // asked and not given yet (or an assignee): it can be taken back
+                    if matches!(state.as_str(), "PENDING" | "") && ui.add_enabled(!busy, egui::Button::new("✖").small().frame(false)).on_hover_text(t!("Retirer", "Remove")).clicked() {
+                        *act = Some(edit(tf!("{who} retiré(e)", "{who} removed"), &[remove, who]));
+                    }
+                    if !icon.is_empty() {
+                        ui.label(RichText::new(icon).color(color)).on_hover_text(tip);
+                    }
+                });
             });
         }
-        ui.horizontal(|ui| {
-            let r = crate::input::add(ui, egui::TextEdit::singleline(new).hint_text(hint).desired_width(ui.available_width() - 30.0));
-            let enter = r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
-            if (ui.add_enabled(!busy && !new.trim().is_empty(), egui::Button::new("+")).clicked() || enter) && !new.trim().is_empty() {
-                let who = new.trim().trim_start_matches('@').to_string();
-                let who = if who == "me" { "@me".to_string() } else { who };
-                *act = Some(edit(tf!("{who} ajouté(e)", "{who} added"), &[add, &who]));
-                new.clear();
-            }
-        });
+    };
+    let on_github = |ui: &mut egui::Ui| {
+        let r = ui.add(egui::Button::new(RichText::new(t!("Ajouter sur GitHub ↗", "Add on GitHub ↗")).small()).frame(false));
+        if r.on_hover_text(t!("La page de la pull request, qui complète les logins et les équipes", "The page of the pull request, which completes the logins and teams")).clicked() {
+            ui.ctx().open_url(egui::OpenUrl::new_tab(&d.url));
+        }
     };
     title(ui, t!("Relecteurs", "Reviewers"));
-    people(ui, &d.reviewers, new_reviewer, "--add-reviewer", "--remove-reviewer", t!("login ou org/équipe", "login or org/team"));
+    people(ui, &d.reviewers, "--remove-reviewer", act);
+    // the rules of the repository ask for an approval, none given yet
+    if d.review_decision == "REVIEW_REQUIRED" && !d.reviewers.iter().any(|(_, s)| s == "APPROVED") {
+        ui.label(RichText::new(t!("Relecture requise : une approbation avant de fusionner", "Review required: an approval before merging")).small().color(warn()));
+    }
+    // who GitHub suggests (they touched these lines): asked in one click, no login to type
+    if !d.suggested.is_empty() {
+        ui.add_space(2.0);
+        ui.label(RichText::new(t!("Suggestions", "Suggestions")).small().weak());
+        for who in &d.suggested {
+            ui.horizontal(|ui| {
+                avatar(ui, who, 18.0);
+                ui.label(RichText::new(who).weak());
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let r = ui.add_enabled(!busy, egui::Button::new(RichText::new(t!("Demander", "Ask")).small()));
+                    if r.on_hover_text(tf!("Demander une relecture à {who}", "Ask {who} for a review")).clicked() {
+                        *act = Some(edit(tf!("Relecture demandée à {who}", "Review asked to {who}"), &["--add-reviewer", who]));
+                    }
+                });
+            });
+        }
+    }
+    on_github(ui);
     title(ui, t!("Assignés", "Assignees"));
-    people(ui, &d.assignees, new_assignee, "--add-assignee", "--remove-assignee", t!("login (me : toi)", "login (me: you)"));
+    let assignees: Vec<(String, String)> = d.assignees.iter().map(|a| (a.clone(), String::new())).collect();
+    people(ui, &assignees, "--remove-assignee", act);
+    on_github(ui);
 
     title(ui, t!("Étiquettes", "Labels"));
     ui.horizontal_wrapped(|ui| {
@@ -2317,21 +2350,22 @@ mod render_check {
             head: "17.0-fix".into(),
             merge_state: "BEHIND".into(),
             review_decision: "APPROVED".into(),
-            reviewers: vec!["alice".into()],
+            reviewers: vec![("alice".into(), "APPROVED".into())],
+            suggested: vec!["tfr".into()],
             labels: vec![github::Label { name: "bug".into(), color: "d73a4a".into() }],
             checks: vec![github::Check { name: "tests".into(), workflow: "CI".into(), state: github::CheckState::Fail, url: "https://github.com/o/r/actions/runs/1/job/2".into(), description: String::new() }],
             ..Default::default()
         };
         let ctx = egui::Context::default();
         let mut cache = egui_commonmark::CommonMarkCache::default();
-        let (mut method, mut delete, mut all, mut rev, mut asg, mut editing) = (0, false, false, String::new(), String::new(), None);
+        let (mut method, mut delete, mut all, mut editing) = (0, false, false, None);
         let mut shapes = Vec::new();
         for _ in 0..3 {
             let out = ctx.run(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 800.0))), ..Default::default() }, |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
                     let mut act = None;
                     merge_box(ui, &d, &mut method, &mut delete, &mut all, false, Color32::BLUE, &mut act);
-                    side_info(ui, &d, &mut rev, &mut asg, None, false, &mut act);
+                    side_info(ui, &d, None, false, &mut act);
                     let reactions = [github::Reaction { content: "HEART".into(), count: 3, mine: true }];
                     let tools = CommentTools { id: "IC_1", body: "salut", mine: true, deletable: true, reactions: &reactions, busy: false, accent: Color32::BLUE };
                     comment_body(ui, &mut cache, tools, &mut editing, &mut act, |ui, _, _| {
@@ -2342,7 +2376,7 @@ mod render_check {
             shapes = out.shapes;
         }
         let t = texts(&shapes);
-        for want in ["Checks", "CI / tests", "Logs", "17.0", "alice", "bug ✖", "❤ 3", "🗑"] {
+        for want in ["Checks", "CI / tests", "Logs", "17.0", "alice", "✔", "tfr", "Demander", "Ajouter sur GitHub ↗", "bug ✖", "❤ 3", "🗑"] {
             assert!(t.contains(want), "{want}: {t}");
         }
     }

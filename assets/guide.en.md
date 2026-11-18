@@ -468,7 +468,10 @@ palette).
   branch** (merge or rebase of the base), **Ready for review** / **Back to draft**, **Close** /
   **Reopen**. Merge, close and rebase ask first.
 - Under the message: **✔ Approve** or **✖ Request changes** (the message says what).
-- On the right: reviewers, assignees (`me` for you), labels and milestone, to add or remove.
+- On the right: the reviewers with their verdict (✔ approved, ✖ changes requested, 💬 commented,
+  ⏳ waiting), “Review required” when the repository asks for an approval, and the reviewers GitHub
+  suggests (**Ask** in one click); the assignees; the labels and milestone. To add someone else:
+  **Add on GitHub ↗**, which completes the logins.
 - **✏** next to the title: change the title, the description or the base branch.
 - Under each message, its **reactions** (a click gives or takes back yours, 🙂 to add one);
   your comments have **✏** (edit) and **🗑** (delete).

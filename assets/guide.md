@@ -474,7 +474,10 @@ avec `gh auth login` (connexion par le navigateur). Sans `gh`, la vue explique c
   revue** / **Repasser en brouillon**, **Fermer** / **Rouvrir**. Fusionner, fermer et rebaser
   demandent confirmation.
 - Sous le message : **✔ Approuver** ou **✖ Demander des changements** (le message dit quoi).
-- À droite : relecteurs, assignés (`me` pour toi), étiquettes et jalon, à ajouter ou retirer.
+- À droite : les relecteurs avec leur avis (✔ approuvé, ✖ changements demandés, 💬 commenté, ⏳ en
+  attente), « Relecture requise » quand le dépôt exige une approbation, et les relecteurs suggérés
+  par GitHub (**Demander** en un clic) ; les assignés ; les étiquettes et le jalon. Pour ajouter
+  quelqu'un d'autre : **Ajouter sur GitHub ↗**, qui complète les logins.
 - **✏** à côté du titre : changer le titre, la description ou la branche de base.
 - Sous chaque message, ses **réactions** (un clic donne ou retire la tienne, 🙂 pour en
   ajouter) ; tes commentaires ont **✏** (modifier) et **🗑** (supprimer).

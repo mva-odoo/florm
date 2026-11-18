@@ -361,8 +361,9 @@ pub struct PrDetail {
     pub mergeable: String,
     /// CLEAN, BEHIND, BLOCKED, DIRTY, DRAFT, UNSTABLE, HAS_HOOKS or UNKNOWN.
     pub merge_state: String,
-    /// Reviewers asked: logins, "org/team" for a team.
-    pub reviewers: Vec<String>,
+    /// Reviewers, as on GitHub: those asked and those who reviewed, with their last word (login or
+    /// "org/team", and PENDING, APPROVED, CHANGES_REQUESTED, COMMENTED or DISMISSED).
+    pub reviewers: Vec<(String, String)>,
     pub assignees: Vec<String>,
     pub labels: Vec<Label>,
     /// Title of the milestone, empty when none.
@@ -374,6 +375,8 @@ pub struct PrDetail {
     pub reactions: Vec<Reaction>,
     /// Files marked as viewed by me, by path.
     pub viewed: HashSet<String>,
+    /// Reviewers GitHub suggests (who touched these lines), not asked yet.
+    pub suggested: Vec<String>,
 }
 
 impl PrDetail {
@@ -435,12 +438,37 @@ struct View {
     status_check_rollup: Vec<Value>,
 }
 
+/// The reviewers shown, as GitHub does: who reviewed (their last approval or request for changes;
+/// a comment after does not take it back), then those asked (waiting, even when asked again after a
+/// review). The author of the pull request is not one.
+fn reviewers_of(asked: &[String], reviews: &[(String, String)], author: &str) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    for (who, state) in reviews {
+        if who.is_empty() || who == author || state == "PENDING" {
+            continue;
+        }
+        match out.iter_mut().find(|(w, _)| w == who) {
+            Some(r) if state != "COMMENTED" => r.1 = state.clone(),
+            Some(_) => {}
+            None => out.push((who.clone(), state.clone())),
+        }
+    }
+    for who in asked {
+        match out.iter_mut().find(|(w, _)| w == who) {
+            Some(r) => r.1 = "PENDING".into(),
+            None => out.push((who.clone(), "PENDING".into())),
+        }
+    }
+    out
+}
+
 /// What `gh pr view` does not give: who I am, the conversations on lines, reactions, files viewed.
 const EXTRA: &str = "query($owner:String!,$repo:String!,$n:Int!){viewer{login} repository(owner:$owner,name:$repo){pullRequest(number:$n){\
 reactionGroups{...R} \
 comments(last:100){nodes{id viewerDidAuthor reactionGroups{...R}}} \
 reviews(last:100){nodes{id viewerDidAuthor reactionGroups{...R}}} \
 files(first:100){nodes{path viewerViewedState}} \
+suggestedReviewers{reviewer{login}} \
 reviewThreads(first:100){nodes{id isResolved isOutdated path line startLine originalLine diffSide \
 comments(first:100){nodes{id databaseId author{login} body createdAt diffHunk viewerDidAuthor reactionGroups{...R}}}}}}}} \
 fragment R on ReactionGroup{content viewerHasReacted reactors{totalCount}}";
@@ -466,6 +494,9 @@ reviewDecision,mergeable,mergeStateStatus,reviewRequests,assignees,labels,milest
         .unwrap_or(Value::Null);
     let threads = parse_threads(&extra);
     let diff = gh(dir, &["pr", "diff", &ns, "--color", "never"]).unwrap_or_else(|e| e);
+    // who reviewed, oldest first (before the reviews go with the comments)
+    let reviewed: Vec<(String, String)> = v.reviews.iter().map(|r| (r.author.login.clone(), r.state.clone())).collect();
+    let author_login = v.author.login.clone();
     let mut comments: Vec<Comment> = v.comments.into_iter().chain(v.reviews.into_iter().filter(|r| !r.body.trim().is_empty() || r.state == "APPROVED" || r.state == "CHANGES_REQUESTED")).collect();
     comments.sort_by(|a, b| a.created_at.cmp(&b.created_at));
     let pr = &extra["data"]["repository"]["pullRequest"];
@@ -480,7 +511,7 @@ reviewDecision,mergeable,mergeStateStatus,reviewRequests,assignees,labels,milest
         }
     }
     let owner = v.url.split('/').nth(3).unwrap_or("").to_string();
-    let reviewers = v
+    let asked: Vec<String> = v
         .review_requests
         .iter()
         .filter_map(|r| match r["slug"].as_str() {
@@ -488,6 +519,12 @@ reviewDecision,mergeable,mergeStateStatus,reviewRequests,assignees,labels,milest
             None => r["login"].as_str().map(String::from),
         })
         .collect();
+    let reviewers = reviewers_of(&asked, &reviewed, &author_login);
+    let suggested: Vec<String> = pr["suggestedReviewers"]
+        .as_array()
+        .map(|a| a.iter().filter_map(|s| s["reviewer"]["login"].as_str().map(String::from)).collect())
+        .unwrap_or_default();
+    let suggested = suggested.into_iter().filter(|s| *s != author_login && !reviewers.iter().any(|(w, _)| w == s)).collect();
     let viewed = pr["files"]["nodes"]
         .as_array()
         .map(|a| a.iter().filter(|f| f["viewerViewedState"] == "VIEWED").filter_map(|f| f["path"].as_str().map(String::from)).collect())
@@ -506,6 +543,7 @@ reviewDecision,mergeable,mergeStateStatus,reviewRequests,assignees,labels,milest
         viewer: extra["data"]["viewer"]["login"].as_str().unwrap_or("").to_string(),
         reactions: parse_reactions(&pr["reactionGroups"]),
         viewed,
+        suggested,
         number: v.number,
         title: v.title,
         body: v.body,
@@ -943,6 +981,16 @@ pub fn hunk_tail(diff_hunk: &str, n: usize) -> Vec<(Option<usize>, Option<usize>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_reviewers_are_those_asked_and_those_who_reviewed() {
+        let r = |w: &str, s: &str| (w.to_string(), s.to_string());
+        let reviews = [r("alice", "APPROVED"), r("alice", "COMMENTED"), r("bob", "COMMENTED"), r("bob", "CHANGES_REQUESTED"), r("me", "COMMENTED"), r("carol", "COMMENTED")];
+        let asked = ["carol".to_string(), "odoo/team".to_string()];
+        // a comment after an approval does not take it back; asked again: waiting; the author is not one
+        assert_eq!(reviewers_of(&asked, &reviews, "me"), vec![r("alice", "APPROVED"), r("bob", "CHANGES_REQUESTED"), r("carol", "PENDING"), r("odoo/team", "PENDING")]);
+        assert!(reviewers_of(&[], &[], "me").is_empty());
+    }
 
     #[test]
     fn the_checks_are_summed_up() {
