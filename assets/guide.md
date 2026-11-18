@@ -613,16 +613,6 @@ panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en
 - **Cases à cocher** : quand la dernière réponse de Claude propose des choses à faire (`- [ ]`),
   coche celles que tu veux puis **✔ Envoyer ma réponse** : Claude reçoit « Ok, tu peux faire : … »
   avec ce qui est coché, et « Pas pour l'instant : … » avec le reste.
-- **Questions d'abord** : si la demande laisse des choix ouverts, Claude ne code rien et pose
-  1 à 3 questions avec des options (la conseillée cochée d'avance, **Autre** pour écrire la
-  tienne) ; **Répondre** les envoie et il continue. Dans la file de tâches, la tâche attend tes
-  réponses avant la suivante.
-- **Modèle d'abord** : avant qu'un message parte, Haiku regarde si la demande demande un autre
-  modèle (Opus pour un travail difficile, Haiku pour une petite tâche) et te le propose. Tu
-  choisis **Passer à…** ou **Garder…** ; **Annuler** remet le message dans le champ. Les tâches de
-  la file sont vérifiées aussi (sauf celles qui ont leur propre modèle) ; **Annuler** là-bas remet
-  la tâche en attente et met la file en pause. Un message écrit pendant la vérification part
-  dans la file, après la réponse.
 - **Avertissements** : le chat signale une fois quand la conversation remplit plus de 60 % du
   contexte (`/compact` la résume), et quand Claude ouvre une image (elle coûte beaucoup de tokens à
   chaque message suivant). La taille du contexte joint à un message s'affiche dans la barre d'état.

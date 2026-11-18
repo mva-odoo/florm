@@ -55,27 +55,16 @@ pub(in crate::app) fn project_color(name: &str, dark: bool) -> Color32 {
 }
 
 pub(in crate::app) fn conv_state(c: &ClaudeUi) -> ConvState {
-    if c.busy {
-        ConvState::Working
-    } else if waits(c) {
+    // waits for you: a change or a command to allow (mode « Demander avant »)
+    if !c.asks.is_empty() {
         ConvState::Waiting
+    } else if c.busy {
+        ConvState::Working
     } else if c.unseen {
         ConvState::Done
     } else {
         ConvState::Idle
     }
-}
-
-/// Its last answer, since your last message, asks questions (with options to tick).
-fn waits(c: &ClaudeUi) -> bool {
-    for it in c.items.iter().rev() {
-        match it {
-            Item::User(..) => return false,
-            Item::Text(t) => return !claude_ask::parse(t).1.is_empty(),
-            _ => {}
-        }
-    }
-    false
 }
 
 /// "12 s", "4 min", "1 h 05".
@@ -425,14 +414,14 @@ mod tests {
         c.items.push(Item::Text("Fini.".into()));
         c.unseen = true;
         assert_eq!(conv_state(&c), ConvState::Done);
-        // its answer asks a question: it waits for you, until your next message
-        c.items.push(Item::Text("[[QUESTION]] Où ?\n- ici\n- là\n[[/QUESTION]]".into()));
-        assert_eq!(conv_state(&c), ConvState::Waiting);
         c.items.push(Item::User("ici".into(), Vec::new(), Vec::new(), Vec::new()));
         c.unseen = false;
         assert_eq!(conv_state(&c), ConvState::Idle);
         c.busy = true;
         assert_eq!(conv_state(&c), ConvState::Working);
+        // a change to allow (mode « Demander avant »): it waits for you
+        c.asks.push(asks::Ask::new("r1".into(), "Edit".into(), serde_json::json!({"file_path": "/tmp/a.py"})));
+        assert_eq!(conv_state(&c), ConvState::Waiting);
         assert_eq!(short_duration(Duration::from_secs(3725)), "1 h 02");
         assert_eq!(short_duration(Duration::from_secs(42)), "42 s");
     }

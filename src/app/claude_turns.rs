@@ -211,7 +211,6 @@ impl App {
             c.checkpoints.retain(|p| p.item < k);
             c.folded.retain(|f| *f < k);
             c.checks.retain(|(a, _)| *a < k);
-            c.answers = None;
             if c.turn_diff.as_ref().is_some_and(|t| t.item >= k) {
                 c.turn_diff = None;
             }

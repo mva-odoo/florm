@@ -29,24 +29,7 @@ impl App {
             self.claude_save();
             return;
         }
-        // the model of a message is being chosen: this one waits in the queue, after the answer
-        if self.claude.model_hold.is_some() && (!text.is_empty() || !self.claude.attach.is_empty()) {
-            let attach = std::mem::take(&mut self.claude.attach);
-            self.claude.queue.push_message(&text, attach);
-            self.claude.queue.running = true;
-            self.claude.input.clear();
-            self.set_status(t!("Message ajouté à la file : il partira après le choix du modèle et la réponse", "Message queued: it goes after the model choice and the answer"));
-            self.claude_save();
-            return;
-        }
-        let ask = self.claude.ask_first;
-        // a message starting work: the model suited to it is checked first, when the option is on
-        if self.claude.model_first && !self.claude.busy && !text.is_empty() {
-            self.claude_check_model(text, ask, false, Vec::new());
-            self.claude.input.clear();
-            return;
-        }
-        if self.claude_send_text(text, ask) {
+        if self.claude_send_text(text) {
             self.claude.input.clear();
         }
     }
@@ -175,11 +158,10 @@ impl App {
         }
     }
 
-    /// Sends `text` (with the context given) to Claude, asking it for its questions first when
-    /// `ask_first`; false when it could not be sent. A slash command (`/usage`…) goes alone: Claude
+    /// Sends `text` (with the context given) to Claude; false when it could not be sent. A slash command (`/usage`…) goes alone: Claude
     /// Code reads it only at the start of the message. While Claude works, the message goes into
     /// the answer being written (Claude Code reads it between two steps).
-    pub(in crate::app) fn claude_send_text(&mut self, text: String, ask_first: bool) -> bool {
+    pub(in crate::app) fn claude_send_text(&mut self, text: String) -> bool {
         // a message goes on after the closing that cut it: the band goes
         self.claude.interrupted = false;
         let Some(dir) = self.claude.dir.clone() else {
@@ -206,7 +188,6 @@ impl App {
         if during && (command || self.claude.session.is_none()) {
             return false;
         }
-        let ask_first = ask_first && !during;
         // the model, the mode or the permissions changed while it ran: started again with them
         if self.claude.restart && !during {
             self.claude.session = None;
@@ -247,9 +228,6 @@ impl App {
                 message = format!("{message}\n\n{defs}");
                 given.push(tf!("définitions : {}", "definitions: {}", names.join(", ")));
             }
-        }
-        if ask_first && !command {
-            message = format!("{message}\n\n{}", claude_ask::instruction());
         }
         if self.claude.session.is_none() {
             let (model, effort) = (self.claude.model.clone(), self.claude.effort.clone());
@@ -300,12 +278,12 @@ impl App {
 
     /// `claude_send_text` with `given` instead of what the field of the message holds, which
     /// stays there for the next message.
-    pub(in crate::app) fn claude_send_given(&mut self, text: String, ask_first: bool, given: Vec<Attach>) -> bool {
+    pub(in crate::app) fn claude_send_given(&mut self, text: String, given: Vec<Attach>) -> bool {
         if given.is_empty() {
-            return self.claude_send_text(text, ask_first);
+            return self.claude_send_text(text);
         }
         let mine = std::mem::replace(&mut self.claude.attach, given);
-        let sent = self.claude_send_text(text, ask_first);
+        let sent = self.claude_send_text(text);
         self.claude.attach = mine;
         sent
     }
@@ -413,12 +391,6 @@ impl App {
             self.claude_queue_next();
             return;
         };
-        // Claude asks questions: the task goes on once they are answered
-        let asks = {
-            let items = &self.claude.items;
-            let last_user = items.iter().rposition(|i| matches!(i, Item::User(..))).unwrap_or(0);
-            items[last_user..].iter().any(|i| matches!(i, Item::Text(t) if !claude_ask::parse(t).1.is_empty()))
-        };
         match r {
             Err(e) => {
                 q.tasks[k].state = TaskState::Failed;
@@ -426,7 +398,6 @@ impl App {
                 q.running = false;
                 self.set_error(t!("File de tâches en pause : une tâche a échoué", "Task queue paused: a task failed"));
             }
-            Ok(()) if asks => self.set_status(t!("Claude pose des questions : la file reprend après tes réponses", "Claude is asking questions: the queue resumes after your answers")),
             Ok(()) if q.commit_each && !q.tasks[k].plain => {
                 q.tasks[k].state = TaskState::Committing;
                 let (dir, wish, id) = (self.claude.dir.clone(), q.tasks[k].text.clone(), self.claude.id);
@@ -478,7 +449,7 @@ impl App {
     /// The next waiting task, if the queue runs and Claude is free.
     pub(super) fn claude_queue_next(&mut self) {
         let q = &self.claude.queue;
-        if !q.running || self.claude.busy || self.claude.model_hold.is_some() || q.current().is_some() {
+        if !q.running || self.claude.busy || q.current().is_some() {
             return;
         }
         let Some(k) = q.next_waiting() else {
@@ -516,13 +487,7 @@ impl App {
         self.claude.queue.tasks[k].state = TaskState::Running;
         // kept on the task too: retried, it goes with them again
         let attach = self.claude.queue.tasks[k].attach.clone();
-        let ask = self.claude.ask_first;
-        if self.claude.model_first && self.claude.queue.tasks[k].model.is_none() {
-            // a task with its own model keeps it: only the others are checked
-            self.claude_check_model(text, ask, true, attach);
-            return;
-        }
-        if !self.claude_send_given(text, ask, attach) {
+        if !self.claude_send_given(text, attach) {
             let q = &mut self.claude.queue;
             q.tasks[k].state = TaskState::Failed;
             q.tasks[k].note = t!("Pas pu être envoyée", "Could not be sent").into();

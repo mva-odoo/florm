@@ -600,15 +600,6 @@ command and your login: no key to set up.
 - **Boxes to tick**: when Claude's last answer proposes things to do (`- [ ]`), tick the ones
   you want then **✔ Send my answer**: Claude gets “Ok, go ahead with: …” with what is ticked,
   and “Not for now: …” with the rest.
-- **Questions first**: if the request leaves choices open, Claude codes nothing and asks 1 to 3
-  questions with options (the recommended one ticked already, **Other** to write yours);
-  **Answer** sends them and it goes on. In the task queue, the task waits for your answers
-  before the next one.
-- **Model first**: before a message goes, Haiku checks whether the request needs another model
-  (Opus for a hard job, Haiku for a small task) and suggests it. You choose **Switch to…** or
-  **Keep…**; **Cancel** puts the message back in the field. The tasks of the queue are checked too
-  (unless they have their own model); **Cancel** there puts the task back to waiting and pauses the
-  queue. A message written during the check goes in the queue, after the answer.
 - **Warnings**: the chat says once when the conversation fills over 60% of the context (`/compact`
   summarizes it), and when Claude opens an image (it costs many tokens with every next message).
   The size of the context joined to a message shows in the status bar.

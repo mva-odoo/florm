@@ -195,7 +195,6 @@ impl App {
                 JobResult::ClaudeReviewDone(id, r) => self.claude_review_done(id, r),
                 JobResult::ClaudePrepared(id, review, tree) => self.claude_prepared(id, review, tree),
                 JobResult::ClaudeBtw(id, r) => self.claude_btw_loaded(id, r),
-                JobResult::ClaudeModelCheck(id, r) => self.claude_model_checked(id, r),
                 JobResult::ClaudeModels(r) => self.claude_models_listed(r),
                 JobResult::ClaudeTurnDiff(id, k, r) => self.claude_turn_diff_loaded(id, k, r),
                 JobResult::ClaudeMcp(id, side, r) => self.claude_mcp_loaded(id, side, r),

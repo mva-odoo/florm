@@ -35,8 +35,6 @@ pub enum JobResult {
     ClaudePrepared(u64, Option<Result<PathBuf, String>>, Option<String>),
     /// Answer of a `/btw` of conversation (id).
     ClaudeBtw(u64, Result<String, String>),
-    /// Model suggested for a message of conversation (id) before it starts; None: the current one.
-    ClaudeModelCheck(u64, Result<Option<(String, String)>, String>),
     /// The models Claude Code offers (`claude::list_models`).
     ClaudeModels(Result<Vec<crate::claude::ModelInfo>, String>),
     /// The changes of one question of a Claude conversation (its message's index): a diff.

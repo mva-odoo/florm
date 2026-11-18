@@ -10,7 +10,6 @@ use crate::claude_account;
 use serde::{Deserialize, Serialize};
 use history::{DiffAct, DiffClick};
 use super::claude_queue::{self, Queue, QueueAct, TaskState};
-use super::claude_model::{HoldAct, ModelHold};
 use super::claude_turns::{Checkpoint, Rewind, TurnDiff};
 use super::claude_tools::{ToolAct, ToolsUi, Worktree};
 
@@ -135,18 +134,10 @@ pub(super) struct ClaudeUi {
     pub(super) queue: Queue,
     /// The definitions of the names cited are not given with the messages.
     no_defs: bool,
-    /// Claude asks its questions (with options) before coding when the request leaves choices open.
-    ask_first: bool,
-    /// Before a message starts, another model may be suggested for it (checked by Haiku).
-    model_first: bool,
-    /// The message held while its model is checked, then the model suggested for it.
-    pub(super) model_hold: Option<ModelHold>,
     /// Mode « Demander avant »: the changes and commands waiting for the user.
     pub(super) asks: Vec<asks::Ask>,
     /// Florm was closed while Claude was at work here: a band offers to go on.
     pub(super) interrupted: bool,
-    /// The choices made for the questions of the last answer.
-    pub(super) answers: Option<claude_ask::Answers>,
     /// Last commits of its folder for « + Contexte → Un commit »: (hash, short hash, subject, when).
     recent_commits: Vec<(String, String, String, String)>,
     /// The clipboard held an image when « + Contexte » was opened (« Image du presse-papiers »).
@@ -1121,7 +1112,7 @@ impl App {
             dirs.insert(0, (d.clone(), d.display().to_string()));
         }
         let (mut send, mut stop, mut new_conv, mut review_click, mut all) = (false, false, false, None, None);
-        let (mut later, mut hold_act, mut compact) = (false, None, false);
+        let (mut later, mut compact) = (false, false);
         let mut ask_act = None;
         let mut resume: Option<bool> = None;
         let (mut chosen_dir, mut move_to, mut ctx_add, mut pick_dir) = (None, None, None, false);
@@ -1654,36 +1645,6 @@ impl App {
                     if !c.asks.is_empty() {
                         ask_act = asks::asks_ui(ui, &mut c.asks, c.dir.as_deref(), fill, accent);
                     }
-                    // the message held while its model is checked, then the model suggested for it
-                    if let Some(hold) = &c.model_hold {
-                        egui::Frame::none().fill(icons::mix(fill, accent, 0.08)).rounding(6.0).inner_margin(8.0).show(ui, |ui| {
-                            match &hold.suggestion {
-                                None => {
-                                    ui.horizontal_wrapped(|ui| {
-                                        spinner(ui);
-                                        ui.label(RichText::new(t!("Je regarde si la demande demande un autre modèle…", "Checking whether the request needs another model…")).weak());
-                                    });
-                                }
-                                Some((m, why)) => {
-                                    ui.label(RichText::new(tf!("Pour cette demande, {} conviendrait mieux", "For this request, {} would suit better", model_label(models, m))).strong());
-                                    if !why.is_empty() {
-                                        ui.label(RichText::new(why.as_str()).weak());
-                                    }
-                                    ui.horizontal_wrapped(|ui| {
-                                        if ui.button(tf!("Passer à {}", "Switch to {}", model_label(models, m))).clicked() {
-                                            hold_act = Some(HoldAct::Switch(m.clone()));
-                                        }
-                                        if ui.button(tf!("Garder {}", "Keep {}", model_label(models, &c.model))).clicked() {
-                                            hold_act = Some(HoldAct::Keep);
-                                        }
-                                    });
-                                }
-                            }
-                            if ui.small_button(t!("Annuler (le message revient dans le champ)", "Cancel (the message goes back to the field)")).clicked() {
-                                hold_act = Some(HoldAct::Cancel);
-                            }
-                        });
-                    }
                     // « # note »: where to remember it
                     if let Some(note) = &c.memory {
                         egui::Frame::none().fill(icons::mix(fill, accent, 0.08)).rounding(6.0).inner_margin(8.0).show(ui, |ui| {
@@ -1982,12 +1943,10 @@ impl App {
                         }
                         ctx_menu.response.on_hover_text(t!("Donner à Claude un fichier, la sélection, le diff, un commit, les problèmes, une image…", "Give Claude a file, the selection, the diff, a commit, the problems, an image…"));
                         // what goes with each message: in a menu, the options stay one click away
-                        let on = [c.with_context, c.ask_first, c.model_first, !c.no_defs].iter().filter(|b| **b).count();
-                        ui.menu_button(tf!("Options ({on}/4) ▾", "Options ({on}/4) ▾"), |ui| {
+                        let on = [c.with_context, !c.no_defs].iter().filter(|b| **b).count();
+                        ui.menu_button(tf!("Options ({on}/2) ▾", "Options ({on}/2) ▾"), |ui| {
                             ui.set_min_width(300.0);
                             ui.checkbox(&mut c.with_context, t!("Fichier ouvert et sélection", "Open file and selection")).on_hover_text(t!("Dit à Claude quel fichier tu édites, la ligne du curseur et le texte sélectionné", "Tells Claude which file you are editing, the cursor line and the selected text"));
-                            ui.checkbox(&mut c.ask_first, t!("Questions d'abord", "Questions first")).on_hover_text(t!("Si la demande laisse des choix ouverts, Claude pose d'abord 1 à 3 questions avec des options à cocher, au lieu de partir dans une direction à refaire (moins de tokens)", "If the request leaves choices open, Claude first asks 1 to 3 questions with options to tick, instead of going in a direction to redo (fewer tokens)"));
-                            ui.checkbox(&mut c.model_first, t!("Modèle d'abord", "Model first")).on_hover_text(t!("Avant qu'un message parte, Haiku regarde si la demande demande un autre modèle (plus fort pour un travail difficile, plus rapide pour une petite tâche) et te le propose : tu choisis. La vérification coûte peu", "Before a message goes, Haiku checks whether the request needs another model (stronger for a hard job, faster for a small task) and suggests it: you choose. The check costs little"));
                             let mut defs = !c.no_defs;
                             if ui.checkbox(&mut defs, t!("Définitions citées", "Mentioned definitions")).on_hover_text(t!("Les classes et fonctions du projet nommées dans le message (SaleOrder, _compute_total, `foo`…) partent avec lui, leurs premières lignes comprises : Claude n'a pas à les chercher (moins de tokens)", "The classes and functions of the project named in the message (SaleOrder, _compute_total, `foo`…) go with it, their first lines included: Claude does not have to look for them (fewer tokens)")).changed() {
                                 c.no_defs = !defs;
@@ -2395,8 +2354,7 @@ impl App {
                                     claude_said = true;
                                     ui.label(RichText::new("✳ Claude").small().strong().color(accent));
                                 }
-                                let (rest, questions) = claude_ask::parse(t);
-                                if questions.is_empty() {
+                                {
                                     super::md::markdown_checks(ui, cache, hl, t, &mut c.checks, k);
                                     // the last answer proposes things to tick: what is ticked is sent back
                                     let last = matches!(it, Item::Text(_)) && !c.busy && last_user.is_none_or(|u| k > u) && last_text == Some(k);
@@ -2410,20 +2368,6 @@ impl App {
                                             }
                                         }
                                     }
-                                    return;
-                                }
-                                super::md::markdown_checks(ui, cache, hl, &rest, &mut c.checks, k);
-                                let open = matches!(it, Item::Text(_)) && !c.busy && last_user.is_none_or(|u| k > u);
-                                let answers = if open {
-                                    if c.answers.as_ref().map(|a| a.item) != Some(k) {
-                                        c.answers = Some(claude_ask::Answers::for_item(k, questions.len()));
-                                    }
-                                    c.answers.as_mut()
-                                } else {
-                                    None
-                                };
-                                if claude_ask::questions_ui(ui, &questions, answers, accent) {
-                                    answer = c.answers.as_ref().map(|a| a.message(&questions));
                                 }
                             }
                             // a subagent: a card of its own, its steps and its report inside
@@ -2749,11 +2693,7 @@ impl App {
             self.claude_send(later);
         }
         if let Some(m) = answer {
-            self.claude.answers = None;
-            self.claude_send_text(m, false);
-        }
-        if let Some(a) = hold_act {
-            self.claude_hold_act(a);
+            self.claude_send_text(m);
         }
         if let Some(a) = ask_act {
             self.claude_ask_act(a);
@@ -2765,14 +2705,14 @@ impl App {
                     "Florm a été fermé pendant que tu travaillais, et ta dernière étape a été coupée. Reprends là où tu t'es arrêté (vérifie d'abord l'état des fichiers si besoin).",
                     "Florm was closed while you were working, and your last step was cut. Go on where you stopped (check the state of the files first if needed)."
                 );
-                self.claude_send_text(msg.into(), false);
+                self.claude_send_text(msg.into());
             } else {
                 self.claude_save();
             }
         }
         if compact {
             // a command of Claude Code: it goes alone, as the other commands
-            self.claude_send_text("/compact".into(), false);
+            self.claude_send_text("/compact".into());
         }
         if let Some(n) = queued {
             self.set_status(tf!("{n} tâche(s) ajoutée(s) à la file — « Lancer » pour les envoyer une à une", "{n} task(s) added to the queue — “Run” to send them one by one"));
@@ -2899,7 +2839,7 @@ mod tests {
                 q.running = true;
                 q
             },
-            options: Options { ask_first: true, ..Options::default() },
+            options: Options { with_context: true, ..Options::default() },
             checkpoints: vec![Checkpoint { item: 0, tree: Some("abc".into()), session: None, after: None }],
             last_uuid: Some("u".into()),
             add_dirs: Vec::new(),
@@ -2911,7 +2851,7 @@ mod tests {
         };
         let back: Vec<SavedConv> = serde_json::from_str(&serde_json::to_string(&vec![s]).unwrap()).unwrap();
         assert_eq!((back[0].key, back[0].session_id.as_deref(), back[0].items.len()), (7, Some("abc"), 3));
-        assert!(back[0].options.ask_first && !back[0].options.model_first);
+        assert!(back[0].options.with_context && !back[0].options.no_defs);
         // cut by the closing of Florm: said again at the next start; an older file has no such field
         assert!(back[0].interrupted);
         let old: SavedConv = serde_json::from_str(&serde_json::to_string(&back[0]).unwrap().replace(",\"interrupted\":true", "")).unwrap();

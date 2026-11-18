@@ -101,7 +101,7 @@ impl App {
             self.claude_new_in(repo);
         }
         self.open_claude();
-        if self.claude_send_text(text, false) {
+        if self.claude_send_text(text) {
             self.pr.to_claude.clear();
             self.set_status(tf!("{n} commentaire(s) envoyé(s) à Claude", "{n} comment(s) sent to Claude"));
         }

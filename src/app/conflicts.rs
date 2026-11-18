@@ -411,7 +411,7 @@ impl App {
             self.claude_new_in(repo.to_path_buf());
         }
         self.open_claude();
-        if self.claude_send_text(text, false) {
+        if self.claude_send_text(text) {
             self.set_status(tf!("{} fichier(s) donné(s) à Claude : relis puis « Marquer résolu »", "{} file(s) given to Claude: check then “Mark resolved”", files.len()));
         }
     }

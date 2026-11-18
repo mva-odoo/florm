@@ -49,12 +49,10 @@ pub(in crate::app) struct SavedConv {
     pub(super) interrupted: bool,
 }
 
-/// The options of the messages: what goes with each one, and the questions and model checks.
+/// The options of the messages: what goes with each one.
 #[derive(Clone, Copy, Default, Serialize, Deserialize)]
 pub(in crate::app) struct Options {
     pub(super) with_context: bool,
-    pub(super) ask_first: bool,
-    pub(super) model_first: bool,
     pub(super) no_defs: bool,
 }
 
@@ -343,7 +341,7 @@ impl App {
             updated: now_secs(),
             items,
             queue: c.queue.clone(),
-            options: Options { with_context: c.with_context, ask_first: c.ask_first, model_first: c.model_first, no_defs: c.no_defs },
+            options: Options { with_context: c.with_context, no_defs: c.no_defs },
             checkpoints: c.checkpoints.clone(),
             last_uuid: c.last_uuid.clone(),
             add_dirs: c.add_dirs.clone(),
@@ -383,7 +381,7 @@ impl App {
         c.worktree = s.worktree.clone();
         (c.account, c.session_account, c.account_chosen) = (s.account.clone(), s.session_account.clone(), s.account_chosen);
         c.interrupted = s.interrupted;
-        (c.with_context, c.ask_first, c.model_first, c.no_defs) = (s.options.with_context, s.options.ask_first, s.options.model_first, s.options.no_defs);
+        (c.with_context, c.no_defs) = (s.options.with_context, s.options.no_defs);
         c.items.push(Item::Info(t!("— conversation reprise : le prochain message continue avec son contexte —", "— conversation resumed: the next message goes on with its context —").into()));
         c
     }

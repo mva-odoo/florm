@@ -1102,46 +1102,6 @@ pub fn btw(dir: &Path, session: Option<&str>, model: &str, question: &str) -> Re
     run_once(dir, &args, String::new())
 }
 
-/// Before a message starts work: the model that suits it better than `current` (a --model value,
-/// `label` its name), with the reason: an alias (opus…); None when the current one does. Haiku
-/// reads only the message, without tools.
-pub fn model_check(dir: &Path, message: &str, current: &str, label: &str) -> Result<Option<(String, String)>, String> {
-    let prompt = tf!(
-        "Tu choisis le modèle de Claude Code pour une demande, avant qu'il commence. Modèles :\n\
-         - opus : pour les travaux difficiles (bug subtil, architecture, grosse refactorisation).\n\
-         - sonnet : équilibré, pour la plupart des modifications.\n\
-         - haiku : rapide et économique, pour les petites tâches simples (renommer, une ligne, expliquer).\n\
-         - fable : le plus capable, pour les tâches très longues ou très difficiles.\n\
-         Le modèle actuel est {label}. La demande est sur l'entrée standard. Si le modèle actuel convient, réponds seulement \
-         par : MODELE: garder. Sinon réponds sur deux lignes, sans rien d'autre :\n\
-         MODELE: <opus, sonnet, haiku ou fable>\n\
-         RAISON: <une phrase courte, en français, pourquoi>",
-        "You choose the Claude Code model for a request, before it starts. Models:\n\
-         - opus: for hard work (subtle bug, architecture, large refactoring).\n\
-         - sonnet: balanced, for most changes.\n\
-         - haiku: fast and cheap, for small simple tasks (rename, one line, explain).\n\
-         - fable: the most capable, for very long or very hard tasks.\n\
-         The current model is {label}. The request is on the standard input. If the current model suits, answer only \
-         with: MODELE: garder. Otherwise answer on two lines, nothing else:\n\
-         MODELE: <opus, sonnet, haiku or fable>\n\
-         RAISON: <one short sentence, in English, why>"
-    );
-    let text = run_once(dir, &["-p", &prompt, "--output-format", "text", "--model", "haiku", "--tools", "", "--no-session-persistence"], message.to_string())?;
-    parse_model_answer(&text, current)
-}
-
-/// The answer of `model_check`: the alias suggested and the reason, None when the current model
-/// (`current`, a --model value or the real name) is of that family or the answer names none.
-pub fn parse_model_answer(answer: &str, current: &str) -> Result<Option<(String, String)>, String> {
-    let line = |key: &str| answer.lines().find_map(|l| l.trim().strip_prefix(key)).map(|v| v.trim().to_string());
-    let Some(name) = line("MODELE:") else { return Err(answer.trim().to_string()) };
-    let name = name.to_lowercase();
-    if !["opus", "sonnet", "haiku", "fable"].contains(&name.as_str()) || model_is(current, &name) {
-        return Ok(None);
-    }
-    Ok(Some((name, line("RAISON:").unwrap_or_default())))
-}
-
 /// Whether a file given to Claude is an image (it costs many tokens to read).
 pub fn is_image(file: &str) -> bool {
     let lower = file.to_lowercase();
@@ -1721,20 +1681,6 @@ mod tests {
         assert_eq!(parse_line(a), vec![Event::Model("claude-sonnet-5-5".into())]);
         let synthetic = r#"{"type":"assistant","parent_tool_use_id":null,"message":{"model":"<synthetic>","content":[]}}"#;
         assert_eq!(parse_line(synthetic), Vec::<Event>::new());
-    }
-
-    #[test]
-    fn the_model_suggested_is_read_from_the_answer() {
-        // the current model suits, or the answer says so
-        assert_eq!(parse_model_answer("MODELE: garder", "sonnet").unwrap(), None);
-        // another model: its alias, with the reason
-        assert_eq!(parse_model_answer("MODELE: opus\nRAISON: refonte transversale", "sonnet").unwrap(), Some(("opus".into(), "refonte transversale".into())));
-        // the same family as a pinned version: no suggestion
-        assert_eq!(parse_model_answer("MODELE: Opus", "claude-opus-4-8").unwrap(), None);
-        // a name that is not a family: no suggestion
-        assert_eq!(parse_model_answer("MODELE: gpt", "sonnet").unwrap(), None);
-        // no MODELE line at all: an error with the answer
-        assert!(parse_model_answer("désolé", "sonnet").is_err());
     }
 
     #[test]

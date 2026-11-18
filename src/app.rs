@@ -54,7 +54,6 @@ mod claude_model;
 mod claude_turns;
 mod claude_tools;
 mod md_toolbar;
-mod claude_ask;
 mod theme_edit;
 mod template_edit;
 mod split_commit;
