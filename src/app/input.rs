@@ -464,6 +464,10 @@ impl App {
             }
             LocalHistory => self.open_local_history(),
             ListTodos => self.list_todos(),
+            KeyboardHints => {
+                self.hints.open_in = 3;
+                self.egui_ctx.request_repaint();
+            }
             OpenSql => self.open_sql(),
             CompareClipboard => self.compare_clipboard(),
             CompareWith => self.open_prompt(Prompt::CompareWith),

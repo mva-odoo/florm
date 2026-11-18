@@ -30,6 +30,7 @@ mod git_view;
 mod ai_review;
 mod inline_ai;
 mod ai_complete;
+mod hints;
 mod mermaid;
 mod repo_init;
 mod versions_view;
@@ -1055,6 +1056,8 @@ pub struct App {
     inline: Option<inline_ai::InlineAsk>,
     /// AI completion while typing (see ai_complete.rs).
     ai: ai_complete::AiComplete,
+    /// The letters put on everything clickable (Alt alone), see `hints`.
+    hints: hints::Hints,
     /// The window of a new git repository (right click on a folder in the tree).
     repo_init: Option<repo_init::RepoInitUi>,
     /// The window to add a version as worktrees (`odoo/20.0`, `enterprise/20.0`…).
@@ -1336,6 +1339,7 @@ impl App {
             md_cache: egui_commonmark::CommonMarkCache::default(),
             inline: None,
             ai: Default::default(),
+            hints: Default::default(),
             repo_init: None,
             version_add: None,
             shot: None,
@@ -1612,6 +1616,11 @@ impl App {
 }
 
 impl eframe::App for App {
+    /// Before egui reads a frame's input: the keyboard labels (Alt alone) take their keys.
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        self.hints_input(ctx, raw_input);
+    }
+
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         // opaque: only the rounded corners are made transparent (title_bar.rs, window_border)
         self.hl.tab_colors().bar.to_normalized_gamma_f32()
@@ -1747,6 +1756,7 @@ impl eframe::App for App {
         self.inline_ai_ui(ctx);
         self.overlay_ui(ctx);
         self.confirm_ui(ctx);
+        self.hints_ui(ctx);
 
         if let Some(d) = self.docs.get_mut(self.active) {
             if std::mem::take(&mut d.request_inline_diff) {

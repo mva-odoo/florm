@@ -78,6 +78,8 @@ pub struct Settings {
     /// Show git changes inside the editor (deleted lines in red, added in green).
     pub inline_diff: bool,
     pub auto_pair: bool,
+    /// Alt alone puts letters on everything clickable: typing them clicks it.
+    pub keyboard_hints: bool,
     /// AI completion: Haiku suggests the rest of the line after a pause in typing (Tab takes it).
     pub ai_complete: bool,
     /// The Claude account (its subscription) the AI completion uses; empty: the default one.
@@ -213,6 +215,7 @@ impl Default for Settings {
             tree_git_info: true,
             inline_diff: false,
             auto_pair: true,
+            keyboard_hints: true,
             ai_complete: false,
             ai_complete_account: String::new(),
             ai_complete_source: "claude".into(),
@@ -330,6 +333,8 @@ tree_git_info = true
 # diff git dans l'éditeur : lignes supprimées en rouge, ajoutées en vert (Ctrl+Alt+D)
 inline_diff = false
 auto_pair = true
+# Alt seul met des lettres sur tout ce qui se clique : les taper le clique
+keyboard_hints = true
 # Complétion par IA : Haiku propose la suite de la ligne après une pause dans la frappe (Tab la prend)
 ai_complete = false
 # Le compte Claude (son abonnement) de la complétion par IA ; vide : le compte par défaut

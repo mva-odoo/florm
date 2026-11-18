@@ -471,6 +471,9 @@ impl App {
                 pref_row(ui, rc, t!("Fermeture automatique", "Auto-close brackets"), t!("Ferme automatiquement ( [ { \" ' ` et entoure la sélection.", "Closes ( [ { \" ' ` automatically and surrounds the selection."), |ui| {
                     toggle_switch(ui, &mut s.auto_pair);
                 });
+                pref_row(ui, rc, t!("Tout au clavier (Alt seul)", "Everything from the keyboard (Alt alone)"), t!("Appuyer puis relâcher Alt, sans autre touche, met une ou deux lettres sur chaque bouton, onglet, case ou champ visible : les taper le clique. Échap ferme. Aussi dans la palette : « Clavier : des lettres sur tout ce qui se clique ».", "Pressing then releasing Alt, without another key, puts one or two letters on each visible button, tab, box or field: typing them clicks it. Escape closes. Also in the palette: “Keyboard: letters on everything clickable”."), |ui| {
+                    toggle_switch(ui, &mut s.keyboard_hints);
+                });
                 pref_row(ui, rc, t!("Complétion par IA", "AI completion"), t!("Quand tu t'arrêtes de taper en fin de ligne, l'IA choisie propose la suite en gris : Tab la prend, Échap ou une autre touche l'ignore. Claude (Haiku) : avec ton abonnement Claude, un peu plus lent. GitHub Copilot : fait pour ça, plus rapide, avec un abonnement Copilot. Alt+\\ demande une proposition à tout moment, même désactivée.", "When you stop typing at the end of a line, the AI chosen suggests what follows in grey: Tab takes it, Escape or another key ignores it. Claude (Haiku): with your Claude plan, a bit slower. GitHub Copilot: made for it, faster, with a Copilot plan. Alt+\\ asks for a suggestion at any time, even when turned off."), |ui| {
                     ui.vertical(|ui| {
                         ui.horizontal(|ui| {
@@ -1180,6 +1183,7 @@ impl App {
             ("claude", s.claude, before.claude),
             ("tree_git_info", s.tree_git_info, before.tree_git_info),
             ("auto_pair", s.auto_pair, before.auto_pair),
+            ("keyboard_hints", s.keyboard_hints, before.keyboard_hints),
             ("ai_complete", s.ai_complete, before.ai_complete),
             ("trim_trailing_whitespace_on_save", s.trim_trailing_whitespace_on_save, before.trim_trailing_whitespace_on_save),
             ("hot_exit", s.hot_exit, before.hot_exit),
