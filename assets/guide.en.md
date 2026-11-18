@@ -539,8 +539,8 @@ command and your login: no key to set up.
   **/add-dir path**.
 - **# at the start of a message**: the line is not sent, it is remembered in the CLAUDE.md of the
   project or in your personal memory (`~/.claude/CLAUDE.md`), as you choose.
-- **@ in the field**: the files of the project matching what is typed; ↑ ↓ to choose, **Tab** or
-  **Enter** completes, and the file goes with the message.
+- **@ in the field**: the files of the project matching what is typed; **Tab** (or ↑ ↓) goes
+  from one to the next, **Enter** completes, and the file goes with the message.
 - **🌿** (worktree): a new conversation on a branch of its own, in its own folder (a git worktree),
   to have several Claudes work at once without getting in each other's way. Each conversation has
   its tab and keeps working even when it is not shown.

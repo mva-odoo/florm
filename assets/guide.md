@@ -547,8 +547,8 @@ panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en
   **/mcp**, **/agents**, **/permissions**, **/memory**, **/add-dir chemin**.
 - **# au début d'un message** : la ligne n'est pas envoyée, elle est retenue dans le CLAUDE.md du
   projet ou dans ta mémoire perso (`~/.claude/CLAUDE.md`), au choix.
-- **@ dans le champ** : les fichiers du projet qui correspondent à ce qui est tapé ; ↑ ↓ pour
-  choisir, **Tab** ou **Entrée** complète, et le fichier part avec le message.
+- **@ dans le champ** : les fichiers du projet qui correspondent à ce qui est tapé ; **Tab** (ou
+  ↑ ↓) passe de l'un à l'autre, **Entrée** complète, et le fichier part avec le message.
 - **🌿** (worktree) : une nouvelle conversation sur une branche à elle, dans son propre dossier (un
   worktree git), pour faire travailler plusieurs Claude en même temps sans qu'ils se gênent.
   Chaque conversation a son onglet et continue de travailler même quand elle n'est pas affichée.

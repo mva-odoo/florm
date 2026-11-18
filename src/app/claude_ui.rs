@@ -1724,7 +1724,7 @@ impl App {
                     if close_side {
                         c.side = None;
                     }
-                    // a slash command being typed: the matching ones; Tab or a click completes it
+                    // a slash command being typed: the matching ones; Enter or a click completes it
                     // Shift+Tab: the next mode, as in Claude Code
                     if ui.memory(|m| m.has_focus(field_id)) && ui.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, Key::Tab)) {
                         mode_cycle = true;
@@ -1776,7 +1776,7 @@ impl App {
                     // a list of completions shown: the field keeps Tab (else egui gives the focus to the
                     // next button before the list reads the key, and the next letters go nowhere)
                     let mut completing = false;
-                    // `@` being typed: the matching files of the project; Tab, Enter or a click completes it
+                    // `@` being typed: the matching files of the project; Enter or a click completes it
                     if let Some((start, typed)) = mention.as_ref().filter(|_| !c.tools.mention.1.is_empty()) {
                         let matching = &c.tools.mention.1;
                         completing = true;
@@ -1784,20 +1784,21 @@ impl App {
                         let choice_id = field_id.with(("mention_choice", typed.clone()));
                         let mut choice = ui.data(|d| d.get_temp::<usize>(choice_id)).unwrap_or(0).min(matching.len() - 1);
                         if ui.memory(|m| m.has_focus(field_id)) {
-                            if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::ArrowDown)) {
+                            // Tab and ↓ go to the next one, ↑ to the one before, Enter completes
+                            if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::ArrowDown) | i.consume_key(egui::Modifiers::NONE, Key::Tab)) {
                                 choice = (choice + 1) % matching.len();
                             }
                             if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::ArrowUp)) {
                                 choice = (choice + matching.len() - 1) % matching.len();
                             }
-                            if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Tab)) || ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Enter)) {
+                            if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Enter)) {
                                 pick = Some(matching[choice].clone());
                             }
                         }
                         ui.data_mut(|d| d.insert_temp(choice_id, choice));
                         egui::Frame::none().fill(icons::mix(fill, accent, 0.05)).rounding(6.0).inner_margin(4.0).show(ui, |ui| {
                             for (k, rel) in matching.iter().enumerate() {
-                                if ui.selectable_label(k == choice, format!("@{rel}")).on_hover_text(t!("↑ ↓ pour choisir, Tab ou Entrée : compléter. Le fichier part avec le message", "↑ ↓ to choose, Tab or Enter: complete. The file goes with the message")).clicked() {
+                                if ui.selectable_label(k == choice, format!("@{rel}")).on_hover_text(t!("Tab ou ↑ ↓ pour choisir, Entrée : compléter. Le fichier part avec le message", "Tab or ↑ ↓ to choose, Enter: complete. The file goes with the message")).clicked() {
                                     pick = Some(rel.clone());
                                 }
                             }
