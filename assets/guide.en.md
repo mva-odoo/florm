@@ -582,7 +582,8 @@ command and your login: no key to set up.
   screen, no timer.
 - **Images**: an image goes with the message, scaled down to 1568 pixels to cost fewer tokens.
   An image (or a PDF) Claude opens itself shows as a thumbnail under its “Read …” line: hover to
-  see it big, click to open it.
+  see it big, click to open it. Florm keeps what Claude saw: the image stays shown even when its
+  file is gone since (a screenshot overwritten, a temporary folder emptied).
   Three ways to give it: paste it with Ctrl+V (a copied image), drop it from the file manager on
   the conversation, or **+ Context → Image or PDF…**. Several images go together in one message: drop
   several, paste them one after the other, or choose several in **Image or PDF…** with Ctrl or Shift.

@@ -127,24 +127,7 @@ fn curl_text(url: &str) -> Result<String, String> {
 
 /// Standard base64 decoded (`None`: not base64).
 fn base64(text: &str) -> Option<Vec<u8>> {
-    let value = |c: u8| match c {
-        b'A'..=b'Z' => Some(c - b'A'),
-        b'a'..=b'z' => Some(c - b'a' + 26),
-        b'0'..=b'9' => Some(c - b'0' + 52),
-        b'+' => Some(62),
-        b'/' => Some(63),
-        _ => None,
-    };
-    let (mut out, mut acc, mut bits) = (Vec::new(), 0u32, 0);
-    for c in text.bytes().filter(|c| *c != b'=') {
-        acc = (acc << 6) | value(c)? as u32;
-        bits += 6;
-        if bits >= 8 {
-            bits -= 8;
-            out.push((acc >> bits) as u8);
-        }
-    }
-    Some(out)
+    crate::claude::base64_decode(text)
 }
 
 /// The server running: requests sent from any thread, answers dispatched by id.

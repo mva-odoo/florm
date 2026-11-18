@@ -685,7 +685,7 @@ impl App {
                     }
                     items.push(Item::Tool { id, name, summary, result: None, steps: Vec::new(), time: (now_ms(), 0), agent: None });
                 }
-                Event::ToolResult { id, text, error } => {
+                Event::ToolResult { id, text, error, .. } => {
                     for it in items.iter_mut().rev() {
                         if let Item::Tool { id: i, name, result, time, agent, .. } = it {
                             if *i == id {
@@ -2440,11 +2440,15 @@ impl App {
                                     open = !open;
                                     ui.data_mut(|d| d.insert_temp(open_id, open));
                                 }
-                                // an image (or a PDF) Claude opened: shown under its line, as the ones given
-                                if name == "Read" && claude::shown_read(summary) && Path::new(summary).exists() {
+                                // an image (or a PDF) Claude opened: shown under its line, as the ones given;
+                                // its file gone, the copy Florm kept of what Claude saw
+                                let shown = (name == "Read" && claude::shown_read(summary))
+                                    .then(|| Some(PathBuf::from(summary)).filter(|p| p.exists()).or_else(|| claude::kept_image(tool_id)))
+                                    .flatten();
+                                if let Some(p) = shown {
                                     egui::Frame::none().outer_margin(egui::Margin { left: 18.0, top: 2.0, bottom: 4.0, ..Default::default() }).show(ui, |ui| {
-                                        if image_thumb(ui, Path::new(summary), 120.0).clicked() {
-                                            open_image = Some(PathBuf::from(summary));
+                                        if image_thumb(ui, &p, 120.0).clicked() {
+                                            open_image = Some(p.clone());
                                         }
                                     });
                                 }

@@ -595,7 +595,8 @@ panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en
   N'importe quelle zone de l'écran, sans minuteur.
 - **Images** : une image part avec le message, réduite à 1568 pixels pour coûter moins de tokens.
   Une image (ou un PDF) que Claude ouvre lui-même s'affiche en miniature sous la ligne « Lu … » :
-  survol pour la voir en grand, clic pour l'ouvrir.
+  survol pour la voir en grand, clic pour l'ouvrir. Florm garde ce que Claude a vu : l'image reste
+  affichée même si son fichier a disparu depuis (capture écrasée, dossier temporaire vidé).
   Trois façons de la donner : la coller avec Ctrl+V (une image copiée), la glisser depuis le
   gestionnaire de fichiers sur la conversation, ou **+ Contexte → Image ou PDF…**. Plusieurs images
   vont ensemble dans un message : glisse-en plusieurs, colle-les l'une après l'autre, ou choisis-en

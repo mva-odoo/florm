@@ -358,7 +358,8 @@ pub enum Event {
     /// A tool used: its id, name and what it is about (file, command…).
     Tool { id: String, name: String, summary: String },
     /// The result of a tool.
-    ToolResult { id: String, text: String, error: bool },
+    /// `image`: the image the tool gave Claude (Read of a picture), kept by Florm (`keep_image`).
+    ToolResult { id: String, text: String, error: bool, image: Option<PathBuf> },
     /// What Claude is doing while nothing of it shows yet: thinking, writing the input of a tool,
     /// a step of a subagent, summarizing the conversation.
     Activity(String),
@@ -535,7 +536,12 @@ pub fn parse_line(line: &str) -> Vec<Event> {
                             Value::Array(parts) => parts.iter().filter_map(|p| p["text"].as_str()).collect::<Vec<_>>().join("\n"),
                             _ => String::new(),
                         };
-                        Event::ToolResult { id: s(&c["tool_use_id"]), text, error: c["is_error"].as_bool().unwrap_or(false) }
+                        let id = s(&c["tool_use_id"]);
+                        let image = c["content"].as_array().and_then(|parts| {
+                            let src = &parts.iter().find(|p| p["type"] == "image" && p["source"]["type"] == "base64")?["source"];
+                            keep_image(&id, src["media_type"].as_str().unwrap_or("image/png"), src["data"].as_str()?)
+                        });
+                        Event::ToolResult { id, text, error: c["is_error"].as_bool().unwrap_or(false), image }
                     })
                     .collect()
             })
@@ -582,6 +588,46 @@ pub fn tool_summary(name: &str, input: &Value) -> String {
 /// The last three parts of a path (`app/claude_ui/send.rs`), for a line of the conversation.
 pub fn short_path(p: &str) -> String {
     p.rsplit(['/', '\\']).take(3).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("/")
+}
+
+/// Where Florm keeps the images Claude opened: the conversation shows them even once their file
+/// is gone (a screenshot overwritten, a temporary folder emptied).
+fn images_dir() -> PathBuf {
+    crate::config::data_dir().join("claude-images")
+}
+
+const IMAGE_EXTS: [(&str, &str); 4] = [("image/png", "png"), ("image/jpeg", "jpg"), ("image/gif", "gif"), ("image/webp", "webp")];
+
+/// Writes the image `data` (base64) of the tool `id` into `images_dir` (once); the ones older
+/// than 30 days go.
+fn keep_image(id: &str, media: &str, data: &str) -> Option<PathBuf> {
+    if id.is_empty() || id.contains(['/', '\\', '.']) {
+        return None;
+    }
+    let ext = IMAGE_EXTS.iter().find(|(m, _)| *m == media).map_or("png", |(_, e)| e);
+    let dir = images_dir();
+    let path = dir.join(format!("{id}.{ext}"));
+    if path.is_file() {
+        return Some(path);
+    }
+    let bytes = base64_decode(data)?;
+    std::fs::create_dir_all(&dir).ok()?;
+    if let Ok(rd) = std::fs::read_dir(&dir) {
+        let old = std::time::Duration::from_secs(30 * 24 * 3600);
+        for e in rd.flatten() {
+            if e.metadata().and_then(|m| m.modified()).is_ok_and(|t| t.elapsed().is_ok_and(|a| a > old)) {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
+    }
+    std::fs::write(&path, bytes).ok()?;
+    Some(path)
+}
+
+/// The image of the tool `id` kept by Florm, if any.
+pub fn kept_image(id: &str) -> Option<PathBuf> {
+    let dir = images_dir();
+    IMAGE_EXTS.iter().map(|(_, e)| dir.join(format!("{id}.{e}"))).find(|p| p.is_file())
 }
 
 /// A file read by Claude that the conversation shows: an image or a PDF.
@@ -1147,6 +1193,28 @@ pub fn is_pdf(path: &std::path::Path) -> bool {
 /// The largest PDF Claude takes (32 MB, at most 100 pages).
 pub const PDF_MAX: u64 = 32 * 1024 * 1024;
 
+/// Standard base64 decoded (`None`: not base64).
+pub fn base64_decode(text: &str) -> Option<Vec<u8>> {
+    let value = |c: u8| match c {
+        b'A'..=b'Z' => Some(c - b'A'),
+        b'a'..=b'z' => Some(c - b'a' + 26),
+        b'0'..=b'9' => Some(c - b'0' + 52),
+        b'+' => Some(62),
+        b'/' => Some(63),
+        _ => None,
+    };
+    let (mut out, mut acc, mut bits) = (Vec::new(), 0u32, 0);
+    for c in text.bytes().filter(|c| *c != b'=') {
+        acc = (acc << 6) | value(c)? as u32;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+        }
+    }
+    Some(out)
+}
+
 /// Standard base64 of `bytes` (with the padding).
 pub fn base64_encode(bytes: &[u8]) -> String {
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -1454,7 +1522,17 @@ mod tests {
         // what a subagent writes is not a message of the conversation: it is its report
         assert_eq!(parse_line(r#"{"type":"assistant","parent_tool_use_id":"t9","message":{"content":[{"type":"text","text":"x"}]}}"#), vec![Event::SubText { parent: "t9".into(), text: "x".into() }]);
         let u = r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":[{"type":"text","text":"ok"}],"is_error":true}]}}"#;
-        assert_eq!(parse_line(u), vec![Event::ToolResult { id: "t1".into(), text: "ok".into(), error: true }]);
+        assert_eq!(parse_line(u), vec![Event::ToolResult { id: "t1".into(), text: "ok".into(), error: true, image: None }]);
+        // the image a Read gave Claude: kept, shown even once its file is gone
+        let png = base64_encode(b"\x89PNG fake");
+        let u = format!(r#"{{"type":"user","message":{{"content":[{{"type":"tool_result","tool_use_id":"toolu_img_test","content":[{{"type":"image","source":{{"type":"base64","media_type":"image/png","data":"{png}"}}}}]}}]}}}}"#);
+        let kept = match parse_line(&u).as_slice() {
+            [Event::ToolResult { image: Some(p), .. }] => p.clone(),
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(std::fs::read(&kept).unwrap(), b"\x89PNG fake");
+        assert_eq!(kept_image("toolu_img_test"), Some(kept.clone()));
+        let _ = std::fs::remove_file(kept);
         assert_eq!(
             parse_line(r#"{"type":"result","subtype":"success","is_error":false,"result":"fini","total_cost_usd":0.012}"#),
             vec![Event::Done { error: false, text: "fini".into(), cost: 0.012, window: 0, tokens: Tokens::default() }]
