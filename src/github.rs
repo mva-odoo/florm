@@ -476,24 +476,23 @@ fragment R on ReactionGroup{content viewerHasReacted reactors{totalCount}}";
 /// Everything shown for pull request `n`: description, commits, comments, threads on lines, diff.
 pub fn detail(dir: &Path, n: u64) -> Result<PrDetail, String> {
     let ns = n.to_string();
-    let v: View = serde_json::from_str(&gh(
-        dir,
-        &[
-            "pr",
-            "view",
-            &ns,
-            "--json",
-            "id,url,number,title,body,author,createdAt,state,isDraft,headRefName,headRefOid,baseRefName,commits,comments,reviews,\
-reviewDecision,mergeable,mergeStateStatus,reviewRequests,assignees,labels,milestone,statusCheckRollup",
-        ],
-    )?)
-    .map_err(|e| e.to_string())?;
-    let extra: Value = gh(dir, &["api", "graphql", "-F", "owner={owner}", "-F", "repo={repo}", "-F", &format!("n={n}"), "-f", &format!("query={EXTRA}")])
-        .ok()
-        .and_then(|out| serde_json::from_str(&out).ok())
-        .unwrap_or(Value::Null);
+    // the three questions at the same time (the same three as one after the other, so the same
+    // count for GitHub's limits): the wait is the slowest of them, not their sum
+    let fields = "id,url,number,title,body,author,createdAt,state,isDraft,headRefName,headRefOid,baseRefName,commits,comments,reviews,\
+reviewDecision,mergeable,mergeStateStatus,reviewRequests,assignees,labels,milestone,statusCheckRollup";
+    let n_var = format!("n={n}");
+    let query = format!("query={EXTRA}");
+    let (view, extra, diff) = std::thread::scope(|s| {
+        let extra = s.spawn(|| gh(dir, &["api", "graphql", "-F", "owner={owner}", "-F", "repo={repo}", "-F", &n_var, "-f", &query]));
+        let diff = s.spawn(|| gh(dir, &["pr", "diff", &ns, "--color", "never"]));
+        let view = gh(dir, &["pr", "view", &ns, "--json", fields]);
+        let join = |h: std::thread::ScopedJoinHandle<'_, Result<String, String>>| h.join().unwrap_or_else(|_| Err("gh".into()));
+        (view, join(extra), join(diff))
+    });
+    let v: View = serde_json::from_str(&view?).map_err(|e| e.to_string())?;
+    let extra: Value = extra.ok().and_then(|out| serde_json::from_str(&out).ok()).unwrap_or(Value::Null);
     let threads = parse_threads(&extra);
-    let diff = gh(dir, &["pr", "diff", &ns, "--color", "never"]).unwrap_or_else(|e| e);
+    let diff = diff.unwrap_or_else(|e| e);
     // who reviewed, oldest first (before the reviews go with the comments)
     let reviewed: Vec<(String, String)> = v.reviews.iter().map(|r| (r.author.login.clone(), r.state.clone())).collect();
     let author_login = v.author.login.clone();
@@ -721,15 +720,16 @@ pub fn not_found_yet(e: &str) -> bool {
 
 /// `detail`, tried again for some seconds while GitHub does not know the pull request yet.
 pub fn detail_soon(dir: &Path, n: u64) -> Result<PrDetail, String> {
-    let mut r = detail(dir, n);
+    // waited with one small question at a time: `detail` asks three at once, ten tries of it would
+    // ask GitHub three times more for nothing
+    let ns = n.to_string();
     for _ in 0..10 {
-        match &r {
-            Err(e) if not_found_yet(e) => std::thread::sleep(std::time::Duration::from_millis(1500)),
+        match gh(dir, &["pr", "view", &ns, "--json", "number"]) {
+            Err(e) if not_found_yet(&e) => std::thread::sleep(std::time::Duration::from_millis(1500)),
             _ => break,
         }
-        r = detail(dir, n);
     }
-    r
+    detail(dir, n)
 }
 
 /// Number of a pull request from its address (".../pull/123").
