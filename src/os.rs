@@ -110,6 +110,35 @@ fn spawn(mut c: Command) -> std::io::Result<()> {
     Ok(())
 }
 
+/// A notification of the system (macOS, Linux with notify-send), on a thread: nothing when there is
+/// none (Windows: not yet).
+pub fn notify(title: &str, body: &str) {
+    #[cfg(target_os = "macos")]
+    let cmd = {
+        let q = |t: &str| t.replace('\\', "\\\\").replace('"', "\\\"");
+        let mut c = command("osascript");
+        c.args(["-e", &format!("display notification \"{}\" with title \"{}\"", q(body), q(title))]);
+        Some(c)
+    };
+    #[cfg(target_os = "linux")]
+    let cmd = crate::lsp::in_path("notify-send").map(|p| {
+        let mut c = command(p);
+        c.args(["--app-name=Florm", title, body]);
+        c
+    });
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    let cmd: Option<Command> = {
+        let _ = (title, body);
+        None
+    };
+    if let Some(mut c) = cmd {
+        c.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+        std::thread::spawn(move || {
+            let _ = c.status();
+        });
+    }
+}
+
 /// Opens the file manager on the folder containing `path`, with `path` selected when possible.
 pub fn reveal(path: &Path) -> Result<(), String> {
     let path = canon(path);

@@ -48,6 +48,7 @@ impl App {
         let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("florm"));
         let _ = std::fs::create_dir_all(claude_term::dir());
         let _ = std::fs::remove_file(&file);
+        let _ = std::fs::remove_file(claude_term::files_of(&file));
         if let Err(e) = std::fs::write(&settings_file, claude_term::settings(&exe, &file, self.settings.claude_sandbox).to_string()) {
             self.claude.term = Some(0);
             self.set_error(tf!("Claude : réglages non écrits ({e})", "Claude: settings not written ({e})"));
@@ -162,6 +163,9 @@ impl App {
         let sound = self.settings.claude_done_sound.clone();
         let mut save: Vec<usize> = Vec::new();
         let mut restart: Vec<usize> = Vec::new();
+        // files changed by Claude (read again at once), and what to tell while Florm is not in front
+        let (mut touched, mut notes) = (false, Vec::new());
+        let away = !self.egui_ctx.input(|i| i.focused);
         let mut limits: Vec<(String, Vec<(String, f32, i64)>)> = Vec::new();
         let accounts = claude_account::accounts(&self.settings.claude_accounts);
         let term = &mut self.term;
@@ -173,6 +177,16 @@ impl App {
                 if std::mem::take(&mut c.term_submit) {
                     term.type_text(id, "\r");
                 }
+            }
+            let listed = std::fs::metadata(claude_term::files_of(&file)).map_or(0, |m| m.len());
+            if listed != c.changed_len {
+                c.changed_len = listed;
+                for p in claude_term::changed_files(&file) {
+                    if !c.changed.contains(&p) {
+                        c.changed.push(p);
+                    }
+                }
+                touched = true;
             }
             let st = claude_term::read(&file);
             if st == c.term_state {
@@ -190,6 +204,15 @@ impl App {
                         c.term_waiting = true;
                         c.unseen = true;
                         c.done_at = Some(Instant::now());
+                        if away {
+                            let what = if st.message.is_empty() { t!("Claude attend ta réponse", "Claude waits for your answer").to_string() } else { st.message.clone() };
+                            notes.push((conv_title(c), what));
+                        }
+                    }
+                    // `claude` stopped (/exit, Ctrl+D): Enter in its terminal starts it again
+                    "ended" => {
+                        c.busy = false;
+                        c.term_waiting = false;
                     }
                     "done" => {
                         c.busy = false;
@@ -227,6 +250,13 @@ impl App {
             if st.context > 0 {
                 c.context = (st.context, if st.context > 200_000 { 1_000_000 } else { 200_000 });
             }
+        }
+        if touched {
+            self.last_disk_check = Instant::now() - Duration::from_secs(10);
+            self.git_refresh();
+        }
+        for (title, what) in notes {
+            crate::os::notify(&tf!("Florm · {title}", "Florm · {title}"), &what);
         }
         for k in restart {
             let c = if k == 0 { &mut self.claude } else { &mut self.claude_others[k - 1] };

@@ -40,8 +40,10 @@ fn card(ui: &mut egui::Ui, title: &str, add: impl FnOnce(&mut egui::Ui)) {
 }
 
 /// The panel.
-pub(super) fn session_ui(ui: &mut egui::Ui, c: &ClaudeUi, project: &str, branch: Option<&str>, limits: &[(String, f32, i64)], accent: Color32) {
+/// Returns the file changed by Claude clicked in its list (to open).
+pub(super) fn session_ui(ui: &mut egui::Ui, c: &ClaudeUi, project: &str, branch: Option<&str>, limits: &[(String, f32, i64)], accent: Color32) -> Option<PathBuf> {
     let weak = ui.visuals().weak_text_color();
+    let mut open = None;
     egui::ScrollArea::vertical().id_salt(("claude_session", c.id)).auto_shrink([false, false]).show(ui, |ui| {
         ui.add_space(4.0);
         card(ui, t!("Utilisation", "Usage"), |ui| {
@@ -80,6 +82,22 @@ pub(super) fn session_ui(ui: &mut egui::Ui, c: &ClaudeUi, project: &str, branch:
             let model = if c.term_state.model.is_empty() { "–" } else { c.term_state.model.as_str() };
             row(ui, t!("Modèle", "Model"), model).on_hover_text(t!("Se change dans Claude : /model", "Changed in Claude: /model"));
         });
+        // what it changed, the last first: a click opens it
+        if !c.changed.is_empty() {
+            card(ui, &tf!("Fichiers modifiés ({})", "Files changed ({})", c.changed.len()), |ui| {
+                for p in c.changed.iter().rev() {
+                    let rel = c.dir.as_deref().and_then(|d| p.strip_prefix(d).ok()).unwrap_or(p);
+                    let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                    let gone = !p.exists();
+                    let text = if gone { RichText::new(format!("{name} ×")).color(weak) } else { RichText::new(name) };
+                    let tip = if gone { tf!("{} (supprimé depuis)", "{} (deleted since)", rel.display()) } else { rel.display().to_string() };
+                    if ui.add(egui::Label::new(text).truncate().sense(Sense::click())).on_hover_text(tip).clicked() && !gone {
+                        open = Some(p.clone());
+                    }
+                }
+            });
+        }
         ui.label(RichText::new(t!("Dans Claude : /model, /mcp, /memory, /agents, /usage, Maj+Tab pour le mode", "In Claude: /model, /mcp, /memory, /agents, /usage, Shift+Tab for the mode")).small().color(weak));
     });
+    open
 }

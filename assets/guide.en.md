@@ -504,7 +504,13 @@ new in it work as they are. Claude's changes are reviewed in the **Git** view.
   past 70 %, all of them on hover).
 - **Session** (panel on the right): the **context** in % and the **cost** of the conversation,
   the **5 h** and **7 d quotas** of your subscription (with when they reset), the project, its
-  branch and the **model**. Florm reads them in the status line of Claude Code.
+  branch and the **model**. Florm reads them in the status line of Claude Code. Below, the **files
+  changed** by Claude in this conversation, the last one at the top: a click opens it. Florm reloads
+  them and refreshes Git as soon as Claude changes them.
+- **What Claude waits for**: when it asks for a permission or a question, its message (“needs your
+  permission to use Bash”…) shows on hover over the conversation in the list and over **❓ waiting**
+  in the status bar. When Florm is not in front, a notification of the system tells you (macOS;
+  Linux with `notify-send`).
 - **Several conversations, one tab**: every conversation is listed on the left of the Claude
   tab, the newest at the top, with its title (its first message), what it does (⟳ working, ❓
   waiting for your answer, ✔ done) and how long it has been working; below, its project in its

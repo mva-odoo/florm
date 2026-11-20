@@ -511,7 +511,13 @@ ses nouveautés marchent tels quels. Les changements de Claude se revoient dans 
   au-delà de 70 %, toutes au survol).
 - **Session** (panneau de droite) : le **contexte** en % et le **coût** de la conversation, les
   **quotas** 5 h et 7 j de ton abonnement (avec quand ils repartent à zéro), le projet, sa branche
-  et le **modèle**. Florm les lit dans la barre d'état de Claude Code.
+  et le **modèle**. Florm les lit dans la barre d'état de Claude Code. En dessous, les **fichiers
+  modifiés** par Claude dans cette conversation, le dernier en haut : un clic l'ouvre. Florm les
+  recharge et rafraîchit Git dès que Claude les change.
+- **Ce que Claude attend** : quand il demande une permission ou pose une question, son message
+  (« veut utiliser Bash »…) s'affiche au survol de la conversation dans la liste et de **❓ attend**
+  dans la barre d'état. Si Florm n'est pas au premier plan, une notification du système te prévient
+  (macOS ; Linux avec `notify-send`).
 - **Plusieurs conversations, un seul onglet** : toutes les conversations sont listées à gauche
   de l'onglet Claude, la plus récente en haut, avec leur titre (leur premier message), ce qu'elles
   font (⟳ travaille, ❓ attend ta réponse, ✔ a fini) et depuis quand elles travaillent ; en

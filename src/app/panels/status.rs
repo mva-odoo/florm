@@ -280,7 +280,10 @@ impl App {
                     if !waiting.is_empty() {
                         let n = waiting.len();
                         let text = if n > 1 { tf!("❓ {n} attendent", "❓ {n} waiting") } else { t!("❓ attend", "❓ waiting").to_string() };
-                        if state_chip(ui, icons::ViewIcon::Claude, &text, warn()).on_hover_text(t!("Claude attend ta réponse à ses questions · clic : y aller (Ctrl+Alt+W : la suivante)", "Claude waits for your answer to its questions · click: go there (Ctrl+Alt+W: the next one)")).clicked() {
+                        // what it waits for, as Claude Code says it (a permission, a question)
+                        let what = self.claude_waiting_for().unwrap_or_else(|| t!("Claude attend ta réponse à ses questions", "Claude waits for your answer to its questions").to_string());
+                        let tip = tf!("{what} · clic : y aller (Ctrl+Alt+W : la suivante)", "{what} · click: go there (Ctrl+Alt+W: the next one)");
+                        if state_chip(ui, icons::ViewIcon::Claude, &text, warn()).on_hover_text(tip).clicked() {
                             self.claude_next_waiting();
                         }
                     }

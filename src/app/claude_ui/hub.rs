@@ -36,6 +36,8 @@ struct Row {
     project: String,
     place: String,
     state: ConvState,
+    /// What it waits for, as Claude Code says it (empty: not said).
+    waiting: String,
     since: Option<Duration>,
     cost: f64,
     can_fork: bool,
@@ -118,6 +120,11 @@ impl App {
 
     /// The conversations working, waiting for you, and the first one finished and not seen yet
     /// (its id, and whether it is lit while it blinks), for the status bar.
+    /// What the first conversation waiting for you waits for, as Claude Code says it.
+    pub(in crate::app) fn claude_waiting_for(&self) -> Option<String> {
+        self.all_convs().find(|c| conv_state(c) == ConvState::Waiting).map(|c| c.term_state.message.clone()).filter(|m| !m.is_empty())
+    }
+
     pub(in crate::app) fn claude_states(&self) -> (usize, Vec<u64>, Option<(u64, bool)>) {
         let busy = self.all_convs().filter(|c| c.busy).count();
         let waiting = self.all_convs().filter(|c| conv_state(c) == ConvState::Waiting).map(|c| c.id).collect();
@@ -194,6 +201,7 @@ impl App {
                     project,
                     place,
                     state: conv_state(c),
+                    waiting: c.term_state.message.clone(),
                     since: c.busy_since.map(|t| t.elapsed()),
                     cost: c.cost,
                     can_fork: c.session_id.is_some(),
@@ -301,6 +309,7 @@ impl App {
                 }
                 let tip = match r.state {
                     ConvState::Working => t!("Claude travaille", "Claude is working"),
+                    ConvState::Waiting if !r.waiting.is_empty() => r.waiting.as_str(),
                     ConvState::Waiting => t!("Claude attend ta réponse à ses questions", "Claude waits for your answer to its questions"),
                     ConvState::Done => t!("Claude a fini, pas encore vu", "Claude has finished, not seen yet"),
                     ConvState::Idle => t!("Au repos", "Idle"),

@@ -70,6 +70,9 @@ pub(super) struct ClaudeUi {
     pub(super) term_state: crate::claude_term::State,
     /// Its `claude` is started again once it is done (a setting it starts with changed).
     pub(super) term_restart: bool,
+    /// The files Claude changed in it (each once), and how much of the file listing them was read.
+    pub(super) changed: Vec<PathBuf>,
+    pub(super) changed_len: u64,
 }
 
 impl ClaudeUi {
@@ -81,6 +84,8 @@ impl ClaudeUi {
         self.term_state = Default::default();
         self.term_waiting = false;
         self.term_restart = false;
+        // its next `claude` lists them in a file of its own (those of before stay in `changed`)
+        self.changed_len = 0;
     }
 }
 
@@ -505,9 +510,10 @@ impl App {
         let d = bar::BarData { dirs: &dirs, dir_name: &dir_name, history: &history, accounts: &accounts, account_name: &account_name, limits, in_tab, side: self.settings.claude_review, listed: self.claude_list_shown };
         let a = bar::bar(ui, c, accent, d);
         let side = a.side.unwrap_or(self.settings.claude_review);
+        let mut open_file = None;
         if side {
             egui::SidePanel::right(egui::Id::new("claude_session").with(c.id)).resizable(true).default_width(230.0).width_range(200.0..=420.0).show_inside(ui, |ui| {
-                session::session_ui(ui, c, &dir_name, branch.as_deref(), limits, accent);
+                open_file = session::session_ui(ui, c, &dir_name, branch.as_deref(), limits, accent);
             });
         }
         egui::CentralPanel::default().frame(egui::Frame::none().fill(colors.bg)).show_inside(ui, |ui| match c.term {
@@ -518,6 +524,9 @@ impl App {
             }
         });
         self.claude_apply(a);
+        if let Some(p) = open_file {
+            self.open_path(p);
+        }
     }
 
     /// What the bar asked for, done now that `self` is free.

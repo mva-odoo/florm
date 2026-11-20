@@ -16,8 +16,10 @@ pub const STATUS_FLAG: &str = "--claude-status";
 /// What Florm knows of a conversation in a terminal.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct State {
-    /// "busy", "waiting", "done" (empty: nothing asked yet).
+    /// "busy", "waiting", "done", "ended" (`claude` stopped; empty: nothing asked yet).
     pub state: String,
+    /// What it waits for ("Claude needs your permission to use Bash"…), while it waits.
+    pub message: String,
     /// Its session in Claude Code (to go on with it: `claude --resume`).
     pub session_id: String,
     /// Its first message (the title of the conversation).
@@ -33,6 +35,25 @@ pub struct State {
 /// The folder of the files of the conversations in a terminal.
 pub fn dir() -> PathBuf {
     crate::config::data_dir().join("claude_term")
+}
+
+/// The files changed by the conversation of `file`, one path a line, appended by its hook (apart
+/// from its state: two hooks at once would lose a line rewriting the same file).
+pub fn files_of(file: &Path) -> PathBuf {
+    file.with_extension("files")
+}
+
+/// The files changed so far (each once, in the order of their first change).
+pub fn changed_files(file: &Path) -> Vec<PathBuf> {
+    let text = std::fs::read_to_string(files_of(file)).unwrap_or_default();
+    let mut out: Vec<PathBuf> = Vec::new();
+    for l in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
+        let p = PathBuf::from(l);
+        if !out.contains(&p) {
+            out.push(p);
+        }
+    }
+    out
 }
 
 /// The file of conversation `key` (its state), and the settings given to its `claude`.
@@ -60,7 +81,7 @@ fn write_json(file: &Path, v: &Value) {
 pub fn read(file: &Path) -> State {
     let v = read_json(file);
     let s = |k: &str| v[k].as_str().unwrap_or("").to_string();
-    State { state: s("state"), session_id: s("session_id"), title: s("title"), model: s("model"), cost: v["cost"].as_f64().unwrap_or(0.0), context: v["context"].as_u64().unwrap_or(0), limits: limits_of(&v["limits"]) }
+    State { state: s("state"), message: s("message"), session_id: s("session_id"), title: s("title"), model: s("model"), cost: v["cost"].as_f64().unwrap_or(0.0), context: v["context"].as_u64().unwrap_or(0), limits: limits_of(&v["limits"]) }
 }
 
 /// The quotas of the status line (`rate_limits`: each window its percentage used and its reset).
@@ -83,9 +104,13 @@ pub fn settings(exe: &Path, file: &Path, sandbox: bool) -> Value {
     let hook = |what: &str| json!([{ "hooks": [{ "type": "command", "command": format!("\"{exe}\" {HOOK_FLAG} \"{file}\" {what}") }] }]);
     let mut v = json!({
         "hooks": {
+            "SessionStart": hook("start"),
+            "SessionEnd": hook("end"),
             "UserPromptSubmit": hook("busy"),
             "Notification": hook("waiting"),
             "Stop": hook("done"),
+            // the files it changes: reloaded at once in Florm, listed beside the conversation
+            "PostToolUse": [{ "matcher": "Edit|MultiEdit|Write|NotebookEdit", "hooks": [{ "type": "command", "command": format!("\"{exe}\" {HOOK_FLAG} \"{file}\" edit") }] }],
         },
         "statusLine": { "type": "command", "command": format!("\"{exe}\" {STATUS_FLAG} \"{file}\"") },
     });
@@ -132,12 +157,31 @@ fn stdin_json() -> Value {
     serde_json::from_str(&s).unwrap_or(json!({}))
 }
 
-/// A hook: `what` happened (its event from Claude Code on stdin); the first message is kept as
-/// the title.
+/// A hook: `what` happened (its event from Claude Code on stdin). `start`: its session (at the
+/// start, after /clear); `edit`: a file changed, appended to `files_of`; the others its state,
+/// what it waits for, and its first message kept as the title.
 pub fn hook(file: &Path, what: &str) {
-    let event = stdin_json();
+    on_event(file, what, &stdin_json());
+}
+
+fn on_event(file: &Path, what: &str, event: &Value) {
+    if what == "edit" {
+        let input = &event["tool_input"];
+        let path = input["file_path"].as_str().or(input["notebook_path"].as_str()).unwrap_or("");
+        if !path.is_empty() {
+            use std::io::Write;
+            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(files_of(file)) {
+                let _ = writeln!(f, "{path}");
+            }
+        }
+        return;
+    }
     let mut v = read_json(file);
-    v["state"] = json!(what);
+    if what != "start" {
+        v["state"] = json!(if what == "end" { "ended" } else { what });
+        let message = if what == "waiting" { event["message"].as_str().unwrap_or("").trim() } else { "" };
+        v["message"] = json!(message);
+    }
     if let Some(id) = event["session_id"].as_str().filter(|s| !s.is_empty()) {
         v["session_id"] = json!(id);
     }
@@ -171,9 +215,7 @@ pub fn status(file: &Path) {
     let cost = s["cost"]["total_cost_usd"].as_f64().unwrap_or(0.0);
     v["model"] = json!(model);
     v["cost"] = json!(cost);
-    if let Some(id) = s["session_id"].as_str().filter(|s| !s.is_empty()) {
-        v["session_id"] = json!(id);
-    }
+    // not its session: given at the start, before anything was asked (the hooks give it)
     let context = context_of(s["transcript_path"].as_str().unwrap_or(""));
     if context > 0 {
         v["context"] = json!(context);
@@ -216,7 +258,7 @@ mod tests {
         // off is said too: the user's own settings cannot turn it back on
         assert!(settings(Path::new("/opt/florm"), &f, false).to_string().contains(r#""sandbox":{"enabled":false}"#));
         let s = settings(Path::new("/opt/florm"), &f, true).to_string();
-        assert!(s.contains(r#"\"/opt/florm\" --claude-hook"#) && s.contains("UserPromptSubmit") && s.contains("statusLine") && s.contains(r#""sandbox":{"enabled":true}"#), "{s}");
+        assert!(s.contains(r#"\"/opt/florm\" --claude-hook"#) && s.contains("UserPromptSubmit") && s.contains("SessionStart") && s.contains("SessionEnd") && s.contains(r#""matcher":"Edit|MultiEdit|Write|NotebookEdit""#) && s.contains("statusLine") && s.contains(r#""sandbox":{"enabled":true}"#), "{s}");
         let s = Path::new("/s.json");
         assert_eq!(argv(s, &Start { prompt: Some("fais ça"), ..Default::default() }), ["claude", "--settings", "/s.json", "fais ça"]);
         assert_eq!(argv(s, &Start { session_id: "abc", prompt: Some("ignored"), ..Default::default() }), ["claude", "--settings", "/s.json", "--resume", "abc"]);
@@ -233,6 +275,31 @@ mod tests {
         assert_eq!((st.state.as_str(), st.title.as_str(), st.session_id.as_str(), st.cost), ("busy", "corrige le bug", "s1", 1.5));
         assert_eq!(st.limits, vec![("five_hour".to_string(), 0.42, 1792619400)]);
         let _ = std::fs::remove_file(&f);
+    }
+
+    /// What each hook leaves: the session, what it waits for, its end, the files changed.
+    #[test]
+    fn what_the_hooks_leave() {
+        let f = std::env::temp_dir().join(format!("florm_claude_hooks_{}.json", std::process::id()));
+        let _ = (std::fs::remove_file(&f), std::fs::remove_file(files_of(&f)));
+        on_event(&f, "start", &json!({"session_id": "s1", "source": "startup"}));
+        assert_eq!((read(&f).state.as_str(), read(&f).session_id.as_str()), ("", "s1"));
+        on_event(&f, "busy", &json!({"session_id": "s1", "prompt": "corrige le bug"}));
+        on_event(&f, "waiting", &json!({"session_id": "s1", "message": "Claude needs your permission to use Bash"}));
+        let st = read(&f);
+        assert_eq!((st.state.as_str(), st.message.as_str(), st.title.as_str()), ("waiting", "Claude needs your permission to use Bash", "corrige le bug"));
+        on_event(&f, "busy", &json!({"session_id": "s1"}));
+        assert_eq!(read(&f).message, "");
+        on_event(&f, "edit", &json!({"tool_input": {"file_path": "/p/a.py"}}));
+        on_event(&f, "edit", &json!({"tool_input": {"file_path": "/p/b.py"}}));
+        on_event(&f, "edit", &json!({"tool_input": {"file_path": "/p/a.py"}}));
+        on_event(&f, "edit", &json!({"tool_input": {"notebook_path": "/p/n.ipynb"}}));
+        assert_eq!(changed_files(&f), ["/p/a.py", "/p/b.py", "/p/n.ipynb"].map(PathBuf::from));
+        // an edit does not touch the state
+        assert_eq!(read(&f).state, "busy");
+        on_event(&f, "end", &json!({"session_id": "s1"}));
+        assert_eq!(read(&f).state, "ended");
+        let _ = (std::fs::remove_file(&f), std::fs::remove_file(files_of(&f)));
     }
 
     #[test]
