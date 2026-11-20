@@ -413,3 +413,156 @@ impl App {
         s.pending.insert(seq, Req::Eval(EvalFor::Watch(e.to_string())));
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{BufRead, BufReader, Read};
+    use std::net::{TcpListener, TcpStream};
+
+    /// The other end of the session: what Florm sends to the debugger, read as it comes.
+    struct Adapter(BufReader<TcpStream>);
+
+    impl Adapter {
+        /// The next message: (its type, the command, its arguments or body).
+        fn next(&mut self) -> (String, String, Value) {
+            let mut len = 0;
+            loop {
+                let mut line = String::new();
+                self.0.read_line(&mut line).expect("a message");
+                let line = line.trim();
+                if line.is_empty() {
+                    break;
+                }
+                if let Some(n) = line.strip_prefix("Content-Length:") {
+                    len = n.trim().parse().unwrap();
+                }
+            }
+            let mut body = vec![0; len];
+            self.0.read_exact(&mut body).unwrap();
+            let m: Value = serde_json::from_slice(&body).unwrap();
+            let args = if m["arguments"].is_null() { m["body"].clone() } else { m["arguments"].clone() };
+            (m["type"].as_str().unwrap_or("").into(), m["command"].as_str().unwrap_or("").into(), args)
+        }
+
+        /// The commands of the next `n` requests.
+        fn requests(&mut self, n: usize) -> Vec<(String, Value)> {
+            (0..n).map(|_| self.next()).map(|(_, c, a)| (c, a)).collect()
+        }
+    }
+
+    /// An app without a window, with a session connected to a fake debugger. `FLORM_TEST_APP=1`.
+    fn session(name: &str) -> Option<(App, Adapter, std::sync::MutexGuard<'static, ()>, PathBuf)> {
+        std::env::var_os("FLORM_TEST_APP")?;
+        let dir = std::env::temp_dir().join(format!("florm_dap_{name}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (conf, proj) = (dir.join("conf"), dir.join("proj"));
+        std::fs::create_dir_all(&conf).unwrap();
+        std::fs::create_dir_all(&proj).unwrap();
+        std::fs::write(conf.join("settings.toml"), "check_updates = false\nlsp = false\n").unwrap();
+        let lock = config::TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("FLORM_CONFIG", &conf);
+        let mut app = App::with_ctx(&egui::Context::default(), Some(proj.clone()));
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let client = dap::Client::connect("127.0.0.1", port, || {}).unwrap();
+        let (stream, _) = listener.accept().unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let cfg = dap::Config { lang: Lang::Python, target: Target::Local, mode: Mode::Attach, command: String::new(), cwd: proj, python: String::new(), host: "127.0.0.1".into(), port, just_my_code: true, wait: false };
+        app.debug.session = Some(Session {
+            client, cfg, title: "test".into(), request: "attach", args: json!({}), mounts: Vec::new(), pending: HashMap::new(), configured: true, paused: None,
+            threads: Vec::new(), stacks: HashMap::new(), frame: None, scopes: Vec::new(), vars: HashMap::new(), watch: HashMap::new(), hover: None,
+            remote_docs: HashMap::new(), stopping: None, exception: None, connected: true, auto: false, server: None, parents: Vec::new(),
+        });
+        Some((app, Adapter(BufReader::new(stream)), lock, dir))
+    }
+
+    fn s(app: &mut App) -> &mut Session {
+        app.debug.session.as_mut().unwrap()
+    }
+
+    /// Stopped on an exception: the threads, the stack of the thread and the exception asked.
+    #[test]
+    fn a_pause_asks_what_to_show() {
+        let Some((mut app, mut ad, _lock, dir)) = session("pause") else { return };
+        app.debug_event("stopped", json!({ "threadId": 4, "reason": "exception", "text": "ZeroDivisionError" }));
+        let r = ad.requests(3);
+        assert_eq!(r.iter().map(|(c, _)| c.as_str()).collect::<Vec<_>>(), ["threads", "stackTrace", "exceptionInfo"]);
+        assert_eq!(r[1].1["threadId"], 4);
+        let p = s(&mut app).paused.as_ref().unwrap();
+        assert_eq!((p.thread, p.reason.as_str(), p.text.as_str()), (4, "exception", "ZeroDivisionError"));
+        // the threads: the paused one first
+        app.debug_response(Req::Threads, "threads", true, String::new(), json!({ "threads": [{ "id": 1, "name": "main" }, { "id": 4, "name": "worker" }] }));
+        assert_eq!(s(&mut app).threads[0], (4, "worker".to_string()));
+        // the exception, also in the console
+        app.debug_response(Req::ExceptionInfo, "exceptionInfo", true, String::new(), json!({ "exceptionId": "ZeroDivisionError", "description": "division by zero" }));
+        assert_eq!(s(&mut app).exception.as_deref(), Some("ZeroDivisionError : division by zero"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The stack of the paused thread: the first frame with a file is shown (not debugpy's), its
+    /// scopes asked, then the variables of the first scope only (the others stay folded).
+    #[test]
+    fn the_first_frame_with_a_file_is_shown() {
+        let Some((mut app, mut ad, _lock, dir)) = session("frames") else { return };
+        app.debug_event("stopped", json!({ "threadId": 1, "reason": "breakpoint" }));
+        ad.requests(2);
+        let body = json!({ "stackFrames": [{ "id": 10, "name": "<debugpy>", "line": 1, "source": {} }, { "id": 11, "name": "f", "line": 3, "source": { "path": "/nowhere/a.py" } }] });
+        app.debug_response(Req::Stack(1), "stackTrace", true, String::new(), body);
+        assert_eq!(s(&mut app).frame, Some((1, 1)));
+        let (cmd, args) = ad.requests(1).remove(0);
+        assert_eq!((cmd.as_str(), &args["frameId"]), ("scopes", &json!(11)));
+        app.debug_response(Req::Scopes(11), "scopes", true, String::new(), json!({ "scopes": [{ "name": "Locals", "variablesReference": 5 }, { "name": "Globals", "variablesReference": 6 }] }));
+        let (cmd, args) = ad.requests(1).remove(0);
+        assert_eq!((cmd.as_str(), &args["variablesReference"]), ("variables", &json!(5)));
+        assert!(s(&mut app).pending.values().all(|r| !matches!(r, Req::Vars(6, _))));
+        // the scopes of a frame no longer shown are dropped
+        app.debug_response(Req::Scopes(99), "scopes", true, String::new(), json!({ "scopes": [{ "name": "Old", "variablesReference": 7 }] }));
+        assert_eq!(s(&mut app).scopes.len(), 2);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// What the debugger says of the breakpoints of a file goes on them, in order; an answer
+    /// that does not match them (changed meanwhile) is left aside.
+    #[test]
+    fn breakpoints_get_their_state() {
+        let Some((mut app, _ad, _lock, dir)) = session("bps") else { return };
+        let path = PathBuf::from("/nowhere/a.py");
+        app.debug.bps.insert(path.clone(), vec![Bp::new(2), Bp::new(9)]);
+        let body = json!({ "breakpoints": [{ "verified": true }, { "verified": false, "message": "pas de code ici" }] });
+        app.debug_response(Req::Bps(path.clone()), "setBreakpoints", true, String::new(), body);
+        let states: Vec<_> = app.debug.bps[&path].iter().map(|b| b.state.clone()).collect();
+        assert_eq!(states, [Some((true, String::new())), Some((false, "pas de code ici".to_string()))]);
+        app.debug.bps.insert(path.clone(), vec![Bp::new(2)]);
+        app.debug_response(Req::Bps(path.clone()), "setBreakpoints", true, String::new(), json!({ "breakpoints": [{ "verified": true }, { "verified": true }] }));
+        assert!(app.debug.bps[&path][0].state.is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A request of the debugger Florm does not know is refused; a failed start ends the session.
+    #[test]
+    fn unknown_requests_refused_and_failed_start_ends() {
+        let Some((mut app, mut ad, _lock, dir)) = session("refuse") else { return };
+        app.debug_handle(Incoming::Request { seq: 3, command: "handshake".into(), arguments: json!({}) });
+        let (kind, cmd, _) = ad.next();
+        assert_eq!((kind.as_str(), cmd.as_str()), ("response", "handshake"));
+        // a watch that fails is shown as such, without ending anything
+        app.debug_response(Req::Eval(EvalFor::Watch("x".into())), "evaluate", false, "name 'x' is not defined".into(), json!({}));
+        assert!(matches!(s(&mut app).watch.get("x"), Some(Err(e)) if e.contains("not defined")));
+        app.debug_response(Req::Start, "attach", false, "refused".into(), json!({}));
+        assert!(app.debug.session.is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn variables_without_evaluate_name() {
+        // at the top, the name is the expression; under a variable, none (it cannot be guessed)
+        let body = json!({ "variables": [{ "name": "total", "value": "3", "type": "int", "variablesReference": 0 }] });
+        assert_eq!(parse_vars(&body, None)[0].expr.as_deref(), Some("total"));
+        assert_eq!(parse_vars(&body, Some("")).first().and_then(|v| v.expr.clone()), None);
+        assert!(parse_vars(&json!({}), None).is_empty());
+        // a frame without line nor name still shows
+        let f = parse_frames(&json!({ "stackFrames": [{ "id": 1 }] }), &Target::Local, &[]);
+        assert_eq!((f[0].name.as_str(), f[0].line, f[0].local.is_none()), ("?", 1, true));
+    }
+}

@@ -540,3 +540,129 @@ impl App {
         write_later(Write::List(self.claude_saved.clone()));
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The configuration of the test in a folder of its own (the user's conversations untouched).
+    fn in_temp(name: &str) -> (std::sync::MutexGuard<'static, ()>, PathBuf) {
+        let lock = config::TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = std::env::temp_dir().join(format!("florm_store_{name}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::env::set_var("FLORM_CONFIG", &dir);
+        (lock, dir)
+    }
+
+    /// A conversation as an older Florm wrote it: only the fields it had then.
+    const OLD_CONV: &str = r#"{"key":7,"title":"Ancienne","dir":"/p","model":1,"mode":0,"session_id":"s1","wish":null,"cost":0.5,"updated":100,
+        "items":[{"User":["question",["a.py"]]},{"Text":"réponse"},{"User":["encore",["a.py","b.py"]]}]}"#;
+
+    #[test]
+    fn old_conversations_still_load() {
+        let c: SavedConv = serde_json::from_str(OLD_CONV).unwrap();
+        assert_eq!((c.key, c.model, c.model_value.as_deref()), (7, 1, None));
+        assert!(c.effort.is_empty() && c.checkpoints.is_empty() && c.account.is_empty() && !c.interrupted);
+        assert!(matches!(&c.items[0], Item::User(t, given, texts, images) if t == "question" && given == &["a.py"] && texts.is_empty() && images.is_empty()));
+    }
+
+    #[test]
+    fn meta_lists_what_was_given_once() {
+        let c: SavedConv = serde_json::from_str(OLD_CONV).unwrap();
+        let m = SavedMeta::of(&c);
+        assert_eq!((m.key, m.title.as_str(), m.updated), (7, "Ancienne", 100));
+        assert_eq!(m.given, ["a.py", "b.py"]);
+    }
+
+    /// The single file of before becomes one file per conversation and a list, once; the old
+    /// file is kept aside.
+    #[test]
+    fn single_file_of_before_is_split() {
+        let (_lock, dir) = in_temp("split");
+        let data = config::data_dir();
+        std::fs::create_dir_all(&data).unwrap();
+        std::fs::write(data.join("claude_conversations.json"), format!("[{OLD_CONV}]")).unwrap();
+        let metas = load_saved();
+        assert_eq!(metas.len(), 1);
+        assert!(data.join("claude_conversations.json.old").is_file() && !data.join("claude_conversations.json").exists());
+        assert_eq!(load_conv(7).map(|c| c.title), Some("Ancienne".to_string()));
+        // read from the list now, and no file left half written
+        assert_eq!(load_saved().len(), 1);
+        let left: Vec<_> = std::fs::read_dir(saved_dir()).unwrap().flatten().filter(|e| e.path().extension().is_some_and(|x| x == "tmp")).collect();
+        assert!(left.is_empty());
+        assert!(load_conv(8).is_none());
+        std::env::remove_var("FLORM_CONFIG");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The writes leave in the order asked: removing after writing leaves nothing.
+    #[test]
+    fn writes_keep_their_order() {
+        let (_lock, dir) = in_temp("order");
+        let c: SavedConv = serde_json::from_str(OLD_CONV).unwrap();
+        write_later(Write::Conv(Box::new(c)));
+        write_later(Write::List(Vec::new()));
+        wait_saved();
+        assert!(load_conv(7).is_some());
+        write_later(Write::Remove(7));
+        wait_saved();
+        assert!(load_conv(7).is_none());
+        assert!(load_saved().is_empty());
+        std::env::remove_var("FLORM_CONFIG");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The quotas of before the accounts (a plain list) are those of the first account.
+    #[test]
+    fn limits_of_before_the_accounts() {
+        let (_lock, dir) = in_temp("limits");
+        std::fs::create_dir_all(config::data_dir()).unwrap();
+        std::fs::write(limits_path(), r#"[["5 h",0.25,1000]]"#).unwrap();
+        let l = load_limits();
+        assert_eq!(l.get("").map(|v| v[0].0.as_str()), Some("5 h"));
+        let mut both = l.clone();
+        both.insert("pro".into(), vec![("7 j".into(), 0.5, 2000)]);
+        write_limits(&both);
+        assert_eq!(load_limits().len(), 2);
+        std::fs::write(limits_path(), "pas du json").unwrap();
+        assert!(load_limits().is_empty());
+        std::env::remove_var("FLORM_CONFIG");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn commands_listed_once() {
+        // before any session: Florm's own, then the usual ones
+        let list = command_list(&Commands::default());
+        let names: Vec<&str> = list.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(&names[..2], ["btw", "status"]);
+        assert!(names.contains(&"compact") && names.contains(&"usage"));
+        // told by a session: no name twice, those of the terminal said so
+        let known = Commands { message: vec!["compact".into(), "btw".into(), "mon-skill".into()], terminal: vec!["doctor".into(), "status".into()], ..Default::default() };
+        let list = command_list(&known);
+        let names: Vec<&str> = list.iter().map(|(n, _)| n.as_str()).collect();
+        let mut unique = names.clone();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(unique.len(), names.len());
+        assert!(names.contains(&"mon-skill") && names.contains(&"doctor") && !names.contains(&"usage"));
+        assert!(list.iter().any(|(n, hint)| n == "doctor" && !hint.is_empty()));
+    }
+
+    #[test]
+    fn models_named_and_ordered() {
+        let m = |value: &str, name: &str, efforts: &[&str]| claude::ModelInfo { value: value.into(), name: name.into(), efforts: efforts.iter().map(|e| e.to_string()).collect(), ..Default::default() };
+        let models = vec![m("claude-opus-5-1", "Opus 5.1", &[]), m("opus", "Opus", &["low", "max"]), m("sonnet", "Sonnet", &[])];
+        // the latest ones first, then the pinned versions
+        let values: Vec<String> = model_choices(&models).into_iter().map(|(v, _)| v).collect();
+        assert_eq!(values, ["opus", "sonnet", "claude-opus-5-1"]);
+        assert_eq!(model_label(&models, "opus"), "Opus");
+        // not offered: made from its value
+        assert_eq!(model_label(&models, "claude-haiku-5-5"), claude::model_name("claude-haiku-5-5"));
+        assert_eq!(model_efforts(&models, "opus"), ["low", "max"]);
+        assert_eq!(model_efforts(&models, "inconnu").len(), claude::EFFORTS.len());
+        // Claude Code has not told its models yet: the aliases of before
+        assert_eq!(model_choices(&[]).len(), claude::MODELS.len());
+    }
+}
