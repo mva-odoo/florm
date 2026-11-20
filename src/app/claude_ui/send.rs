@@ -172,6 +172,10 @@ impl App {
         if text.is_empty() && self.claude.attach.is_empty() {
             return false;
         }
+        // Claude in a terminal: typed into it
+        if self.settings.claude_terminal {
+            return self.claude_term_send(text);
+        }
         let command = text.starts_with('/');
         // the files are being noted for the message before: this one follows it
         if self.claude.outgoing.is_some() {

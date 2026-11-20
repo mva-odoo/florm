@@ -25,6 +25,7 @@ mod send;
 mod session;
 mod side;
 mod store;
+mod term;
 pub(in crate::app) use context::*;
 pub(in crate::app) use hub::*;
 pub(in crate::app) use review::*;
@@ -197,6 +198,17 @@ pub(super) struct ClaudeUi {
     pub(super) session_account: String,
     /// The account was chosen by hand (👤): the folders of the accounts no longer choose it.
     pub(super) account_chosen: bool,
+    /// Claude Code in a terminal (Préférences → Claude dans un terminal): its session in the
+    /// terminals, the files where its hooks write (see `crate::claude_term`), what to start it
+    /// with, what waits to be pasted once it is ready (and then Enter), whether it waits for you,
+    /// and what its status line said last.
+    pub(super) term: Option<u64>,
+    pub(super) term_file: Option<PathBuf>,
+    pub(super) term_prompt: Option<String>,
+    pub(super) term_pending: String,
+    pub(super) term_submit: bool,
+    pub(super) term_waiting: bool,
+    pub(super) term_state: crate::claude_term::State,
 }
 
 /// The configuration folder of the account chosen by default in `s`.
@@ -212,6 +224,8 @@ struct Shared {
     accent: Color32,
     fill: Color32,
     in_tab: bool,
+    /// The conversation is Claude Code in a terminal: no review of Florm (git does it).
+    term: bool,
     /// The id of the conversation: two can be shown at once (bottom panel and a tab).
     conv: u64,
 }
@@ -1091,6 +1105,7 @@ impl App {
 
     /// What every conversation received; those whose tab was closed are over.
     pub(super) fn claude_poll_all(&mut self) {
+        self.claude_term_tick();
         self.claude_poll();
         for k in 0..self.claude_others.len() {
             if self.claude_others[k].session.is_some() {
@@ -1162,6 +1177,11 @@ impl App {
         if self.install_guide(ui, crate::tools::Tool::Claude, in_tab) {
             return;
         }
+        // Claude Code itself in a terminal, started the first time its conversation is shown
+        let term_mode = self.settings.claude_terminal;
+        if term_mode {
+            self.claude_term_start();
+        }
         let accent = self.hl.colors.accent;
         let fill = ui.visuals().panel_fill;
         let dir_name = self.claude.dir.as_deref().map(|d| self.repo_label(d)).unwrap_or_default();
@@ -1213,6 +1233,7 @@ impl App {
             allow,
             models: &self.claude_commands.models,
         };
+        let (term, term_colors, light) = (&mut self.term, self.hl.colors, self.hl.is_light());
         let c = &mut self.claude;
         let cache = &mut self.md_cache;
         let hl = &self.hl;
@@ -1223,11 +1244,20 @@ impl App {
         // the panel on the right shows the review of the changes (else the session)
         let side_id = egui::Id::new("claude_side_review").with(conv);
         a.side_review = ui.data(|d| d.get_temp::<bool>(side_id)).unwrap_or(false);
-        let s = Shared { accent, fill, in_tab, conv };
+        let s = Shared { accent, fill, in_tab, term: term_mode, conv };
         let d = bar::BarData { dirs: &dirs, dir_name: &dir_name, history: &history, accounts: &accounts, account_name: &account_name, limits, allow, deny, perms, budget };
         bar::bar(ui, c, &s, d, &mut a);
         let review_max = side::side(ui, c, &s, &session_info, &mut a);
-        if !review_max {
+        if !review_max && term_mode {
+            // the conversation is the terminal where `claude` runs
+            egui::CentralPanel::default().frame(egui::Frame::none().fill(term_colors.bg)).show_inside(ui, |ui| match c.term {
+                Some(id) => term.embedded_ui(ui, id, std::mem::take(&mut c.focus), term_colors, light),
+                None => {
+                    ui.add_space(20.0);
+                    ui.vertical_centered(|ui| ui.label(RichText::new(t!("Choisis un dossier en haut pour lancer Claude.", "Choose a folder at the top to start Claude.")).weak()));
+                }
+            });
+        } else if !review_max {
             egui::CentralPanel::default().show_inside(ui, |ui| {
                 let d = input::InputData { cache: &mut *cache, hl, commands: &commands, models, cursor, field_id, mention };
                 input::input(ui, c, &s, d, &mut a);
@@ -1631,7 +1661,8 @@ mod tests {
         let (conf, proj) = (dir.join("conf"), dir.join("proj"));
         std::fs::create_dir_all(&conf).unwrap();
         std::fs::create_dir_all(&proj).unwrap();
-        std::fs::write(conf.join("settings.toml"), "check_updates = false\nlsp = false\n").unwrap();
+        // the field of Florm's own chat (not Claude in a terminal)
+        std::fs::write(conf.join("settings.toml"), "check_updates = false\nlsp = false\nclaude_terminal = false\n").unwrap();
         let _lock = config::TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         std::env::set_var("FLORM_CONFIG", &conf);
         let ctx = egui::Context::default();
@@ -1674,7 +1705,8 @@ mod tests {
         let (conf, proj) = (dir.join("conf"), dir.join("proj"));
         std::fs::create_dir_all(&conf).unwrap();
         std::fs::create_dir_all(&proj).unwrap();
-        std::fs::write(conf.join("settings.toml"), "check_updates = false\nlsp = false\n").unwrap();
+        // the field of Florm's own chat (not Claude in a terminal)
+        std::fs::write(conf.join("settings.toml"), "check_updates = false\nlsp = false\nclaude_terminal = false\n").unwrap();
         let _lock = config::TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         std::env::set_var("FLORM_CONFIG", &conf);
         let ctx = egui::Context::default();

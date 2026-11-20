@@ -85,6 +85,13 @@ pub fn config_dir(dir: Option<&Path>) -> PathBuf {
         .unwrap_or_else(|| crate::config::home().join(".claude"))
 }
 
+/// The account of folder `dir` still knows session `session` (its messages are in
+/// `<config>/projects/<folder>/<session>.jsonl`): `claude --resume` can go on with it.
+pub fn has_session(dir: Option<&Path>, session: &str) -> bool {
+    let file = format!("{session}.jsonl");
+    std::fs::read_dir(config_dir(dir).join("projects")).map_or(false, |rd| rd.flatten().any(|p| p.path().join(&file).is_file()))
+}
+
 static DEFAULT: RwLock<Option<PathBuf>> = RwLock::new(None);
 
 /// The account of the calls of Florm that belong to no conversation.

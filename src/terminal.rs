@@ -103,7 +103,8 @@ impl Session {
         Self::spawn_argv_env(argv, prefill, cwd, ctx, capture, &[])
     }
 
-    /// `spawn_argv` with these variables in the environment of the program.
+    /// `spawn_argv` with these variables in the environment of the program (an empty value
+    /// takes the variable out of it).
     fn spawn_argv_env(argv: &[&str], prefill: &[u8], cwd: PathBuf, ctx: &egui::Context, capture: bool, env: &[(String, String)]) -> Result<Session, String> {
         let shell = argv.join(" ");
         let size = (24, 80);
@@ -117,7 +118,11 @@ impl Session {
         cmd.env("COLORTERM", "truecolor");
         cmd.env("TERM_PROGRAM", "florm");
         for (k, v) in env {
-            cmd.env(k, v);
+            if v.is_empty() {
+                cmd.env_remove(k);
+            } else {
+                cmd.env(k, v);
+            }
         }
         let child = pair.slave.spawn_command(cmd).map_err(|e| format!("{shell} : {e}"))?;
         drop(pair.slave);
@@ -508,6 +513,70 @@ impl Terminal {
             }
         }
         true
+    }
+
+    /// Runs `argv` for a view of its own (the Claude tab): neither in the bottom panel nor in a
+    /// tab, shown by `embedded_ui`. Enter once it ended runs it again. Returns its id.
+    pub fn open_embedded(&mut self, ctx: &egui::Context, argv: &[String], cwd: PathBuf, env: &[(String, String)]) -> Result<u64, String> {
+        let mut s = Session::spawn_argv_env(&argv.iter().map(String::as_str).collect::<Vec<_>>(), &[], cwd, ctx, false, env)
+            .map_err(|e| format!("{} : {e}", argv.first().map_or("", String::as_str)))?;
+        s.id = self.next_id;
+        s.cmd = Some(argv.to_vec());
+        s.embedded = true;
+        self.next_id += 1;
+        let id = s.id;
+        self.sessions.push(s);
+        self.focus_tab = Some(id);
+        Ok(id)
+    }
+
+    /// Session `id` (`open_embedded`) drawn in `ui`: the whole room, no bar. `focus`: it takes the keyboard.
+    pub fn embedded_ui(&mut self, ui: &mut egui::Ui, id: u64, focus: bool, colors: Colors, light: bool) {
+        let ctx = ui.ctx().clone();
+        let Some(i) = self.sessions.iter().position(|s| s.id == id) else { return };
+        let focus = focus || self.focus_tab == Some(id);
+        if focus {
+            self.focus_tab = None;
+        }
+        if let Some(GridAct::Restart) = self.grid(ui, i, focus, colors, light) {
+            self.restart(i, &ctx, None);
+        }
+    }
+
+    /// Pastes `text` into session `id` as the keyboard's Ctrl+V does (framed when the program
+    /// asks for it: several lines arrive as one text, not as lines sent one by one). False if
+    /// the session is gone or ended.
+    pub fn paste(&mut self, id: u64, text: &str) -> bool {
+        let Some(s) = self.sessions.iter_mut().find(|s| s.id == id) else { return false };
+        if s.exited.load(Ordering::Relaxed) {
+            return false;
+        }
+        let bracketed = s.parser.lock().unwrap().screen().bracketed_paste();
+        if bracketed {
+            s.write(format!("\x1b[200~{text}\x1b[201~").as_bytes());
+        } else {
+            s.write(text.as_bytes());
+        }
+        self.focus_tab = Some(id);
+        true
+    }
+
+    /// The program of session `id` is ready for a paste: it asked for framed pastes (a full-screen
+    /// program such as `claude` does once it shows its field).
+    pub fn ready(&self, id: u64) -> bool {
+        self.sessions.iter().find(|s| s.id == id).is_some_and(|s| !s.exited.load(Ordering::Relaxed) && s.parser.lock().unwrap().screen().bracketed_paste())
+    }
+
+    /// The sessions of `open_embedded`.
+    pub fn embedded_ids(&self) -> Vec<u64> {
+        self.sessions.iter().filter(|s| s.embedded).map(|s| s.id).collect()
+    }
+
+    /// The command run again by Enter once session `id` ended (`claude --resume` once its session is known).
+    pub fn set_command(&mut self, id: u64, argv: Vec<String>) {
+        if let Some(s) = self.sessions.iter_mut().find(|s| s.id == id) {
+            s.cmd = Some(argv);
+        }
     }
 
     /// Opens a terminal in the bottom panel; returns its id.

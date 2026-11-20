@@ -56,7 +56,8 @@ pub(in crate::app) fn project_color(name: &str, dark: bool) -> Color32 {
 
 pub(in crate::app) fn conv_state(c: &ClaudeUi) -> ConvState {
     // waits for you: a change or a command to allow (mode « Demander avant »)
-    if !c.asks.is_empty() {
+    // (or Claude in a terminal asks something: a permission, a question)
+    if !c.asks.is_empty() || c.term_waiting {
         ConvState::Waiting
     } else if c.busy {
         ConvState::Working

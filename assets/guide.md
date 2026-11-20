@@ -500,6 +500,17 @@ avec `gh auth login` (connexion par le navigateur). Sans `gh`, la vue explique c
 **Ctrl+Alt+C** (ou Outils → ✳ Claude, la palette) : une conversation avec Claude Code, dans le
 panneau du bas (**en onglet** pour lui donner tout un onglet de l'éditeur, **en bas** pour l'y remettre). Florm utilise la commande `claude` et ta connexion : pas de clé à configurer.
 
+- **Claude dans un terminal** (par défaut ; Préférences → Claude) : chaque conversation est Claude
+  Code lui-même, dans un terminal au centre de l'onglet. Ses commandes (`/model`, `/usage`…), ses
+  modes (Maj+Tab) et ses nouveautés marchent tels quels. Florm garde autour : la **liste des
+  conversations** à gauche (titre = premier message, ⟳ travaille, ❓ attend ta réponse, ✔ a fini,
+  aussi dans la barre d'état et avec Ctrl+Alt+W), le panneau **Session** à droite (modèle, coût,
+  contexte, quotas). **✳ dans la marge**, **+ Contexte**, **Ctrl+Alt+I** écrivent dans le champ de
+  Claude (`@fichier`, l'extrait, le chemin de l'image) sans l'envoyer ; **✳ Envoyer à Claude**
+  depuis une pull request ouvre une conversation qui démarre avec la demande. Les changements de
+  Claude se revoient dans la vue **Git**. Une conversation reprend où elle en était après un
+  redémarrage de Florm (`claude --resume`). Désactivé : le chat de Florm décrit ci-dessous.
+
 - En haut : le dossier, **+ Nouvelle** conversation, puis le compte, les **Permissions**, **🌿
   Worktree**, l'**Historique** et les **Outils** (MCP, mémoire…) ; quand la place manque, ils
   passent dans **⋯**. À droite, le bouton du panneau de droite (Session, Fichiers

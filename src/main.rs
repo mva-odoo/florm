@@ -7,6 +7,7 @@ mod i18n;
 mod app;
 mod claude;
 mod claude_account;
+mod claude_term;
 mod commands;
 mod config;
 mod copilot;
@@ -117,6 +118,10 @@ fn main() -> eframe::Result<()> {
             _ => 1,
         };
         std::process::exit(code);
+    }
+    // Called by Claude Code (hooks, status line) for a conversation of the Claude tab in a terminal.
+    if claude_term::run_flag(&std::env::args().collect::<Vec<_>>()) {
+        std::process::exit(0);
     }
     crash::install();
     #[cfg(target_os = "linux")]

@@ -52,7 +52,7 @@ impl App {
                     }
                     // in the terminal, keys go to the shell, except a few global shortcuts
                     if term_focused
-                        && !matches!(cmd, Cmd::ToggleTerminal | Cmd::CommandPalette | Cmd::QuickOpen | Cmd::ToggleSidebar)
+                        && !matches!(cmd, Cmd::ToggleTerminal | Cmd::CommandPalette | Cmd::QuickOpen | Cmd::ToggleSidebar | Cmd::Claude | Cmd::ClaudeNextWaiting | Cmd::ClaudeScreenshot)
                     {
                         continue;
                     }

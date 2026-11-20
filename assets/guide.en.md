@@ -494,6 +494,17 @@ palette).
 bottom panel (**in a tab** to give it a whole editor tab, **at the bottom** to put it back). Florm uses the `claude`
 command and your login: no key to set up.
 
+- **Claude in a terminal** (the default; Preferences → Claude): each conversation is Claude Code
+  itself, in a terminal in the middle of the tab. Its commands (`/model`, `/usage`…), its modes
+  (Shift+Tab) and what is new in it work as they are. Florm keeps around it: the **list of
+  conversations** on the left (title = first message, ⟳ working, ❓ waiting for your answer, ✔
+  done, also in the status bar and with Ctrl+Alt+W), the **Session** panel on the right (model,
+  cost, context, quotas). **✳ in the margin**, **+ Context**, **Ctrl+Alt+I** write into Claude's
+  field (`@file`, the excerpt, the path of the picture) without sending it; **✳ Send to Claude**
+  from a pull request opens a conversation that starts with the request. Claude's changes are
+  reviewed in the **Git** view. A conversation goes on where it was after Florm restarts (`claude
+  --resume`). Off: Florm's own chat described below.
+
 - At the top: the folder, **+ New** conversation, then the account, **Permissions**, **🌿
   Worktree**, **History** and **Tools** (MCP, memory…); when room is short, they go into **⋯**.
   On the right, the button of the panel on the right (Session, Changed files), marked with a dot

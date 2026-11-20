@@ -47,6 +47,8 @@ pub struct Settings {
     pub claude_in_tab: bool,
     /// Every conversation in one Claude tab, listed on its left, instead of a tab each.
     pub claude_one_tab: bool,
+    /// Each conversation is Claude Code itself, in a terminal in the Claude tab (else Florm's own chat).
+    pub claude_terminal: bool,
     /// Parts that can be turned off: GitHub (pull requests), the debugger, Claude.
     pub github: bool,
     pub debugger: bool,
@@ -204,6 +206,7 @@ impl Default for Settings {
             diff_side_by_side: false,
             claude_in_tab: false,
             claude_one_tab: true,
+            claude_terminal: true,
             github: true,
             debugger: true,
             claude: true,
@@ -318,6 +321,8 @@ claude = false
 claude_in_tab = false
 # toutes les conversations dans un seul onglet Claude, listées à sa gauche, plutôt qu'un onglet chacune
 claude_one_tab = true
+# chaque conversation est Claude Code lui-même, dans un terminal de l'onglet Claude (false : le chat de Florm)
+claude_terminal = true
 # revue des changements de Claude à droite de la conversation (bouton « Revue »)
 claude_review = true
 # Ce que Claude a le droit de faire : "edit" (modifier les fichiers), "bash" (lancer des commandes),

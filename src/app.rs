@@ -1057,6 +1057,8 @@ pub struct App {
     version_add: Option<versions::AddVersionUi>,
     /// A picture of the window asked for Claude (Ctrl+Alt+I).
     shot: Option<screenshot::Shot>,
+    /// When the states of the conversations in a terminal were last read (Claude dans un terminal).
+    claude_term_read: Option<Instant>,
     /// The window of the versions side by side (state of each, update, remove…).
     versions_view: Option<versions_view::VersionsView>,
     /// Versions side by side in the opened folder (`odoo/17.0`, `odoo/20.0`…, see `git::Versions`).
@@ -1331,6 +1333,7 @@ impl App {
             repo_init: None,
             version_add: None,
             shot: None,
+            claude_term_read: None,
             versions_view: None,
             versions: Vec::new(),
             version: String::new(),
@@ -2700,7 +2703,7 @@ mod font_tests {
         let (conf, proj) = (dir.join("conf"), dir.join("proj"));
         std::fs::create_dir_all(&conf).unwrap();
         std::fs::create_dir_all(&proj).unwrap();
-        std::fs::write(conf.join("settings.toml"), "check_updates = false\nlsp = false\n").unwrap();
+        std::fs::write(conf.join("settings.toml"), "check_updates = false\nlsp = false\nclaude_terminal = false\n").unwrap();
         let _lock = config::TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         std::env::set_var("FLORM_CONFIG", &conf);
         let ctx = egui::Context::default();

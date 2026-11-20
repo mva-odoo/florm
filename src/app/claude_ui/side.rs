@@ -19,8 +19,9 @@ pub(super) fn side(ui: &mut egui::Ui, c: &mut ClaudeUi, s: &Shared, session_info
     let view = cid("claude_view");
     let review_max = maximize::maxed(ui.ctx(), view) == Some("review");
     let turn_shown = c.turn_diff.is_some();
-    // the changes of one question (± on a message) are in the review
-    side_review |= turn_shown;
+    // the changes of one question (± on a message) are in the review; Claude in a terminal: no
+    // review of Florm (the Git view shows the changes), the session only
+    side_review = (side_review || turn_shown) && !s.term;
     let mut review_ui = |ui: &mut egui::Ui, c: &mut ClaudeUi| {
         ui.add_space(4.0);
         // the changes of one question (± on a message), instead of the review
@@ -124,7 +125,8 @@ pub(super) fn side(ui: &mut egui::Ui, c: &mut ClaudeUi, s: &Shared, session_info
         let (panel_id, width, range) = if side_review { (review_id, ui.available_width() * 0.5, 260.0..=1400.0) } else { (review_id.with("session"), 230.0, 200.0..=420.0) };
         egui::SidePanel::right(panel_id).resizable(true).default_width(width).width_range(range).show_inside(ui, |ui| {
             ui.add_space(4.0);
-            ui.horizontal(|ui| {
+            if !s.term {
+                ui.horizontal(|ui| {
                 if ui.selectable_label(!side_review, t!("Session", "Session")).on_hover_text(t!("Contexte, quotas, projet, modèle, mémoire, serveurs MCP", "Context, quotas, project, model, memory, MCP servers")).clicked() && side_review {
                     side_review = false;
                     to_session = true;
@@ -135,8 +137,9 @@ pub(super) fn side(ui: &mut egui::Ui, c: &mut ClaudeUi, s: &Shared, session_info
                 if ui.selectable_label(side_review, text).on_hover_text(t!("Ce que Claude a changé dans les fichiers, bloc par bloc", "What Claude changed in the files, block by block")).clicked() {
                     side_review = true;
                 }
-            });
-            ui.separator();
+                });
+                ui.separator();
+            }
             if side_review {
                 review_ui(ui, c);
             } else if let Some(a) = session::session_ui(ui, c, session_info, accent) {

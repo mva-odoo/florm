@@ -187,6 +187,12 @@ impl App {
             Ok(p) => p,
             Err(e) => return self.set_error(tf!("Image non enregistrée : {e}", "Image not saved: {e}")),
         };
+        // Claude in a terminal: its path written into its field (Claude Code reads the image)
+        if self.settings.claude_terminal {
+            let a = Attach::image(self.claude.dir.clone().unwrap_or_default(), (label.clone(), saved));
+            let text = term::term_text(&a, self.claude.dir.as_deref());
+            return self.claude_term_give(text, &label);
+        }
         if self.claude.attach.iter().any(|a| a.image.as_ref().is_some_and(|(_, p)| *p == saved)) {
             return;
         }
@@ -213,6 +219,11 @@ impl App {
             Ok(p) => p,
             Err(e) => return self.set_error(tf!("PDF non enregistré : {e}", "PDF not saved: {e}")),
         };
+        if self.settings.claude_terminal {
+            let a = Attach::image(self.claude.dir.clone().unwrap_or_default(), (label.clone(), saved));
+            let text = term::term_text(&a, self.claude.dir.as_deref());
+            return self.claude_term_give(text, &label);
+        }
         if self.claude.attach.iter().any(|a| a.image.as_ref().is_some_and(|(_, p)| *p == saved)) {
             return;
         }
@@ -326,6 +337,11 @@ impl App {
             self.claude.dir = self.repo_for(&a.path).or_else(|| self.repo.clone()).or_else(|| self.root.clone());
         }
         let label = a.label(self.claude.dir.as_deref());
+        // Claude in a terminal: written into its field
+        if self.settings.claude_terminal {
+            let text = term::term_text(&a, self.claude.dir.as_deref());
+            return self.claude_term_give(text, &label);
+        }
         let same = |x: &Attach| {
             x.path == a.path && x.lines.as_ref().map(|l| (l.0, l.1)) == a.lines.as_ref().map(|l| (l.0, l.1)) && x.note.as_ref().map(|n| &n.0) == a.note.as_ref().map(|n| &n.0)
         };

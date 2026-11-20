@@ -98,7 +98,10 @@ pub(in crate::app) fn session_ui(ui: &mut egui::Ui, c: &mut ClaudeUi, info: &Ses
                 let dirs = c.add_dirs.iter().map(|d| d.display().to_string()).collect::<Vec<_>>().join("\n");
                 row(ui, t!("Dossiers en plus", "Extra folders"), c.add_dirs.len().to_string()).on_hover_text(dirs);
             }
-            let model = if c.model_id.is_empty() || c.model.contains('-') {
+            // Claude in a terminal: the model its status line gives (changed there with /model)
+            let model = if c.term.is_some() {
+                if c.term_state.model.is_empty() { "–".to_string() } else { c.term_state.model.clone() }
+            } else if c.model_id.is_empty() || c.model.contains('-') {
                 model_label(info.models, &c.model)
             } else if c.model.is_empty() {
                 tf!("Défaut ({})", "Default ({})", claude::model_name(&c.model_id))
@@ -106,13 +109,18 @@ pub(in crate::app) fn session_ui(ui: &mut egui::Ui, c: &mut ClaudeUi, info: &Ses
                 claude::model_name(&c.model_id)
             };
             row(ui, t!("Modèle", "Model"), model);
-            row(ui, t!("Effort", "Effort"), claude::effort_label(&c.effort));
+            if c.term.is_none() {
+                row(ui, t!("Effort", "Effort"), claude::effort_label(&c.effort));
+            }
             // what Florm told Claude of the project (tests, containers, commit rules)
             if !c.florm_ctx.is_empty() {
                 row(ui, t!("Contexte Florm", "Florm context"), t!("donné ✔", "given ✔").to_string())
                     .on_hover_text(format!("{}\n\n{}", t!("Ce que Florm a dit à Claude au démarrage :", "What Florm told Claude when it started:"), c.florm_ctx));
             }
-            row(ui, t!("Mode", "Mode"), claude::label(claude::MODES[c.mode].1));
+            // in a terminal: its mode is chosen there (Maj+Tab)
+            if c.term.is_none() {
+                row(ui, t!("Mode", "Mode"), claude::label(claude::MODES[c.mode].1));
+            }
         });
         card(ui, t!("Claude Code", "Claude Code"), |ui| {
             ui.horizontal(|ui| {

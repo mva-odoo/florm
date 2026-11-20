@@ -40,7 +40,8 @@ pub(super) fn bar(ui: &mut egui::Ui, c: &mut ClaudeUi, s: &Shared, d: BarData<'_
         .show_inside(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.label(RichText::new("✳ Claude").strong().size(15.0).color(accent));
-                let running = c.session.is_some();
+                // its folder is set once Claude runs (in a terminal too)
+                let running = c.session.is_some() || c.term.is_some();
                 ui.add_enabled_ui(!running, |ui| {
                     let mut labels: Vec<String> = dirs.iter().map(|(_, l)| l.clone()).collect();
                     labels.push(t!("📁 Un autre dossier…", "📁 Another folder…").to_string());
