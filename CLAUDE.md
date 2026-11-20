@@ -28,7 +28,7 @@ scripts/build-windows.sh    # binaire Windows depuis Linux/WSL
 - `src/*.rs` hors `app/` : la logique sans UI (`git.rs`, `github.rs`, `claude.rs`, `dap.rs`, `lsp.rs`,
   `docker.rs`, `terminal.rs`, `document.rs` (buffer `ropey`), `highlight.rs` (`syntect`), `split.rs`…).
 - Travail en arrière-plan : `src/jobs.rs`. Les tâches tournent sur des threads et renvoient un
-  `JobResult` par un channel lu à chaque image ; le traitement est dans `src/app/job_results.rs`.
+  `JobResult` par un channel lu à chaque image ; le traitement est dans `src/app/job_results.rs` (un aiguillage, les traitements longs dans `job_results/`).
   Pour une nouvelle tâche : une variante de `JobResult`, son lancement, son traitement. Ne jamais
   bloquer le thread de l'UI (git, réseau, processus externes).
 - Commandes : enum `Cmd` dans `src/commands.rs` (identifiants utilisés dans `[keys]` de settings.toml),

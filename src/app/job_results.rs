@@ -2,188 +2,19 @@
 
 use super::*;
 
+mod file_results;
+mod git_results;
+
 impl App {
     pub(super) fn process_jobs(&mut self) {
         while let Ok(r) = self.jobs.rx.try_recv() {
             match r {
-                JobResult::Analyzed { uid, diags, base, .. } => {
-                    if let Some(d) = self.docs.iter_mut().find(|d| d.uid == uid) {
-                        if let Some((dg, linter)) = diags {
-                            d.set_lint_diagnostics(dg);
-                            d.lint_version = d.version;
-                            if lint::lang_of(d.path.as_deref().unwrap_or(Path::new(""))) == Some("python") {
-                                self.python_linter = Some(linter);
-                            }
-                        }
-                        d.git_base = base;
-                        d.refresh_diff();
-                    }
-                }
-                JobResult::Lint { uid, version, diags, linter } => {
-                    self.lint_inflight.remove(&uid);
-                    if let Some(d) = self.docs.iter_mut().find(|d| d.uid == uid) {
-                        if d.version == version {
-                            d.set_lint_diagnostics(diags);
-                            d.lint_version = version;
-                        }
-                    }
-                    self.python_linter = Some(linter);
-                }
-                JobResult::ToolInstalled(r) => {
-                    // a language server may have been installed: try again
-                    self.lsp.manager.reset();
-                    self.lsp.notes.clear();
-                    match r {
-                        Ok(msg) => {
-                            self.log(msg.clone());
-                            self.set_status(msg);
-                        }
-                        Err(e) => {
-                            self.log(e);
-                            self.set_error(t!("Installation échouée (voir Sortie)", "Installation failed (see Output)"));
-                            self.bottom = Some(BottomTab::Output);
-                        }
-                    }
-                    for d in self.docs.iter_mut() {
-                        d.lint_version = u64::MAX; // re-lint with the new tool
-                    }
-                }
-                JobResult::FileMatches { gen, query, matched, top } => {
-                    if let Some(o) = self.overlay.as_mut().filter(|o| o.gen.load(Ordering::SeqCst) == gen) {
-                        o.matched = Some((query, Arc::new(matched)));
-                        o.filtered = top;
-                        o.selected = 0;
-                        o.pending = false;
-                    }
-                }
-                JobResult::FileIndex(root, list) => {
-                    if self.root.as_ref() == Some(&root) && self.index.symbols_for.as_ref() != Some(&root) {
-                        self.index.symbols_for = Some(root.clone());
-                        let r = root.clone();
-                        // the repositories being worked on first
-                        let mut first: Vec<PathBuf> = self.docs.iter().filter_map(|d| d.path.as_deref()).filter_map(|p| self.repo_for(p)).collect();
-                        first.extend(self.repo.clone());
-                        let ex = crate::walk::Exclusions::new(&root, &self.index_exclude());
-                        let max = self.settings.index_max_files;
-                        let send = self.jobs.sender();
-                        self.jobs.spawn(move || {
-                            let r2 = r.clone();
-                            // the index of the last run: the files that did not change are not read again
-                            let cache_file = crate::index::cache_path(&r);
-                            let old = crate::index::Index::load(&cache_file);
-                            let idx = crate::index::Index::build_in_steps(&r, &first, &ex, max, old.as_ref(), move |part| send(JobResult::SymbolIndex(r2, part, true)));
-                            drop(old);
-                            // a cache that cannot be written only makes the next start slower
-                            let _ = idx.save(&cache_file);
-                            JobResult::SymbolIndex(r, idx, false)
-                        });
-                    }
-                    if let Some(files) = list.filter(|_| self.root.as_ref() == Some(&root)) {
-                        self.index.files = Arc::new(files);
-                        // "go to file" opened while the list was being made: show the new list
-                        if self.overlay.as_ref().is_some_and(|o| matches!(o.mode, Mode::Files)) {
-                            let (items, boost) = (self.file_items(), self.recent_boost());
-                            if let Some(o) = self.overlay.as_mut() {
-                                o.items = items;
-                                o.boost = boost;
-                                o.last_query = None;
-                                o.matched = None;
-                            }
-                        }
-                    }
-                }
-                JobResult::GitStatus { selected, statuses, remotes, stashes } => {
-                    if self.repo.as_ref() != Some(&selected) {
-                        continue;
-                    }
-                    self.git.stashes = stashes;
-                    let raw = remotes.iter().find(|(r, _)| *r == selected).map(|(_, t)| t.as_str()).unwrap_or("");
-                    self.git.remotes = git::parse_remotes(raw);
-                    // branch / remote of every repository, for the tree
-                    self.repo_info.clear();
-                    for (repo, st) in &statuses {
-                        let Ok(st) = st else { continue };
-                        if self.pr.repo.as_ref() == Some(repo) {
-                            self.pr.branch = Some(st.branch.clone());
-                        }
-                        let mut label = st.branch.clone();
-                        if let Some((up, ahead, behind)) = st.upstream() {
-                            // the usual origin/<same branch> is left to the tooltip
-                            if !up.split_once('/').is_some_and(|(_, b)| b == st.branch) {
-                                label.push_str(&format!(" → {up}"));
-                            }
-                            if ahead > 0 {
-                                label.push_str(&format!(" ↑{ahead}"));
-                            }
-                            if behind > 0 {
-                                label.push_str(&format!(" ↓{behind}"));
-                            }
-                        }
-                        let raw = remotes.iter().find(|(r, _)| r == repo).map(|(_, t)| t.as_str()).unwrap_or("");
-                        let mut urls: Vec<String> = raw
-                            .lines()
-                            .filter(|l| l.ends_with("(fetch)"))
-                            .map(|l| l.trim_end_matches("(fetch)").trim().replacen('\t', " : ", 1))
-                            .collect();
-                        urls.dedup();
-                        let mut tip = tf!("Branche : {}\n", "Branch: {}\n", st.branch);
-                        match st.upstream() {
-                            Some((up, a, b)) => tip.push_str(&tf!("Suit : {up} ({a} à pousser, {b} à récupérer)\n", "Tracks: {up} ({a} to push, {b} to pull)\n")),
-                            None => tip.push_str(t!("Pas de branche distante suivie\n", "No tracked remote branch\n")),
-                        }
-                        if urls.is_empty() {
-                            tip.push_str(t!("Aucun remote", "No remote"));
-                        } else {
-                            tip.push_str(&tf!("Remote(s) :\n{}", "Remote(s):\n{}", urls.join("\n")));
-                        }
-                        let n = st.entries.len();
-                        if n > 0 {
-                            label.push_str(&tf!(" · {n} modif.", " · {n} changed"));
-                        }
-                        self.repo_info.insert(repo.clone(), (label, tip));
-                    }
-                    self.git.map.clear();
-                    self.git.status = None;
-                    self.git.error = None;
-                    let root = self.root.clone();
-                    for (repo, st) in statuses {
-                        match st {
-                            Ok(st) => {
-                                for e in &st.entries {
-                                    let abs = repo.join(&e.path);
-                                    // Color parent folders up to the opened folder (repos may be nested in it).
-                                    for a in abs.ancestors().skip(1) {
-                                        if root.as_ref().is_some_and(|r| !a.starts_with(r) || a == r.as_path()) {
-                                            break;
-                                        }
-                                        self.git.map.entry(a.to_path_buf()).or_insert('M');
-                                    }
-                                    self.git.map.insert(abs, e.label());
-                                }
-                                if repo == selected {
-                                    // found stopped on conflicts (a rebase started in a terminal…): the
-                                    // assistant opens, once for that operation
-                                    let stop = st.operation.filter(|_| st.entries.iter().any(|e| e.conflicted())).map(|op| (repo.clone(), op));
-                                    if stop.is_some() && stop != self.conflicts.seen {
-                                        self.conflicts.seen = stop.clone();
-                                        self.conflicts.stale = true;
-                                        if !self.has_tab(document::View::Conflicts) {
-                                            self.show_tab(document::View::Conflicts);
-                                        }
-                                    }
-                                    if st.operation.is_none() {
-                                        self.conflicts.seen = None;
-                                    }
-                                    self.git.status = Some(st);
-                                }
-                            }
-                            Err(e) if repo == selected => self.git.error = Some(e),
-                            Err(_) => {}
-                        }
-                    }
-                    // the branch may have changed: comments of the pull request in the editor or not
-                    self.pr_update_notes();
-                }
+                JobResult::Analyzed { uid, diags, base, .. } => self.on_analyzed(uid, diags, base),
+                JobResult::Lint { uid, version, diags, linter } => self.on_lint(uid, version, diags, linter),
+                JobResult::ToolInstalled(r) => self.on_tool_installed(r),
+                JobResult::FileMatches { gen, query, matched, top } => self.on_file_matches(gen, query, matched, top),
+                JobResult::FileIndex(root, list) => self.on_file_index(root, list),
+                JobResult::GitStatus { selected, statuses, remotes, stashes } => self.on_git_status(selected, statuses, remotes, stashes),
                 JobResult::PrList(repo, r) => self.pr_list_loaded(repo, r),
                 JobResult::ClaudeReview(id, r) => self.claude_review_loaded(id, r),
                 JobResult::ClaudeReviewDone(id, r) => self.claude_review_done(id, r),
@@ -207,16 +38,7 @@ impl App {
                 JobResult::CommitPlan(repo, r) => self.commit_plan_loaded(repo, r),
                 JobResult::CommitPlanDone(repo, done, e) => self.commit_plan_done(repo, done, e),
                 JobResult::AiReview(key, r) => self.ai_review_loaded(key, r),
-                JobResult::Spelled { uid, version, list } => {
-                    if let Some(d) = self.docs.iter_mut().find(|d| d.uid == uid) {
-                        if d.version == version {
-                            d.spelling = list;
-                        } else if d.spell_version == version {
-                            // changed meanwhile: checked again
-                            d.spell_version = u64::MAX;
-                        }
-                    }
-                }
+                JobResult::Spelled { uid, version, list } => self.on_spelled(uid, version, list),
                 JobResult::AiRefined { key, id, result } => self.ai_refined(key, id, result),
                 JobResult::InlineAi(n, r) => self.inline_ai_loaded(n, r),
                 JobResult::AiComplete(n, r) => self.ai_complete_loaded(n, r),
@@ -234,103 +56,12 @@ impl App {
                 JobResult::PrChoices(repo, r) => self.pr_choices_loaded(repo, r),
                 JobResult::PrLog(name, r) => self.pr_log_loaded(name, r),
                 JobResult::Compare(title, r) => self.compare_loaded(title, r),
-                JobResult::History(repo, gen, r) => {
-                    if self.history.repo.as_ref() == Some(&repo) && gen == self.history.gen {
-                        self.history.loading = false;
-                        match r {
-                            Ok(g) => {
-                                let wanted = self.history.select_hash.take();
-                                let pick = wanted.as_ref().and_then(|h| g.commits.iter().position(|c| &c.hash == h));
-                                // older than the commits loaded: load more of them
-                                let more = self.history.seek && pick.is_none() && g.commits.len() >= self.history.limit.max(HISTORY_LIMIT) && self.history.limit < HISTORY_MAX;
-                                self.history.graph = Some(g);
-                                self.history.error = None;
-                                if more {
-                                    self.history.limit = HISTORY_MAX;
-                                    self.history.select_hash = wanted;
-                                    self.load_history();
-                                } else if let Some(i) = pick {
-                                    self.history.seek = false;
-                                    self.history.wip_sel = None;
-                                    self.history.diff = None;
-                                    self.history.scroll_to_sel = true;
-                                    self.select_commit(i);
-                                } else if let Some(h) = wanted.filter(|_| std::mem::take(&mut self.history.seek)) {
-                                    self.history.notice = Some((tf!("Commit {} introuvable dans le graphe", "Commit {} not found in the graph", &h[..h.len().min(8)]), err()));
-                                }
-                            }
-                            Err(e) => self.history.error = Some(e),
-                        }
-                    }
-                }
-                JobResult::Blame { uid, line, version, result } => {
-                    if let Some(d) = self.docs.iter_mut().find(|d| d.uid == uid) {
-                        let text = match result {
-                            Ok(b) if b.uncommitted() => t!("Vous · pas encore commité", "You · not committed yet").to_string(),
-                            Ok(b) => format!(
-                                "{} · {} · {} ({})",
-                                b.author,
-                                git::ago(b.time),
-                                b.summary,
-                                &b.hash[..b.hash.len().min(7)]
-                            ),
-                            Err(_) => t!("pas de blame (fichier hors git ou non suivi)", "no blame (file outside git or not tracked)").to_string(),
-                        };
-                        d.blame = Some((line, version, text));
-                    }
-                }
-                JobResult::LineHistory(result) => {
-                    if let Some(lh) = self.line_history.as_mut() {
-                        lh.loading = false;
-                        match result {
-                            Ok(commits) => {
-                                lh.diffs = commits.iter().map(|c| (!c.diff.is_empty()).then(|| history::parse_diff(&c.diff))).collect();
-                                lh.commits = commits;
-                            }
-                            Err(e) => lh.error = Some(e),
-                        }
-                    }
-                    self.line_history_load_diff();
-                }
-                JobResult::LineHistoryDiff(hash, result) => {
-                    if let Some(lh) = self.line_history.as_mut() {
-                        let text = result.unwrap_or_else(|e| e);
-                        let text = if text.trim().is_empty() { t!("(aucune différence)", "(no difference)").to_string() } else { text };
-                        for (k, c) in lh.commits.iter().enumerate() {
-                            if c.hash == hash && lh.diffs[k].is_none() {
-                                lh.diffs[k] = Some(history::parse_diff(&text));
-                            }
-                        }
-                    }
-                }
-                JobResult::HistoryDiff { hash, path, result } => {
-                    if self.history_key().as_deref() == Some(hash.as_str()) {
-                        self.history.diff_loading = false;
-                        let text = result.unwrap_or_else(|e| e);
-                        let text = if text.trim().is_empty() { t!("(aucune différence)", "(no difference)").to_string() } else { text };
-                        let lines = history::parse_diff(&text);
-                        let files = history::diff_files(&lines);
-                        // a reload of the same diff (after staging…) keeps the folded files
-                        let same = self.history.diff.as_ref().is_some_and(|d| d.hash == hash);
-                        if !same {
-                            self.history.collapsed.clear();
-                        }
-                        if let Some(p) = self.history.jump_path.take() {
-                            if let Some(k) = files.iter().position(|f| f.path == p) {
-                                self.history.jump = Some(history::FileJump::To(k));
-                            }
-                        }
-                        self.history.diff = Some(HistoryDiff { hash, path, text, lines, files });
-                    }
-                }
-                JobResult::HistoryDetails(hash, r) => {
-                    if self.history_key().as_deref() == Some(hash.as_str()) {
-                        match r {
-                            Ok(d) => self.history.details = Some(d),
-                            Err(e) => self.log(e),
-                        }
-                    }
-                }
+                JobResult::History(repo, gen, r) => self.on_history(repo, gen, r),
+                JobResult::Blame { uid, line, version, result } => self.on_blame(uid, line, version, result),
+                JobResult::LineHistory(result) => self.on_line_history(result),
+                JobResult::LineHistoryDiff(hash, result) => self.on_line_history_diff(hash, result),
+                JobResult::HistoryDiff { hash, path, result } => self.on_history_diff(hash, path, result),
+                JobResult::HistoryDetails(hash, r) => self.on_history_details(hash, r),
                 JobResult::GitBranches(list, pick, target) => self.branches_ready(list, pick, target),
                 JobResult::CleanPreview(r) => self.clean_preview_ready(r),
                 JobResult::LastCommitMessage(r) => match r {
@@ -342,279 +73,102 @@ impl App {
                         self.set_error(tf!("Pas de dernier commit à modifier : {}", "No last commit to amend: {}", e.lines().next().unwrap_or("")));
                     }
                 },
-                JobResult::GitOp { label, result, status } => {
-                    self.git.busy = self.git.busy.saturating_sub(1);
-                    if label.starts_with("stash") {
-                        self.stash_reload();
-                    }
-                    if let Some((repo, Ok(st))) = status {
-                        if self.repo.as_ref() == Some(&repo) {
-                            self.git.status = Some(st);
-                        }
-                    }
-                    match result {
-                        Ok(out) => {
-                            // bisect: where it is, or the commit found
-                            if label == "bisect" {
-                                let line = out.lines().find(|l| l.contains("is the first bad commit")).or_else(|| out.lines().find(|l| l.starts_with("Bisecting:")));
-                                if let Some(l) = line {
-                                    self.history.notice = Some((l.trim().to_string(), ok()));
-                                }
-                            }
-                            self.log(out);
-                            self.git.op_error = None;
-                            self.set_status(tf!("git {label} : OK", "git {label}: OK"));
-                        }
-                        Err(e) => {
-                            self.log(e.clone());
-                            if self.git_shown() {
-                                let first = e.lines().find(|l| !l.trim().is_empty()).unwrap_or("").to_string();
-                                self.history.notice = Some((tf!("git {label} a échoué : {first}", "git {label} failed: {first}"), err()));
-                            }
-                            self.git.op_error = Some((label.clone(), e));
-                            self.set_error(tf!("git {label} : échec (détail dans le panneau Git)", "git {label}: failed (details in the Git panel)"));
-                        }
-                    }
-                    // the rebase stopped on the commit to split: open the assistant on it
-                    if label == t!("rebase (découpage)", "rebase (splitting)") && self.split.is_none() && self.history.repo.as_deref().is_some_and(crate::split::rebase_in_progress) {
-                        self.resume_split();
-                    }
-                    self.git_refresh();
-                    // stopped on conflicts: the assistant opens on them
-                    self.conflicts.stale = true;
-                    let stopped = self.git.status.as_ref().is_some_and(|st| st.operation.is_some() && st.entries.iter().any(|e| e.conflicted()));
-                    if stopped && !self.has_tab(document::View::Conflicts) {
-                        self.show_tab(document::View::Conflicts);
-                    }
-                    // staging, unstaging or discarding does not move branches: keep the selection
-                    let refs = !matches!(label.as_str(), "add" | "restore" | "apply" | "rm");
-                    if self.git_shown() && refs {
-                        self.load_history();
-                    }
-                    if let (true, Some(staged)) = (self.git_shown(), self.history.wip_sel) {
-                        self.load_wip_all(staged);
-                    }
-                    if let Some(t) = self.tree.as_mut() {
-                        t.refresh();
-                    }
-                    for i in 0..self.docs.len() {
-                        if self.docs[i].path.is_some() {
-                            self.analyze(i, false);
-                        }
-                    }
-                }
+                JobResult::GitOp { label, result, status } => self.on_git_op(label, result, status),
                 JobResult::NewTab { title, text, syntax } => {
                     self.new_scratch(title, text, &syntax, true);
                 }
-                JobResult::SplitStarted(repo, r) => {
-                    self.history.loading = false;
-                    match r {
-                        Ok((info, files)) => {
-                            self.set_status(tf!("Découpage de {} : choisis le contenu de chaque partie", "Splitting {}: choose the content of each part", info.short));
-                            let mut s = SplitUi {
-                                repo,
-                                message: info.message.clone(),
-                                info,
-                                files: Vec::new(),
-                                sel: Vec::new(),
-                                folded: HashSet::new(),
-                                parts: Vec::new(),
-                                busy: false,
-                                error: None,
-                                confirm_abort: false,
-                            };
-                            s.set_files(files);
-                            self.split = Some(s);
-                            self.show_tab(document::View::Split);
-                            self.history.notice = None;
-                        }
-                        Err(e) => {
-                            self.log(e.clone());
-                            self.history.notice = Some((e, err()));
-                        }
-                    }
-                    self.after_split_change();
-                }
-                JobResult::SplitChanges { result, committed } => {
-                    if let Some(s) = self.split.as_mut() {
-                        s.busy = false;
-                        if let Some(c) = committed {
-                            s.parts.push(c);
-                            s.message.clear();
-                        }
-                        match result {
-                            Ok(files) => s.set_files(files),
-                            Err(e) => s.error = Some(e),
-                        }
-                    }
-                    self.after_split_change();
-                }
-                JobResult::SplitEnded { aborted, result } => {
-                    match result {
-                        Ok(_) => {
-                            let n = self.split.take().map_or(0, |s| s.parts.len());
-                            let msg = if aborted {
-                                t!("Découpage annulé : tout est revenu comme avant (commit d'origine rétabli).", "Splitting cancelled: everything is back as before (original commit restored).").to_string()
-                            } else {
-                                tf!("Commit découpé en {n} commits.", "Commit split into {n} commits.")
-                            };
-                            self.set_status(msg.clone());
-                            self.history.notice = Some((msg, ok()));
-                            self.show_tab(document::View::Git);
-                            self.load_history();
-                        }
-                        Err(e) => {
-                            self.log(e.clone());
-                            if let Some(s) = self.split.as_mut() {
-                                s.busy = false;
-                                s.error = Some(e);
-                            }
-                        }
-                    }
-                    self.after_split_change();
-                }
-                JobResult::Picked(kind, paths) => {
-                    self.dialog_open = false;
-                    let paths = paths.unwrap_or_else(|e| {
-                        self.set_error(tf!("Sélecteur de fichiers : {e}", "File chooser: {e}"));
-                        Vec::new()
-                    });
-                    let prompt = match kind {
-                        crate::os::Pick::Folder => Some(Prompt::OpenFolder),
-                        crate::os::Pick::File => Some(Prompt::OpenFile),
-                        crate::os::Pick::SaveAs => Some(Prompt::SaveAs),
-                        crate::os::Pick::Image | crate::os::Pick::ClaudeDir | crate::os::Pick::AccountProject | crate::os::Pick::AccountConfig | crate::os::Pick::SkillsDir => None,
-                    };
-                    match prompt {
-                        Some(prompt) => {
-                            if let Some(p) = paths.first() {
-                                self.submit_prompt(prompt, p.display().to_string());
-                            }
-                        }
-                        None if matches!(kind, crate::os::Pick::AccountProject | crate::os::Pick::AccountConfig) => {
-                            if let Some(p) = paths.first() {
-                                self.claude_account_picked(kind, p.clone());
-                            }
-                        }
-                        None if kind == crate::os::Pick::SkillsDir => {
-                            if let Some(p) = paths.first() {
-                                self.skills_dir_set(p.display().to_string());
-                            }
-                        }
-                        None if kind == crate::os::Pick::ClaudeDir => {
-                            if let Some(p) = paths.first() {
-                                self.claude_set_dir(p.clone());
-                            }
-                        }
-                        // images: all the ones chosen go with the next message
-                        None => paths.iter().for_each(|p| self.claude_attach_image_file(p)),
-                    }
-                }
+                JobResult::SplitStarted(repo, r) => self.on_split_started(repo, r),
+                JobResult::SplitChanges { result, committed } => self.on_split_changes(result, committed),
+                JobResult::SplitEnded { aborted, result } => self.on_split_ended(aborted, result),
+                JobResult::Picked(kind, paths) => self.on_picked(kind, paths),
                 JobResult::ClaudeImage { label, png } => match png {
                     Ok(png) => self.claude_attach_image(png, label),
                     Err(e) => self.set_error(tf!("{label} : {e}", "{label}: {e}")),
                 },
                 JobResult::Repos(root, repos) => self.apply_repos(root, repos),
-                JobResult::RepoInit { root, dir, result, repos } => {
-                    match result {
-                        Ok(out) => {
-                            self.log(out);
-                            self.repo_init = None;
-                            self.set_status(tf!("Dépôt git créé dans {}", "Git repository created in {}", dir.display()));
-                        }
-                        // the window stays, with what went wrong (the steps before stay done)
-                        Err(e) => {
-                            self.log(e.clone());
-                            match self.repo_init.as_mut() {
-                                Some(st) => st.error = Some(e),
-                                None => self.set_error(tf!("Dépôt git : {}", "Git repository: {}", e.lines().last().unwrap_or(""))),
-                            }
-                        }
-                    }
-                    if let Some(st) = self.repo_init.as_mut() {
-                        st.busy = false;
-                    }
-                    self.apply_repos(root, repos);
-                    self.exec_refresh_tree();
-                }
+                JobResult::RepoInit { root, dir, result, repos } => self.on_repo_init(root, dir, result, repos),
                 JobResult::VersionBranches { branches, error } => self.version_branches_loaded(branches, error),
                 JobResult::VersionAdded { root, results, repos } => self.version_added(root, results, repos),
                 JobResult::VersionState(dir, r) => self.version_state_loaded(dir, r),
                 JobResult::VersionsDone { root, key, title, results, repos } => self.versions_done(root, key, title, results, repos),
-                JobResult::Update { manual, result } => match result {
-                    Ok(Some(u)) => {
-                        self.log(tf!("Florm {} est disponible : {}", "Florm {} is available: {}", u.version, u.page));
-                        if manual {
-                            self.set_status(tf!("Florm {} est disponible (en bas à droite)", "Florm {} is available (bottom right)", u.version));
-                        }
-                        self.update = Some(u);
-                    }
-                    Ok(None) if manual => self.set_status(tf!("Florm est à jour ({})", "Florm is up to date ({})", crate::update::current())),
-                    Ok(None) => {}
-                    Err(e) => {
-                        if manual {
-                            self.set_error(t!("Recherche de mise à jour impossible (voir Sortie)", "Cannot check for updates (see Output)"));
-                        }
-                        self.log(e);
-                    }
-                },
+                JobResult::Update { manual, result } => self.on_update(manual, result),
                 JobResult::Shared(op, result) => self.shared_done(op, result),
                 JobResult::RemoteConnected(target, result) => self.remote_connected(target, result),
                 JobResult::TestsReady { tags, result } => self.tests_ready(tags, result),
                 JobResult::DebugReady { id, cfg, title, result } => self.debug_ready(id, cfg, title, result),
                 JobResult::DebugSource { remote, line, result } => self.debug_source(remote, line, result),
                 JobResult::DebugContainers(result) => self.debug.containers = Some((Instant::now(), result.unwrap_or_default())),
-                JobResult::UpdateInstalled { version, result } => {
-                    self.update_installing = false;
-                    match result {
-                        Ok(exe) => {
-                            self.log(tf!("Florm {version} est installé : redémarrez pour l'utiliser", "Florm {version} is installed: restart to use it"));
-                            // nothing unsaved: `update` restarts Florm right away
-                            if self.docs.iter().any(|d| d.is_dirty()) {
-                                self.set_status(tf!("Florm {version} est installé : « Redémarrer » en bas à droite", "Florm {version} is installed: “Restart” at the bottom right"));
-                            } else {
-                                self.set_status(tf!("Florm {version} est installé : Florm redémarre", "Florm {version} is installed: Florm restarts"));
-                            }
-                            self.update_ready = Some(exe);
-                        }
-                        Err(e) => {
-                            self.log(tf!("Mise à jour vers Florm {version} impossible : {e}", "Cannot update to Florm {version}: {e}"));
-                            self.set_error(t!("Mise à jour impossible (voir Sortie) : le fichier reste téléchargeable en bas à droite", "Update impossible (see Output): the file can still be downloaded at the bottom right"));
-                        }
-                    }
-                }
+                JobResult::UpdateInstalled { version, result } => self.on_update_installed(version, result),
                 JobResult::Fonts(list) => {
                     self.prefs.font_list = Some(list);
                     self.prefs.font_list_loading = false;
                 }
-                JobResult::SymbolIndex(root, idx, partial) => {
-                    if self.root.as_ref() == Some(&root) {
-                        let what = if partial { t!("Dépôts en cours indexés", "Current repositories indexed") } else { t!("Projet indexé", "Project indexed") };
-                        self.log(tf!("{what} : {} symboles dans {} fichiers", "{what}: {} symbols in {} files", idx.len(), idx.file_count()));
-                        let old = self.index.symbols.replace(idx);
-                        // freeing the previous index and giving the memory back take a moment: not here
-                        std::thread::spawn(move || {
-                            drop(old);
-                            crate::os::release_memory();
-                        });
-                    }
-                }
-                JobResult::Search(gen, out) => {
-                    if gen == self.search.gen.load(Ordering::SeqCst) {
-                        let s = &mut self.search;
-                        s.running = false;
-                        s.error = out.error;
-                        s.stats = Some((out.scanned, out.millis, out.truncated));
-                        s.files = out.files;
-                        s.colors.clear();
-                        s.syntaxes.clear();
-                        s.collapsed.clear();
-                        s.rebuild_rows();
-                        s.cursor = None;
-                    }
-                }
+                JobResult::SymbolIndex(root, idx, partial) => self.on_symbol_index(root, idx, partial),
+                JobResult::Search(gen, out) => self.on_search(gen, out),
             }
         }
     }
 
+    /// A tool installed by Florm (linter, language server…).
+    pub(super) fn on_tool_installed(&mut self, r: Result<String, String>) {
+        // a language server may have been installed: try again
+        self.lsp.manager.reset();
+        self.lsp.notes.clear();
+        match r {
+            Ok(msg) => {
+                self.log(msg.clone());
+                self.set_status(msg);
+            }
+            Err(e) => {
+                self.log(e);
+                self.set_error(t!("Installation échouée (voir Sortie)", "Installation failed (see Output)"));
+                self.bottom = Some(BottomTab::Output);
+            }
+        }
+        for d in self.docs.iter_mut() {
+            d.lint_version = u64::MAX; // re-lint with the new tool
+        }
+    }
+
+    /// The check for a new version of Florm.
+    pub(super) fn on_update(&mut self, manual: bool, result: Result<Option<crate::update::Update>, String>) {
+        match result {
+        Ok(Some(u)) => {
+            self.log(tf!("Florm {} est disponible : {}", "Florm {} is available: {}", u.version, u.page));
+            if manual {
+                self.set_status(tf!("Florm {} est disponible (en bas à droite)", "Florm {} is available (bottom right)", u.version));
+            }
+            self.update = Some(u);
+        }
+        Ok(None) if manual => self.set_status(tf!("Florm est à jour ({})", "Florm is up to date ({})", crate::update::current())),
+        Ok(None) => {}
+        Err(e) => {
+            if manual {
+                self.set_error(t!("Recherche de mise à jour impossible (voir Sortie)", "Cannot check for updates (see Output)"));
+            }
+            self.log(e);
+        }
+        }
+    }
+
+    /// A new version of Florm installed.
+    pub(super) fn on_update_installed(&mut self, version: String, result: Result<std::path::PathBuf, String>) {
+        self.update_installing = false;
+        match result {
+            Ok(exe) => {
+                self.log(tf!("Florm {version} est installé : redémarrez pour l'utiliser", "Florm {version} is installed: restart to use it"));
+                // nothing unsaved: `update` restarts Florm right away
+                if self.docs.iter().any(|d| d.is_dirty()) {
+                    self.set_status(tf!("Florm {version} est installé : « Redémarrer » en bas à droite", "Florm {version} is installed: “Restart” at the bottom right"));
+                } else {
+                    self.set_status(tf!("Florm {version} est installé : Florm redémarre", "Florm {version} is installed: Florm restarts"));
+                }
+                self.update_ready = Some(exe);
+            }
+            Err(e) => {
+                self.log(tf!("Mise à jour vers Florm {version} impossible : {e}", "Cannot update to Florm {version}: {e}"));
+                self.set_error(t!("Mise à jour impossible (voir Sortie) : le fichier reste téléchargeable en bas à droite", "Update impossible (see Output): the file can still be downloaded at the bottom right"));
+            }
+        }
+    }
 }
