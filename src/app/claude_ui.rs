@@ -71,9 +71,10 @@ pub(super) struct ClaudeUi {
 }
 
 impl ClaudeUi {
-    /// Nothing was said in it yet.
+    /// Nothing asked yet. Its `claude` gives a session as soon as it starts (its status line),
+    /// before any message: that one does not count, the folder can still be changed.
     pub(super) fn is_empty(&self) -> bool {
-        self.session_id.is_none() && self.wish.is_none()
+        self.wish.is_none()
     }
 }
 
@@ -224,8 +225,10 @@ impl App {
             return;
         }
         self.claude.dir = Some(crate::os::canon(&dir));
-        // its `claude` started in the other folder: started again in this one
+        // its `claude` started in the other folder: started again in this one, with a session of
+        // its own (Claude Code keeps them by folder)
         self.claude_term_stop();
+        self.claude.session_id = None;
     }
 
     /// An empty conversation with the folder of the current one, shown in `tab`.
@@ -653,6 +656,9 @@ mod tests {
         assert_eq!(thousands(12), "12");
         let mut c = ClaudeUi::default();
         assert_eq!(conv_title(&c), "Claude");
+        assert!(c.is_empty());
+        // a session given by `claude` at its start: nothing asked yet
+        c.session_id = Some("s1".into());
         assert!(c.is_empty());
         c.wish = Some("\nCorrige le bug de la vue Git qui ne montre rien".into());
         assert_eq!(conv_title(&c), "Corrige le bug de la vue Gi…");
