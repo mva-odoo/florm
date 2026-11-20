@@ -719,9 +719,6 @@ impl App {
             }
             PrefSection::Claude => {
                 feature_toggle(ui, rc, sec, s);
-                pref_row(ui, rc, t!("Un seul onglet Claude", "One Claude tab"), t!("Toutes les conversations dans le même onglet, listées à sa gauche (ce qu'elles font, leur dossier, depuis quand elles travaillent) : « Nouvelle conversation » ne crée plus d'onglet. Clic droit sur une conversation de la liste : l'ouvrir dans son propre onglet.", "Every conversation in the same tab, listed on its left (what they do, their folder, how long they have been working): “New conversation” no longer makes a tab. Right click on a conversation of the list: open it in its own tab."), |ui| {
-                    toggle_switch(ui, &mut s.claude_one_tab);
-                });
                 pref_row(ui, rc, t!("Bac à sable pour les commandes", "Sandbox for the commands"), t!("Les commandes de Claude tournent isolées (le bac à sable de Claude Code) : elles n'écrivent que dans le projet et le réseau est filtré. Linux : paquets bubblewrap et socat ; macOS : intégré ; Windows : seulement dans WSL. Désactivé : aucun bac à sable, même si tes réglages de Claude Code en activent un. Les conversations ouvertes repartent avec le nouveau réglage, sans redémarrer Florm (celles qui travaillent, quand elles ont fini).", "Claude's commands run isolated (the sandbox of Claude Code): they write only in the project and the network is filtered. Linux: bubblewrap and socat packages; macOS: built in; Windows: only in WSL. Off: no sandbox, even if your settings of Claude Code turn one on. The open conversations start again with the new setting, without restarting Florm (those at work, once they are done)."), |ui| {
                     toggle_switch(ui, &mut s.claude_sandbox);
                     if cfg!(target_os = "linux") && s.claude_sandbox && (crate::lsp::in_path("bwrap").is_none() || crate::lsp::in_path("socat").is_none()) {
@@ -1266,7 +1263,6 @@ impl App {
             ("breadcrumbs", s.breadcrumbs, before.breadcrumbs),
             ("show_menu_bar", s.show_menu_bar, before.show_menu_bar),
             ("search_in_tab", s.search_in_tab, before.search_in_tab),
-            ("claude_one_tab", s.claude_one_tab, before.claude_one_tab),
             ("claude_sandbox", s.claude_sandbox, before.claude_sandbox),
             ("claude_done_blink", s.claude_done_blink, before.claude_done_blink),
             ("github", s.github, before.github),

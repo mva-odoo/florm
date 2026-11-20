@@ -517,8 +517,7 @@ new in it work as they are. Claude's changes are reviewed in the **Git** view.
   color, its branch and its cost. A click shows one, the others go on behind; **+** starts a new
   one. Right click: **⇉ Duplicate** (a copy of its session, to try something else), **⇱ Open in
   its own tab**, **× Close** (Claude stops, it stays in the history). **Ctrl+Alt+W**: the next one
-  waiting for your answer. The status bar says how many are working or waiting. Preferences →
-  Claude → **One Claude tab** to go back to one tab per conversation.
+  waiting for your answer. The status bar says how many are working or waiting.
 - **Sandbox** (Preferences → Claude, on by default): Claude's commands run isolated, they write
   only in the project and the network is filtered. Linux: `bubblewrap` and `socat` packages;
   macOS: built in (Seatbelt); Windows: only in WSL. Off, there is no sandbox,

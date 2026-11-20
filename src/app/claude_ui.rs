@@ -348,7 +348,7 @@ impl App {
     /// `fresh` made the current conversation: in the Claude tab (the current one goes on in its
     /// list), else in a new tab.
     fn claude_add(&mut self, mut fresh: ClaudeUi) {
-        if self.claude_one_tab_at(self.claude.tab) {
+        if self.claude_in_open_tab(self.claude.tab) {
             self.claude_in_place(fresh);
             self.claude_prepare();
             return;
@@ -374,10 +374,10 @@ impl App {
         if self.claude.tab != tab {
             if let Some(k) = self.claude_others.iter().position(|o| o.tab == tab) {
                 std::mem::swap(&mut self.claude, &mut self.claude_others[k]);
-            } else if tab.is_some() && self.settings.claude_one_tab && self.claude.tab == Some(LISTED) {
+            } else if tab.is_some() && self.claude.tab == Some(LISTED) {
                 // one Claude tab (opened again): the current one of the list comes back in it
                 self.claude.tab = tab;
-            } else if let Some(k) = self.claude_others.iter().enumerate().filter(|(_, o)| tab.is_some() && self.settings.claude_one_tab && o.tab == Some(LISTED)).max_by_key(|(_, o)| o.id).map(|(k, _)| k) {
+            } else if let Some(k) = self.claude_others.iter().enumerate().filter(|(_, o)| tab.is_some() && o.tab == Some(LISTED)).max_by_key(|(_, o)| o.id).map(|(k, _)| k) {
                 self.claude_others[k].tab = tab;
                 std::mem::swap(&mut self.claude, &mut self.claude_others[k]);
             } else if tab.is_some() && self.claude.tab.is_none() && self.bottom != Some(BottomTab::Claude) {
@@ -393,7 +393,7 @@ impl App {
         }
         self.claude.unseen = false;
         // one tab for every conversation: it is named after the one shown
-        if let (true, Some(uid)) = (self.settings.claude_one_tab, tab) {
+        if let Some(uid) = tab {
             let title = conv_title(&self.claude);
             if let Some(d) = self.docs.iter_mut().find(|d| d.uid == uid && d.title_override.as_deref() != Some(title.as_str())) {
                 d.title_override = Some(title);
@@ -410,11 +410,9 @@ impl App {
         let alive = |c: &ClaudeUi| c.tab.map_or(true, |u| u == LISTED || docs.iter().any(|d| d.uid == u));
         // one Claude tab: a closed tab leaves its conversation in the list (× in the list stops it),
         // unless it is empty
-        if self.settings.claude_one_tab {
-            for c in std::iter::once(&mut self.claude).chain(self.claude_others.iter_mut()) {
-                if !alive(c) && !c.is_empty() {
-                    c.tab = Some(LISTED);
-                }
+        for c in std::iter::once(&mut self.claude).chain(self.claude_others.iter_mut()) {
+            if !alive(c) && !c.is_empty() {
+                c.tab = Some(LISTED);
             }
         }
         self.claude_others.retain(alive);

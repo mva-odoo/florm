@@ -132,19 +132,17 @@ impl App {
             }
             document::View::Claude => {
                 let uid = self.docs[i].uid;
-                // one tab for every conversation: their list on the left
+                // one tab for every conversation: their list on the left, always there, even with
+                // a single conversation: its « + » starts the next one
                 let mut act = None;
-                // always there, even with a single conversation: its « + » starts the next one
-                self.claude_list_shown = self.settings.claude_one_tab;
-                if self.claude_list_shown {
-                    let fill = ui.visuals().panel_fill;
-                    egui::SidePanel::left(egui::Id::new("claude_list").with(uid))
-                        .resizable(true)
-                        .default_width(250.0)
-                        .width_range(180.0..=420.0)
-                        .frame(egui::Frame::none().fill(fill).inner_margin(egui::Margin { left: 8.0, right: 6.0, top: 0.0, bottom: 6.0 }))
-                        .show_inside(ui, |ui| act = self.claude_list_ui(ui, uid));
-                }
+                self.claude_list_shown = true;
+                let fill = ui.visuals().panel_fill;
+                egui::SidePanel::left(egui::Id::new("claude_list").with(uid))
+                    .resizable(true)
+                    .default_width(250.0)
+                    .width_range(180.0..=420.0)
+                    .frame(egui::Frame::none().fill(fill).inner_margin(egui::Margin { left: 8.0, right: 6.0, top: 0.0, bottom: 6.0 }))
+                    .show_inside(ui, |ui| act = self.claude_list_ui(ui, uid));
                 egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.claude_show(ui, Some(uid)));
                 self.claude_list_shown = false;
                 if let Some(a) = act {

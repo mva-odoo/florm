@@ -43,8 +43,6 @@ pub struct Settings {
     pub search_in_tab: bool,
     /// Diffs side by side (old on the left, new on the right) instead of in one column.
     pub diff_side_by_side: bool,
-    /// Every conversation in one Claude tab, listed on its left, instead of a tab each.
-    pub claude_one_tab: bool,
     /// Claude's commands run in the sandbox of Claude Code (bubblewrap on Linux, Seatbelt on macOS).
     pub claude_sandbox: bool,
     /// Parts that can be turned off: GitHub (pull requests), the debugger, Claude.
@@ -193,7 +191,6 @@ impl Default for Settings {
             show_menu_bar: true,
             search_in_tab: false,
             diff_side_by_side: false,
-            claude_one_tab: true,
             claude_sandbox: true,
             github: true,
             debugger: true,
@@ -301,8 +298,6 @@ diff_side_by_side = false
 github = false
 debugger = false
 claude = false
-# toutes les conversations dans un seul onglet Claude, listées à sa gauche, plutôt qu'un onglet chacune
-claude_one_tab = true
 # les commandes de Claude tournent dans le bac à sable de Claude Code : écriture dans le projet seulement,
 # réseau filtré (Linux : paquets bubblewrap et socat ; macOS : Seatbelt, intégré ; pas sous Windows hors WSL).
 # false : aucun bac à sable, même si les réglages de Claude Code en activent un. Pris en compte sans redémarrer Florm

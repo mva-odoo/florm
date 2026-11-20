@@ -280,7 +280,7 @@ impl App {
             return;
         };
         // one Claude tab: it comes in place of the current one, which goes on in the list
-        if self.claude_one_tab_at(self.claude.tab) {
+        if self.claude_in_open_tab(self.claude.tab) {
             let conv = self.claude_from_saved(&s, None);
             self.claude_in_place(conv);
             self.open_claude();

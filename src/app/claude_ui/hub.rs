@@ -89,9 +89,9 @@ impl App {
         std::iter::once(&mut self.claude).chain(self.claude_others.iter_mut()).find(|c| c.id == id)
     }
 
-    /// One Claude tab for every conversation (the preference), and `tab` is a real tab.
-    pub(in crate::app) fn claude_one_tab_at(&self, tab: Option<u64>) -> bool {
-        self.settings.claude_one_tab && tab.is_some_and(|u| u != LISTED && self.docs.iter().any(|d| d.uid == u))
+    /// `tab` is an open editor tab (not the bottom panel, nor only the list).
+    pub(in crate::app) fn claude_in_open_tab(&self, tab: Option<u64>) -> bool {
+        tab.is_some_and(|u| u != LISTED && self.docs.iter().any(|d| d.uid == u))
     }
 
     /// Puts `conv` in the tab of the current conversation, which goes on in the list.
