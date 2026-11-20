@@ -161,6 +161,7 @@ impl App {
         self.claude_term_read = Some(Instant::now());
         let sound = self.settings.claude_done_sound.clone();
         let mut save: Vec<usize> = Vec::new();
+        let mut restart: Vec<usize> = Vec::new();
         let mut limits: Vec<(String, Vec<(String, f32, i64)>)> = Vec::new();
         let accounts = claude_account::accounts(&self.settings.claude_accounts);
         let term = &mut self.term;
@@ -200,6 +201,11 @@ impl App {
                     _ => {}
                 }
             }
+            // a setting changed while it worked: started again now that it is done
+            if c.term_restart && !c.busy && !c.term_waiting {
+                restart.push(k);
+                continue;
+            }
             if !st.session_id.is_empty() && c.session_id.as_deref() != Some(st.session_id.as_str()) {
                 c.session_id = Some(st.session_id.clone());
                 // Enter once `claude` ended goes on with this session
@@ -221,6 +227,10 @@ impl App {
             if st.context > 0 {
                 c.context = (st.context, if st.context > 200_000 { 1_000_000 } else { 200_000 });
             }
+        }
+        for k in restart {
+            let c = if k == 0 { &mut self.claude } else { &mut self.claude_others[k - 1] };
+            c.drop_term();
         }
         // the terminals of the conversations closed
         let alive: Vec<u64> = std::iter::once(&self.claude).chain(&self.claude_others).filter_map(|c| c.term).collect();
@@ -245,6 +255,22 @@ impl App {
                 self.claude_save();
                 std::mem::swap(&mut self.claude, &mut self.claude_others[k - 1]);
             }
+        }
+    }
+    /// A setting `claude` starts with changed (its sandbox): every conversation started again with
+    /// it, going on with its session; those at work or waiting for you once they are done.
+    pub(in crate::app) fn claude_restart_terms(&mut self) {
+        let mut later = 0;
+        for c in std::iter::once(&mut self.claude).chain(self.claude_others.iter_mut()).filter(|c| c.term.is_some()) {
+            if c.busy || c.term_waiting {
+                c.term_restart = true;
+                later += 1;
+            } else {
+                c.drop_term();
+            }
+        }
+        if later > 0 {
+            self.set_status(tf!("Claude repartira avec le nouveau réglage quand il aura fini ({later} conversation(s))", "Claude starts again with the new setting once it is done ({later} conversation(s))"));
         }
     }
 }

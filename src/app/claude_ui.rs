@@ -68,6 +68,20 @@ pub(super) struct ClaudeUi {
     pub(super) term_submit: bool,
     pub(super) term_waiting: bool,
     pub(super) term_state: crate::claude_term::State,
+    /// Its `claude` is started again once it is done (a setting it starts with changed).
+    pub(super) term_restart: bool,
+}
+
+impl ClaudeUi {
+    /// Its `claude` dropped (its terminal is closed with it): started again, going on with its
+    /// session, the next time it is shown.
+    pub(super) fn drop_term(&mut self) {
+        self.term = None;
+        self.term_file = None;
+        self.term_state = Default::default();
+        self.term_waiting = false;
+        self.term_restart = false;
+    }
 }
 
 impl ClaudeUi {

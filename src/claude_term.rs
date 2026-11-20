@@ -76,7 +76,7 @@ fn limits_of(v: &Value) -> Vec<(String, f32, i64)> {
 }
 
 /// The settings of Florm for `claude`: the hooks and the status line that write in `file`, and
-/// its sandbox for the commands (`sandbox`).
+/// its sandbox for the commands (`sandbox`: on or off, whatever the user's own settings say).
 pub fn settings(exe: &Path, file: &Path, sandbox: bool) -> Value {
     let exe = exe.to_string_lossy();
     let file = file.to_string_lossy();
@@ -89,9 +89,8 @@ pub fn settings(exe: &Path, file: &Path, sandbox: bool) -> Value {
         },
         "statusLine": { "type": "command", "command": format!("\"{exe}\" {STATUS_FLAG} \"{file}\"") },
     });
-    if sandbox {
-        v["sandbox"] = json!({ "enabled": true });
-    }
+    // said both ways: off, a sandbox turned on in the user's own settings of Claude Code stays off too
+    v["sandbox"] = json!({ "enabled": sandbox });
     v
 }
 
@@ -214,7 +213,8 @@ mod tests {
     fn hooks_and_command() {
         let f = std::env::temp_dir().join(format!("florm_claude_term_{}.json", std::process::id()));
         let _ = std::fs::remove_file(&f);
-        assert!(!settings(Path::new("/opt/florm"), &f, false).to_string().contains("sandbox"));
+        // off is said too: the user's own settings cannot turn it back on
+        assert!(settings(Path::new("/opt/florm"), &f, false).to_string().contains(r#""sandbox":{"enabled":false}"#));
         let s = settings(Path::new("/opt/florm"), &f, true).to_string();
         assert!(s.contains(r#"\"/opt/florm\" --claude-hook"#) && s.contains("UserPromptSubmit") && s.contains("statusLine") && s.contains(r#""sandbox":{"enabled":true}"#), "{s}");
         let s = Path::new("/s.json");
