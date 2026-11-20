@@ -178,14 +178,6 @@ impl App {
                 egui::CentralPanel::default().show_inside(ui, |ui| self.conflicts_ui(ui));
                 None
             }
-            document::View::Split => {
-                egui::CentralPanel::default().show_inside(ui, |ui| {
-                    if self.split.is_some() {
-                        self.split_ui(ui);
-                    }
-                });
-                None
-            }
             document::View::Help => {
                 let (key, text) = if crate::i18n::en() {
                     ("guide_en", include_str!("../../assets/guide.en.md"))
@@ -821,14 +813,6 @@ impl App {
 
     pub(super) fn close_tab(&mut self, idx: usize, force: bool) {
         let Some(doc) = self.docs.get(idx) else { return };
-        // the split in progress: its tab goes when it ends (finished or cancelled), here it asks
-        if doc.view == document::View::Split && self.split.is_some() {
-            self.activate_tab(idx);
-            if let Some(sp) = self.split.as_mut() {
-                sp.confirm_abort = true;
-            }
-            return;
-        }
         if doc.is_dirty() && !force {
             self.confirm = Some(Confirm::CloseTab(doc.uid));
             return;

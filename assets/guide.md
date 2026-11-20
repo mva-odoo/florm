@@ -279,19 +279,6 @@ Quand un rebase, une fusion, un cherry-pick ou un revert s'arrête sur des confl
 Les opérations lancées depuis Florm mettent la version d'origine entre les deux côtés
 (`merge.conflictStyle=diff3`).
 
-### Découper un commit
-
-Clic droit sur un commit → **Découper ce commit en plusieurs…**, ou dans le **rebase
-interactif** (clic droit → « Rebase interactif à partir d'ici… »), l'action
-**Découper en plusieurs commits** sur l'un des commits.
-
-1. Coche les blocs qui vont dans la première partie — ou **clique sur des lignes + / −** pour n'en
-   prendre qu'une partie (comme « e » dans `git add -p`) : une ligne + non prise n'est pas
-   ajoutée, une ligne − non prise reste dans le fichier.
-2. Écris le message, puis **Valider la partie 1**.
-3. Recommence avec le reste ; **Terminer** rejoue les commits suivants.
-   **Annuler le découpage** remet tout exactement comme avant.
-
 ## Terminal
 
 - **Ctrl+`** : le terminal dans le panneau du bas.
@@ -306,7 +293,7 @@ interactif** (clic droit → « Rebase interactif à partir d'ici… »), l'acti
   (une petite fenêtre : avec un onglet en haut, ou une bande en bas ; retenu pour la prochaine fois), **⋯** les autres actions et
   options. Les boutons de disposition se ressemblent tous : les quatre coins agrandissent un
   panneau dans sa vue (Échap pour revenir), une fenêtre avec une colonne à droite affiche ou
-  masque un panneau latéral (la revue de Claude), pleine quand il est affiché. Git, les Préférences et le découpage d'un commit
+  masque un panneau latéral (la revue de Claude), pleine quand il est affiché. Git et les Préférences
   sont des onglets comme les autres : Échap revient à l'onglet d'avant, Ctrl+W les ferme.
 
 ## Erreurs dans le code

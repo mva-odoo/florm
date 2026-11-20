@@ -286,8 +286,7 @@ impl App {
             View::Welcome => "welcome".into(),
             View::Git => "git".into(),
             View::Settings => "settings".into(),
-            // a split is not kept between sessions
-            View::Split | View::History | View::Conflicts => return None,
+            View::History | View::Conflicts => return None,
             View::Text | View::Image | View::Preview(_) | View::Terminal(_) => return None,
         })
     }

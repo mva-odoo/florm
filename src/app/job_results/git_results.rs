@@ -240,10 +240,6 @@ impl App {
                 self.set_error(tf!("git {label} : échec (détail dans le panneau Git)", "git {label}: failed (details in the Git panel)"));
             }
         }
-        // the rebase stopped on the commit to split: open the assistant on it
-        if label == t!("rebase (découpage)", "rebase (splitting)") && self.split.is_none() && self.history.repo.as_deref().is_some_and(crate::split::rebase_in_progress) {
-            self.resume_split();
-        }
         self.git_refresh();
         // stopped on conflicts: the assistant opens on them
         self.conflicts.stale = true;
@@ -267,79 +263,6 @@ impl App {
                 self.analyze(i, false);
             }
         }
-    }
-
-    /// The rebase that splits a commit stopped on it: its changes.
-    pub(super) fn on_split_started(&mut self, repo: PathBuf, r: Result<(split::Info, Vec<split::FileChange>), String>) {
-        self.history.loading = false;
-        match r {
-            Ok((info, files)) => {
-                self.set_status(tf!("Découpage de {} : choisis le contenu de chaque partie", "Splitting {}: choose the content of each part", info.short));
-                let mut s = SplitUi {
-                    repo,
-                    message: info.message.clone(),
-                    info,
-                    files: Vec::new(),
-                    sel: Vec::new(),
-                    folded: HashSet::new(),
-                    parts: Vec::new(),
-                    busy: false,
-                    error: None,
-                    confirm_abort: false,
-                };
-                s.set_files(files);
-                self.split = Some(s);
-                self.show_tab(document::View::Split);
-                self.history.notice = None;
-            }
-            Err(e) => {
-                self.log(e.clone());
-                self.history.notice = Some((e, err()));
-            }
-        }
-        self.after_split_change();
-    }
-
-    /// The changes left to put in the commits of the split.
-    pub(super) fn on_split_changes(&mut self, result: Result<Vec<split::FileChange>, String>, committed: Option<(String, String)>) {
-        if let Some(s) = self.split.as_mut() {
-            s.busy = false;
-            if let Some(c) = committed {
-                s.parts.push(c);
-                s.message.clear();
-            }
-            match result {
-                Ok(files) => s.set_files(files),
-                Err(e) => s.error = Some(e),
-            }
-        }
-        self.after_split_change();
-    }
-
-    /// The split of a commit done or abandoned.
-    pub(super) fn on_split_ended(&mut self, aborted: bool, result: Result<String, String>) {
-        match result {
-            Ok(_) => {
-                let n = self.split.take().map_or(0, |s| s.parts.len());
-                let msg = if aborted {
-                    t!("Découpage annulé : tout est revenu comme avant (commit d'origine rétabli).", "Splitting cancelled: everything is back as before (original commit restored).").to_string()
-                } else {
-                    tf!("Commit découpé en {n} commits.", "Commit split into {n} commits.")
-                };
-                self.set_status(msg.clone());
-                self.history.notice = Some((msg, ok()));
-                self.show_tab(document::View::Git);
-                self.load_history();
-            }
-            Err(e) => {
-                self.log(e.clone());
-                if let Some(s) = self.split.as_mut() {
-                    s.busy = false;
-                    s.error = Some(e);
-                }
-            }
-        }
-        self.after_split_change();
     }
 
     /// A git repository created.

@@ -521,11 +521,10 @@ impl App {
             .and_then(|st| st.operation.map(|o| (o, st.entries.iter().filter(|e| e.conflicted()).count())));
         let mut op_cmd: Option<Vec<String>> = None;
         let mut open_conflicts = false;
-        let (mut menu_act, mut clear_notice, mut resume, mut abort_rebase) = (None, false, false, false);
+        let (mut menu_act, mut clear_notice, mut abort_rebase) = (None, false, false);
         let (mut wip_pick, mut wip_ops): (Option<bool>, Vec<Vec<String>>) = (None, Vec::new());
         // a file staged / unstaged from its row, and a file clicked (its diff shown)
         let (mut file_ops, mut file_jump): (Vec<Vec<String>>, Option<String>) = (Vec::new(), None);
-        let split_hidden = self.split.as_ref().map(|s| s.info.short.clone());
         let accent = self.hl.colors.accent;
         // working tree status (same repository as the graph)
         let wip = self.git.status.clone().filter(|_| self.repo == self.history.repo);
@@ -560,7 +559,7 @@ impl App {
         let cache = &mut self.md_cache;
         let h = &mut self.history;
         // messages and operations in progress, above the list (nothing when there are none)
-        let banner = h.notice.is_some() || split_hidden.is_some() || op_banner.is_some() || bisecting || h.graph.as_ref().is_some_and(|g| g.rebasing);
+        let banner = h.notice.is_some() || op_banner.is_some() || bisecting || h.graph.as_ref().is_some_and(|g| g.rebasing);
         egui::TopBottomPanel::top("history_top").show_animated_inside(ui, banner, |ui| {
             if let Some((n, color)) = &h.notice {
                 ui.horizontal(|ui| {
@@ -586,14 +585,7 @@ impl App {
                     }
                 });
             }
-            if let Some(short) = &split_hidden {
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(tf!("✂ Le découpage de {short} est en cours.", "✂ The splitting of {short} is in progress.")).color(warn()).strong());
-                    if ui.button(t!("Revenir au découpage", "Back to the splitting")).clicked() {
-                        resume = true;
-                    }
-                });
-            } else if let Some((op, n)) = op_banner {
+            if let Some((op, n)) = op_banner {
                 ui.horizontal_wrapped(|ui| {
                     let what = if n > 0 { tf!(" — {n} fichier(s) en conflit à résoudre", " — {n} conflicting file(s) to resolve") } else { String::new() };
                     ui.label(RichText::new(tf!("⚠ {} en cours{what}", "⚠ {} in progress{what}", op.label())).color(warn()).strong());
@@ -608,16 +600,10 @@ impl App {
                     if n > 0 && ui.add(filled_button(t!("⇄ Assistant de conflits", "⇄ Conflicts assistant"), accent)).on_hover_text(t!("Les fichiers en conflit et leurs blocs côte à côte, avec le vrai nom de chaque côté ; résoudre bloc par bloc ou avec Claude", "The conflicting files and their blocks side by side, with the real name of each side; resolve block by block or with Claude")).clicked() {
                         open_conflicts = true;
                     }
-                    if op == git::Operation::Rebase && ui.button(t!("Reprendre le découpage", "Resume the splitting")).clicked() {
-                        resume = true;
-                    }
                 });
             } else if h.graph.as_ref().is_some_and(|g| g.rebasing) {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new(t!("⚠ Un rebase est en cours dans ce dépôt (découpage pas terminé ?)", "⚠ A rebase is in progress in this repository (splitting not finished?)")).color(warn()));
-                    if ui.button(t!("Reprendre le découpage", "Resume the splitting")).clicked() {
-                        resume = true;
-                    }
+                    ui.label(RichText::new(t!("⚠ Un rebase est en cours dans ce dépôt", "⚠ A rebase is in progress in this repository")).color(warn()));
                     if ui.button(t!("Annuler le rebase", "Abort the rebase")).on_hover_text(t!("git rebase --abort : remet la branche comme avant", "git rebase --abort: puts the branch back as before")).clicked() {
                         abort_rebase = true;
                     }
@@ -868,10 +854,8 @@ impl App {
                     ui.label(
                         RichText::new(t!(
                             "Du plus ancien (en haut) au plus récent. Change l'ordre avec ↑ ↓ et choisis quoi faire de chaque commit. \
-                             « Découper » s'arrête sur le commit et ouvre l'assistant de découpage. \
                              Les commits sont réécrits : si la branche est déjà poussée, il faudra ensuite « ⬆ Push --force-with-lease » (menu ↕ Synchroniser).",
                             "From the oldest (at the top) to the newest. Change the order with ↑ ↓ and choose what to do with each commit. \
-                             “Split” stops on the commit and opens the splitting assistant. \
                              The commits are rewritten: if the branch is already pushed, “⬆ Push --force-with-lease” (↕ Sync menu) will be needed afterwards."
                         ))
                         .weak()
@@ -917,9 +901,6 @@ impl App {
                                         }
                                         crate::rebase::Action::Fixup => {
                                             ui.label(RichText::new(t!("↳ fusionné dans le commit gardé au-dessus (son message est oublié)", "↳ merged into the kept commit above (its message is dropped)")).small().weak());
-                                        }
-                                        crate::rebase::Action::Split => {
-                                            ui.label(RichText::new(t!("↳ le rebase s'arrête ici : tu répartis ses changements (blocs ou lignes) en plusieurs commits", "↳ the rebase stops here: you share its changes (blocks or lines) out into several commits")).small().weak());
                                         }
                                         _ => {}
                                     }
@@ -1232,13 +1213,6 @@ impl App {
                 None => self.set_status(t!("Le diff est en cours de chargement", "The diff is loading")),
             }
         }
-        if resume {
-            if self.split.is_some() {
-                self.show_tab(document::View::Split);
-            } else {
-                self.resume_split();
-            }
-        }
         if abort_rebase {
             if let Some(repo) = self.history.repo.clone() {
                 self.git_job_at(repo, "rebase --abort", &["rebase", "--abort"]);
@@ -1260,7 +1234,6 @@ impl App {
                         select = Some(i);
                     }
                 }
-                (HistAct::Split(hash), _) => self.start_split(hash),
                 (HistAct::Claude(hash), Some(repo)) => self.claude_attach_commit(&repo, &hash),
                 (HistAct::CherryPick(hash), Some(repo)) => self.git_job_at(repo, "cherry-pick", &["-c", "core.editor=true", "cherry-pick", &hash]),
                 (HistAct::Revert(hash), Some(repo)) => self.git_job_at(repo, "revert", &["-c", "core.editor=true", "revert", "--no-edit", &hash]),
@@ -1299,7 +1272,7 @@ impl App {
                 self.git.busy += 1;
                 self.set_status(t!("Rebase en cours…", "Rebase in progress…"));
                 self.jobs.spawn(move || JobResult::GitOp {
-                    label: if crate::rebase::splits(&rb.steps) { t!("rebase (découpage)", "rebase (splitting)").into() } else { "rebase".into() },
+                    label: "rebase".into(),
                     result: crate::rebase::run(&repo, &rb.from, &rb.steps, crate::rebase::self_editor),
                     status: None,
                 });

@@ -245,8 +245,6 @@ impl App {
                     self.zen = false;
                     ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
                 } else if maximize::restore_shown(ctx) {
-                } else if self.showing(document::View::Split) {
-                    self.leave_tab(document::View::Split);
                 } else if self.showing(document::View::History) {
                     self.leave_tab(document::View::History);
                 } else if self.showing(document::View::Git) && self.history_detail_open() {

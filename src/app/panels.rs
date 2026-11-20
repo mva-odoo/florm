@@ -18,7 +18,6 @@ impl App {
         }
         let mut welcome = false;
         let mut editor_resp = None;
-        self.sync_split_tab();
         // nothing open: the welcome page, in a tab (the tab strip and its window buttons stay)
         if self.docs.is_empty() {
             self.open_view_tab(document::View::Welcome, t!("Accueil", "Welcome").into());

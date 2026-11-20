@@ -68,9 +68,6 @@ impl App {
                 JobResult::NewTab { title, text, syntax } => {
                     self.new_scratch(title, text, &syntax, true);
                 }
-                JobResult::SplitStarted(repo, r) => self.on_split_started(repo, r),
-                JobResult::SplitChanges { result, committed } => self.on_split_changes(result, committed),
-                JobResult::SplitEnded { aborted, result } => self.on_split_ended(aborted, result),
                 JobResult::Picked(kind, paths) => self.on_picked(kind, paths),
                 JobResult::ClaudeImage { label, png } => match png {
                     Ok(png) => self.claude_attach_image(png, label),

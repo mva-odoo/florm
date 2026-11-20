@@ -174,7 +174,6 @@ pub enum ViewIcon {
     Help,
     Welcome,
     Settings,
-    Split,
     Problems,
     Output,
     Debug,
@@ -268,13 +267,6 @@ pub fn paint_view(painter: &Painter, center: Pos2, icon: ViewIcon, color: Color3
                     painter.line_segment([a, a + Vec2::new(side * 2.8, tilt)], Stroke::new(1.1_f32, color));
                 }
             }
-        }
-        ViewIcon::Split => {
-            // scissors
-            painter.circle_stroke(center + Vec2::new(-3.5, 4.0), 2.2, st);
-            painter.circle_stroke(center + Vec2::new(3.5, 4.0), 2.2, st);
-            painter.line_segment([center + Vec2::new(-2.0, 2.2), center + Vec2::new(4.0, -6.0)], st);
-            painter.line_segment([center + Vec2::new(2.0, 2.2), center + Vec2::new(-4.0, -6.0)], st);
         }
     }
 }

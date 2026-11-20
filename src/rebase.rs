@@ -14,12 +14,10 @@ pub enum Action {
     Squash,
     Fixup,
     Drop,
-    /// Stop on the commit and split it in the assistant (`edit` + `git reset HEAD~1`).
-    Split,
 }
 
 impl Action {
-    pub const ALL: [Action; 6] = [Action::Pick, Action::Reword, Action::Squash, Action::Fixup, Action::Split, Action::Drop];
+    pub const ALL: [Action; 5] = [Action::Pick, Action::Reword, Action::Squash, Action::Fixup, Action::Drop];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -28,7 +26,6 @@ impl Action {
             Action::Squash => t!("Fusionner avec le précédent", "Merge with the previous one"),
             Action::Fixup => t!("Fusionner (sans son message)", "Merge (without its message)"),
             Action::Drop => t!("Supprimer", "Drop"),
-            Action::Split => t!("Découper en plusieurs commits", "Split into several commits"),
         }
     }
 }
@@ -84,9 +81,6 @@ pub fn check(steps: &[Step]) -> Result<(), String> {
         Some(s) if matches!(s.action, Action::Squash | Action::Fixup) => {
             Err(tf!("« {} » ne peut pas fusionner : il n'y a pas de commit gardé avant lui.", "“{}” cannot merge: there is no kept commit before it.", s.subject))
         }
-        _ if steps.iter().filter(|s| s.action == Action::Split).count() > 1 => {
-            Err(t!("Un seul commit à découper par rebase (découpe les autres ensuite).", "A single commit to split per rebase (split the others afterwards).").into())
-        }
         _ => Ok(()),
     }
 }
@@ -100,7 +94,6 @@ pub fn todo(steps: &[Step], dir: &Path) -> Result<String, String> {
             Action::Squash => out.push_str(&format!("squash {} {}\n", s.hash, s.subject)),
             Action::Fixup => out.push_str(&format!("fixup {} {}\n", s.hash, s.subject)),
             Action::Pick => out.push_str(&format!("pick {} {}\n", s.hash, s.subject)),
-            Action::Split => out.push_str(&format!("edit {} {}\n", s.hash, s.subject)),
             Action::Reword => {
                 let msg = dir.join(format!("msg{i}.txt"));
                 std::fs::write(&msg, &s.message).map_err(|e| e.to_string())?;
@@ -131,16 +124,7 @@ pub fn run(repo: &Path, from: &str, steps: &[Step], editor: impl FnOnce(&Path) -
     if r.is_ok() {
         let _ = std::fs::remove_dir_all(&dir);
     }
-    // stopped on the commit to split: its changes go back to the working tree, for the assistant
-    if r.is_ok() && steps.iter().any(|s| s.action == Action::Split) && crate::split::stopped_commit(repo).is_some() {
-        git::run(repo, &["reset", "-q", "HEAD~1"])?;
-    }
     r
-}
-
-/// Whether the plan stops on a commit to split (the assistant opens when git stops on it).
-pub fn splits(steps: &[Step]) -> bool {
-    steps.iter().any(|s| s.action == Action::Split)
 }
 
 /// Sequence editor running this executable with `PLAN_FLAG`.
@@ -192,16 +176,6 @@ mod tests {
         assert_eq!(g(&["log", "--format=%s"]), "add a\nD renommé\nbase");
         assert!(g(&["log", "-1", "--format=%B", "HEAD~1"]).contains("avec un corps"));
         assert_eq!(g(&["ls-files"]), "a\nb\nbase\nd");
-
-        // stop on a commit to split it: its changes are back in the working tree
-        let mut steps = load(&repo, g(&["rev-parse", "HEAD~1"]).trim()).unwrap();
-        steps[0].action = Action::Split;
-        assert!(splits(&steps));
-        run(&repo, steps[0].hash.clone().as_str(), &steps, |plan| format!("cp \"{}\"", plan.display())).unwrap();
-        assert!(crate::split::rebase_in_progress(&repo));
-        assert_eq!(g(&["status", "--porcelain"]), "?? d");
-        crate::split::abort(&repo).unwrap();
-        assert_eq!(g(&["log", "--format=%s"]), "add a\nD renommé\nbase");
 
         // a fusion needs a kept commit before it
         let mut bad = load(&repo, g(&["rev-parse", "HEAD~1"]).trim()).unwrap();

@@ -15,7 +15,6 @@ use crate::lsp;
 use crate::project::{self, Project, Session, SessionFile, UiState};
 use crate::search::{self, FileHits};
 use crate::sidebar::{self, Node, TreeAction};
-use crate::split;
 use crate::symbols;
 use crate::terminal::Terminal;
 use eframe::egui::{self, text::LayoutJob, Align2, Color32, Event, Key, RichText, Sense, TextFormat};
@@ -50,7 +49,6 @@ mod claude_ui;
 mod md_toolbar;
 mod theme_edit;
 mod template_edit;
-mod split_commit;
 mod commit_plan;
 mod panes;
 mod compare;
@@ -813,29 +811,6 @@ struct RebaseUi {
     steps: Vec<crate::rebase::Step>,
 }
 
-/// Commit split assistant (see split.rs).
-struct SplitUi {
-    repo: PathBuf,
-    info: split::Info,
-    files: Vec<split::FileChange>,
-    /// Chosen lines for the current part: per file, per hunk, per line of the hunk (only +/- lines count).
-    sel: Vec<Vec<Vec<bool>>>,
-    folded: HashSet<String>,
-    message: String,
-    /// Commits made so far: (short hash, subject).
-    parts: Vec<(String, String)>,
-    busy: bool,
-    error: Option<String>,
-    confirm_abort: bool,
-}
-
-impl SplitUi {
-    fn set_files(&mut self, files: Vec<split::FileChange>) {
-        self.sel = files.iter().map(|f| f.empty_selection()).collect();
-        self.files = files;
-    }
-}
-
 /// A list of commits with the diff of the chosen one: history of a line or of a file, search in
 /// the history, reflog.
 struct LineHistoryUi {
@@ -953,7 +928,6 @@ pub struct App {
     /// All repositories found in the opened folder.
     repos: Vec<PathBuf>,
     history: HistoryUi,
-    split: Option<SplitUi>,
     last_active_path: Option<PathBuf>,
     tree: Option<Node>,
     show_sidebar: bool,
@@ -1256,7 +1230,6 @@ impl App {
             repo: None,
             repos: Vec::new(),
             history: HistoryUi::default(),
-            split: None,
             last_active_path: None,
             tree: None,
             show_sidebar: true,
@@ -1783,7 +1756,6 @@ fn doc_tab(d: &Document) -> (TabIcon<'_>, String) {
         View::Debug => Some(ViewIcon::Debug),
         View::Git | View::History | View::Conflicts => Some(ViewIcon::Git),
         View::Settings => Some(ViewIcon::Settings),
-        View::Split => Some(ViewIcon::Split),
         View::Claude => Some(ViewIcon::Claude),
         View::Text | View::Image | View::Preview(_) => None,
     };
@@ -2056,7 +2028,6 @@ enum HistAct {
     BranchAt(String),
     Copy(String),
     Diff(String),
-    Split(String),
     CherryPick(String),
     Revert(String),
     /// Compare two revisions: (from, to, title).
@@ -2171,7 +2142,6 @@ fn commit_menu(ui: &mut egui::Ui, c: &history::Commit, m: &MenuCtx, selected: Op
     item(ui, t!("Revert : annuler ce commit par un nouveau commit", "Revert: undo this commit with a new commit"), HistAct::Revert(c.hash.clone()), act);
     if c.parents.len() == 1 {
         item(ui, t!("Rebase interactif à partir d'ici…", "Interactive rebase from here…"), HistAct::Rebase(c.hash.clone()), act);
-        item(ui, t!("✂ Découper ce commit en plusieurs…", "✂ Split this commit into several…"), HistAct::Split(c.hash.clone()), act);
     }
     if !c.refs.iter().any(|r| r.starts_with("HEAD")) {
         item(ui, &tf!("Fusionner ce commit dans « {cur} »", "Merge this commit into “{cur}”"), HistAct::Merge(c.hash.clone()), act);

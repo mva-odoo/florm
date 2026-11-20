@@ -1,49 +1,8 @@
-//! Splitting a commit in several: `git rebase -i` stopped on the commit (edit), `git reset HEAD~1`
-//! so that its changes are back in the working tree, then partial commits (whole files or hunks)
-//! until nothing is left, and `git rebase --continue` replays the commits that came after.
+//! The changes not committed read as blocks (hunks, or whole files), so that Claude can share
+//! them out into several commits by theme (`commit_plan`), and each part committed apart.
 
 use crate::git;
 use std::path::Path;
-
-/// Argument that makes florm act as git's sequence editor (see `edit_todo`).
-pub const TODO_FLAG: &str = "--florm-split-todo";
-
-/// Rebase todo list: the first `pick` becomes `edit` (the commit to split comes first).
-pub fn edit_todo(file: &Path) -> Result<(), String> {
-    let text = std::fs::read_to_string(file).map_err(|e| e.to_string())?;
-    let mut done = false;
-    let out: Vec<String> = text
-        .lines()
-        .map(|l| {
-            let t = l.trim_start();
-            if !done && !t.is_empty() && !t.starts_with('#') {
-                done = true;
-                if let Some(rest) = t.strip_prefix("pick ").or_else(|| t.strip_prefix("p ")) {
-                    return format!("edit {rest}");
-                }
-            }
-            l.to_string()
-        })
-        .collect();
-    std::fs::write(file, out.join("\n") + "\n").map_err(|e| e.to_string())
-}
-
-/// Sequence editor command running this executable with `TODO_FLAG`.
-pub fn self_editor() -> Result<String, String> {
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    // git runs this through a shell: the path is quoted, with what a shell would read inside quotes escaped
-    let path = exe.display().to_string().replace('\\', "/").replace('"', "\\\"").replace('$', "\\$").replace('`', "\\`");
-    Ok(format!("\"{path}\" {TODO_FLAG}"))
-}
-
-#[derive(Clone, Debug)]
-pub struct Info {
-    pub short: String,
-    pub subject: String,
-    pub message: String,
-    /// Files created by the commit: untracked after the reset.
-    pub added: Vec<String>,
-}
 
 #[derive(Clone, Debug)]
 pub struct Hunk {
@@ -118,62 +77,6 @@ pub fn rebase_in_progress(repo: &Path) -> bool {
     ["rebase-merge", "rebase-apply"].iter().any(|n| git_dir_path(repo, n).is_some_and(|p| p.exists()))
 }
 
-/// Commit on which the current interactive rebase stopped.
-pub fn stopped_commit(repo: &Path) -> Option<String> {
-    let sha = std::fs::read_to_string(git_dir_path(repo, "rebase-merge/stopped-sha")?).ok()?;
-    git::stdout(repo, &["rev-parse", sha.trim()]).ok().map(|s| s.trim().to_string())
-}
-
-pub fn info(repo: &Path, hash: &str) -> Result<Info, String> {
-    let out = git::stdout(repo, &["show", "-s", "--format=%h%x1f%s%x1f%B", hash])?;
-    let mut f = out.splitn(3, '\x1f');
-    let short = f.next().unwrap_or("").to_string();
-    let subject = f.next().unwrap_or("").to_string();
-    let message = f.next().unwrap_or("").trim().to_string();
-    let added = git::stdout(repo, &["-c", "core.quotePath=false", "diff-tree", "-r", "--no-commit-id", "--name-only", "--diff-filter=A", hash])?
-        .lines()
-        .filter(|l| !l.is_empty())
-        .map(String::from)
-        .collect();
-    Ok(Info { short, subject, message, added })
-}
-
-/// Checks that `hash` can be split, then stops a rebase on it and un-commits it.
-pub fn start(repo: &Path, hash: &str, seq_editor: &str) -> Result<Info, String> {
-    if rebase_in_progress(repo) {
-        return Err(t!("Un rebase est déjà en cours dans ce dépôt : termine-le ou annule-le d'abord.", "A rebase is already in progress in this repository: finish or abort it first.").into());
-    }
-    if !git::stdout(repo, &["status", "--porcelain", "--untracked-files=no"])?.trim().is_empty() {
-        return Err(t!("Le dépôt a des modifications non validées : valide-les ou mets-les de côté (stash) avant de découper un commit.", "The repository has uncommitted changes: commit them or put them aside (stash) before splitting a commit.").into());
-    }
-    let parents = git::stdout(repo, &["rev-list", "--parents", "-n", "1", hash])?.split_whitespace().count() - 1;
-    if parents == 0 {
-        return Err(t!("Le premier commit du dépôt ne peut pas être découpé.", "The first commit of the repository cannot be split.").into());
-    }
-    if parents > 1 {
-        return Err(t!("Un commit de merge ne peut pas être découpé.", "A merge commit cannot be split.").into());
-    }
-    if git::run(repo, &["merge-base", "--is-ancestor", hash, "HEAD"]).is_err() {
-        return Err(t!("Le commit doit faire partie de la branche courante : fais d'abord un checkout de sa branche.", "The commit must be part of the current branch: checkout its branch first.").into());
-    }
-    if !git::stdout(repo, &["rev-list", "--merges", &format!("{hash}..HEAD")])?.trim().is_empty() {
-        return Err(t!("Il y a des merges après ce commit : le découpage les aplatirait, il est donc refusé.", "There are merges after this commit: splitting would flatten them, so it is refused.").into());
-    }
-    let info = info(repo, hash)?;
-    let env = [("GIT_SEQUENCE_EDITOR", seq_editor), ("GIT_EDITOR", "true")];
-    git::run_with(repo, &["rebase", "-i", "--no-autosquash", &format!("{hash}^")], &env, None)?;
-    if !rebase_in_progress(repo) {
-        return Err(t!("Le rebase ne s'est pas arrêté sur le commit à découper.", "The rebase did not stop on the commit to split.").into());
-    }
-    let head = git::stdout(repo, &["rev-parse", "HEAD"])?;
-    if head.trim() != hash {
-        let _ = git::run(repo, &["rebase", "--abort"]);
-        return Err(t!("Le rebase ne s'est pas arrêté sur le commit à découper : annulé.", "The rebase did not stop on the commit to split: aborted.").into());
-    }
-    git::run(repo, &["reset", "-q", "HEAD~1"])?;
-    Ok(info)
-}
-
 fn parse_diff(text: &str) -> Vec<FileChange> {
     let mut files: Vec<FileChange> = Vec::new();
     for l in text.lines() {
@@ -203,8 +106,8 @@ fn parse_diff(text: &str) -> Vec<FileChange> {
     files
 }
 
-/// Changes still to commit: working tree vs HEAD (staged or not), plus the commit's new files still untracked.
-pub fn changes(repo: &Path, added: &[String]) -> Result<Vec<FileChange>, String> {
+/// Changes still to commit: working tree vs HEAD (staged or not), plus the new files `added` (untracked).
+fn changes(repo: &Path, added: &[String]) -> Result<Vec<FileChange>, String> {
     let diff = git::stdout(repo, &["-c", "core.quotePath=false", "diff", "HEAD", "--no-color", "--no-ext-diff", "--no-renames", "-U3"])?;
     let mut files = parse_diff(&diff);
     let status = git::stdout(repo, &["status", "--porcelain", "-z", "--untracked-files=all"])?;
@@ -289,23 +192,6 @@ pub fn commit(repo: &Path, message: &str) -> Result<(String, String), String> {
     let out = git::stdout(repo, &["log", "-1", "--format=%h%x1f%s"])?;
     let (h, s) = out.trim().split_once('\x1f').unwrap_or((out.trim(), ""));
     Ok((h.to_string(), s.to_string()))
-}
-
-pub fn finish(repo: &Path) -> Result<String, String> {
-    git::run_with(repo, &["rebase", "--continue"], &[("GIT_EDITOR", "true")], None)
-}
-
-pub fn abort(repo: &Path) -> Result<String, String> {
-    // the files created by the commit being split are untracked after the reset: `rebase --abort`
-    // refuses to overwrite them, and puts them back itself
-    if let Some(hash) = stopped_commit(repo) {
-        let added = git::stdout(repo, &["-c", "core.quotePath=false", "diff-tree", "-r", "--no-commit-id", "--name-only", "--diff-filter=A", &hash]).unwrap_or_default();
-        let untracked = git::stdout(repo, &["-c", "core.quotePath=false", "ls-files", "--others", "--exclude-standard"]).unwrap_or_default();
-        for p in added.lines().filter(|p| !p.is_empty() && untracked.lines().any(|u| u == *p)) {
-            let _ = std::fs::remove_file(repo.join(p));
-        }
-    }
-    git::run(repo, &["rebase", "--abort"])
 }
 
 /// The changes not committed (staged or not, new files included), for a split by theme.
@@ -431,70 +317,6 @@ mod tests {
     }
 
     #[test]
-    fn splits_a_commit_in_three() {
-        let repo = std::env::temp_dir().join(format!("florm_split_{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&repo);
-        std::fs::create_dir_all(&repo).unwrap();
-        g(&repo, &["init", "-q", "-b", "main"]);
-        g(&repo, &["config", "user.name", "t"]);
-        g(&repo, &["config", "user.email", "t@t"]);
-        let lines: Vec<String> = (0..40).map(|i| format!("line {i}")).collect();
-        std::fs::write(repo.join("a.txt"), lines.join("\n") + "\n").unwrap();
-        g(&repo, &["add", "."]);
-        g(&repo, &["commit", "-qm", "base"]);
-        let mut l2 = lines.clone();
-        l2[2] = "CHANGED top".into();
-        l2[35] = "CHANGED bottom".into();
-        std::fs::write(repo.join("a.txt"), l2.join("\n") + "\n").unwrap();
-        std::fs::write(repo.join("b.txt"), "new file\n").unwrap();
-        g(&repo, &["add", "."]);
-        g(&repo, &["commit", "-qm", "big commit"]);
-        let big = g(&repo, &["rev-parse", "HEAD"]);
-        std::fs::write(repo.join("c.txt"), "after\n").unwrap();
-        g(&repo, &["add", "."]);
-        g(&repo, &["commit", "-qm", "after"]);
-        let tree_before = g(&repo, &["rev-parse", "HEAD^{tree}"]);
-
-        let info = start(&repo, &big, "sed -i -e '1s/^pick/edit/'").unwrap();
-        assert_eq!(info.subject, "big commit");
-        assert_eq!(info.added, ["b.txt"]);
-        assert!(rebase_in_progress(&repo));
-        assert_eq!(stopped_commit(&repo).as_deref(), Some(big.as_str()));
-
-        let files = changes(&repo, &info.added).unwrap();
-        assert_eq!(files.iter().map(|f| (f.path.as_str(), f.kind, f.hunks.len())).collect::<Vec<_>>(), [("a.txt", 'M', 2), ("b.txt", 'A', 1)]);
-        let pick = |files: &[FileChange], chosen: &[&[bool]]| -> Vec<Vec<Vec<bool>>> {
-            files
-                .iter()
-                .zip(chosen)
-                .map(|(f, c)| f.hunks.iter().zip(c.iter()).map(|(h, &on)| vec![on; h.lines.len()]).collect())
-                .collect()
-        };
-        // part 1: top hunk only
-        stage(&repo, &files, &pick(&files, &[&[true, false], &[false]])).unwrap();
-        commit(&repo, "part 1").unwrap();
-        // part 2: the new file
-        let files = changes(&repo, &info.added).unwrap();
-        assert_eq!(files.len(), 2);
-        stage(&repo, &files, &pick(&files, &[&[false], &[true]])).unwrap();
-        commit(&repo, "part 2").unwrap();
-        // part 3: the rest
-        let files = changes(&repo, &info.added).unwrap();
-        assert_eq!(files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), ["a.txt"]);
-        stage(&repo, &files, &pick(&files, &[&[true]])).unwrap();
-        commit(&repo, "part 3").unwrap();
-        assert!(changes(&repo, &info.added).unwrap().is_empty());
-        finish(&repo).unwrap();
-
-        assert!(!rebase_in_progress(&repo));
-        assert_eq!(g(&repo, &["log", "--format=%s"]), "after\npart 3\npart 2\npart 1\nbase");
-        assert_eq!(g(&repo, &["rev-parse", "HEAD^{tree}"]), tree_before);
-        assert!(g(&repo, &["show", "HEAD~3"]).contains("+CHANGED top"));
-        assert!(!g(&repo, &["show", "HEAD~3"]).contains("CHANGED bottom"));
-        let _ = std::fs::remove_dir_all(&repo);
-    }
-
-    #[test]
     fn chosen_lines_of_a_hunk() {
         let h = Hunk { lines: ["@@ -1,3 +1,3 @@", " a", "-b", "-c", "+B", "+C", " d"].iter().map(|s| s.to_string()).collect() };
         // nothing chosen
@@ -508,72 +330,5 @@ mod tests {
         let h = Hunk { lines: ["@@ -1 +1,2 @@", " a", "+b", "\\ No newline at end of file"].iter().map(|s| s.to_string()).collect() };
         assert_eq!(h.restricted(&[false, false, false, false]), None);
         assert_eq!(h.restricted(&[false, false, true, false]).unwrap(), "@@ -1 +1,2 @@\n a\n+b\n\\ No newline at end of file");
-    }
-
-    #[test]
-    fn splits_one_hunk_line_by_line() {
-        let repo = std::env::temp_dir().join(format!("florm_split_lines_{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&repo);
-        std::fs::create_dir_all(&repo).unwrap();
-        g(&repo, &["init", "-q", "-b", "main"]);
-        g(&repo, &["config", "user.name", "t"]);
-        g(&repo, &["config", "user.email", "t@t"]);
-        std::fs::write(repo.join("a.txt"), "1\n2\n3\n").unwrap();
-        g(&repo, &["add", "."]);
-        g(&repo, &["commit", "-qm", "base"]);
-        std::fs::write(repo.join("a.txt"), "1\ndeux\n3\nquatre\n").unwrap();
-        g(&repo, &["commit", "-qam", "two changes"]);
-        let head = g(&repo, &["rev-parse", "HEAD"]);
-        let info = start(&repo, &head, "sed -i -e '1s/^pick/edit/'").unwrap();
-        let files = changes(&repo, &info.added).unwrap();
-        assert_eq!(files.len(), 1);
-        assert_eq!(files[0].hunks.len(), 1);
-        // part 1: "2" → "deux" only (its - and + lines)
-        let mut sel = vec![files[0].empty_selection()];
-        for (i, l) in files[0].hunks[0].lines.iter().enumerate() {
-            if l == "-2" || l == "+deux" {
-                sel[0][0][i] = true;
-            }
-        }
-        stage(&repo, &files, &sel).unwrap();
-        commit(&repo, "deux").unwrap();
-        assert_eq!(g(&repo, &["show", "HEAD:a.txt"]), "1\ndeux\n3");
-        // part 2: the rest
-        let files = changes(&repo, &info.added).unwrap();
-        let sel: Vec<Vec<Vec<bool>>> = files.iter().map(|f| f.hunks.iter().map(|h| vec![true; h.lines.len()]).collect()).collect();
-        stage(&repo, &files, &sel).unwrap();
-        commit(&repo, "quatre").unwrap();
-        finish(&repo).unwrap();
-        assert_eq!(g(&repo, &["log", "--format=%s"]), "quatre\ndeux\nbase");
-        assert_eq!(std::fs::read_to_string(repo.join("a.txt")).unwrap(), "1\ndeux\n3\nquatre\n");
-        let _ = std::fs::remove_dir_all(&repo);
-    }
-
-    #[test]
-    fn refuses_dirty_tree_and_aborts() {
-        let repo = std::env::temp_dir().join(format!("florm_split_abort_{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&repo);
-        std::fs::create_dir_all(&repo).unwrap();
-        g(&repo, &["init", "-q", "-b", "main"]);
-        g(&repo, &["config", "user.name", "t"]);
-        g(&repo, &["config", "user.email", "t@t"]);
-        std::fs::write(repo.join("a.txt"), "1\n").unwrap();
-        g(&repo, &["add", "."]);
-        g(&repo, &["commit", "-qm", "one"]);
-        std::fs::write(repo.join("a.txt"), "2\n").unwrap();
-        g(&repo, &["commit", "-qam", "two"]);
-        let head = g(&repo, &["rev-parse", "HEAD"]);
-        // a todo list left unchanged replays the commit as is: nothing to split, nothing changed
-        assert!(start(&repo, &head, "true").is_err());
-        assert!(!rebase_in_progress(&repo));
-        assert_eq!(g(&repo, &["rev-parse", "HEAD"]), head);
-        std::fs::write(repo.join("a.txt"), "dirty\n").unwrap();
-        assert!(start(&repo, &head, "sed -i -e '1s/^pick/edit/'").unwrap_err().contains("non validées"));
-        g(&repo, &["checkout", "--", "a.txt"]);
-        start(&repo, &head, "sed -i -e '1s/^pick/edit/'").unwrap();
-        abort(&repo).unwrap();
-        assert_eq!(g(&repo, &["rev-parse", "HEAD"]), head);
-        assert_eq!(std::fs::read_to_string(repo.join("a.txt")).unwrap(), "2\n");
-        let _ = std::fs::remove_dir_all(&repo);
     }
 }

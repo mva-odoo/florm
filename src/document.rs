@@ -251,8 +251,6 @@ pub enum View {
     Git,
     /// The preferences.
     Settings,
-    /// The commit being split (it stays while the split is in progress).
-    Split,
     /// The history of lines, of a file, a search in the commits or the reflog.
     History,
     /// The assistant of a merge, rebase or cherry-pick stopped on conflicts.

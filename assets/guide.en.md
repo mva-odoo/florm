@@ -276,19 +276,6 @@ opens (or **⇄ Conflicts assistant** in the banner of the Git view).
 The operations started from Florm put the original version between the two sides
 (`merge.conflictStyle=diff3`).
 
-### Split a commit
-
-Right click on a commit → **Split this commit into several…**, or in the **interactive rebase**
-(right click → “Interactive rebase from here…”), the action **Split into several commits** on
-one of the commits.
-
-1. Tick the blocks that go in the first part — or **click + / − lines** to take only some of
-   them (like “e” in `git add -p`): a + line not taken is not added, a − line not taken stays
-   in the file.
-2. Write the message, then **Commit part 1**.
-3. Start again with the rest; **Finish** replays the next commits.
-   **Cancel the splitting** puts everything back exactly as before.
-
 ## Terminal
 
 - **Ctrl+`**: the terminal in the bottom panel.
@@ -303,7 +290,7 @@ one of the commits.
   bottom** (a small window: with a tab on top, or a band at the bottom; remembered for next time), **⋯** the other actions
   and options. The layout buttons all look alike: the four corners maximize a panel in its view
   (Escape to come back), a window with a column on the right shows or hides a side panel (the
-  review of Claude), filled when it is shown. Git, the Preferences and the split of a commit are
+  review of Claude), filled when it is shown. Git and the Preferences are
   tabs like the others: Escape goes back to the previous tab, Ctrl+W closes them.
 
 ## Errors in the code

@@ -145,11 +145,6 @@ pub enum JobResult {
     /// Symbols of the whole project (go to definition, completion).
     /// `bool`: only the repositories being worked on so far, the whole index follows.
     SymbolIndex(PathBuf, crate::index::Index, bool),
-    /// Commit split started (or resumed): the commit and its changes.
-    SplitStarted(PathBuf, Result<(split::Info, Vec<split::FileChange>), String>),
-    /// Changes left after a refresh or a partial commit (with its short hash and subject).
-    SplitChanges { result: Result<Vec<split::FileChange>, String>, committed: Option<(String, String)> },
-    SplitEnded { aborted: bool, result: Result<String, String> },
     /// Odoo tests ready to run in a container.
     TestsReady { tags: String, result: Result<crate::docker::Exec, String> },
     /// The debugger checked what it needs and found the program (or not).

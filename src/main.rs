@@ -111,14 +111,6 @@ fn main() -> eframe::Result<()> {
         let ok = matches!((plan, todo), (Some(p), Some(t)) if rebase::write_plan(std::path::Path::new(&p), std::path::Path::new(&t)).is_ok());
         std::process::exit(if ok { 0 } else { 1 });
     }
-    // Called by `git rebase -i` as sequence editor when splitting a commit.
-    if std::env::args().nth(1).as_deref() == Some(split::TODO_FLAG) {
-        let code = match std::env::args().nth(2).map(|f| split::edit_todo(std::path::Path::new(&f))) {
-            Some(Ok(())) => 0,
-            _ => 1,
-        };
-        std::process::exit(code);
-    }
     // Called by Claude Code (hooks, status line) for a conversation of the Claude tab in a terminal.
     if claude_term::run_flag(&std::env::args().collect::<Vec<_>>()) {
         std::process::exit(0);
