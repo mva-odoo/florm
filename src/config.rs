@@ -47,6 +47,8 @@ pub struct Settings {
     pub claude_in_tab: bool,
     /// Every conversation in one Claude tab, listed on its left, instead of a tab each.
     pub claude_one_tab: bool,
+    /// Claude's commands run in the sandbox of Claude Code (bubblewrap on Linux, Seatbelt on macOS).
+    pub claude_sandbox: bool,
     /// Parts that can be turned off: GitHub (pull requests), the debugger, Claude.
     pub github: bool,
     pub debugger: bool,
@@ -195,6 +197,7 @@ impl Default for Settings {
             diff_side_by_side: false,
             claude_in_tab: false,
             claude_one_tab: true,
+            claude_sandbox: true,
             github: true,
             debugger: true,
             claude: true,
@@ -305,6 +308,9 @@ claude = false
 claude_in_tab = false
 # toutes les conversations dans un seul onglet Claude, listées à sa gauche, plutôt qu'un onglet chacune
 claude_one_tab = true
+# les commandes de Claude tournent dans le bac à sable de Claude Code : écriture dans le projet seulement,
+# réseau filtré (Linux : paquets bubblewrap et socat ; macOS : intégré ; pas sous Windows hors WSL)
+claude_sandbox = true
 # session de Claude (contexte, coût, quotas) à droite de son terminal
 claude_review = true
 # comptes Claude ("nom=dossier de configuration", dossier vide = celui habituel de Claude Code), par ex.

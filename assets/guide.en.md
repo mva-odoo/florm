@@ -513,6 +513,9 @@ new in it work as they are. Claude's changes are reviewed in the **Git** view.
   its own tab**, **× Close** (Claude stops, it stays in the history). **Ctrl+Alt+W**: the next one
   waiting for your answer. The status bar says how many are working or waiting. Preferences →
   Claude → **One Claude tab** to go back to one tab per conversation.
+- **Sandbox** (Preferences → Claude, on by default): Claude's commands run isolated, they write
+  only in the project and the network is filtered. Linux: `bubblewrap` and `socat` packages;
+  macOS: built in; Windows: only in WSL. `/sandbox` in Claude sets it more finely.
 - **After a restart of Florm**, each conversation goes on where it was (`claude --resume`).
 - **End of an answer**: when the conversation is not shown, its tab (or, in the bottom panel,
   ✳ ● next to its name and ✔ in the status bar) blinks a few seconds then stays green until you

@@ -521,6 +521,10 @@ ses nouveautés marchent tels quels. Les changements de Claude se revoient dans 
   (Claude s'arrête, elle reste dans l'historique). **Ctrl+Alt+W** : la suivante qui attend ta
   réponse. La barre d'état dit combien travaillent ou attendent. Préférences → Claude → **Un seul
   onglet Claude** pour revenir à un onglet par conversation.
+- **Bac à sable** (Préférences → Claude, activé par défaut) : les commandes de Claude tournent
+  isolées, elles n'écrivent que dans le projet et le réseau est filtré. Linux : paquets
+  `bubblewrap` et `socat` ; macOS : intégré ; Windows : seulement dans WSL. `/sandbox` dans Claude
+  le règle plus finement.
 - **Après un redémarrage de Florm**, chaque conversation reprend où elle en était
   (`claude --resume`).
 - **Fin de réponse** : si la conversation n'est pas affichée, son onglet (ou, dans le panneau du

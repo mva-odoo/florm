@@ -75,19 +75,24 @@ fn limits_of(v: &Value) -> Vec<(String, f32, i64)> {
         .collect()
 }
 
-/// The settings of Florm for `claude`: the hooks and the status line that write in `file`.
-pub fn settings(exe: &Path, file: &Path) -> Value {
+/// The settings of Florm for `claude`: the hooks and the status line that write in `file`, and
+/// its sandbox for the commands (`sandbox`).
+pub fn settings(exe: &Path, file: &Path, sandbox: bool) -> Value {
     let exe = exe.to_string_lossy();
     let file = file.to_string_lossy();
     let hook = |what: &str| json!([{ "hooks": [{ "type": "command", "command": format!("\"{exe}\" {HOOK_FLAG} \"{file}\" {what}") }] }]);
-    json!({
+    let mut v = json!({
         "hooks": {
             "UserPromptSubmit": hook("busy"),
             "Notification": hook("waiting"),
             "Stop": hook("done"),
         },
         "statusLine": { "type": "command", "command": format!("\"{exe}\" {STATUS_FLAG} \"{file}\"") },
-    })
+    });
+    if sandbox {
+        v["sandbox"] = json!({ "enabled": true });
+    }
+    v
 }
 
 /// How a conversation starts: going on with its session (or a copy of it, `fork`), else with a
@@ -209,8 +214,9 @@ mod tests {
     fn hooks_and_command() {
         let f = std::env::temp_dir().join(format!("florm_claude_term_{}.json", std::process::id()));
         let _ = std::fs::remove_file(&f);
-        let s = settings(Path::new("/opt/florm"), &f).to_string();
-        assert!(s.contains(r#"\"/opt/florm\" --claude-hook"#) && s.contains("UserPromptSubmit") && s.contains("statusLine"), "{s}");
+        assert!(!settings(Path::new("/opt/florm"), &f, false).to_string().contains("sandbox"));
+        let s = settings(Path::new("/opt/florm"), &f, true).to_string();
+        assert!(s.contains(r#"\"/opt/florm\" --claude-hook"#) && s.contains("UserPromptSubmit") && s.contains("statusLine") && s.contains(r#""sandbox":{"enabled":true}"#), "{s}");
         let s = Path::new("/s.json");
         assert_eq!(argv(s, &Start { prompt: Some("fais ça"), ..Default::default() }), ["claude", "--settings", "/s.json", "fais ça"]);
         assert_eq!(argv(s, &Start { session_id: "abc", prompt: Some("ignored"), ..Default::default() }), ["claude", "--settings", "/s.json", "--resume", "abc"]);

@@ -48,7 +48,7 @@ impl App {
         let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("florm"));
         let _ = std::fs::create_dir_all(claude_term::dir());
         let _ = std::fs::remove_file(&file);
-        if let Err(e) = std::fs::write(&settings_file, claude_term::settings(&exe, &file).to_string()) {
+        if let Err(e) = std::fs::write(&settings_file, claude_term::settings(&exe, &file, self.settings.claude_sandbox).to_string()) {
             self.claude.term = Some(0);
             self.set_error(tf!("Claude : réglages non écrits ({e})", "Claude: settings not written ({e})"));
             return;
