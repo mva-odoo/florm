@@ -108,9 +108,9 @@ côte, divise l'éditeur.
   du bas, et Florm s'en souvient : leur raccourci, la palette, la barre d'état et ▾ les ouvriront
   ensuite au même endroit. Une vue qui a déjà son onglet s'y affiche, jamais à deux endroits.
 - **La barre d'état ne montre que ce qui se passe** : à gauche le bouton du panneau du bas (clic :
-  l'afficher ou le masquer, clic droit : ouvrir une vue), puis les icônes de **Claude**, **Git** et
+  l'afficher ou le masquer, clic droit : ouvrir une vue), puis les icônes de **Claude**, **Git**,
   **Pull requests** (un clic ouvre son onglet, un autre revient à l'onglet d'avant ; en couleur quand
-  il est affiché) ; à droite la branche (**↑** commits à
+  il est affiché) et **Terminal** (le terminal du panneau du bas) ; à droite la branche (**↑** commits à
   pousser, **↓** à récupérer, **●** fichiers modifiés) du dépôt du fichier affiché (il suit les
   onglets ; un dépôt choisi dans la vue Git reste jusqu'au prochain fichier affiché), puis, seulement quand c'est le cas, Claude
   (**au travail**, ou **✔** quand il a fini : un clic montre la réponse), le débogage (**en cours** / **en pause**), et les problèmes. Au repos, elle est presque vide.

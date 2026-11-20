@@ -125,7 +125,7 @@ impl App {
                     self.apply_pick(p, false);
                 }
                 // the views of every day, one click away: Claude, Git, the pull requests (their tab;
-                // a click on the one shown goes back to the tab before it)
+                // a click on the one shown goes back to the tab before it) and the terminal
                 use crate::features::{on, Feature};
                 let accent = self.hl.colors.accent;
                 let active_view = self.docs.get(self.active).map(|d| d.view);
@@ -133,6 +133,7 @@ impl App {
                     (on(Feature::Claude), icons::ViewIcon::Claude, Some(crate::document::View::Claude), "Claude", Cmd::Claude),
                     (true, icons::ViewIcon::Git, Some(crate::document::View::Git), "Git", Cmd::ShowGit),
                     (on(Feature::GitHub), icons::ViewIcon::PullRequests, Some(crate::document::View::PullRequests), t!("Pull requests (GitHub)", "Pull requests (GitHub)"), Cmd::PullRequests),
+                    (true, icons::ViewIcon::Terminal, None, "Terminal", Cmd::ToggleTerminal),
                 ] {
                     if !on {
                         continue;

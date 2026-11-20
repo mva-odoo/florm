@@ -106,9 +106,9 @@ also the search and the debugger if you want. To see two tabs side by side, spli
   panel, and Florm remembers: their shortcut, the palette, the status bar and ▾ then open them in
   the same place. A view that already has its tab is shown there, never in two places.
 - **The status bar only shows what is going on**: on the left the button of the bottom panel
-  (click: show or hide it, right click: open a view), then the icons of **Claude**, **Git** and
+  (click: show or hide it, right click: open a view), then the icons of **Claude**, **Git**,
   **Pull requests** (a click opens its tab, another one goes back to the tab before; coloured when
-  it is shown); on the right the branch (**↑** commits to
+  it is shown) and **Terminal** (the terminal of the bottom panel); on the right the branch (**↑** commits to
   push, **↓** to pull, **●** changed files) of the repository of the file shown (it follows the
   tabs; a repository chosen in the Git view stays until the next file shown), then, only when it is the case, Claude (**working**,
   or **✔** when it has finished: a click shows the answer), the
