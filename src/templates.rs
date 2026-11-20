@@ -199,6 +199,10 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("florm_tpl_user_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         install_readme(&dir);
+        // ":" cannot be in a file name on Windows: the built-in one cannot be replaced there
+        if cfg!(windows) {
+            return;
+        }
         std::fs::write(dir.join("Python : pdb.py"), "breakpoint()").unwrap();
         std::fs::write(dir.join("Kanban.xml"), "<kanban/>").unwrap();
         let all = load(&dir);

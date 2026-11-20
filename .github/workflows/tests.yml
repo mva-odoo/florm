@@ -34,6 +34,8 @@ jobs:
         run: |
           git config --global user.name "Florm CI"
           git config --global user.email "ci@florm.invalid"
+          # Git pour Windows convertit les fins de ligne (\r\n) : les tests comparent le contenu exact
+          git config --global core.autocrlf false
       # sous Linux, aussi les tests qui montent toute l'application (FLORM_TEST_APP)
       - name: cargo test
         shell: bash

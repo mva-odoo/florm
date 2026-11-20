@@ -682,6 +682,7 @@ mod tests {
 
     #[test]
     fn set_setting_keeps_comments() {
+        let _lock = TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join(format!("florm_cfg_{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         std::env::set_var("FLORM_CONFIG", &dir);

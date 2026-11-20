@@ -2705,6 +2705,7 @@ mod font_tests {
         std::env::set_var("FLORM_CONFIG", &conf);
         let ctx = egui::Context::default();
         let mut app = App::with_ctx(&ctx, Some(proj.clone()));
+        crate::tools::Tool::Claude.pretend_installed();
         app.claude_restore_tab(0);
         app.claude.items.push(claude_ui::Item::User("la release ?".into(), Vec::new(), Vec::new(), Vec::new()));
         app.claude.items.push(claude_ui::Item::Text("En cours (https://github.com/o/r/releases/tag/v1) ; je te préviens.".into()));

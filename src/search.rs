@@ -376,7 +376,7 @@ mod tests {
         assert_eq!(run(&dir, &q, &crate::walk::Exclusions::none(), 1, &gen).files.len(), 1);
         let rels = |inc: &str| {
             let q = Query { pattern: "foo".into(), include: inc.into(), ..Default::default() };
-            run(&dir, &q, &crate::walk::Exclusions::none(), 1, &gen).files.into_iter().map(|f| f.rel).collect::<Vec<_>>()
+            run(&dir, &q, &crate::walk::Exclusions::none(), 1, &gen).files.into_iter().map(|f| f.rel.replace('\\', "/")).collect::<Vec<_>>()
         };
         assert_eq!(rels("sub"), ["sub/b.xml"]);
         assert_eq!(rels(&format!("{}/sub/", dir.display())), ["sub/b.xml"]);

@@ -579,7 +579,7 @@ mod tests {
         assert_eq!(one("syndic.view_budget_form"), [("budget.xml".to_string(), 1)]);
         assert_eq!(idx.names_with_prefix("comp", 10), ["compute_total"]);
         // saving a file updates it
-        let p = root.join("syndic/models/budget.py");
+        let p = root.join("syndic").join("models").join("budget.py");
         idx.update(&p, "def compute_other():\n    pass\n");
         assert!(idx.lookup("compute_total").is_empty());
         assert_eq!(idx.names_with_prefix("compute", 10), ["compute_other"]);

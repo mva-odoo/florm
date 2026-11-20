@@ -127,8 +127,10 @@ mod tests {
 
     #[test]
     fn background_result_names_its_file() {
-        let r = "Command running in background with ID: b9yh5nk0r. Output is being written to: /tmp/claude-1000/-home-x/abc/tasks/b9yh5nk0r.output";
-        assert_eq!(background_file(r), Some(PathBuf::from("/tmp/claude-1000/-home-x/abc/tasks/b9yh5nk0r.output")));
+        // an absolute path of this system
+        let file = if cfg!(windows) { r"C:\Users\x\AppData\Local\Temp\claude\abc\tasks\b9yh5nk0r.output" } else { "/tmp/claude-1000/-home-x/abc/tasks/b9yh5nk0r.output" };
+        let r = format!("Command running in background with ID: b9yh5nk0r. Output is being written to: {file}");
+        assert_eq!(background_file(&r), Some(PathBuf::from(file)));
         assert_eq!(background_file("ok"), None);
     }
 

@@ -75,7 +75,9 @@ pub fn diff(a: &Path, b: &Path, la: &str, lb: &str) -> Result<String, String> {
     }
     let text = String::from_utf8_lossy(&out.stdout).into_owned();
     let strip = |p: &Path| p.to_string_lossy().trim_start_matches('/').replace('\\', "/");
-    Ok(text.replace(&strip(a), la).replace(&strip(b), lb))
+    // on Windows, git writes the paths as given, between quotes, their \ doubled
+    let quoted = |p: &Path| p.to_string_lossy().replace('\\', "\\\\");
+    Ok(text.replace(&strip(a), la).replace(&strip(b), lb).replace(&quoted(a), la).replace(&quoted(b), lb))
 }
 
 /// A text written in a file of its own (the editor or the clipboard, to compare it).

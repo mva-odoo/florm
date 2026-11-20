@@ -1636,6 +1636,7 @@ mod tests {
         std::env::set_var("FLORM_CONFIG", &conf);
         let ctx = egui::Context::default();
         let mut app = App::with_ctx(&ctx, Some(proj.clone()));
+        crate::tools::Tool::Claude.pretend_installed();
         let mut field = egui::Id::NULL;
         let key = |pressed| egui::Event::Key { key: Key::Enter, physical_key: None, pressed, repeat: false, modifiers: Default::default() };
         let mut focused_after_tab = false;
@@ -1678,6 +1679,7 @@ mod tests {
         std::env::set_var("FLORM_CONFIG", &conf);
         let ctx = egui::Context::default();
         let mut app = App::with_ctx(&ctx, Some(proj.clone()));
+        crate::tools::Tool::Claude.pretend_installed();
         let mut field = egui::Id::NULL;
         let key = |k, pressed| egui::Event::Key { key: k, physical_key: None, pressed, repeat: false, modifiers: Default::default() };
         let mut focus = Vec::new();
@@ -1733,6 +1735,7 @@ mod tests {
         std::env::set_var("FLORM_CONFIG", &conf);
         let ctx = egui::Context::default();
         let mut app = App::with_ctx(&ctx, Some(proj.clone()));
+        crate::tools::Tool::Claude.pretend_installed();
         let mut mode = String::new();
         // where the text of the mode's pill is drawn, after a few frames in the state set
         let mut at = |app: &mut App| {
@@ -1776,6 +1779,7 @@ mod tests {
         std::env::set_var("FLORM_CONFIG", &conf);
         let ctx = egui::Context::default();
         let mut app = App::with_ctx(&ctx, Some(proj.clone()));
+        crate::tools::Tool::Claude.pretend_installed();
         let width = 560.0;
         let mut right = 0.0_f32;
         for frame in 0..4 {

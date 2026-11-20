@@ -124,6 +124,12 @@ impl Tool {
         yes
     }
 
+    /// The tests that show its view: as if it were installed (it is not on the CI machines).
+    #[cfg(test)]
+    pub fn pretend_installed(self) {
+        FOUND.lock().unwrap().get_or_insert_with(HashMap::new).insert(self, (true, Instant::now()));
+    }
+
     /// Looks again at once (the "Check again" button).
     pub fn forget(self) {
         if let Some(map) = FOUND.lock().unwrap().as_mut() {

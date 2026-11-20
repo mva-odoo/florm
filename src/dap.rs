@@ -599,7 +599,7 @@ mod tests {
             std::fs::write(bin.join(f), "").unwrap();
         }
         let p = program(".venv/bin/pytest tests/test_a.py::test_x", |n| Some(dir.join(n).to_string_lossy().into_owned())).unwrap();
-        assert_eq!(p.python.as_deref(), Some(bin.join("python").to_string_lossy().as_ref()));
+        assert_eq!(p.python.as_deref().map(Path::new), Some(bin.join("python").as_path()));
         assert_eq!(p.args, ["tests/test_a.py::test_x"]);
         let _ = std::fs::remove_dir_all(&dir);
     }

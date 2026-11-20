@@ -479,7 +479,7 @@ mod tests {
     fn launches_of_go_and_node() {
         let cwd = Path::new("/p");
         let v = go_launch(&w("go test ./calc -run '^TestAdd$' -v"), cwd).unwrap();
-        assert_eq!((v["mode"].as_str(), v["program"].as_str()), (Some("test"), Some("/p/./calc")));
+        assert_eq!((v["mode"].as_str(), v["program"].as_str().map(Path::new)), (Some("test"), Some(Path::new("/p/./calc"))));
         assert_eq!(v["args"], json!(["-test.run", "^TestAdd$", "-test.v"]));
         let v = go_launch(&w("go run . --port 8080"), cwd).unwrap();
         assert_eq!((v["mode"].as_str(), v["args"].clone()), (Some("debug"), json!(["--port", "8080"])));
