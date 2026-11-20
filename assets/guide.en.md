@@ -497,7 +497,7 @@ Florm runs the `claude` command with your login: no key to set up. Its commands 
 new in it work as they are. Claude's changes are reviewed in the **Git** view.
 
 - **At the top**: the folder (chosen before the first message: a repository of the project, a
-  recent project, or **📁 Another folder…**), **+ New** conversation (when the list of conversations is not shown; else its **+**), **+ Context**, the 👤
+  recent project, or **📁 Another folder…**), **+ New** conversation (in the bottom panel; in the Claude tab, it is the **+** of the list), **+ Context**, the 👤
   account, the **History** (the earlier conversations, kept between sessions) and **⟳** to restart
   Claude (the conversation goes on where it was). On the right, the button of the **Session**
   panel; hidden, the **5 h** quota gauge is at the top right (those of **7 d** and the **Context**

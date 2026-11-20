@@ -504,7 +504,7 @@ Florm lance la commande `claude` avec ta connexion : pas de clé à configurer. 
 ses nouveautés marchent tels quels. Les changements de Claude se revoient dans la vue **Git**.
 
 - **En haut** : le dossier (choisi avant le premier message : un dépôt du projet, un projet
-  récent, ou **📁 Un autre dossier…**), **+ Nouvelle** conversation (quand la liste des conversations n'est pas affichée ; sinon son **+**), **+ Contexte**, le compte 👤,
+  récent, ou **📁 Un autre dossier…**), **+ Nouvelle** conversation (dans le panneau du bas ; dans l'onglet Claude, c'est le **+** de la liste), **+ Contexte**, le compte 👤,
   l'**Historique** (les conversations d'avant, gardées entre les sessions) et **⟳** pour relancer
   Claude (la conversation reprend où elle en était). À droite, le bouton du panneau **Session** ;
   masqué, la jauge **5 h** du quota est en haut à droite (celles de **7 j** et du **Contexte**

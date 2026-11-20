@@ -134,9 +134,8 @@ impl App {
                 let uid = self.docs[i].uid;
                 // one tab for every conversation: their list on the left
                 let mut act = None;
-                // narrow with a single conversation: the list would only take room from it
-                let alone = ui.available_width() < 820.0 && self.claude_conversations().len() <= 1;
-                self.claude_list_shown = self.settings.claude_one_tab && !alone;
+                // always there, even with a single conversation: its « + » starts the next one
+                self.claude_list_shown = self.settings.claude_one_tab;
                 if self.claude_list_shown {
                     let fill = ui.visuals().panel_fill;
                     egui::SidePanel::left(egui::Id::new("claude_list").with(uid))
