@@ -20,7 +20,7 @@ pub enum TreeAction {
     /// Show in the system file manager.
     Reveal(PathBuf),
     Terminal(PathBuf),
-    /// Give the file or folder to Claude with the next message.
+    /// Give the file or folder to Claude (written into its field).
     Claude(PathBuf),
     Refresh,
     /// Put the file or folder on the system clipboard (to paste it in the file manager or here).

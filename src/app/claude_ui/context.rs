@@ -1,27 +1,20 @@
-//! What goes to Claude with a message: lines, files, notes, commits, and the definitions of
-//! the names the message cites.
+//! What Florm gives Claude, written into its field: lines, files, notes, commits, pictures.
 
 use super::*;
 
-/// Something given to Claude with the next message: lines of a file, a file / folder, or a text
-/// (the changes not committed, the problems of a file…).
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
+/// Something given to Claude: lines of a file, a file / folder, a text (the changes not
+/// committed, the problems of a file…) or a picture.
 pub(in crate::app) struct Attach {
     pub(super) path: PathBuf,
     /// Lines (1-based, first and last) and their text; None: the whole file or folder.
     pub(super) lines: Option<(usize, usize, String)>,
     /// A text and what it is (instead of a file).
     pub(super) note: Option<(String, String)>,
-    /// An image sent with the message (a pasted image, a file): what it is, and
-    /// its PNG, saved to be shown again in the message.
+    /// A picture (a pasted image, a file, a PDF): what it is, and its file.
     pub(super) image: Option<(String, PathBuf)>,
 }
 
 impl Attach {
-    /// A text (`note`: what it is, the text) given with a message of the conversation in `dir`.
-    pub(in crate::app) fn note(dir: PathBuf, note: (String, String)) -> Self {
-        Attach { path: dir, lines: None, note: Some(note), image: None }
-    }
 
     /// An image (`image`: what it is, its PNG) given with a message of the conversation in `dir`.
     pub(in crate::app) fn image(dir: PathBuf, image: (String, PathBuf)) -> Self {
@@ -46,12 +39,6 @@ impl Attach {
     /// How it is said to Claude.
     pub(super) fn prompt(&self, dir: Option<&Path>) -> String {
         let label = self.label(dir);
-        if let Some((_, p)) = &self.image {
-            if claude::is_pdf(p) {
-                return tf!("PDF joint ({label}), envoyé avec le message", "PDF attached ({label}), sent with the message");
-            }
-            return tf!("Image jointe ({label}), envoyée avec le message", "Image attached ({label}), sent with the message");
-        }
         if let Some((_, text)) = &self.note {
             return format!("{label} :\n```\n{text}\n```");
         }
@@ -69,7 +56,7 @@ impl Attach {
 /// Most characters of a diff given to Claude as context (the rest: Claude reads it with git itself).
 pub(super) const MAX_DIFF_CHARS: usize = 20_000;
 
-/// What can be added to the context from the chat (« + Contexte »).
+/// What can be given from « + Contexte ».
 #[derive(Clone)]
 pub(super) enum CtxAdd {
     /// A commit (its hash): its message and its diff.
@@ -83,16 +70,9 @@ pub(super) enum CtxAdd {
     Image,
 }
 
-/// The names of a message that look like code: in backquotes, followed by "(", CamelCase, or
-/// with an underscore — not the words of the sentence.
 /// The path of `path` relative to the folder `dir` of a conversation (None outside it).
 pub(super) fn rel_path(dir: Option<&Path>, path: &Path) -> Option<String> {
     dir.and_then(|d| path.strip_prefix(d).ok()).map(|r| r.display().to_string())
-}
-
-/// Whether a message of a conversation gave the file `rel`, or a part of it (`rel:line`).
-pub(super) fn gives_file(items: &[Item], rel: &str) -> bool {
-    items.iter().any(|i| matches!(i, Item::User(_, given, ..) if gives(given, rel)))
 }
 
 /// Whether `given` (what messages gave) holds the file `rel`, or a part of it (`rel:line`).
@@ -101,65 +81,8 @@ pub(super) fn gives(given: &[String], rel: &str) -> bool {
     given.iter().any(|g| g == rel || g.starts_with(&prefix))
 }
 
-pub(super) fn cited_names(text: &str) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    let mut push = |w: &str| {
-        let w = w.trim_matches(|c: char| !(c.is_alphanumeric() || c == '_'));
-        if w.chars().count() >= 3 && w.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_') && !out.iter().any(|o| o == w) {
-            out.push(w.to_string());
-        }
-    };
-    let quoted: Vec<&str> = text.split('`').skip(1).step_by(2).collect();
-    for q in &quoted {
-        for w in q.split(|c: char| !(c.is_alphanumeric() || c == '_')) {
-            push(w);
-        }
-    }
-    let chars: Vec<char> = text.chars().collect();
-    let mut i = 0;
-    while i < chars.len() {
-        if chars[i].is_alphanumeric() || chars[i] == '_' {
-            let start = i;
-            while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
-                i += 1;
-            }
-            let w: String = chars[start..i].iter().collect();
-            let call = chars.get(i) == Some(&'(');
-            let camel = w.chars().next().is_some_and(|c| c.is_uppercase()) && w.chars().skip(1).any(|c| c.is_uppercase()) && w.chars().any(|c| c.is_lowercase());
-            let snake = w.contains('_') && w.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
-            if call || camel || snake {
-                push(&w);
-            }
-        } else {
-            i += 1;
-        }
-    }
-    out
-}
-
-/// The lines of a definition starting at `line`: until the code comes back to its indentation
-/// (the next definition), at most `max`.
-pub(super) fn definition_lines(src: &str, line: usize, max: usize) -> String {
-    let lines: Vec<&str> = src.lines().skip(line).collect();
-    let Some(first) = lines.first() else { return String::new() };
-    let indent = first.len() - first.trim_start().len();
-    let mut out = vec![*first];
-    for l in lines.iter().skip(1).take(max - 1) {
-        let ind = l.len() - l.trim_start().len();
-        // decorators and blank lines do not end it; code at its indentation or less does
-        if !l.trim().is_empty() && ind <= indent && !l.trim_start().starts_with(')') {
-            break;
-        }
-        out.push(l);
-    }
-    while out.last().is_some_and(|l| l.trim().is_empty()) {
-        out.pop();
-    }
-    out.join("\n")
-}
-
 impl App {
-    /// Lines `a..=b` (0-based) of document `i` given to Claude with the next message.
+    /// Lines `a..=b` (0-based) of document `i` given to Claude.
     pub(in crate::app) fn claude_attach_lines(&mut self, i: usize, a: usize, b: usize) {
         let Some(d) = self.docs.get(i) else { return };
         let Some(path) = d.path.clone() else {
@@ -175,37 +98,25 @@ impl App {
         self.claude_attach(Attach { path, lines: None, note: None, image: None });
     }
 
-    /// A text given to Claude with the next message (`label`: what it is).
+    /// A text given to Claude (`label`: what it is).
     pub(super) fn claude_attach_note(&mut self, label: String, text: String) {
         let path = self.claude.dir.clone().unwrap_or_default();
         self.claude_attach(Attach { path, lines: None, note: Some((label, text)), image: None });
     }
 
-    /// An image (PNG) given to Claude with the next message; `label`: what it is.
+    /// An image (PNG) given to Claude; `label`: what it is.
     pub(in crate::app) fn claude_attach_image(&mut self, png: Vec<u8>, label: String) {
         let saved = match claude::save_image(&png) {
             Ok(p) => p,
             Err(e) => return self.set_error(tf!("Image non enregistrée : {e}", "Image not saved: {e}")),
         };
-        // Claude in a terminal: its path written into its field (Claude Code reads the image)
-        if self.settings.claude_terminal {
-            let a = Attach::image(self.claude.dir.clone().unwrap_or_default(), (label.clone(), saved));
-            let text = term::term_text(&a, self.claude.dir.as_deref());
-            return self.claude_term_give(text, &label);
-        }
-        if self.claude.attach.iter().any(|a| a.image.as_ref().is_some_and(|(_, p)| *p == saved)) {
-            return;
-        }
-        // « Image collée », « Image collée 2 »…: each its own name in the message
-        let same = self.claude.attach.iter().filter(|a| a.image.as_ref().is_some_and(|(l, _)| l.starts_with(&label))).count();
-        let label = if same == 0 { label } else { format!("{label} {}", same + 1) };
-        let path = self.claude.dir.clone().unwrap_or_default();
-        self.claude.attach.push(Attach { path, lines: None, note: None, image: Some((label.clone(), saved)) });
-        self.claude.focus = true;
-        self.set_status(tf!("✳ {label} ajoutée au contexte de Claude, envoyée avec le prochain message", "✳ {label} added to Claude's context, sent with the next message"));
+        // its path written into its field: Claude Code reads the image
+        let a = Attach::image(self.claude.dir.clone().unwrap_or_default(), (label.clone(), saved));
+        let text = term::term_text(&a, self.claude.dir.as_deref());
+        self.claude_term_give(text, &label);
     }
 
-    /// A PDF given to Claude with the next message: a copy is kept (shown again in the message).
+    /// A PDF given to Claude: a copy is kept.
     pub(in crate::app) fn claude_attach_pdf(&mut self, path: &Path) {
         let label = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         match std::fs::metadata(path) {
@@ -219,18 +130,9 @@ impl App {
             Ok(p) => p,
             Err(e) => return self.set_error(tf!("PDF non enregistré : {e}", "PDF not saved: {e}")),
         };
-        if self.settings.claude_terminal {
-            let a = Attach::image(self.claude.dir.clone().unwrap_or_default(), (label.clone(), saved));
-            let text = term::term_text(&a, self.claude.dir.as_deref());
-            return self.claude_term_give(text, &label);
-        }
-        if self.claude.attach.iter().any(|a| a.image.as_ref().is_some_and(|(_, p)| *p == saved)) {
-            return;
-        }
-        let dir = self.claude.dir.clone().unwrap_or_default();
-        self.claude.attach.push(Attach { path: dir, lines: None, note: None, image: Some((label.clone(), saved)) });
-        self.claude.focus = true;
-        self.set_status(tf!("✳ {label} ajouté au contexte de Claude, envoyé avec le prochain message", "✳ {label} added to Claude's context, sent with the next message"));
+        let a = Attach::image(self.claude.dir.clone().unwrap_or_default(), (label.clone(), saved));
+        let text = term::term_text(&a, self.claude.dir.as_deref());
+        self.claude_term_give(text, &label);
     }
 
     /// An image file given to Claude (read and made smaller in the background); a PDF as it is.
@@ -252,8 +154,7 @@ impl App {
         self.docs.get(self.active).filter(|d| ok(*d)).map(|_| self.active).or_else(|| self.docs.iter().rposition(ok))
     }
 
-    /// What the « + Contexte » menu of the chat asked for.
-    /// A commit given to Claude with the next message: its message, the files it touched and its
+    /// A commit given to Claude: its message, the files it touched and its
     /// diff (cut when very large), to start from or to compare with.
     pub(in crate::app) fn claude_attach_commit(&mut self, repo: &Path, hash: &str) {
         match git::run(repo, &["show", "--stat", "--patch", "--format=commit %H%nAuteur : %an, %ad%n%n%B", "--date=short", hash]) {
@@ -271,6 +172,7 @@ impl App {
         }
     }
 
+    /// What « + Contexte » asked for.
     pub(super) fn claude_add_context(&mut self, what: CtxAdd) {
         let doc = self.claude_editor_doc();
         match what {
@@ -337,21 +239,12 @@ impl App {
             self.claude.dir = self.repo_for(&a.path).or_else(|| self.repo.clone()).or_else(|| self.root.clone());
         }
         let label = a.label(self.claude.dir.as_deref());
-        // Claude in a terminal: written into its field
-        if self.settings.claude_terminal {
-            let text = term::term_text(&a, self.claude.dir.as_deref());
-            return self.claude_term_give(text, &label);
+        // a file or its lines: « Reprendre la conversation de ce fichier » finds it again
+        if a.note.is_none() && a.image.is_none() && !self.claude.given.contains(&label) {
+            self.claude.given.push(label.clone());
         }
-        let same = |x: &Attach| {
-            x.path == a.path && x.lines.as_ref().map(|l| (l.0, l.1)) == a.lines.as_ref().map(|l| (l.0, l.1)) && x.note.as_ref().map(|n| &n.0) == a.note.as_ref().map(|n| &n.0)
-        };
-        if let Some(x) = self.claude.attach.iter_mut().find(|x| same(x)) {
-            // the same diff or problems again: the newest text
-            x.note = a.note;
-        } else {
-            self.claude.attach.push(a);
-        }
-        self.set_status(tf!("✳ {label} ajouté au contexte de Claude ({} élément(s)) — Ctrl+Alt+C pour lui écrire", "✳ {label} added to Claude's context ({} item(s)) — Ctrl+Alt+C to write to it", self.claude.attach.len()));
+        let text = term::term_text(&a, self.claude.dir.as_deref());
+        self.claude_term_give(text, &label);
     }
 
     /// The selection (else the line of the cursor) of the current file for Claude; `ask`: and
@@ -373,53 +266,5 @@ impl App {
         for (i, (a, b)) in picks {
             self.claude_attach_lines(i, a, b);
         }
-    }
-
-    /// The file being edited, the line of the cursor and the selection, said to Claude.
-    /// The definitions in the project of the names `text` cites (at most 4 names, each defined in
-    /// at most 2 places: a name found everywhere says nothing), with their first lines; and the
-    /// names given.
-    pub(super) fn cited_definitions(&self, text: &str, dir: &Path) -> Option<(String, Vec<String>)> {
-        const MAX_NAMES: usize = 4;
-        const MAX_LINES: usize = 40;
-        let ix = self.index.symbols.as_ref()?;
-        let (mut parts, mut names) = (Vec::new(), Vec::new());
-        for name in cited_names(text) {
-            if names.len() >= MAX_NAMES {
-                break;
-            }
-            let found: Vec<(PathBuf, crate::index::Entry)> = ix
-                .lookup(&name)
-                .into_iter()
-                .filter(|(_, e)| e.name == name && matches!(e.kind, crate::symbols::Kind::Class | crate::symbols::Kind::Function | crate::symbols::Kind::Method))
-                .collect();
-            if found.is_empty() || found.len() > 2 {
-                continue;
-            }
-            for (p, e) in &found {
-                let Ok(src) = std::fs::read_to_string(p) else { continue };
-                let rel = p.strip_prefix(dir).unwrap_or(p).display().to_string();
-                let lang = p.extension().and_then(|x| x.to_str()).unwrap_or("");
-                parts.push(format!("{rel}:{} :\n```{lang}\n{}\n```", e.line + 1, definition_lines(&src, e.line, MAX_LINES)));
-            }
-            names.push(name);
-        }
-        (!parts.is_empty()).then(|| (tf!("(Définitions trouvées dans le projet pour les noms cités :\n{})", "(Definitions found in the project for the names mentioned:\n{})", parts.join("\n")), names))
-    }
-
-    /// The file open in the editor, said to Claude: the text, and the path of the file.
-    pub(super) fn editor_context(&self, dir: &Path) -> Option<(String, String)> {
-        let d = self.docs.iter().rev().find(|d| d.view == document::View::Text && d.path.is_some())?;
-        let path = d.path.as_ref()?;
-        let rel = path.strip_prefix(dir).unwrap_or(path).display().to_string();
-        let sel = d.primary_sel();
-        let (line, _) = d.line_col(sel.head);
-        let mut s = tf!("(Fichier ouvert dans l'éditeur : {rel}, ligne {}.", "(File open in the editor: {rel}, line {}.", line + 1);
-        if !sel.is_empty() {
-            let text: String = d.slice(sel.start(), sel.end()).chars().take(8000).collect();
-            s.push_str(&tf!(" Texte sélectionné :\n```\n{text}\n```", " Selected text:\n```\n{text}\n```"));
-        }
-        s.push(')');
-        Some((s, rel))
     }
 }

@@ -25,23 +25,6 @@ mod par_tests {
 }
 
 pub enum JobResult {
-    /// Changes since the start of the review of Claude's work (a diff).
-    ClaudeReview(u64, Result<String, String>),
-    /// A block, a file or everything of the review of conversation (id) kept or rejected.
-    ClaudeReviewDone(u64, Result<(), String>),
-    /// Before a message of conversation (id) leaves: its review started (the review index), and
-    /// the files then, as a git tree.
-    ClaudePrepared(u64, Option<Result<PathBuf, String>>, Option<String>),
-    /// Answer of a `/btw` of conversation (id).
-    ClaudeBtw(u64, Result<String, String>),
-    /// The models Claude Code offers (`claude::list_models`).
-    ClaudeModels(Result<Vec<crate::claude::ModelInfo>, String>),
-    /// The changes of one question of a Claude conversation (its message's index): a diff.
-    ClaudeTurnDiff(u64, usize, Result<String, String>),
-    /// The MCP servers of a Claude conversation (true: asked by /mcp).
-    ClaudeMcp(u64, bool, Result<Vec<crate::claude::Mcp>, String>),
-    /// The worktree of a Claude conversation (id) removed.
-    ClaudeWorktreeRemoved(u64, Result<(), String>),
     /// The last commits of the folder of a Claude conversation (`git log` lines).
     ClaudeCommits(u64, String),
     /// What `claude auth status` says of the Claude account named so.
@@ -49,8 +32,6 @@ pub enum JobResult {
     /// The commits of a pull request fetched to show one of them in the Git view: repository,
     /// commit, and what git said.
     PrCommitFetched(std::path::PathBuf, String, Result<String, String>),
-    /// A worktree made for a new Claude conversation: its folder, its branch, the main repository.
-    ClaudeWorktree(Result<(std::path::PathBuf, String, std::path::PathBuf), String>),
     /// The changes not committed split by Claude into commits: the blocks, then each commit's
     /// message and blocks.
     CommitPlan(PathBuf, Result<(Vec<split::Block>, Vec<(String, Vec<usize>)>), String>),

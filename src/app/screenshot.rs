@@ -1,6 +1,6 @@
 //! A picture of Florm's window for Claude (Ctrl+Alt+I, or « + Contexte »): taken by egui itself, so
 //! without leaving Florm nor any permission of the system; from any view (a pull request, a file…),
-//! it goes with the next message of the current conversation.
+//! its path is written into the field of the current conversation.
 
 use super::*;
 

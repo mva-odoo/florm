@@ -490,151 +490,71 @@ palette).
 
 ## Claude
 
-**Ctrl+Alt+C** (or Tools → ✳ Claude, the palette): a conversation with Claude Code, in the
-bottom panel (**in a tab** to give it a whole editor tab, **at the bottom** to put it back). Florm uses the `claude`
-command and your login: no key to set up.
+**Ctrl+Alt+C** (or Tools → ✳ Claude, the palette): **Claude Code itself**, in a terminal in the
+middle of the Claude tab (or of the bottom panel: **in a tab** / **at the bottom** in its header).
+Florm runs the `claude` command with your login: no key to set up. Its commands (`/model`,
+`/usage`, `/mcp`, `/memory`, `/agents`…), its modes (**Shift+Tab**), its permissions and what is
+new in it work as they are. Claude's changes are reviewed in the **Git** view.
 
-- **Claude in a terminal** (the default; Preferences → Claude): each conversation is Claude Code
-  itself, in a terminal in the middle of the tab. Its commands (`/model`, `/usage`…), its modes
-  (Shift+Tab) and what is new in it work as they are. Florm keeps around it: the **list of
-  conversations** on the left (title = first message, ⟳ working, ❓ waiting for your answer, ✔
-  done, also in the status bar and with Ctrl+Alt+W), the **Session** panel on the right (model,
-  cost, context, quotas). **✳ in the margin**, **+ Context**, **Ctrl+Alt+I** write into Claude's
-  field (`@file`, the excerpt, the path of the picture) without sending it; **✳ Send to Claude**
-  from a pull request opens a conversation that starts with the request. Claude's changes are
-  reviewed in the **Git** view. A conversation goes on where it was after Florm restarts (`claude
-  --resume`). Off: Florm's own chat described below.
-
-- At the top: the folder, **+ New** conversation, then the account, **Permissions**, **🌿
-  Worktree**, **History** and **Tools** (MCP, memory…); when room is short, they go into **⋯**.
-  On the right, the button of the panel on the right (Session, Changed files), marked with a dot
-  when Claude changed files. Between two messages of Claude, its steps (searches,
-  reads, commands, thinking) fit on one folded line, “▸ 4 steps · Searched ×2, Read, Ran” (while
-  it works: the step in progress); a click unfolds it. What it says stays in sight. At the
-  bottom, the field
-  and its buttons in one box: **+ Context** and **Options** on the left; on the right the
-  **model**, the **mode** (what Claude is allowed to do: **By permissions**, **Plan only**, **Allow
-  everything**, **Ask first**) and the round **↑** button to send (**■** to stop while it works).
-  Your messages are in a bubble on the right, its answers below. In a narrow tab with a single
-  conversation, their list on the left is hidden.
-- **Ask first** mode: Claude changes nothing by itself. Each file change (as a diff) and each
-  command shows above the field: **✔ Apply** / **▶ Run** it as it is, **✏ Edit** the text or the
-  command first (Claude is told about your version), or **✖ Refuse**, with an optional reason
-  Claude reads. It can read the project without asking.
-  The folder name is chosen before the first message: a repository of the project, a recent
-  project, or **📁 Another folder…** for any folder.
-  The model and the mode can change in the middle of a conversation: at once if Claude is
-  working, else from the next message, the conversation kept. **Shift+Tab** in the field: next
-  mode, as in Claude Code. The list of models comes from Claude Code itself (for your account):
-  at the top Opus, Sonnet, Haiku, Fable… which always follow the latest version (when Anthropic
-  releases one, it shows up by itself), then **Other versions** to pin a precise one (Opus 4.8,
-  Sonnet 4.6…). Next to it, **Effort**: how much Claude thinks before acting (auto, low, medium,
-  high, very high, max), only the levels the chosen model takes; more effort gives more careful
-  answers, but slower and using more quota. The model and the effort are kept with the
-  conversation.
-- **End of an answer**: if the conversation is not shown, its tab (or, in the bottom panel, the
-  ✳ ● next to its name and ✔ in the status bar) blinks a few seconds (the whole tab lights up) then stays green until you look at
-  it, and a sound plays. **Preferences → Claude**: blink or not, and the sound (Chime, Bell,
-  Drop, Beep, Chord, Microwave, or none; ▶ to listen).
-- **/** at the start of the field: the commands of Claude Code (`/usage`, `/context`, `/compact`,
-  `/clear`, `/model`, your skills `/florm:name`…): **Tab** (or ↑ ↓) goes from one to the next, **Enter** or a click completes, **Esc** closes the list. They go alone, without the
-  context. **/btw question** asks a question on the side, even while Claude is working: the
-  answer shows above the field and does not enter the conversation. **/status**: version, model,
-  session, folder. Those of the terminal interface only (`/doctor`…) open in a terminal below.
-- **🔒 Permissions → Rules**: besides the boxes, precise rules allowed or refused, as in Claude
-  Code's `/permissions`: `Bash(git *)`, `Edit(src/**)`, `Read(./.env)`,
-  `WebFetch(domain:github.com)`, `mcp__github` (the tools of an MCP server). A rule allowing a
-  part of a tool not checked (`Bash(git *)` without “Run commands”) allows that part. A change
-  applies from the next message, the conversation kept.
-- **⋯** in the bar: the **MCP servers** (state, add a URL or a command, for this project, shared
-  in `.mcp.json` or for all your projects, remove), the **subagents** (open, create one), the
-  **hooks** of the settings files, the **memory** (CLAUDE.md) and the **extra folders** Claude may
-  use (`--add-dir`). Also as commands: **/mcp**, **/agents**, **/permissions**, **/memory**,
-  **/add-dir path**.
-- **# at the start of a message**: the line is not sent, it is remembered in the CLAUDE.md of the
-  project or in your personal memory (`~/.claude/CLAUDE.md`), as you choose.
-- **@ in the field**: the files of the project matching what is typed; **Tab** (or ↑ ↓) goes
-  from one to the next, **Enter** completes (**Esc** closes the list), and the file goes with the message.
-- **🌿** (worktree): a new conversation on a branch of its own, in its own folder (a git worktree),
-  to have several Claudes work at once without getting in each other's way. Each conversation has
-  its tab and keeps working even when it is not shown.
-- **Options ▾**, next to “+ Context”, groups what goes with each message:
-- **Open file and selection**: Claude knows which file you are editing and what you selected.
-- **Pasting**: a long pasted text (more than 6 lines or 500 characters) becomes a “Pasted text (N
-  lines)” chip above the field, sent whole with the message; the field stays short. A click on the
-  chip shows the whole text below it, editable; another click folds it. The pasted text can go
-  alone: **Send** works even when the field is empty. A chip is removed with its ×.
+- **At the top**: the folder (chosen before the first message: a repository of the project, a
+  recent project, or **📁 Another folder…**), **+ New** conversation, **+ Context**, the 👤
+  account, the **History** (the earlier conversations, kept between sessions) and **⟳** to restart
+  Claude (the conversation goes on where it was). On the right, the button of the **Session**
+  panel; hidden, the **5 h** quota gauge is at the top right (those of **7 d** and the **Context**
+  past 70 %, all of them on hover).
+- **Session** (panel on the right): the **context** in % and the **cost** of the conversation,
+  the **5 h** and **7 d quotas** of your subscription (with when they reset), the project, its
+  branch and the **model**. Florm reads them in the status line of Claude Code.
 - **Several conversations, one tab**: every conversation is listed on the left of the Claude
-  tab, the newest at the top, with what it does (⟳ working, ❓ waiting for your answer, ✔ done) and
-  how long it has been working (on the right of its title); below, its project in its color, its
-  branch (🔀, or 🌿 for a worktree) and its cost. A click shows one, the others go on behind; **+** starts a new
-  one. Right click: **⇉ Duplicate** (a copy that starts again from the last answer), **⇱ Open in
-  its own tab**, **× Close** (its process stops, it stays in the history). **Ctrl+Alt+W**: the next
-  one waiting for your answer. The status bar says how many are working or waiting.
-  Preferences → Claude → **One Claude tab** to go back to a tab per conversation.
-- **Links and tools**: the addresses (https://…) in the answers open in the browser with a click,
-  also between parentheses. What Claude does fits on one quiet line per tool: **Ran**, **Read**,
-  **Edited**, **Searched**… then the command or the file (cut to the line) and how long it took
-  (live while it runs), in red if the tool failed; a click shows the whole command (**Copy**) and
-  what it printed. What an answer cost is in the **Session** tab, no longer under each answer.
-- **Several Claude accounts** (work, personal…): **Preferences → Claude → Claude accounts**,
-  “+ Add an account”, then **Log in…** (once, in a terminal of Florm; each account has its
-  folder, `~/.claude-personal` for instance). The **👤** menu at the top of a conversation
-  chooses its account: changed along the way, it applies from the next message and the
-  conversation keeps its context. The “default” account is used by new conversations and by
-  the commit messages, PR descriptions and reviews. **+ Folder…** on an account: the new
-  conversations of that folder (and its subfolders) use it; **📁** changes its configuration
-  folder. The quota gauges follow the account of the
-  conversation shown.
-- **Output of a running command**: **Show the output** next to a command that runs (tests…) or was
-  sent to the background shows what it prints, updated live, with a button to copy it.
-- **Quotas**: in the **Session** tab of the panel on the right. When that panel is hidden (or shows
-  the review), the **5 h** gauge of your subscription's quota is at the top right; the **7 d** one
-  and the **Context** only show there past 70 %. Hovering the 5 h gauge shows all three, with when
-  the quota resets.
+  tab, the newest at the top, with its title (its first message), what it does (⟳ working, ❓
+  waiting for your answer, ✔ done) and how long it has been working; below, its project in its
+  color, its branch and its cost. A click shows one, the others go on behind; **+** starts a new
+  one. Right click: **⇉ Duplicate** (a copy of its session, to try something else), **⇱ Open in
+  its own tab**, **× Close** (Claude stops, it stays in the history). **Ctrl+Alt+W**: the next one
+  waiting for your answer. The status bar says how many are working or waiting. Preferences →
+  Claude → **One Claude tab** to go back to one tab per conversation.
+- **After a restart of Florm**, each conversation goes on where it was (`claude --resume`).
+- **End of an answer**: when the conversation is not shown, its tab (or, in the bottom panel,
+  ✳ ● next to its name and ✔ in the status bar) blinks a few seconds then stays green until you
+  look at it, and a sound is played. **Preferences → Claude**: blink or not, and the sound
+  (Chime, Bell, Drop, Beep, Chord, Microwave, or none; ▶ to listen).
+- **Give lines or files to Claude**: they are written in its field, not sent, so that you go on
+  with your request. When hovering a line number, click the **✳** on its left (the line, or the
+  selected lines); right click in the editor → **Ask Claude about the selection…**
+  (**Ctrl+Alt+K**) or **Add … to Claude's context**; right click on a file or a folder of the tree
+  → **Add to Claude's context** (`@file`, which Claude reads). **+ Context**: the open file, the
+  selection, all the tabs, the uncommitted changes, the problems of the file, an image or a PDF,
+  **A commit** (also: right click on a commit in the Git view → **Give this commit to Claude**).
+  **Resume the conversation about this file** (palette) reopens the last conversation this file
+  was given to.
+- **✳ Send to Claude** from a pull request (its comments) or the conflicts assistant: a
+  conversation in the repository, which starts with the request.
 - **Picture of Florm**: **Ctrl+Alt+I**, from any view (a pull request, a file, the
-  preferences…), takes a picture of Florm's window as it is and attaches it to the next message of
-  the Claude conversation: no need to switch screens nor to go back to Claude. Also in **+ Context
-  → Picture of Florm**. Florm takes the picture itself: no permission of the system.
-- **A screenshot taken elsewhere**: **Print** (Omarchy's capture tool, or your system's) copies the
-  chosen zone to the clipboard; **Ctrl+V** in Claude's field, or **+ Context → Image from the
-  clipboard** (enabled when there is an image), attaches it to the message. Any zone of the
-  screen, no timer.
-- **Images**: an image goes with the message, scaled down to 1568 pixels to cost fewer tokens.
-  An image (or a PDF) Claude opens itself shows as a thumbnail under its “Read …” line: hover to
-  see it big, click to open it. Florm keeps what Claude saw: the image stays shown even when its
-  file is gone since (a screenshot overwritten, a temporary folder emptied).
-  Three ways to give it: paste it with Ctrl+V (a copied image), drop it from the file manager on
-  the conversation, or **+ Context → Image or PDF…**. Several images go together in one message: drop
-  several, paste them one after the other, or choose several in **Image or PDF…** with Ctrl or Shift.
-  A **PDF** is given the same way (dropped or chosen, 32 MB at most): Claude reads its text and its
-  pages; it shows as 📄 PDF, a click opens it in the viewer of the system.
-  For a screenshot: take it with the system's tool (it
-  goes to the clipboard), then Ctrl+V. The image shows as a thumbnail above the field, then in the
-  message sent; a click opens it full size.
+  preferences…), takes a picture of Florm's window as it is and writes its path in Claude's field:
+  no need to switch screens. Also in **+ Context → Picture of Florm**. Florm takes the picture
+  itself: no permission of the system.
+- **Images**: a capture made with the system's tool (**Print**) goes to the clipboard; **+ Context
+  → Image from the clipboard** gives it to Claude. An image or a PDF can also be dropped from the
+  file manager on Claude, or chosen with **+ Context → Image or PDF…**. An image is made smaller
+  (1568 pixels) to cost fewer tokens.
+- **Several Claude accounts** (work, personal…): **Preferences → Claude → Claude accounts**,
+  “+ Add an account”, then **Log in…** (done once, in a terminal of Florm; each account has its
+  folder, `~/.claude-perso` for instance). The **👤** menu at the top of a conversation chooses its
+  account: changed on the way, Claude starts again with it and the conversation keeps its context.
+  The “default” account is used for new conversations and for commit messages, PR descriptions and
+  reviews. **+ Folder…** on an account: the new conversations of that folder (and its sub-folders)
+  use it; **📁** changes its configuration folder. The quotas follow the account of the
+  conversation shown.
 - **Florm context**: when Claude starts, Florm tells it what it knows of the project: the
   **commit message rules** (the project's, else yours) and the branch and version you work on.
-  Claude then writes its commits like ✨. To teach it how to run your tests (a container, tags…),
-  a Claude Code **skill** does it better: it is only used when useful.
-- **My skills** (Preferences → Claude): a folder of yours for all your skills (a GitHub repository
-  of its own, say), given to every conversation of Claude whatever the account: no project has to
-  hold them. **Choose…** sets it; arrange it as you like, every `SKILL.md` found is a skill, even
-  in sub-folders by theme. Claude sees them as `florm:name`. **+ New skill** creates a `SKILL.md`
-  to fill (its `description` tells Claude when to use it). Without a folder chosen: `skills/` of
-  the shared configuration. The **Session** panel shows what it
-  was told (hover “Florm context”).
-- **Boxes to tick**: when Claude's last answer proposes things to do (`- [ ]`), tick the ones
-  you want then **✔ Send my answer**: Claude gets “Ok, go ahead with: …” with what is ticked,
-  and “Not for now: …” with the rest.
-- **Warnings**: the chat says once when the conversation fills over 60% of the context (`/compact`
-  summarizes it), and when Claude opens an image (it costs many tokens with every next message).
-  The size of the context joined to a message shows in the status bar.
-  Over 60%, a bar offers **/compact** or **New conversation**. The options of the menu stay with the
-  conversation when you resume it.
-- **Mentioned definitions**: the classes and functions of the project named in the message
-  (`SaleOrder`, `_compute_total`, `foo()`…) go with it, their first lines included, found in
-  Florm's index: Claude does not have to look for them (fewer tokens). A name defined in more
-  than two places is not given.
+  Claude then writes its commits like ✨. To teach it how to run your tests (a container, tags…), a
+  Claude Code **skill** does it better: it is only used when useful.
+- **My skills** (Preferences → Claude): a folder of yours for all your skills (a GitHub
+  repository of its own, say), given to every conversation of Claude whatever the account: no
+  project has to hold them. **Choose…** sets it; arrange it as you like, every `SKILL.md` found is
+  a skill, even in sub-folders by theme. Claude sees them as `florm:name`. **+ New skill** creates
+  a `SKILL.md` to fill in (its `description` tells Claude when to use it). Without a folder chosen:
+  `skills/` of the shared configuration.
 - **AI completion** (Preferences → Editor, or the palette: “AI completion while typing”): when
   you stop typing at the end of a line, Claude (Haiku) suggests what follows in grey after the
   cursor. **Tab** takes it, **Escape** or another key ignores it; typing its first letters keeps
@@ -646,55 +566,9 @@ command and your login: no key to set up.
   a second), with a Copilot plan. **Install Copilot** downloads its official server (about 160 MB)
   into Florm's folder, without npm nor admin rights; **Sign in to GitHub** copies a code and opens
   the page to type it in, once and for all.
-- **Give lines or files to Claude**: when hovering a line number, click the **✳** on its left
-  (the line, or the selected lines); right click in the editor → **Ask Claude about the
-  selection…** (**Ctrl+Alt+K**) or **Add … to Claude's context**; right click on a file or a
-  folder of the tree → **Add to Claude's context**. They show as chips above the message
-  (click: remove) and go with it. **+ Context → A commit** (or right click on a commit in the
-  Git view → **Give this commit to Claude**): its message and its diff, to start from what it
-  does (“do the same for…”).
-- On the right, **what Claude changed** since your first message, file by file and block by
-  block: **✔ Keep** (the block leaves the review and stays in the file) or **↺ Reject** (it is
-  removed from the file). Your own earlier changes are not in it. The panel button at the top right
-  hides it (even maximized, or showing one question): the conversation gets its whole width back;
-  when there are changed files, it opens right on them.
-- The panel on the right has two tabs: **Changed files** (above) and **Session**, which gathers what the
-  conversation uses: the **context** in % and the **cost**, the **quotas** of your subscription over
-  5 h and 7 d, the **project** and its branch (or its worktree 🌿), the **model** and the **mode**;
-  then the **memory** (the CLAUDE.md of the project or yours, opened in one click), the number of
-  **agents** and **commands**, the **MCP servers** (⟳ to read them; ticked: Claude uses their tools
-  without asking) and what the **last answer** read, wrote and cost.
-- **What Claude is doing**: when nothing new shows, a line at the end of the conversation says it
-  (“Claude is thinking…”, “Claude is preparing Write…”, “Claude has an agent at work: …”, “is
-  waiting for the API, retry 2/10”), with the time without news past 15 s. Its **Thinking** is
-  kept folded above its answer.
-- **Subagents**: each one has its purple “⇉ Subagent” card (its kind, running / done, its time,
-  what it is doing), its last steps and its **Report** folded. It works in the background: it
-  may end after Claude's answer.
-- **Question by question**: **▾ Fold the answer**, at the top of one of your messages, folds the
-  answer to that question (one line stays: “N steps · N files changed”); right click on it: fold all but the
-  last one, or unfold all. **±** on the message shows on the right the file changes of that
-  question alone (**× All the changed files** to go back to all of them).
-  A colored band on the left ties each question to its whole answer: a click on it folds or
-  unfolds it.
-- **Closing Florm while Claude works**: Florm says so and offers **Close when it is done** (Florm
-  closes by itself at the end; “Don't close” to stay) or **Close now**. Cut that way, the
-  conversation shows a **▶ Go on** band at the next start: Claude resumes its session and goes on
-  where it stopped. An update also waits for Claude to be done before restarting Florm.
-- **↶ Go back**: before each message, Florm keeps the state of the files (in git, no commit and
-  nothing staged). **↶** on a message (or **/rewind** for the last one) offers to put **the files
-  and the conversation** back as before that message, **the conversation only** or **the files
-  only**. What changed since is lost; the message goes back to the field to be written again.
-- **■ Stop** interrupts the current answer; the conversation goes on. Before a message leaves,
-  Florm notes the state of the files (a few moments on a big repository): **■ Stop** then puts
-  it back in the field.
-- **While it works**, you choose where your message goes:
-  - **Send** (Ctrl+Enter): at once. Claude reads it between two steps and takes it into account in the
-    work going on (“use that file instead”, “add a test too”…).
-  - **⏭ After** (Ctrl+Shift+Enter): the message waits above the field and is sent by itself when
-    Claude is done, with its attached images and files (marked ✳ under its text). Several
-    messages go in order, each when Claude has answered the one before; while it waits, a message
-    can be edited or removed (×).
+- **Closing Florm while Claude works**: Florm says so and offers **Close when it is done**
+  (Florm closes by itself at the end; “Don't close” to stay) or **Close now**. An update also
+  waits for Claude to be done before restarting Florm.
 
 **✨ next to the commit message** (Git view): Claude suggests the message from the staged
 changes (else all of them), in the style of the last commits of the repository and from your

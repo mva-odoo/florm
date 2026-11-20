@@ -1,7 +1,6 @@
-//! Claude Code itself in a terminal, in the middle of the Claude tab (Préférences → Claude dans un
-//! terminal): started for its conversation, what Florm gives it pasted into its field, and what
-//! its hooks tell read back (works, waits, done; its session, title, model and cost). See
-//! `crate::claude_term`.
+//! Claude Code itself in a terminal, in the middle of the Claude tab: started for its
+//! conversation, what Florm gives it pasted into its field, and what its hooks tell read back
+//! (works, waits, done; its session, title, model, cost and quotas). See `crate::claude_term`.
 
 use super::*;
 use crate::claude_term;
@@ -27,6 +26,14 @@ fn child_var(k: &str) -> bool {
 }
 
 impl App {
+    /// What Florm knows of the project of `dir`, for Claude's system prompt (`claude::florm_context`):
+    /// the commit rules, the branch.
+    fn florm_context(&self, dir: &Path) -> String {
+        let repo = self.repo_for(dir).unwrap_or_else(|| dir.to_path_buf());
+        let branch = git::head_branch(dir).map(|b| (self.repo_label(&repo), b));
+        claude::florm_context(&claude::FlormContext { commit_rules: claude::commit_rules(dir), repo: branch, version: self.version.clone() })
+    }
+
     /// The terminal of the conversation shown, started if it has none yet: `claude` with the
     /// settings of Florm, going on with its session if it has one.
     pub(in crate::app) fn claude_term_start(&mut self) {
@@ -56,13 +63,20 @@ impl App {
             self.claude.session_id = None;
         }
         let prompt = self.claude.term_prompt.take();
-        let argv = claude_term::argv(&settings_file, &session, prompt.as_deref());
+        let system = self.florm_context(&dir);
+        let fork = std::mem::take(&mut self.claude.forked) && !session.is_empty();
+        let plugin = crate::skills::plugin_dir();
+        let argv = claude_term::argv(&settings_file, &claude_term::Start { session_id: &session, fork, prompt: prompt.as_deref(), system: &system, plugin: plugin.as_deref() });
+        if fork {
+            // the copy gets a session of its own, said by its hooks
+            self.claude.session_id = None;
+        }
         let mut env: Vec<(String, String)> = account_dir.iter().map(|d| ("CLAUDE_CONFIG_DIR".to_string(), d.to_string_lossy().into_owned())).collect();
         // Florm started from a terminal where Claude Code runs: its `claude` would think it is a
         // child of that one (and keep no transcript, so no resuming): those variables taken out
         env.extend(std::env::vars().map(|(k, _)| k).filter(|k| child_var(k)).map(|k| (k, String::new())));
         let ctx = self.egui_ctx.clone();
-        match self.term.open_embedded(&ctx, &argv, dir, &env) {
+        match self.term.open_embedded(&ctx, &argv, dir.clone(), &env) {
             Ok(id) => {
                 self.claude.term = Some(id);
                 self.claude.term_file = Some(file);
@@ -76,9 +90,33 @@ impl App {
         }
     }
 
+    /// The `claude` of the conversation shown stopped: started again at the next frame (in its
+    /// folder, with its account, going on with its session).
+    pub(in crate::app) fn claude_term_stop(&mut self) {
+        if let Some(id) = self.claude.term.take().filter(|id| *id != 0) {
+            self.term.close(id);
+        }
+        self.claude.term_file = None;
+        self.claude.term_state = Default::default();
+        self.claude.term_waiting = false;
+    }
+
+    /// `text` sent to Claude (a request from a pull request, a conflict…), as a message of the
+    /// conversation shown.
+    pub(in crate::app) fn claude_send_text(&mut self, text: String) -> bool {
+        if text.trim().is_empty() {
+            return false;
+        }
+        if self.claude.dir.is_none() {
+            self.set_error(t!("Choisis d'abord le dossier où Claude travaille", "First choose the folder Claude works in"));
+            return false;
+        }
+        self.claude_term_send(text)
+    }
+
     /// `text` sent to the conversation shown, in its terminal: pasted then Enter (or it starts
     /// with it, when it has no terminal yet).
-    pub(in crate::app) fn claude_term_send(&mut self, text: String) -> bool {
+    fn claude_term_send(&mut self, text: String) -> bool {
         match self.claude.term {
             Some(id) if self.term.ready(id) => {
                 self.term.paste(id, &text);
@@ -116,16 +154,15 @@ impl App {
     /// text waiting to be pasted, once `claude` shows its field; the terminals of the
     /// conversations closed.
     pub(in crate::app) fn claude_term_tick(&mut self) {
-        if !self.settings.claude_terminal {
-            return;
-        }
         // a few times a second is enough
         if self.claude_term_read.is_some_and(|t| t.elapsed() < Duration::from_millis(300)) {
             return;
         }
         self.claude_term_read = Some(Instant::now());
         let sound = self.settings.claude_done_sound.clone();
-        let mut save = false;
+        let mut save: Vec<usize> = Vec::new();
+        let mut limits: Vec<(String, Vec<(String, f32, i64)>)> = Vec::new();
+        let accounts = claude_account::accounts(&self.settings.claude_accounts);
         let term = &mut self.term;
         for (k, c) in std::iter::once(&mut self.claude).chain(self.claude_others.iter_mut()).enumerate() {
             let (Some(id), Some(file)) = (c.term, c.term_file.clone()) else { continue };
@@ -166,13 +203,19 @@ impl App {
             if !st.session_id.is_empty() && c.session_id.as_deref() != Some(st.session_id.as_str()) {
                 c.session_id = Some(st.session_id.clone());
                 // Enter once `claude` ended goes on with this session
-                term.set_command(id, claude_term::argv(&file.with_extension("settings.json"), &st.session_id, None));
-                save |= k == 0;
+                term.set_command(id, claude_term::argv(&file.with_extension("settings.json"), &claude_term::Start { session_id: &st.session_id, plugin: crate::skills::plugin_dir().as_deref(), ..Default::default() }));
+                c.session_account = c.account.clone();
+                save.push(k);
             }
-            if !st.title.is_empty() && !c.items.iter().any(|i| matches!(i, Item::User(..))) {
-                c.items.push(Item::User(st.title.clone(), Vec::new(), Vec::new(), Vec::new()));
-                c.wish.get_or_insert(st.title.clone());
-                save |= k == 0;
+            if !st.title.is_empty() && c.wish.is_none() {
+                c.wish = Some(st.title.clone());
+                save.push(k);
+            }
+            if !st.limits.is_empty() && st.limits != old.limits {
+                // the quotas of its account (the first one: under no name)
+                let a = claude_account::find(&accounts, &c.account);
+                let key = if a.name == accounts[0].name { String::new() } else { a.name.clone() };
+                limits.push((key, st.limits.clone()));
             }
             c.cost = st.cost;
             if st.context > 0 {
@@ -186,8 +229,22 @@ impl App {
                 self.term.close(id);
             }
         }
-        if save {
-            self.claude_save();
+        for (key, l) in limits {
+            if self.claude_limits.get(&key) != Some(&l) {
+                self.claude_limits.insert(key, l);
+                write_limits(&self.claude_limits);
+            }
+        }
+        // each conversation whose session or title came, the others too (swapped in to be saved)
+        save.dedup();
+        for k in save {
+            if k == 0 {
+                self.claude_save();
+            } else if k <= self.claude_others.len() {
+                std::mem::swap(&mut self.claude, &mut self.claude_others[k - 1]);
+                self.claude_save();
+                std::mem::swap(&mut self.claude, &mut self.claude_others[k - 1]);
+            }
         }
     }
 }

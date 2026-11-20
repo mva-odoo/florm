@@ -402,8 +402,7 @@ impl App {
                 }
             }
         }
-        let empty = self.claude.session.is_none() && self.claude.items.iter().all(|i| matches!(i, claude_ui::Item::Info(_)));
-        if !(empty && self.claude.dir.as_deref() == Some(repo)) {
+        if !(self.claude.is_empty() && self.claude.dir.as_deref() == Some(repo)) {
             self.claude_new_in(repo.to_path_buf());
         }
         self.open_claude();

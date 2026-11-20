@@ -55,9 +55,8 @@ pub(in crate::app) fn project_color(name: &str, dark: bool) -> Color32 {
 }
 
 pub(in crate::app) fn conv_state(c: &ClaudeUi) -> ConvState {
-    // waits for you: a change or a command to allow (mode « Demander avant »)
-    // (or Claude in a terminal asks something: a permission, a question)
-    if !c.asks.is_empty() || c.term_waiting {
+    // Claude asks something: a permission, a question
+    if c.term_waiting {
         ConvState::Waiting
     } else if c.busy {
         ConvState::Working
@@ -99,8 +98,7 @@ impl App {
         let mut old = std::mem::replace(&mut self.claude, conv);
         old.tab = Some(LISTED);
         // an empty conversation is not kept in the list
-        let empty = old.session.is_none() && old.items.iter().all(|i| matches!(i, Item::Info(_)));
-        if !empty {
+        if !old.is_empty() {
             self.claude_others.push(old);
         }
         self.claude.unseen = false;
@@ -182,17 +180,13 @@ impl App {
             .all_convs()
             .map(|c| {
                 let project = c.dir.as_deref().map(|d| self.repo_label(d)).unwrap_or_default();
-                // its branch: the one of its worktree, else the one checked out in its folder
-                let mut place = match (&c.worktree, c.dir.as_deref().and_then(git::head_branch)) {
-                    (Some(w), _) => format!("🌿 {}", w.branch),
-                    (None, Some(b)) => format!("🔀 {b}"),
-                    (None, None) => String::new(),
-                };
+                // the branch checked out in its folder
+                let mut place = c.dir.as_deref().and_then(git::head_branch).map(|b| format!("🔀 {b}")).unwrap_or_default();
                 if accounts.len() > 1 {
                     let who = format!("👤 {}", crate::claude_account::find(&accounts, &c.account).name);
                     place = if place.is_empty() { who } else { format!("{who} · {place}") };
                 }
-                let title = if c.forked { format!("⇉ {}", conv_title(c)) } else { conv_title(c) };
+                let title = conv_title(c);
                 Row {
                     id: c.id,
                     tab: c.tab,
@@ -202,7 +196,7 @@ impl App {
                     state: conv_state(c),
                     since: c.busy_since.map(|t| t.elapsed()),
                     cost: c.cost,
-                    can_fork: c.session_id.is_some() && c.last_uuid.is_some(),
+                    can_fork: c.session_id.is_some(),
                 }
             })
             .collect();
@@ -226,7 +220,7 @@ impl App {
             ui.spacing_mut().item_spacing.y = 2.0;
             for r in &rows {
                 let shown = r.tab == Some(hub);
-                // its branch (or worktree) and account, what it costs, after its project (how long
+                // its branch and account, what it costs, after its project (how long
                 // it has been working is on the right of its title)
                 let mut parts: Vec<String> = Vec::new();
                 if !r.place.is_empty() {
@@ -373,19 +367,15 @@ impl App {
             }
             ListAct::Fork(id) => {
                 let Some(src) = self.all_convs().find(|c| c.id == id) else { return };
-                let (Some(session), Some(at)) = (src.session_id.clone(), src.last_uuid.clone()) else { return };
+                let Some(session) = src.session_id.clone() else { return };
                 let mut copy = self.claude_fresh(Some(LISTED));
                 copy.dir = src.dir.clone();
-                copy.model = src.model.clone();
-                copy.effort = src.effort.clone();
-                copy.mode = src.mode;
-                copy.add_dirs = src.add_dirs.clone();
-                copy.items = src.items.clone();
                 copy.wish = src.wish.clone();
+                copy.given = src.given.clone();
                 copy.context = src.context;
-                // the next message starts a copy of its session after its last answer
+                (copy.account, copy.session_account) = (src.account.clone(), src.session_account.clone());
+                // its `claude` starts with a copy of the session (`--fork-session`)
                 copy.session_id = Some(session);
-                copy.resume_at = Some(at);
                 copy.forked = true;
                 copy.focus = true;
                 let new_id = copy.id;
@@ -411,17 +401,13 @@ mod tests {
     fn states_of_a_conversation() {
         let mut c = ClaudeUi::default();
         assert_eq!(conv_state(&c), ConvState::Idle);
-        c.items.push(Item::User("x".into(), Vec::new(), Vec::new(), Vec::new()));
-        c.items.push(Item::Text("Fini.".into()));
         c.unseen = true;
         assert_eq!(conv_state(&c), ConvState::Done);
-        c.items.push(Item::User("ici".into(), Vec::new(), Vec::new(), Vec::new()));
         c.unseen = false;
-        assert_eq!(conv_state(&c), ConvState::Idle);
         c.busy = true;
         assert_eq!(conv_state(&c), ConvState::Working);
-        // a change to allow (mode « Demander avant »): it waits for you
-        c.asks.push(asks::Ask::new("r1".into(), "Edit".into(), serde_json::json!({"file_path": "/tmp/a.py"})));
+        // a permission or a question: it waits for you
+        c.term_waiting = true;
         assert_eq!(conv_state(&c), ConvState::Waiting);
         assert_eq!(short_duration(Duration::from_secs(3725)), "1 h 02");
         assert_eq!(short_duration(Duration::from_secs(42)), "42 s");

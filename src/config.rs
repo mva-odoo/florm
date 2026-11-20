@@ -47,27 +47,16 @@ pub struct Settings {
     pub claude_in_tab: bool,
     /// Every conversation in one Claude tab, listed on its left, instead of a tab each.
     pub claude_one_tab: bool,
-    /// Each conversation is Claude Code itself, in a terminal in the Claude tab (else Florm's own chat).
-    pub claude_terminal: bool,
     /// Parts that can be turned off: GitHub (pull requests), the debugger, Claude.
     pub github: bool,
     pub debugger: bool,
     pub claude: bool,
-    /// The review of Claude's changes on the right of the conversation.
+    /// The panel of the session (context, cost, quotas) on the right of Claude.
     pub claude_review: bool,
     /// Claude is done and its conversation is not shown: its tab blinks a few seconds.
     pub claude_done_blink: bool,
     /// Sound played when Claude is done (`sound::SOUNDS`); empty: none.
     pub claude_done_sound: String,
-    /// What Claude may do: "edit", "bash", "web", "agents", and "sandbox" (commands isolated),
-    /// "confine" (files of the project only).
-    pub claude_perms: Vec<String>,
-    /// Most dollars a conversation may spend (0: no limit).
-    pub claude_budget: f64,
-    /// Rules of Claude Code's permissions, allowed / refused besides `claude_perms`:
-    /// "Bash(git *)", "Edit(src/**)", "Read(./.env)", "WebFetch(domain:github.com)", "mcp__github"…
-    pub claude_allow: Vec<String>,
-    pub claude_deny: Vec<String>,
     /// Claude accounts: "name=configuration folder" (empty folder: the usual one of Claude Code).
     pub claude_accounts: Vec<String>,
     /// The account of new conversations and of the other calls (commit messages…); empty: the first.
@@ -206,17 +195,12 @@ impl Default for Settings {
             diff_side_by_side: false,
             claude_in_tab: false,
             claude_one_tab: true,
-            claude_terminal: true,
             github: true,
             debugger: true,
             claude: true,
             claude_review: true,
             claude_done_blink: true,
             claude_done_sound: "chime".into(),
-            claude_perms: ["edit", "agents", "sandbox"].map(String::from).to_vec(),
-            claude_budget: 0.0,
-            claude_allow: Vec::new(),
-            claude_deny: Vec::new(),
             claude_accounts: Vec::new(),
             claude_account: String::new(),
             claude_account_folders: Vec::new(),
@@ -321,19 +305,8 @@ claude = false
 claude_in_tab = false
 # toutes les conversations dans un seul onglet Claude, listées à sa gauche, plutôt qu'un onglet chacune
 claude_one_tab = true
-# chaque conversation est Claude Code lui-même, dans un terminal de l'onglet Claude (false : le chat de Florm)
-claude_terminal = true
-# revue des changements de Claude à droite de la conversation (bouton « Revue »)
+# session de Claude (contexte, coût, quotas) à droite de son terminal
 claude_review = true
-# Ce que Claude a le droit de faire : "edit" (modifier les fichiers), "bash" (lancer des commandes),
-# "web" (internet), "agents" (sous-agents), "sandbox" (commandes isolées), "confine" (fichiers du projet seulement)
-claude_perms = ["edit", "agents", "sandbox"]
-# dépense maximale d'une conversation en dollars (0 = sans limite)
-claude_budget = 0.0
-# règles de permission en plus des cases : autorisées et interdites, par ex. "Bash(git *)", "Edit(src/**)",
-# "Read(./.env)", "WebFetch(domain:github.com)", "mcp__github" (les outils d'un serveur MCP)
-claude_allow = []
-claude_deny = []
 # comptes Claude ("nom=dossier de configuration", dossier vide = celui habituel de Claude Code), par ex.
 # ["Pro=", "Perso=~/.claude-perso"] ; compte des nouvelles conversations et des messages de commit…
 claude_accounts = []

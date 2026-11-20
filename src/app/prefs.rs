@@ -725,9 +725,6 @@ impl App {
                 pref_row(ui, rc, t!("Un seul onglet Claude", "One Claude tab"), t!("Toutes les conversations dans le même onglet, listées à sa gauche (ce qu'elles font, leur dossier, depuis quand elles travaillent) : « Nouvelle conversation » ne crée plus d'onglet. Clic droit sur une conversation de la liste : l'ouvrir dans son propre onglet.", "Every conversation in the same tab, listed on its left (what they do, their folder, how long they have been working): “New conversation” no longer makes a tab. Right click on a conversation of the list: open it in its own tab."), |ui| {
                     toggle_switch(ui, &mut s.claude_one_tab);
                 });
-                pref_row(ui, rc, t!("Claude dans un terminal", "Claude in a terminal"), t!("Chaque conversation est Claude Code lui-même, dans un terminal au centre de l'onglet Claude : toujours à jour, ses commandes et ses raccourcis. La liste des conversations, le panneau Session, ✳ dans la marge, + Contexte, Ctrl+Alt+I et « Envoyer à Claude » écrivent dans ce terminal. Désactivé : le chat de Florm.", "Each conversation is Claude Code itself, in a terminal in the middle of the Claude tab: always up to date, its commands and its shortcuts. The list of conversations, the Session panel, ✳ in the margin, + Context, Ctrl+Alt+I and “Send to Claude” write into that terminal. Off: Florm's own chat."), |ui| {
-                    toggle_switch(ui, &mut s.claude_terminal);
-                });
                 pref_row(ui, rc, t!("Claude a fini : clignoter", "Claude is done: blink"), t!("Quand Claude a fini de répondre et que sa conversation n'est pas affichée, son onglet clignote quelques secondes, puis reste vert jusqu'à ce que tu la regardes.", "When Claude is done answering and its conversation is not shown, its tab blinks a few seconds, then stays green until you look at it."), |ui| {
                     toggle_switch(ui, &mut s.claude_done_blink);
                 });
@@ -1268,7 +1265,6 @@ impl App {
             ("search_in_tab", s.search_in_tab, before.search_in_tab),
             ("claude_in_tab", s.claude_in_tab, before.claude_in_tab),
             ("claude_one_tab", s.claude_one_tab, before.claude_one_tab),
-            ("claude_terminal", s.claude_terminal, before.claude_terminal),
             ("claude_done_blink", s.claude_done_blink, before.claude_done_blink),
             ("github", s.github, before.github),
             ("debugger", s.debugger, before.debugger),

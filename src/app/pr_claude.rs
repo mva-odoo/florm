@@ -96,8 +96,7 @@ impl App {
         let text = request(d, &self.pr.to_claude);
         let n = self.pr.to_claude.len();
         // the conversation shown, if nothing was said in it yet in this folder; else a new one
-        let empty = self.claude.session.is_none() && self.claude.items.iter().all(|i| matches!(i, claude_ui::Item::Info(_)));
-        if !(empty && self.claude.dir.as_deref() == Some(repo.as_path())) {
+        if !(self.claude.is_empty() && self.claude.dir.as_deref() == Some(repo.as_path())) {
             self.claude_new_in(repo);
         }
         self.open_claude();

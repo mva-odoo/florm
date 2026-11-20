@@ -409,105 +409,6 @@ pub(super) fn markdown(ui: &mut egui::Ui, cache: &mut egui_commonmark::CommonMar
     }
 }
 
-/// Markdown whose tasks (`- [ ]`, `- [x]`) have a checkbox to tick them off; the other lines are plain markdown. `checks`
-/// keeps the boxes changed by a click, by message (`msg`) and item text: a box starts as its
-/// marker says (`[x]`: ticked).
-pub(super) fn markdown_checks(ui: &mut egui::Ui, cache: &mut egui_commonmark::CommonMarkCache, hl: &Highlighting, text: &str, checks: &mut HashSet<(usize, String)>, msg: usize) {
-    for (k, part) in blocks(text).into_iter().enumerate() {
-        let t = match part {
-            MdPart::Text(t) => autolink(&t),
-            MdPart::Code { lang, code } => {
-                code_block(ui, Some(hl), &lang, &code);
-                continue;
-            }
-            MdPart::Table { header, rows } => {
-                ui.push_id(k, |ui| table(ui, cache, &header, &rows));
-                continue;
-            }
-        };
-        let lines: Vec<&str> = t.lines().collect();
-        let mut prose = String::new();
-        let mut i = 0;
-        while i < lines.len() {
-            let Some(item) = list_item(lines[i]) else {
-                prose.push_str(lines[i]);
-                prose.push('\n');
-                i += 1;
-                continue;
-            };
-            if !prose.trim().is_empty() {
-                egui_commonmark::CommonMarkViewer::new().show(ui, cache, &prose);
-            }
-            prose.clear();
-            // the indented lines after the item are part of it (its sub-items and text)
-            let mut body = item.text.to_string();
-            i += 1;
-            while i < lines.len() && lines[i].starts_with("  ") && !lines[i].trim().is_empty() {
-                body.push('\n');
-                body.push_str(lines[i].trim_start());
-                i += 1;
-            }
-            let key = (msg, item.text.to_string());
-            let mut now = item.checked ^ checks.contains(&key);
-            ui.horizontal_top(|ui| {
-                if ui.checkbox(&mut now, "").changed() {
-                    if now != item.checked {
-                        checks.insert(key.clone());
-                    } else {
-                        checks.remove(&key);
-                    }
-                }
-                ui.vertical(|ui| {
-                    egui_commonmark::CommonMarkViewer::new().show(ui, cache, &body);
-                });
-            });
-        }
-        if !prose.trim().is_empty() {
-            egui_commonmark::CommonMarkViewer::new().show(ui, cache, &prose);
-        }
-    }
-}
-
-/// The tasks (`- [ ]`) of a markdown text, outside the code blocks: (text, ticked in the text).
-pub(super) fn tasks(text: &str) -> Vec<(String, bool)> {
-    parts(text)
-        .into_iter()
-        .filter_map(|p| match p {
-            MdPart::Text(t) => Some(t),
-            _ => None,
-        })
-        .flat_map(|t| t.lines().filter_map(list_item).map(|i| (i.text.to_string(), i.checked)).collect::<Vec<_>>())
-        .collect()
-}
-
-/// A task of the top level: its box (`[x]` ticked) and its text.
-struct ListItem<'a> {
-    checked: bool,
-    text: &'a str,
-}
-
-fn list_item(line: &str) -> Option<ListItem<'_>> {
-    // indented lines belong to the item above
-    if line.starts_with(' ') || line.starts_with('\t') {
-        return None;
-    }
-    let rest = line
-        .strip_prefix("- ")
-        .or_else(|| line.strip_prefix("* "))
-        .or_else(|| line.strip_prefix("+ "))
-        .or_else(|| {
-            let d = line.find(". ")?;
-            (d > 0 && line[..d].bytes().all(|b| b.is_ascii_digit())).then(|| &line[d + 2..])
-        })?;
-    // only a task (`- [ ]`, `- [x]`) has a box: a plain bullet stays text
-    let (checked, text) = match rest.get(..3) {
-        Some("[ ]") => (false, &rest[3..]),
-        Some("[x]") | Some("[X]") => (true, &rest[3..]),
-        _ => return None,
-    };
-    Some(ListItem { checked, text: text.trim() })
-}
-
 thread_local! {
     /// The colored code blocks already laid out: (key of language, code, theme and size) →
     /// (text, frame it was last drawn). Those not drawn for a while go.
@@ -605,32 +506,15 @@ pub(super) fn copy_button(ui: &mut egui::Ui, text: &str, label: &str) {
 }
 
 #[cfg(test)]
-mod list_tests {
-    use super::*;
-
-    #[test]
-    fn list_items_and_their_boxes() {
-        assert!(list_item("- [x] fait").is_some_and(|i| i.checked && i.text == "fait"));
-        assert!(list_item("- [ ] à faire").is_some_and(|i| !i.checked && i.text == "à faire"));
-        // plain bullets, indented lines and prose have no box
-        assert!(list_item("- faire ceci").is_none());
-        assert!(list_item("2. Deux").is_none());
-        assert!(list_item("  - [ ] sous-point").is_none());
-        assert!(list_item("Une phrase.").is_none());
-    }
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
 
-    /// A click on an address of an answer asks to open it in the browser.
+    /// A click on an address of a text (a comment of a pull request…) asks to open it in the browser.
     #[test]
     fn a_click_on_a_link_opens_it() {
         let ctx = egui::Context::default();
         let hl = Highlighting::new("Florm", Path::new("/nonexistent"));
         let mut cache = egui_commonmark::CommonMarkCache::default();
-        let mut checks = HashSet::new();
         let screen = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 400.0)));
         let mut at = None;
         let mut opened = None;
@@ -645,7 +529,7 @@ mod tests {
             }
             let out = ctx.run(egui::RawInput { screen_rect: screen, events, ..Default::default() }, |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
-                    markdown_checks(ui, &mut cache, &hl, "Publiée : https://github.com/o/r/releases/tag/v1", &mut checks, 0);
+                    markdown(ui, &mut cache, Some(&hl), "Publiée : https://github.com/o/r/releases/tag/v1");
                 });
             });
             // where the link is: the end of the line

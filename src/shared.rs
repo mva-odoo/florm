@@ -18,11 +18,11 @@ use std::sync::Mutex;
 pub const DEFAULT_REPO: &str = "florm-config";
 
 /// Settings that stay on each computer (never written to the shared settings.toml).
-/// Commands run, or permissions of Claude: they stay on each computer (a shared repository must not
+/// Commands run: they stay on each computer (a shared repository must not
 /// set them: it could run any command on every computer that syncs it).
 pub const LOCAL_KEYS: &[&str] = &[
     "shared_config", "skills_dir", "odoo_test_history", "odoo_test_container", "shell", "debug_target", "debug_command", "debug_command_node", "debug_command_native", "debug_command_go", "debug_python",
-    "debug_docker_command", "odoo_test_command", "lsp_servers", "python_linter", "python_lint_args", "claude_perms", "claude_allow", "claude_deny",
+    "debug_docker_command", "odoo_test_command", "lsp_servers", "python_linter", "python_lint_args",
 ];
 
 /// `shared_config` of the local settings (set by `config::load`).

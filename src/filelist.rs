@@ -54,9 +54,6 @@ impl FileList {
         None
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &str> {
-        (0..self.len()).filter_map(|i| self.get(i))
-    }
 }
 
 #[cfg(test)]
@@ -66,7 +63,7 @@ mod tests {
     #[test]
     fn sorted_and_found() {
         let l = FileList::new(["b/x.py", "a.py", "b/a.py"].map(String::from).to_vec());
-        assert_eq!(l.iter().collect::<Vec<_>>(), ["a.py", "b/a.py", "b/x.py"]);
+        assert_eq!((0..l.len()).filter_map(|i| l.get(i)).collect::<Vec<_>>(), ["a.py", "b/a.py", "b/x.py"]);
         assert_eq!((l.get(1), l.get(3)), (Some("b/a.py"), None));
         assert_eq!(l.position(Path::new("b/x.py")), Some(2));
         assert_eq!(l.position(Path::new("a.py")), Some(0));

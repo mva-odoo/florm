@@ -47,10 +47,6 @@ mod conflicts;
 mod pr_claude;
 mod pr_links;
 mod claude_ui;
-mod claude_queue;
-mod claude_model;
-mod claude_turns;
-mod claude_tools;
 mod md_toolbar;
 mod theme_edit;
 mod template_edit;
@@ -170,14 +166,6 @@ fn replace_field<'t>(text: &'t mut String, hint: &str) -> egui::TextEdit<'t> {
         .return_key(egui::KeyboardShortcut::new(egui::Modifiers::SHIFT, Key::Enter))
         .hint_text(hint)
         .font(egui::TextStyle::Monospace)
-}
-
-/// Layout of a multiline field: a word longer than the width (a path, a URL) is cut at the edge
-/// instead of running past it, under the panel next to it.
-fn layout_cutting(ui: &egui::Ui, text: &str, wrap_width: f32) -> std::sync::Arc<egui::Galley> {
-    let mut job = egui::text::LayoutJob::simple(text.to_string(), egui::TextStyle::Body.resolve(ui.style()), ui.visuals().widgets.inactive.text_color(), wrap_width);
-    job.wrap.break_anywhere = true;
-    ui.fonts(|f| f.layout_job(job))
 }
 
 fn replace_tip() -> &'static str {
@@ -1082,15 +1070,9 @@ pub struct App {
     /// brought back at the first showing of Claude.
     claude_saved: Vec<claude_ui::SavedMeta>,
     claude_loaded: bool,
-    /// Use of the plan's quotas (5 hours, 7 days), shared by the conversations and kept between
-    /// sessions.
-    /// The quotas of each Claude account (key: `App::claude_limits_key`).
+    /// Use of the plan's quotas (5 hours, 7 days) of each Claude account (key:
+    /// `App::claude_limits_key`), kept between sessions.
     claude_limits: HashMap<String, Vec<(String, f32, i64)>>,
-    /// Slash commands of Claude Code (the last known, kept between sessions): sent as a message,
-    /// and those of its terminal interface only.
-    claude_commands: claude_ui::Commands,
-    /// The models of Claude Code were asked during this session (`claude_ask_models`).
-    claude_models_asked: bool,
     /// For the places without a context at hand (prompt submission).
     egui_ctx: egui::Context,
     /// The window has no system title bar: Florm draws its own (`title_bar`).
@@ -1351,8 +1333,6 @@ impl App {
             claude_saved: claude_ui::load_saved(),
             claude_loaded: false,
             claude_limits: claude_ui::load_limits(),
-            claude_commands: claude_ui::load_commands(),
-            claude_models_asked: false,
             egui_ctx: egui_ctx.clone(),
             title_bar_on: crate::os::draws_title_bar(settings.show_menu_bar),
             tree_scroll: None,
@@ -1627,8 +1607,6 @@ impl eframe::App for App {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        // a Claude still at work is stopped with Florm: its conversation says so at the next start
-        self.claude_mark_interrupted();
         // the Claude conversations being written are written before Florm stops
         claude_ui::wait_saved();
         if let Some(exe) = self.restart.take() {
@@ -1661,7 +1639,7 @@ impl eframe::App for App {
         }
         self.sync_decorations(ctx);
         let (dropped, pos): (Vec<PathBuf>, _) = ctx.input(|i| (i.raw.dropped_files.iter().filter_map(|f| f.path.clone()).collect(), i.pointer.latest_pos()));
-        // images dropped on the Claude conversation go with its next message
+        // images dropped on Claude: their paths written into its field
         let on_claude = self.claude.drop_area.is_some_and(|(f, r)| f + 2 >= ctx.cumulative_pass_nr() && pos.is_none_or(|p| r.contains(p)));
         for p in dropped {
             if on_claude && claude_ui::is_image_file(&p) {
@@ -2081,7 +2059,7 @@ enum HistAct {
     /// Compare two revisions: (from, to, title).
     Compare(String, String, String),
     Rebase(String),
-    /// Given to Claude with the next message.
+    /// Given to Claude (written into its field).
     Claude(String),
     /// `git merge` of a branch or commit into the current branch.
     Merge(String),
@@ -2688,63 +2666,6 @@ mod font_tests {
             frame(&mut app, Vec::new());
         }
         assert!(offset() > 300.0, "{}", offset());
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// A click on an address in an answer of Claude opens it, in the real Claude tab, also between
-    /// parentheses. `FLORM_TEST_APP=1`.
-    #[test]
-    fn links_of_claude_open() {
-        if std::env::var_os("FLORM_TEST_APP").is_none() {
-            return;
-        }
-        let dir = std::env::temp_dir().join(format!("florm_links_{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        let (conf, proj) = (dir.join("conf"), dir.join("proj"));
-        std::fs::create_dir_all(&conf).unwrap();
-        std::fs::create_dir_all(&proj).unwrap();
-        std::fs::write(conf.join("settings.toml"), "check_updates = false\nlsp = false\nclaude_terminal = false\n").unwrap();
-        let _lock = config::TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        std::env::set_var("FLORM_CONFIG", &conf);
-        let ctx = egui::Context::default();
-        let mut app = App::with_ctx(&ctx, Some(proj.clone()));
-        crate::tools::Tool::Claude.pretend_installed();
-        app.claude_restore_tab(0);
-        app.claude.items.push(claude_ui::Item::User("la release ?".into(), Vec::new(), Vec::new(), Vec::new()));
-        app.claude.items.push(claude_ui::Item::Text("En cours (https://github.com/o/r/releases/tag/v1) ; je te préviens.".into()));
-        let screen = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1400.0, 900.0)));
-        // where the address is drawn
-        fn find(s: &egui::Shape, out: &mut Option<egui::Rect>) {
-            match s {
-                egui::Shape::Text(t) if t.galley.text().contains("github.com/o/r") => *out = Some(t.visual_bounding_rect()),
-                egui::Shape::Vec(v) => v.iter().for_each(|x| find(x, out)),
-                _ => {}
-            }
-        }
-        let mut at: Option<egui::Pos2> = None;
-        let mut opened = None;
-        for frame in 0..8 {
-            let mut events = Vec::new();
-            if let Some(p) = at {
-                events.push(egui::Event::PointerMoved(p));
-                if frame >= 5 {
-                    events.push(egui::Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed: frame == 5, modifiers: Default::default() });
-                }
-            }
-            let out = ctx.run(egui::RawInput { screen_rect: screen, events, ..Default::default() }, |ctx| {
-                app.sidebar(ctx);
-                app.central(ctx);
-            });
-            if at.is_none() {
-                let mut r = None;
-                out.shapes.iter().for_each(|c| find(&c.shape, &mut r));
-                // in the address (« En cours ( » is about 70 points wide)
-                at = r.map(|r| egui::pos2(r.left() + 120.0, r.center().y));
-            }
-            opened = opened.or(out.platform_output.open_url.map(|u| u.url));
-        }
-        assert!(at.is_some(), "the address is not drawn");
-        assert_eq!(opened.as_deref(), Some("https://github.com/o/r/releases/tag/v1"), "clicked at {at:?}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

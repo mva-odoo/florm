@@ -26,6 +26,8 @@ pub struct State {
     pub model: String,
     pub cost: f64,
     pub context: u64,
+    /// The quotas of the plan: (window "five_hour" / "seven_day", fraction used, reset time).
+    pub limits: Vec<(String, f32, i64)>,
 }
 
 /// The folder of the files of the conversations in a terminal.
@@ -58,7 +60,19 @@ fn write_json(file: &Path, v: &Value) {
 pub fn read(file: &Path) -> State {
     let v = read_json(file);
     let s = |k: &str| v[k].as_str().unwrap_or("").to_string();
-    State { state: s("state"), session_id: s("session_id"), title: s("title"), model: s("model"), cost: v["cost"].as_f64().unwrap_or(0.0), context: v["context"].as_u64().unwrap_or(0) }
+    State { state: s("state"), session_id: s("session_id"), title: s("title"), model: s("model"), cost: v["cost"].as_f64().unwrap_or(0.0), context: v["context"].as_u64().unwrap_or(0), limits: limits_of(&v["limits"]) }
+}
+
+/// The quotas of the status line (`rate_limits`: each window its percentage used and its reset).
+fn limits_of(v: &Value) -> Vec<(String, f32, i64)> {
+    ["five_hour", "seven_day"]
+        .iter()
+        .filter_map(|w| {
+            let l = &v[*w];
+            let used = l["used_percentage"].as_f64()?;
+            Some((w.to_string(), (used / 100.0) as f32, l["resets_at"].as_i64().unwrap_or(0)))
+        })
+        .collect()
 }
 
 /// The settings of Florm for `claude`: the hooks and the status line that write in `file`.
@@ -76,13 +90,33 @@ pub fn settings(exe: &Path, file: &Path) -> Value {
     })
 }
 
-/// The command of a conversation: `claude` with the settings of Florm, going on with its session
-/// when it has one, else starting with `prompt` (if any).
-pub fn argv(settings_file: &Path, session_id: &str, prompt: Option<&str>) -> Vec<String> {
+/// How a conversation starts: going on with its session (or a copy of it, `fork`), else with a
+/// first message; and what Florm tells Claude of the project (its system prompt).
+#[derive(Default)]
+pub struct Start<'a> {
+    pub session_id: &'a str,
+    pub fork: bool,
+    pub prompt: Option<&'a str>,
+    pub system: &'a str,
+    /// The plugin of the user's skills (`crate::skills`).
+    pub plugin: Option<&'a Path>,
+}
+
+/// The command of a conversation: `claude` with the settings of Florm.
+pub fn argv(settings_file: &Path, s: &Start) -> Vec<String> {
     let mut v = vec!["claude".to_string(), "--settings".into(), settings_file.to_string_lossy().into_owned()];
-    if !session_id.is_empty() {
-        v.extend(["--resume".into(), session_id.to_string()]);
-    } else if let Some(p) = prompt.filter(|p| !p.trim().is_empty()) {
+    if !s.system.trim().is_empty() {
+        v.extend(["--append-system-prompt".into(), s.system.to_string()]);
+    }
+    if let Some(p) = s.plugin {
+        v.extend(["--plugin-dir".into(), p.to_string_lossy().into_owned()]);
+    }
+    if !s.session_id.is_empty() {
+        v.extend(["--resume".into(), s.session_id.to_string()]);
+        if s.fork {
+            v.push("--fork-session".into());
+        }
+    } else if let Some(p) = s.prompt.filter(|p| !p.trim().is_empty()) {
         v.push(p.to_string());
     }
     v
@@ -140,6 +174,9 @@ pub fn status(file: &Path) {
     if context > 0 {
         v["context"] = json!(context);
     }
+    if s["rate_limits"].is_object() {
+        v["limits"] = s["rate_limits"].clone();
+    }
     write_json(file, &v);
     if cost > 0.0 {
         println!("{model} · {cost:.2} $");
@@ -174,17 +211,21 @@ mod tests {
         let _ = std::fs::remove_file(&f);
         let s = settings(Path::new("/opt/florm"), &f).to_string();
         assert!(s.contains(r#"\"/opt/florm\" --claude-hook"#) && s.contains("UserPromptSubmit") && s.contains("statusLine"), "{s}");
-        assert_eq!(argv(Path::new("/s.json"), "", Some("fais ça")), ["claude", "--settings", "/s.json", "fais ça"]);
-        assert_eq!(argv(Path::new("/s.json"), "abc", Some("ignored")), ["claude", "--settings", "/s.json", "--resume", "abc"]);
+        let s = Path::new("/s.json");
+        assert_eq!(argv(s, &Start { prompt: Some("fais ça"), ..Default::default() }), ["claude", "--settings", "/s.json", "fais ça"]);
+        assert_eq!(argv(s, &Start { session_id: "abc", prompt: Some("ignored"), ..Default::default() }), ["claude", "--settings", "/s.json", "--resume", "abc"]);
+        assert_eq!(argv(s, &Start { session_id: "abc", fork: true, system: "règles", ..Default::default() }), ["claude", "--settings", "/s.json", "--append-system-prompt", "règles", "--resume", "abc", "--fork-session"]);
         assert_eq!(read(&f), State::default());
         let mut v = json!({});
         v["state"] = json!("busy");
         v["title"] = json!("corrige le bug");
         v["session_id"] = json!("s1");
         v["cost"] = json!(1.5);
+        v["limits"] = json!({"five_hour": {"used_percentage": 42.0, "resets_at": 1792619400}});
         write_json(&f, &v);
         let st = read(&f);
         assert_eq!((st.state.as_str(), st.title.as_str(), st.session_id.as_str(), st.cost), ("busy", "corrige le bug", "s1", 1.5));
+        assert_eq!(st.limits, vec![("five_hour".to_string(), 0.42, 1792619400)]);
         let _ = std::fs::remove_file(&f);
     }
 

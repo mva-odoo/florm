@@ -125,7 +125,7 @@ impl App {
                     self.claude_set_dir(p.clone());
                 }
             }
-            // images: all the ones chosen go with the next message
+            // images: all the ones chosen are given to Claude
             None => paths.iter().for_each(|p| self.claude_attach_image_file(p)),
         }
     }
