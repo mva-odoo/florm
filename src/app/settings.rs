@@ -29,10 +29,15 @@ impl App {
             self.visuals_dirty = true;
         }
         let parts = (s.github, s.debugger, s.claude) != (self.settings.github, self.settings.debugger, self.settings.claude);
+        let sandbox = s.claude_sandbox != self.settings.claude_sandbox;
         history::SIDE_BY_SIDE.store(s.diff_side_by_side, Ordering::Relaxed);
         self.settings = s;
         if parts {
             self.apply_features();
+        }
+        // changed in the file too: the conversations open start again with it, as from the preferences
+        if sandbox {
+            self.claude_restart_terms();
         }
         self.rebuild_keymap();
         self.set_status(t!("Préférences rechargées", "Preferences reloaded"));

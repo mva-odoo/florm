@@ -309,7 +309,8 @@ claude_in_tab = false
 # toutes les conversations dans un seul onglet Claude, listées à sa gauche, plutôt qu'un onglet chacune
 claude_one_tab = true
 # les commandes de Claude tournent dans le bac à sable de Claude Code : écriture dans le projet seulement,
-# réseau filtré (Linux : paquets bubblewrap et socat ; macOS : intégré ; pas sous Windows hors WSL)
+# réseau filtré (Linux : paquets bubblewrap et socat ; macOS : Seatbelt, intégré ; pas sous Windows hors WSL).
+# false : aucun bac à sable, même si les réglages de Claude Code en activent un. Pris en compte sans redémarrer Florm
 claude_sandbox = true
 # session de Claude (contexte, coût, quotas) à droite de son terminal
 claude_review = true
