@@ -14,6 +14,8 @@ pub(super) struct BarData<'a> {
     pub(super) in_tab: bool,
     /// The panel of the session is shown.
     pub(super) side: bool,
+    /// The list of the conversations is on the left (its « + » starts a new one).
+    pub(super) listed: bool,
 }
 
 /// What was asked in the bar, done once it is drawn (when `self` is free).
@@ -142,7 +144,7 @@ fn gauges(ui: &mut egui::Ui, c: &ClaudeUi, limits: &[(String, f32, i64)], accent
 
 /// The bar above the conversation.
 pub(super) fn bar(ui: &mut egui::Ui, c: &mut ClaudeUi, accent: Color32, d: BarData<'_>) -> Acts {
-    let BarData { dirs, dir_name, history, accounts, account_name, limits, in_tab, side } = d;
+    let BarData { dirs, dir_name, history, accounts, account_name, limits, in_tab, side, listed } = d;
     let mut a = Acts::default();
     let fill = ui.visuals().panel_fill;
     egui::TopBottomPanel::top(egui::Id::new("claude_bar").with(c.id))
@@ -167,7 +169,7 @@ pub(super) fn bar(ui: &mut egui::Ui, c: &mut ClaudeUi, accent: Color32, d: BarDa
                 .response
                 .on_disabled_hover_text(t!("Pour changer : « Nouvelle conversation »", "To change: “New conversation”"))
                 .on_hover_text(t!("Le dossier où Claude travaille : un dépôt du projet, un projet récent ou n'importe quel dossier", "The folder Claude works in: a repository of the project, a recent project or any folder"));
-                if ui.button(t!("+ Nouvelle", "+ New")).on_hover_text(t!("Une nouvelle conversation : celle-ci continue dans la liste", "A new conversation: this one goes on in the list")).clicked() {
+                if !listed && ui.button(t!("+ Nouvelle", "+ New")).on_hover_text(t!("Une nouvelle conversation : celle-ci continue dans la liste", "A new conversation: this one goes on in the list")).clicked() {
                     a.new_conv = true;
                 }
                 context_menu(ui, c, &mut a);

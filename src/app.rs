@@ -1047,6 +1047,8 @@ pub struct App {
     shot: Option<screenshot::Shot>,
     /// When the states of the conversations in a terminal were last read (Claude dans un terminal).
     claude_term_read: Option<Instant>,
+    /// The list of the conversations is drawn beside the one being drawn (its « + » makes « + Nouvelle » useless).
+    claude_list_shown: bool,
     /// The window of the versions side by side (state of each, update, remove…).
     versions_view: Option<versions_view::VersionsView>,
     /// Versions side by side in the opened folder (`odoo/17.0`, `odoo/20.0`…, see `git::Versions`).
@@ -1316,6 +1318,7 @@ impl App {
             version_add: None,
             shot: None,
             claude_term_read: None,
+            claude_list_shown: false,
             versions_view: None,
             versions: Vec::new(),
             version: String::new(),

@@ -136,7 +136,8 @@ impl App {
                 let mut act = None;
                 // narrow with a single conversation: the list would only take room from it
                 let alone = ui.available_width() < 820.0 && self.claude_conversations().len() <= 1;
-                if self.settings.claude_one_tab && !alone {
+                self.claude_list_shown = self.settings.claude_one_tab && !alone;
+                if self.claude_list_shown {
                     let fill = ui.visuals().panel_fill;
                     egui::SidePanel::left(egui::Id::new("claude_list").with(uid))
                         .resizable(true)
@@ -146,6 +147,7 @@ impl App {
                         .show_inside(ui, |ui| act = self.claude_list_ui(ui, uid));
                 }
                 egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.claude_show(ui, Some(uid)));
+                self.claude_list_shown = false;
                 if let Some(a) = act {
                     self.claude_list_act(a, uid);
                 }
