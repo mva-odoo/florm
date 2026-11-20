@@ -97,32 +97,17 @@ impl App {
             ui.style_mut().text_styles.insert(egui::TextStyle::Button, egui::FontId::proportional(12.5));
             ui.visuals_mut().override_text_color = Some(ui.visuals().weak_text_color());
             ui.horizontal_centered(|ui| {
-                if !self.settings.show_menu_bar {
-                    let mut pending = Vec::new();
-                    ui.menu_button("☰", |ui| {
-                        ui.visuals_mut().override_text_color = None;
-                        self.menus(ui, &mut pending);
-                        ui.separator();
-                        if ui.button(t!("Afficher la barre de menus", "Show the menu bar")).clicked() {
-                            pending.push(Cmd::ToggleMenuBar);
-                            ui.close_menu();
-                        }
-                    })
-                    .response
-                    .on_hover_text(t!("Menus (barre de menus masquée)", "Menus (menu bar hidden)"));
-                    self.pending.extend(pending);
-                }
-                // the bottom panel: a click shows / hides it, a right click picks the view to open
-                let keys = self.keymap.label(Cmd::TogglePanel);
-                let tip = tf!("Panneau du bas ({keys}) · clic droit : ouvrir une vue", "Bottom panel ({keys}) · right click: open a view");
-                let panel = icons::layout_button(ui, icons::Layout::ToBottom, &tip);
-                if panel.clicked() {
-                    self.pending.push(Cmd::TogglePanel);
-                }
-                let mut chosen = None;
-                panel.context_menu(|ui| chosen = self.tools_menu(ui, self.bottom));
-                if let Some(p) = chosen {
-                    self.apply_pick(p, false);
+                // the preferences, one click away (a click on them shown goes back to the tab before)
+                let shown = self.docs.get(self.active).is_some_and(|d| d.view == crate::document::View::Settings);
+                let keys = self.keymap.label(Cmd::OpenSettings);
+                let tip = if keys.is_empty() { t!("Préférences", "Preferences").to_string() } else { tf!("Préférences ({keys})", "Preferences ({keys})") };
+                let color = if shown { self.hl.colors.accent } else { ui.visuals().weak_text_color() };
+                if view_button(ui, icons::ViewIcon::Settings, color).on_hover_text(tip).clicked() {
+                    if shown {
+                        self.leave_tab(crate::document::View::Settings);
+                    } else {
+                        self.pending.push(Cmd::OpenSettings);
+                    }
                 }
                 // the views of every day, one click away: Claude, Git, the pull requests (their tab;
                 // a click on the one shown goes back to the tab before it) and the terminal

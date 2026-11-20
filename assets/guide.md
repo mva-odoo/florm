@@ -107,8 +107,7 @@ côte, divise l'éditeur.
 - **⇱ / ⇲ dans l'en-tête de la recherche et du débogage** les met dans un onglet ou dans le panneau
   du bas, et Florm s'en souvient : leur raccourci, la palette, la barre d'état et ▾ les ouvriront
   ensuite au même endroit. Une vue qui a déjà son onglet s'y affiche, jamais à deux endroits.
-- **La barre d'état ne montre que ce qui se passe** : à gauche le bouton du panneau du bas (clic :
-  l'afficher ou le masquer, clic droit : ouvrir une vue), puis les icônes de **Claude**, **Git**,
+- **La barre d'état ne montre que ce qui se passe** : à gauche l'icône des **Préférences**, puis celles de **Claude**, **Git**,
   **Pull requests** (un clic ouvre son onglet, un autre revient à l'onglet d'avant ; en couleur quand
   il est affiché) et **Terminal** (le terminal du panneau du bas) ; à droite la branche (**↑** commits à
   pousser, **↓** à récupérer, **●** fichiers modifiés) du dépôt du fichier affiché (il suit les
@@ -646,8 +645,8 @@ Le **HTML** courant s'affiche aussi : `<br>`, `<b>`, `<i>`, `<kbd>`, `<img>`, `<
 Florm Light, et Florm Monokai, One Dark, Dracula, GitHub Light d'après les thèmes habituels des autres
 éditeurs), couleur d'accentuation,
 **texte adouci** (texte moins « gras », utile sur les thèmes clairs), polices de l'éditeur et
-de l'interface, minimap, fil d'Ariane, **barre de menus** (masquée, les menus restent sous **☰**
-en bas à gauche).
+de l'interface, minimap, fil d'Ariane, **barre de menus** (masquée, ses commandes restent dans la palette,
+**Ctrl+Shift+P**).
 
 **Style** : **Arrondi** (cartes et boutons arrondis, ombres sous les menus) ou **Carré** : coins
 droits, sans ombres, et toute l'interface dans la police monospace du système (celle du terminal,

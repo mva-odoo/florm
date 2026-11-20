@@ -474,7 +474,7 @@ impl App {
                 pref_row(ui, rc, t!("Barre de mise en forme Markdown", "Markdown toolbar"), t!("Au-dessus du texte d'un fichier .md : gras, italique, titres, listes, liens… autour de la sélection.", "Above the text of a .md file: bold, italic, headings, lists, links… around the selection."), |ui| {
                     toggle_switch(ui, &mut s.markdown_toolbar);
                 });
-                pref_row(ui, rc, t!("Barre de menus", "Menu bar"), t!("Fichier, Édition, Sélection… en haut de la fenêtre. Masquée, les menus restent accessibles par ☰ en bas à gauche.", "File, Edit, Selection… at the top of the window. Hidden, the menus are still under ☰ at the bottom left."), |ui| {
+                pref_row(ui, rc, t!("Barre de menus", "Menu bar"), t!("Fichier, Édition, Sélection… en haut de la fenêtre. Masquée, ses commandes restent dans la palette (Ctrl+Shift+P).", "File, Edit, Selection… at the top of the window. Hidden, its commands are still in the palette (Ctrl+Shift+P)."), |ui| {
                     toggle_switch(ui, &mut s.show_menu_bar);
                 });
                 pref_row(ui, rc, t!("Fil d'Ariane", "Breadcrumbs"), t!("Dossier › fichier › classe › fonction au-dessus de l'éditeur ; clic sur un élément pour y aller.", "Folder › file › class › function above the editor; click an item to go to it."), |ui| {

@@ -105,8 +105,7 @@ also the search and the debugger if you want. To see two tabs side by side, spli
 - **⇱ / ⇲ in the header of the search and the debugger** puts them in a tab or in the bottom
   panel, and Florm remembers: their shortcut, the palette, the status bar and ▾ then open them in
   the same place. A view that already has its tab is shown there, never in two places.
-- **The status bar only shows what is going on**: on the left the button of the bottom panel
-  (click: show or hide it, right click: open a view), then the icons of **Claude**, **Git**,
+- **The status bar only shows what is going on**: on the left the icon of the **Preferences**, then those of **Claude**, **Git**,
   **Pull requests** (a click opens its tab, another one goes back to the tab before; coloured when
   it is shown) and **Terminal** (the terminal of the bottom panel); on the right the branch (**↑** commits to
   push, **↓** to pull, **●** changed files) of the repository of the file shown (it follows the
@@ -635,8 +634,8 @@ Omarchy. An interface font chosen by hand still wins.
 **Preferences → Appearance**: language (Français / English), theme (clickable previews: Florm and
 Florm Light, and Florm Monokai, One Dark, Dracula, GitHub Light after the usual themes of other editors),
 accent color, **softened text** (less “bold” text, useful on light themes), fonts of the editor
-and of the interface, minimap, breadcrumbs, **menu bar** (hidden, the menus are still under
-**☰** at the bottom left).
+and of the interface, minimap, breadcrumbs, **menu bar** (hidden, its commands are still in the palette,
+**Ctrl+Shift+P**).
 
 **Theme colors → Create a theme from “…”**: all the colors of the editor (background, text,
 accent, cursor, selection, gutter…) and of the code (comments, keywords, strings, functions,

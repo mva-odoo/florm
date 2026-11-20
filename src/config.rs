@@ -37,7 +37,7 @@ pub struct Settings {
     pub rulers: Vec<usize>,
     /// Path and enclosing class / function above the editor.
     pub breadcrumbs: bool,
-    /// Menu bar (Fichier, Édition…) at the top; hidden, the menus are under ☰ in the status bar.
+    /// Menu bar (Fichier, Édition…) at the top; hidden, its commands are in the palette.
     pub show_menu_bar: bool,
     /// "Find in files" in an editor tab instead of the bottom panel.
     pub search_in_tab: bool,
@@ -290,7 +290,7 @@ sticky_scroll = true
 rulers = [80]
 # fil d'Ariane (dossier › fichier › classe › méthode) au-dessus de l'éditeur
 breadcrumbs = true
-# barre de menus en haut (masquée : menus sous ☰ en bas à gauche)
+# barre de menus en haut (masquée : ses commandes restent dans la palette, Ctrl+Shift+P)
 show_menu_bar = true
 # recherche dans le dossier (Ctrl+Shift+F) dans un onglet plutôt que dans le panneau du bas
 search_in_tab = false
