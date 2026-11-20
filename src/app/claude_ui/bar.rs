@@ -11,20 +11,15 @@ pub(super) struct BarData<'a> {
     pub(super) accounts: &'a [claude_account::Account],
     pub(super) account_name: &'a str,
     pub(super) limits: &'a [(String, f32, i64)],
-    pub(super) in_tab: bool,
     /// The panel of the session is shown.
     pub(super) side: bool,
-    /// The list of the conversations is on the left (its « + » starts a new one).
-    pub(super) listed: bool,
 }
 
 /// What was asked in the bar, done once it is drawn (when `self` is free).
 #[derive(Default)]
 pub(super) struct Acts {
-    pub(super) new_conv: bool,
     pub(super) dir: Option<PathBuf>,
     pub(super) pick_dir: bool,
-    pub(super) move_to: Option<bool>,
     pub(super) ctx_add: Option<CtxAdd>,
     pub(super) read_commits: bool,
     pub(super) clipboard: bool,
@@ -144,7 +139,7 @@ fn gauges(ui: &mut egui::Ui, c: &ClaudeUi, limits: &[(String, f32, i64)], accent
 
 /// The bar above the conversation.
 pub(super) fn bar(ui: &mut egui::Ui, c: &mut ClaudeUi, accent: Color32, d: BarData<'_>) -> Acts {
-    let BarData { dirs, dir_name, history, accounts, account_name, limits, in_tab, side, listed } = d;
+    let BarData { dirs, dir_name, history, accounts, account_name, limits, side } = d;
     let mut a = Acts::default();
     let fill = ui.visuals().panel_fill;
     egui::TopBottomPanel::top(egui::Id::new("claude_bar").with(c.id))
@@ -169,9 +164,6 @@ pub(super) fn bar(ui: &mut egui::Ui, c: &mut ClaudeUi, accent: Color32, d: BarDa
                 .response
                 .on_disabled_hover_text(t!("Pour changer : « Nouvelle conversation »", "To change: “New conversation”"))
                 .on_hover_text(t!("Le dossier où Claude travaille : un dépôt du projet, un projet récent ou n'importe quel dossier", "The folder Claude works in: a repository of the project, a recent project or any folder"));
-                if !listed && ui.button(t!("+ Nouvelle", "+ New")).on_hover_text(t!("Une nouvelle conversation : celle-ci continue dans la liste", "A new conversation: this one goes on in the list")).clicked() {
-                    a.new_conv = true;
-                }
                 context_menu(ui, c, &mut a);
                 // the account it runs with (its session follows it); always there, to find how to add one
                 ui.menu_button(format!("👤 {account_name}"), |ui| {
@@ -223,9 +215,7 @@ pub(super) fn bar(ui: &mut egui::Ui, c: &mut ClaudeUi, accent: Color32, d: BarDa
                     ui.end_row();
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if let Some(crate::view_bar::BarAct::Move(b)) = crate::view_bar::controls(ui, in_tab, None, None) {
-                        a.move_to = Some(b);
-                    }
+                    crate::view_bar::controls(ui, None, None, None);
                     let tip = if side {
                         t!("Masquer la session : Claude prend toute la largeur", "Hide the session: Claude takes the whole width")
                     } else {

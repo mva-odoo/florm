@@ -382,7 +382,6 @@ impl App {
                     match tab {
                         BottomTab::Search => self.search.focus = true,
                         BottomTab::Terminal => self.term.want_focus = true,
-                        BottomTab::Claude => self.claude.focus = true,
                         _ => {}
                     }
                 }
@@ -398,8 +397,8 @@ impl App {
             }
             ShowProblems => self.bottom = Some(BottomTab::Problems),
             ShowOutput => self.bottom = Some(BottomTab::Output),
-            ShowGit => self.open_tool(BottomTab::Git),
-            PullRequests => self.open_tool(BottomTab::Pulls),
+            ShowGit => self.open_git_view(),
+            PullRequests => self.open_pulls(),
             TestAgain => match self.settings.odoo_test_history.first().cloned() {
                 Some(t) => self.run_tests(t),
                 None => self.run_tests(String::new()),

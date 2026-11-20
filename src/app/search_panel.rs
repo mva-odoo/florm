@@ -192,7 +192,7 @@ impl App {
                     spinner(ui);
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if let Some(crate::view_bar::BarAct::Move(b)) = crate::view_bar::controls(ui, in_tab, None, None) {
+                    if let Some(crate::view_bar::BarAct::Move(b)) = crate::view_bar::controls(ui, Some(in_tab), None, None) {
                         act = Some(SearchAct::Move(b));
                     }
                     if ui.button("TODO / FIXME").on_hover_text(t!("Les TODO, FIXME, XXX et HACK du projet, par fichier", "The TODO, FIXME, XXX and HACK of the project, by file")).clicked() {

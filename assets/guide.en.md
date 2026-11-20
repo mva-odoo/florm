@@ -95,22 +95,20 @@ sidebar shown or not.
 
 ## Bottom panel and status bar
 
-One simple rule: **files (and what reads like them: diffs, pull requests) go in the
-tabs; the views that come along (search, terminal, Claude, Git, Pull requests (GitHub), debug, problems,
-output) each have one place**, which you choose.
+One simple rule: **files and the views that need room (Claude, Git, Pull requests (GitHub)) go in
+the tabs; the bottom panel keeps what comes along with the work**: terminal, problems, output, and
+also the search and the debugger if you want. To see two tabs side by side, split the editor.
 
 - **The bottom panel shows one view at a time**, without a row of tabs: its name at the top left,
-  **▾** to switch to another (with its shortcut, and what is waiting: number of problems, ● when
-  Claude has finished, ⏸ when the debugger is stopped); under “Claude” the conversations when there
-  are several (working, ✔ done, or in a tab: a click goes there), under “Terminal” the open terminals.
-  **Ctrl+Shift+J** shows or hides it.
-- **⇱ / ⇲ in the header of a view** puts it in a tab or in the bottom panel, and Florm remembers:
-  its shortcut, the palette, the status bar and ▾ then open it in the same place. A view that
-  already has its tab is shown there, never in two places. By default Git, Pull requests (GitHub) and the
-  debugger open in a tab, the others at the bottom (`views_in_tab` in settings.toml).
+  **▾** to switch to another (with its shortcut, and what is waiting: number of problems, ⏸ when
+  the debugger is stopped); under “Terminal” the open terminals. **Ctrl+Shift+J** shows or hides it.
+- **⇱ / ⇲ in the header of the search and the debugger** puts them in a tab or in the bottom
+  panel, and Florm remembers: their shortcut, the palette, the status bar and ▾ then open them in
+  the same place. A view that already has its tab is shown there, never in two places.
 - **The status bar only shows what is going on**: on the left the button of the bottom panel
   (click: show or hide it, right click: open a view), then the icons of **Claude**, **Git** and
-  **Pull requests** (a click opens or closes the view, coloured when it is shown); on the right the branch (**↑** commits to
+  **Pull requests** (a click opens its tab, another one goes back to the tab before; coloured when
+  it is shown); on the right the branch (**↑** commits to
   push, **↓** to pull, **●** changed files) of the repository of the file shown (it follows the
   tabs; a repository chosen in the Git view stays until the next file shown), then, only when it is the case, Claude (**working**,
   or **✔** when it has finished: a click shows the answer), the
@@ -478,13 +476,13 @@ palette).
 ## Claude
 
 **Ctrl+Alt+C** (or Tools → ✳ Claude, the palette): **Claude Code itself**, in a terminal in the
-middle of the Claude tab (or of the bottom panel: **in a tab** / **at the bottom** in its header).
+middle of the Claude tab.
 Florm runs the `claude` command with your login: no key to set up. Its commands (`/model`,
 `/usage`, `/mcp`, `/memory`, `/agents`…), its modes (**Shift+Tab**), its permissions and what is
 new in it work as they are. Claude's changes are reviewed in the **Git** view.
 
 - **At the top**: the folder (chosen before the first message: a repository of the project, a
-  recent project, or **📁 Another folder…**), **+ New** conversation (in the bottom panel; in the Claude tab, it is the **+** of the list), **+ Context**, the 👤
+  recent project, or **📁 Another folder…**), **+ Context**, the 👤
   account, the **History** (the earlier conversations, kept between sessions) and **⟳** to restart
   Claude (the conversation goes on where it was). On the right, the button of the **Session**
   panel; hidden, the **5 h** quota gauge is at the top right (those of **7 d** and the **Context**

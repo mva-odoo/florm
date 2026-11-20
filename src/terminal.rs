@@ -422,7 +422,7 @@ impl Terminal {
                 let s = &self.sessions[i];
                 ui.label(RichText::new(s.cwd.display().to_string()).small().weak());
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if crate::view_bar::controls(ui, true, None, None).is_some() {
+                    if crate::view_bar::controls(ui, Some(true), None, None).is_some() {
                         back = true;
                     }
                 });

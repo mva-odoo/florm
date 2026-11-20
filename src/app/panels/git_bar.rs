@@ -100,8 +100,6 @@ impl App {
             Some(b) == default.as_deref() || b == "master" || b == "main" || b.trim_start_matches("saas-").split('.').all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
         });
 
-        // ⇱ / ⇲: the view moves between the editor area and the bottom panel
-        let (big, mut move_to) = (self.has_tab(document::View::Git), None);
         let (mut stash_act, mut stash_open) = (None, false);
         // --- branch, its upstream and the remote actions
         let mut cmds = Vec::new();
@@ -281,10 +279,8 @@ impl App {
                         reload = true;
                     }
                 };
-                match crate::view_bar::controls(ui, big, Some(t!("Rafraîchir l'état et le graphe", "Refresh the status and the graph")), Some(&mut more)) {
-                    Some(crate::view_bar::BarAct::Move(b)) => move_to = Some(b),
-                    Some(crate::view_bar::BarAct::Refresh) => reload = true,
-                    None => {}
+                if crate::view_bar::controls(ui, None, Some(t!("Rafraîchir l'état et le graphe", "Refresh the status and the graph")), Some(&mut more)) == Some(crate::view_bar::BarAct::Refresh) {
+                    reload = true;
                 }
                 let h = &mut self.history;
                 if h.loading {
@@ -318,9 +314,6 @@ impl App {
         }
         if let Some(a) = stash_act {
             self.stash_act(a);
-        }
-        if let Some(b) = move_to {
-            self.move_view(BottomTab::Git, b);
         }
         let mut cmds_after = Vec::new();
         // --- errors stay until dismissed (or until a later git command succeeds)

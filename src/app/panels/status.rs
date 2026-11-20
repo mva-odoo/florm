@@ -124,22 +124,30 @@ impl App {
                 if let Some(p) = chosen {
                     self.apply_pick(p, false);
                 }
-                // the views of every day, one click away: Claude, Git, the pull requests
+                // the views of every day, one click away: Claude, Git, the pull requests (their tab;
+                // a click on the one shown goes back to the tab before it)
+                use crate::features::{on, Feature};
                 let accent = self.hl.colors.accent;
                 let active_view = self.docs.get(self.active).map(|d| d.view);
-                for (tab, icon, view, label, cmd) in [
-                    (BottomTab::Claude, icons::ViewIcon::Claude, crate::document::View::Claude, "Claude", Cmd::Claude),
-                    (BottomTab::Git, icons::ViewIcon::Git, crate::document::View::Git, "Git", Cmd::ShowGit),
-                    (BottomTab::Pulls, icons::ViewIcon::PullRequests, crate::document::View::PullRequests, t!("Pull requests (GitHub)", "Pull requests (GitHub)"), Cmd::PullRequests),
+                for (on, icon, view, label, cmd) in [
+                    (on(Feature::Claude), icons::ViewIcon::Claude, Some(crate::document::View::Claude), "Claude", Cmd::Claude),
+                    (true, icons::ViewIcon::Git, Some(crate::document::View::Git), "Git", Cmd::ShowGit),
+                    (on(Feature::GitHub), icons::ViewIcon::PullRequests, Some(crate::document::View::PullRequests), t!("Pull requests (GitHub)", "Pull requests (GitHub)"), Cmd::PullRequests),
                 ] {
-                    if !tab.feature_on() {
+                    if !on {
                         continue;
                     }
-                    let shown = (self.bottom == Some(tab) && !self.view_in_tab(tab)) || active_view == Some(view);
+                    let shown = match view {
+                        Some(v) => active_view == Some(v),
+                        None => self.bottom == Some(BottomTab::Terminal) || matches!(active_view, Some(crate::document::View::Terminal(_))),
+                    };
                     let keys = self.keymap.label(cmd);
                     let tip = if keys.is_empty() { label.to_string() } else { format!("{label} ({keys})") };
                     if view_button(ui, icon, if shown { accent } else { ui.visuals().weak_text_color() }).on_hover_text(tip).clicked() {
-                        self.toggle_tool(tab);
+                        match view {
+                            Some(v) if shown => self.leave_tab(v),
+                            _ => self.pending.push(cmd),
+                        }
                     }
                 }
                 ui.separator();

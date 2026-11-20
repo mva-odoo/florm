@@ -117,8 +117,8 @@ pub struct Settings {
     pub odoo_test_history: Vec<String>,
     /// Container the tests run in.
     pub odoo_test_container: String,
-    /// Views opened in an editor tab rather than in the bottom panel: "git", "pulls",
-    /// "debug", "claude" (search has its own setting). ⇱ / ⇲ in a view change it.
+    /// Views opened in an editor tab rather than in the bottom panel: "debug" (search has its own
+    /// setting; Git, the pull requests and Claude are always in a tab). ⇱ / ⇲ in a view change it.
     pub views_in_tab: Vec<String>,
     /// Debugger: the container the program runs in, empty for this computer.
     pub debug_target: String,
@@ -231,7 +231,7 @@ impl Default for Settings {
             odoo_test_command: String::new(),
             odoo_test_history: Vec::new(),
             odoo_test_container: String::new(),
-            views_in_tab: ["git", "pulls", "debug"].map(String::from).to_vec(),
+            views_in_tab: vec!["debug".into()],
             debug_target: String::new(),
             debug_mode: "launch".into(),
             debug_command: String::new(),
@@ -310,9 +310,9 @@ claude_accounts = []
 claude_account = ""
 # dossiers dont les conversations utilisent un compte : "dossier=nom du compte"
 claude_account_folders = []
-# vues qui s'ouvrent dans un onglet plutôt que dans le panneau du bas ("git", "pulls", "debug", "claude") ;
-# ⇱ / ⇲ dans l'en-tête d'une vue changent ce choix
-views_in_tab = ["git", "pulls", "debug"]
+# le débogage s'ouvre dans un onglet ("debug") plutôt que dans le panneau du bas ; ⇱ / ⇲ dans son
+# en-tête changent ce choix (Git, Pull requests et Claude sont toujours dans un onglet)
+views_in_tab = ["debug"]
 # barre de mise en forme au-dessus du Markdown (le texte reste modifiable à la main)
 markdown_toolbar = true
 # branche et branche distante des dépôts git sur leur dossier dans l'arborescence
@@ -512,26 +512,12 @@ pub fn load() -> (Settings, Option<String>) {
             Err(e) => err = Some(format!("{} : {e}", sp.display())),
         }
     }
-    migrate_claude_in_tab(&mut table);
     match toml::Value::Table(table).try_into::<Settings>() {
         Ok(v) => {
             crate::i18n::set(crate::i18n::from_code(&v.language));
             (v, err)
         }
         Err(e) => (Settings::default(), Some(format!("settings.toml : {e}"))),
-    }
-}
-
-/// `claude_in_tab = true` of the older versions: "claude" in `views_in_tab`, like the other views.
-fn migrate_claude_in_tab(table: &mut toml::Table) {
-    if table.remove("claude_in_tab").and_then(|v| v.as_bool()) != Some(true) {
-        return;
-    }
-    let default = || toml::Value::Array(Settings::default().views_in_tab.into_iter().map(toml::Value::String).collect());
-    if let Some(list) = table.entry("views_in_tab").or_insert_with(default).as_array_mut() {
-        if !list.iter().any(|v| v.as_str() == Some("claude")) {
-            list.push(toml::Value::String("claude".into()));
-        }
     }
 }
 
@@ -649,18 +635,6 @@ fn set_setting_in(p: &std::path::Path, key: &str, value: &str) -> Result<(), Str
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn claude_in_tab_becomes_a_view_in_tab() {
-        let mut t: toml::Table = toml::from_str("claude_in_tab = true").unwrap();
-        migrate_claude_in_tab(&mut t);
-        let s: Settings = toml::Value::Table(t).try_into().unwrap();
-        assert_eq!(s.views_in_tab, ["git", "pulls", "debug", "claude"]);
-        let mut t: toml::Table = toml::from_str("claude_in_tab = false\nviews_in_tab = [\"git\"]").unwrap();
-        migrate_claude_in_tab(&mut t);
-        let s: Settings = toml::Value::Table(t).try_into().unwrap();
-        assert_eq!(s.views_in_tab, ["git"]);
-    }
 
     /// A value written over several lines by hand is replaced whole: the file stays valid.
     #[test]

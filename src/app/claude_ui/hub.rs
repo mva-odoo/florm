@@ -132,12 +132,16 @@ impl App {
         (busy, waiting, done)
     }
 
-    /// Shows the conversation `id` where it is: its tab, the bottom panel, or the Claude tab when
-    /// it is in its list.
+    /// Shows the conversation `id` where it is: its tab, else in the Claude tab.
     pub(in crate::app) fn claude_go_to(&mut self, id: u64) {
         let Some(tab) = self.all_convs().find(|c| c.id == id).map(|c| c.tab) else { return };
-        match tab {
-            Some(LISTED) => {
+        match tab.filter(|u| *u != LISTED && self.docs.iter().any(|d| d.uid == *u)) {
+            Some(uid) => {
+                if let Some(i) = self.docs.iter().position(|d| d.uid == uid) {
+                    self.activate_tab(i);
+                }
+            }
+            None => {
                 // the Claude tab: the one of the current conversation, else any, else a new one
                 let hub = self.claude.tab.filter(|u| self.docs.iter().any(|d| d.uid == *u)).or_else(|| self.docs.iter().find(|d| d.view == document::View::Claude).map(|d| d.uid));
                 let hub = hub.unwrap_or_else(|| self.new_claude_tab("Claude".into()));
@@ -155,11 +159,6 @@ impl App {
                     self.activate_tab(i);
                 }
             }
-            Some(uid) => match self.docs.iter().position(|d| d.uid == uid) {
-                Some(i) => self.activate_tab(i),
-                None => self.open_claude(),
-            },
-            None => self.show_bottom(BottomTab::Claude, false),
         }
     }
 

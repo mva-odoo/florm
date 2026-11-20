@@ -160,9 +160,6 @@ pub(super) enum PrAct {
 impl App {
     /// The "Pull requests" tab, loaded for the selected repository.
     pub(super) fn open_pulls(&mut self) {
-        if self.bottom == Some(BottomTab::Pulls) {
-            self.bottom = None;
-        }
         self.open_view_tab(document::View::PullRequests, "Pull requests".into());
         self.pulls_load();
     }
@@ -385,8 +382,6 @@ impl App {
         let repo_name = self.pr.repo.as_deref().map(|r| self.repo_label(r)).unwrap_or_default();
         let repo_choices: Vec<(PathBuf, String)> = self.repos.iter().map(|r| (r.clone(), self.repo_label(r))).collect();
         let fill = ui.visuals().panel_fill;
-        // in the editor area when its tab exists (else in the bottom panel): ⇲ / ⇱ to move it
-        let (big, mut move_to) = (self.docs.iter().any(|d| d.view == document::View::PullRequests), None);
         let p = &mut self.pr;
         let cache = &mut self.md_cache;
 
@@ -421,10 +416,8 @@ impl App {
                         spinner(ui);
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        match crate::view_bar::controls(ui, big, Some(t!("Recharger la liste", "Reload the list")), None) {
-                            Some(crate::view_bar::BarAct::Move(b)) => move_to = Some(b),
-                            Some(crate::view_bar::BarAct::Refresh) => act = Some(PrAct::Reload),
-                            None => {}
+                        if crate::view_bar::controls(ui, None, Some(t!("Recharger la liste", "Reload the list")), None) == Some(crate::view_bar::BarAct::Refresh) {
+                            act = Some(PrAct::Reload);
                         }
                     });
                 });
@@ -939,9 +932,6 @@ impl App {
             });
         }
 
-        if let Some(b) = move_to {
-            self.move_view(BottomTab::Pulls, b);
-        }
         // a repository chosen: also when none could be read yet
         if let Some(PrAct::Repo(r)) = act {
             self.load_prs(Some(r));
@@ -956,7 +946,7 @@ impl App {
         let n = self.pr.selected.unwrap_or(0);
         match act {
             Some(PrAct::Reload) => self.load_prs(Some(repo)),
-            Some(PrAct::Login) => self.install_type("gh auth login", big),
+            Some(PrAct::Login) => self.install_type("gh auth login", true),
             // done above
             Some(PrAct::Repo(_)) => {}
             Some(PrAct::Select(n)) => self.load_pr(n),

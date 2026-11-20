@@ -219,7 +219,7 @@ impl App {
                 ui.label(RichText::new(tf!("préparation de {t}…", "preparing {t}…")).color(weak));
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if let Some(crate::view_bar::BarAct::Move(b)) = crate::view_bar::controls(ui, big, None, None) {
+                if let Some(crate::view_bar::BarAct::Move(b)) = crate::view_bar::controls(ui, Some(big), None, None) {
                     *act = Some(DebugAct::Move(b));
                 }
                 // attach: the command that starts the program under debugpy, to paste in a terminal

@@ -135,7 +135,6 @@ impl App {
                 // one tab for every conversation: their list on the left, always there, even with
                 // a single conversation: its « + » starts the next one
                 let mut act = None;
-                self.claude_list_shown = true;
                 let fill = ui.visuals().panel_fill;
                 egui::SidePanel::left(egui::Id::new("claude_list").with(uid))
                     .resizable(true)
@@ -143,8 +142,7 @@ impl App {
                     .width_range(180.0..=420.0)
                     .frame(egui::Frame::none().fill(fill).inner_margin(egui::Margin { left: 8.0, right: 6.0, top: 0.0, bottom: 6.0 }))
                     .show_inside(ui, |ui| act = self.claude_list_ui(ui, uid));
-                egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.claude_show(ui, Some(uid)));
-                self.claude_list_shown = false;
+                egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.claude_show(ui, uid));
                 if let Some(a) = act {
                     self.claude_list_act(a, uid);
                 }

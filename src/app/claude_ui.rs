@@ -147,19 +147,11 @@ fn conv_title(c: &ClaudeUi) -> String {
 }
 
 impl App {
-    /// Shows Claude in the bottom panel, or in an editor tab ("claude" in `views_in_tab`).
+    /// Shows Claude: the tab of the current conversation, else the Claude tab (made when missing).
     pub(super) fn open_claude(&mut self) {
-        if self.settings.views_in_tab.iter().any(|k| k == "claude") {
-            if self.bottom == Some(BottomTab::Claude) {
-                self.bottom = None;
-            }
-            // the tab of the current conversation, else the first one (or a new one)
-            match self.claude.tab.and_then(|u| self.docs.iter().position(|d| d.uid == u)) {
-                Some(i) => self.activate_tab(i),
-                None => self.open_view_tab(document::View::Claude, "Claude".into()),
-            }
-        } else {
-            self.bottom = Some(BottomTab::Claude);
+        match self.claude.tab.and_then(|u| self.docs.iter().position(|d| d.uid == u)) {
+            Some(i) => self.activate_tab(i),
+            None => self.open_view_tab(document::View::Claude, "Claude".into()),
         }
         self.claude_prepare();
     }
@@ -181,34 +173,6 @@ impl App {
             self.claude.dir = self.repo.clone().or_else(|| self.root.clone());
         }
         self.claude.focus = true;
-    }
-
-    /// Claude into an editor tab (⇱, more room) or back into the bottom panel (⇲), remembered.
-    pub(super) fn move_claude(&mut self, to_tab: bool) {
-        if to_tab {
-            if self.claude.tab.is_none() {
-                let uid = self.new_claude_tab(conv_title(&self.claude));
-                self.claude.tab = Some(uid);
-            }
-        } else if let Some(uid) = self.claude.tab.take() {
-            // the conversation of the bottom panel until now takes its tab
-            match self.claude_others.iter_mut().find(|o| o.tab.is_none()) {
-                Some(o) => o.tab = Some(uid),
-                None => {
-                    if let Some(i) = self.docs.iter().position(|d| d.uid == uid) {
-                        self.close_tab(i, true);
-                    }
-                }
-            }
-        }
-        let list = &mut self.settings.views_in_tab;
-        list.retain(|k| k != "claude");
-        if to_tab {
-            list.push("claude".into());
-        }
-        let v = config::toml_str_array(list);
-        self.persist("views_in_tab", v);
-        self.open_claude();
     }
 
     /// A new editor tab for a conversation; returns its uid.
@@ -335,16 +299,6 @@ impl App {
         self.claude_add(fresh);
     }
 
-    /// « Nouvelle conversation »: in a new tab, the current one goes on in its place.
-    fn claude_new_conversation(&mut self) {
-        if self.claude.is_empty() {
-            self.claude.focus = true;
-            return;
-        }
-        let fresh = self.claude_fresh(None);
-        self.claude_add(fresh);
-    }
-
     /// `fresh` made the current conversation: in the Claude tab (the current one goes on in its
     /// list), else in a new tab.
     fn claude_add(&mut self, mut fresh: ClaudeUi) {
@@ -356,31 +310,24 @@ impl App {
         fresh.tab = Some(self.new_claude_tab("Claude".into()));
         let old = std::mem::replace(&mut self.claude, fresh);
         self.claude_others.push(old);
-        if self.bottom == Some(BottomTab::Claude) && !self.claude_has_bottom() {
-            self.bottom = None;
-        }
         self.claude_prepare();
     }
 
-    /// A conversation is meant for the bottom panel.
-    pub(super) fn claude_has_bottom(&self) -> bool {
-        self.claude.tab.is_none() || self.claude_others.iter().any(|o| o.tab.is_none())
-    }
-
-    /// The conversation of `tab` (None: the bottom panel), made the current one, and shown.
-    pub(super) fn claude_show(&mut self, ui: &mut egui::Ui, tab: Option<u64>) {
+    /// The conversation of the Claude tab `uid`, made the current one, and shown.
+    pub(super) fn claude_show(&mut self, ui: &mut egui::Ui, uid: u64) {
         self.claude_restore_last();
         self.claude_sync_account();
+        let tab = Some(uid);
         if self.claude.tab != tab {
             if let Some(k) = self.claude_others.iter().position(|o| o.tab == tab) {
                 std::mem::swap(&mut self.claude, &mut self.claude_others[k]);
-            } else if tab.is_some() && self.claude.tab == Some(LISTED) {
+            } else if self.claude.tab == Some(LISTED) {
                 // one Claude tab (opened again): the current one of the list comes back in it
                 self.claude.tab = tab;
-            } else if let Some(k) = self.claude_others.iter().enumerate().filter(|(_, o)| tab.is_some() && o.tab == Some(LISTED)).max_by_key(|(_, o)| o.id).map(|(k, _)| k) {
+            } else if let Some(k) = self.claude_others.iter().enumerate().filter(|(_, o)| o.tab == Some(LISTED)).max_by_key(|(_, o)| o.id).map(|(k, _)| k) {
                 self.claude_others[k].tab = tab;
                 std::mem::swap(&mut self.claude, &mut self.claude_others[k]);
-            } else if tab.is_some() && self.claude.tab.is_none() && self.bottom != Some(BottomTab::Claude) {
+            } else if self.claude.tab.is_none() {
                 // a Claude tab without a conversation (from the menu, a restored session): the
                 // current one, shown nowhere, goes there
                 self.claude.tab = tab;
@@ -393,13 +340,11 @@ impl App {
         }
         self.claude.unseen = false;
         // one tab for every conversation: it is named after the one shown
-        if let Some(uid) = tab {
-            let title = conv_title(&self.claude);
-            if let Some(d) = self.docs.iter_mut().find(|d| d.uid == uid && d.title_override.as_deref() != Some(title.as_str())) {
-                d.title_override = Some(title);
-            }
+        let title = conv_title(&self.claude);
+        if let Some(d) = self.docs.iter_mut().find(|d| d.uid == uid && d.title_override.as_deref() != Some(title.as_str())) {
+            d.title_override = Some(title);
         }
-        self.claude_ui(ui, tab.is_some());
+        self.claude_ui(ui);
     }
 
     /// What every conversation's hooks said; those whose tab was closed are over.
@@ -444,12 +389,6 @@ impl App {
         (blinking && self.claude_lit(c)).then(ok)
     }
 
-    /// The conversation of the bottom panel finished and is not seen yet: its tab and its icon
-    /// light up (blinking a few seconds first).
-    pub(super) fn claude_bottom_done(&self) -> bool {
-        std::iter::once(&self.claude).chain(self.claude_others.iter()).any(|c| c.tab.is_none() && c.unseen && !c.busy && self.claude_lit(c))
-    }
-
     /// On or off: blinking for a few seconds after the end of the answer, then on.
     fn claude_lit(&self, c: &ClaudeUi) -> bool {
         match c.done_at.map(|t| t.elapsed()) {
@@ -474,8 +413,8 @@ impl App {
     }
 
     /// The Claude tab: the bar at the top, the session on the right, the terminal of `claude`.
-    pub(super) fn claude_ui(&mut self, ui: &mut egui::Ui, in_tab: bool) {
-        if self.install_guide(ui, crate::tools::Tool::Claude, in_tab) {
+    pub(super) fn claude_ui(&mut self, ui: &mut egui::Ui) {
+        if self.install_guide(ui, crate::tools::Tool::Claude, true) {
             return;
         }
         // Claude Code itself in a terminal, started the first time its conversation is shown
@@ -510,7 +449,7 @@ impl App {
         let accent = self.hl.colors.accent;
         let (term, colors, light) = (&mut self.term, self.hl.colors, self.hl.is_light());
         let c = &mut self.claude;
-        let d = bar::BarData { dirs: &dirs, dir_name: &dir_name, history: &history, accounts: &accounts, account_name: &account_name, limits, in_tab, side: self.settings.claude_review, listed: self.claude_list_shown };
+        let d = bar::BarData { dirs: &dirs, dir_name: &dir_name, history: &history, accounts: &accounts, account_name: &account_name, limits, side: self.settings.claude_review };
         let a = bar::bar(ui, c, accent, d);
         let side = a.side.unwrap_or(self.settings.claude_review);
         let mut open_file = None;
@@ -534,9 +473,6 @@ impl App {
 
     /// What the bar asked for, done now that `self` is free.
     fn claude_apply(&mut self, a: bar::Acts) {
-        if let Some(t) = a.move_to {
-            self.move_claude(t);
-        }
         if let Some(side) = a.side {
             self.settings.claude_review = side;
             self.persist("claude_review", side.to_string());
@@ -578,9 +514,6 @@ impl App {
         }
         if a.pick_dir {
             self.file_dialog(crate::os::Pick::ClaudeDir);
-        }
-        if a.new_conv {
-            self.claude_new_conversation();
         }
         if a.restart {
             self.claude_term_stop();
@@ -717,7 +650,7 @@ mod tests {
             }
             let _ = ctx.run(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 700.0))), ..Default::default() }, |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
-                    app.claude_show(ui, None);
+                    app.claude_show(ui, 1);
                     right = ui.min_rect().right();
                 });
             });

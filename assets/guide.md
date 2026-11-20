@@ -95,22 +95,22 @@ bas ouvert et la barre latérale affichée ou non.
 
 ## Panneau du bas et barre d'état
 
-Une règle simple : **les fichiers (et ce qui se lit comme eux : diff, pull request)
-vont dans les onglets ; les vues qui t'accompagnent (recherche, terminal, Claude, Git, Pull requests (GitHub),
-débogage, problèmes, sortie) ont chacune une seule place**, que tu choisis.
+Une règle simple : **les fichiers et les vues qui demandent de la place (Claude, Git, Pull requests
+(GitHub)) vont dans les onglets ; le panneau du bas garde ce qui accompagne le travail** : terminal,
+problèmes, sortie, et aussi la recherche et le débogage si tu le veux. Pour voir deux onglets côte à
+côte, divise l'éditeur.
 
 - **Le panneau du bas montre une vue à la fois**, sans rangée d'onglets : son nom en haut à gauche,
-  **▾** pour passer à une autre (avec son raccourci, et ce qui attend : nombre de problèmes, ● quand
-  Claude a fini, ⏸ quand le débogueur est arrêté) ; sous « Claude » les conversations quand il y en a
-  plusieurs (au travail, ✔ finie, ou dans un onglet : un clic y va), sous « Terminal » les terminaux ouverts.
-  **Ctrl+Shift+J** l'affiche ou le masque.
-- **⇱ / ⇲ dans l'en-tête d'une vue** la met dans un onglet ou dans le panneau du bas, et Florm s'en
-  souvient : son raccourci, la palette, la barre d'état et ▾ l'ouvriront ensuite au même endroit.
-  Une vue qui a déjà son onglet s'y affiche, jamais à deux endroits. Par défaut Git, Pull requests (GitHub)
-  et le débogage s'ouvrent en onglet, les autres en bas (`views_in_tab` dans settings.toml).
+  **▾** pour passer à une autre (avec son raccourci, et ce qui attend : nombre de problèmes, ⏸ quand
+  le débogueur est arrêté) ; sous « Terminal » les terminaux ouverts. **Ctrl+Shift+J** l'affiche ou
+  le masque.
+- **⇱ / ⇲ dans l'en-tête de la recherche et du débogage** les met dans un onglet ou dans le panneau
+  du bas, et Florm s'en souvient : leur raccourci, la palette, la barre d'état et ▾ les ouvriront
+  ensuite au même endroit. Une vue qui a déjà son onglet s'y affiche, jamais à deux endroits.
 - **La barre d'état ne montre que ce qui se passe** : à gauche le bouton du panneau du bas (clic :
   l'afficher ou le masquer, clic droit : ouvrir une vue), puis les icônes de **Claude**, **Git** et
-  **Pull requests** (un clic ouvre ou ferme la vue, en couleur quand elle est affichée) ; à droite la branche (**↑** commits à
+  **Pull requests** (un clic ouvre son onglet, un autre revient à l'onglet d'avant ; en couleur quand
+  il est affiché) ; à droite la branche (**↑** commits à
   pousser, **↓** à récupérer, **●** fichiers modifiés) du dépôt du fichier affiché (il suit les
   onglets ; un dépôt choisi dans la vue Git reste jusqu'au prochain fichier affiché), puis, seulement quand c'est le cas, Claude
   (**au travail**, ou **✔** quand il a fini : un clic montre la réponse), le débogage (**en cours** / **en pause**), et les problèmes. Au repos, elle est presque vide.
@@ -485,13 +485,13 @@ avec `gh auth login` (connexion par le navigateur). Sans `gh`, la vue explique c
 ## Claude
 
 **Ctrl+Alt+C** (ou Outils → ✳ Claude, la palette) : **Claude Code lui-même**, dans un terminal au
-centre de l'onglet Claude (ou du panneau du bas : **en onglet** / **en bas** dans son en-tête).
+centre de l'onglet Claude.
 Florm lance la commande `claude` avec ta connexion : pas de clé à configurer. Ses commandes
 (`/model`, `/usage`, `/mcp`, `/memory`, `/agents`…), ses modes (**Maj+Tab**), ses permissions et
 ses nouveautés marchent tels quels. Les changements de Claude se revoient dans la vue **Git**.
 
 - **En haut** : le dossier (choisi avant le premier message : un dépôt du projet, un projet
-  récent, ou **📁 Un autre dossier…**), **+ Nouvelle** conversation (dans le panneau du bas ; dans l'onglet Claude, c'est le **+** de la liste), **+ Contexte**, le compte 👤,
+  récent, ou **📁 Un autre dossier…**), **+ Contexte**, le compte 👤,
   l'**Historique** (les conversations d'avant, gardées entre les sessions) et **⟳** pour relancer
   Claude (la conversation reprend où elle en était). À droite, le bouton du panneau **Session** ;
   masqué, la jauge **5 h** du quota est en haut à droite (celles de **7 j** et du **Contexte**

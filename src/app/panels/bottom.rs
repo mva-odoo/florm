@@ -14,10 +14,7 @@ impl App {
         let in_editor = |v: document::View| move |d: &Document| d.view == v;
         let tab_of = match tab {
             BottomTab::Search => self.docs.iter().position(in_editor(document::View::Search)),
-            // each Claude tab is a conversation of its own: it stays
-            BottomTab::Pulls => self.docs.iter().position(in_editor(document::View::PullRequests)),
             BottomTab::Debug => self.docs.iter().position(in_editor(document::View::Debug)),
-            BottomTab::Git => self.docs.iter().position(in_editor(document::View::Git)),
             _ => None,
         };
         if let Some(i) = tab_of {
@@ -27,9 +24,6 @@ impl App {
         match tab {
             BottomTab::Search => self.search.focus = true,
             BottomTab::Terminal => self.term.want_focus = true,
-            BottomTab::Claude => self.claude_prepare(),
-            BottomTab::Git => self.git_view_load(),
-            BottomTab::Pulls => self.pulls_load(),
             BottomTab::Debug => self.debug.focus_console = true,
             BottomTab::Problems | BottomTab::Output => {}
         }
@@ -40,14 +34,6 @@ impl App {
         match tab {
             BottomTab::Search => self.open_search_tab(),
             BottomTab::Terminal => self.open_terminal_tab(),
-            BottomTab::Claude => {
-                if self.bottom == Some(BottomTab::Claude) {
-                    self.bottom = None;
-                }
-                self.move_claude(true);
-            }
-            BottomTab::Git => self.open_git_view(),
-            BottomTab::Pulls => self.open_pulls(),
             BottomTab::Debug => self.open_debug(),
             BottomTab::Problems | BottomTab::Output => self.show_bottom(tab, false),
         }
@@ -58,9 +44,6 @@ impl App {
         let tab_of = |v: document::View| self.docs.iter().any(|d| d.view == v);
         match tab {
             BottomTab::Search => tab_of(document::View::Search),
-            BottomTab::Claude => !self.claude_has_bottom(),
-            BottomTab::Git => tab_of(document::View::Git),
-            BottomTab::Pulls => tab_of(document::View::PullRequests),
             BottomTab::Debug => tab_of(document::View::Debug),
             BottomTab::Terminal | BottomTab::Problems | BottomTab::Output => false,
         }
@@ -76,13 +59,12 @@ impl App {
                 self.settings.search_in_tab = false;
                 self.persist("search_in_tab", "false".into());
             }
-            BottomTab::Claude => self.move_claude(false),
             _ => self.show_bottom(tab, false),
         }
     }
 
     /// The view goes into an editor tab (`big`) or into the bottom panel, and opens there from now
-    /// on (⇱ / ⇲ of Git, GitHub, Docker, Claude and the debugger; search has its own setting).
+    /// on (⇱ / ⇲ of the debugger; search has its own setting).
     pub(in crate::app) fn move_view(&mut self, tab: BottomTab, big: bool) {
         let key = tab.key();
         let list = &mut self.settings.views_in_tab;
@@ -112,7 +94,6 @@ impl App {
     /// The shortcuts, the palette, the status bar and the ▾ menus all go through here.
     pub(in crate::app) fn open_tool(&mut self, tab: BottomTab) {
         match tab {
-            BottomTab::Claude => self.open_claude(),
             _ if self.view_in_tab(tab) || self.prefers_tab(tab) => self.show_big(tab),
             _ => self.show_bottom(tab, false),
         }
@@ -127,8 +108,8 @@ impl App {
         }
     }
 
-    /// The views, one row each (icon, name, what is waiting, shortcut), the conversations under
-    /// « Claude » and the terminals of the panel under « Terminal »: the ▾ of the bottom panel and the right click on its button in the status bar.
+    /// The views, one row each (icon, name, what is waiting, shortcut), and the terminals of the
+    /// panel under « Terminal »: the ▾ of the bottom panel and the right click on its button in the status bar.
     pub(super) fn tools_menu(&self, ui: &mut egui::Ui, current: Option<BottomTab>) -> Option<Pick> {
         ui.visuals_mut().override_text_color = None;
         ui.set_min_width(270.0);
@@ -137,35 +118,12 @@ impl App {
         for (tab, icon, label) in BottomTab::shown() {
             let note = match tab {
                 BottomTab::Problems if nd > 0 => Some((nd.to_string(), warn())),
-                BottomTab::Claude if self.claude_bottom_done() => Some(("●".to_string(), ok())),
                 BottomTab::Debug if self.debug_activity() == Some(true) => Some(("⏸".to_string(), warn())),
                 _ => None,
             };
             if tool_row(ui, icon, label, note, &self.keymap.label(tab.cmd()), current == Some(tab)).clicked() {
                 chosen = Some(Pick::View(tab));
                 ui.close_menu();
-            }
-            // the conversations, when there are several: where each is, whether it works or is done
-            let convs = if tab == BottomTab::Claude { self.claude_conversations() } else { Vec::new() };
-            if convs.len() > 1 {
-                for (id, where_, title, busy, done) in convs {
-                    let shown = where_.is_none() && current == Some(tab);
-                    let note = if busy {
-                        Some((t!("au travail", "working"), self.hl.colors.accent))
-                    } else if done {
-                        Some(("✔", ok()))
-                    } else if where_ == Some(claude_ui::LISTED) {
-                        Some((t!("liste", "list"), ui.visuals().weak_text_color()))
-                    } else if where_.is_some() {
-                        Some((t!("onglet", "tab"), ui.visuals().weak_text_color()))
-                    } else {
-                        None
-                    };
-                    if sub_row(ui, &title, note, shown, false, false).0 {
-                        chosen = Some(Pick::Claude(id));
-                        ui.close_menu();
-                    }
-                }
             }
             if tab == BottomTab::Terminal {
                 for (id, title, shown, ended) in self.term.panel_sessions() {
@@ -197,7 +155,6 @@ impl App {
                 self.term.show(id);
             }
             Pick::NewTerm => self.new_panel_terminal(),
-            Pick::Claude(id) => self.claude_go_to(id),
             Pick::CloseTerm(id) => self.term.close(id),
         }
     }
@@ -217,8 +174,8 @@ impl App {
         if let Some(t) = self.bottom {
             self.last_bottom = t;
         }
-        // Claude, git and the pull requests need room for their bars and content
-        let min_h = if matches!(self.bottom, Some(BottomTab::Claude | BottomTab::Git | BottomTab::Pulls | BottomTab::Debug)) { 360.0 } else { 80.0 };
+        // the debugger needs room for its bars and content
+        let min_h = if self.bottom == Some(BottomTab::Debug) { 360.0 } else { 80.0 };
         egui::TopBottomPanel::bottom("bottom").resizable(true).default_height(230.0).height_range(min_h..=900.0).show(
             ctx,
             |ui| {
@@ -231,10 +188,6 @@ impl App {
                     let mut chosen = None;
                     let menu = ui.menu_button(RichText::new(format!("{label}  ▾")).strong(), |ui| chosen = self.tools_menu(ui, Some(cur)));
                     menu.response.on_hover_text(t!("Changer de vue (une seule à la fois dans le panneau du bas)", "Switch view (one at a time in the bottom panel)"));
-                    // the conversation of the panel finished while another view is shown
-                    if cur != BottomTab::Claude && self.claude_bottom_done() {
-                        ui.label(RichText::new("✳ ●").color(ok())).on_hover_text(t!("Claude a fini de répondre", "Claude has finished answering"));
-                    }
                     let term = self.bottom == Some(BottomTab::Terminal);
                     // the terminal's folder, where its row of tabs was
                     if let Some(cwd) = self.term.shown_cwd().filter(|_| term) {
@@ -267,17 +220,6 @@ impl App {
                         if crate::view_bar::in_tab_notice(ui) {
                             self.bring_back(tab);
                         }
-                    }
-                    Some(BottomTab::Claude) => self.claude_show(ui, None),
-                    Some(BottomTab::Git) => {
-                        let fill = ui.visuals().panel_fill;
-                        egui::TopBottomPanel::top("git_bar_bottom")
-                            .frame(egui::Frame::none().fill(fill).inner_margin(egui::Margin { left: 4.0, right: 4.0, top: 2.0, bottom: 4.0 }))
-                            .show_inside(ui, |ui| self.git_bar(ui));
-                        egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.history_ui(ui));
-                    }
-                    Some(BottomTab::Pulls) => {
-                        egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.pulls_ui(ui));
                     }
                     Some(BottomTab::Debug) => {
                         egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.debug_ui(ui));
@@ -394,9 +336,6 @@ pub(super) enum Pick {
     Term(u64),
     NewTerm,
     CloseTerm(u64),
-    /// A Claude conversation: its editor tab, or None for the bottom panel's.
-    /// A conversation (its id).
-    Claude(u64),
 }
 
 /// A row under a view in the views menu (a terminal, a conversation): its title, a note in

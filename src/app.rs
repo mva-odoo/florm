@@ -243,19 +243,14 @@ enum BottomTab {
     Problems,
     Terminal,
     Output,
-    Claude,
-    Git,
-    Pulls,
     Debug,
 }
 
 impl BottomTab {
-    /// Its part (Claude, GitHub, the debugger) is on, or it has none.
+    /// Its part (the debugger) is on, or it has none.
     fn feature_on(self) -> bool {
         use crate::features::{on, Feature};
         match self {
-            BottomTab::Claude => on(Feature::Claude),
-            BottomTab::Pulls => on(Feature::GitHub),
             BottomTab::Debug => on(Feature::Debugger),
             _ => true,
         }
@@ -267,14 +262,11 @@ impl BottomTab {
     }
 
     /// The views of the bottom panel, in the order of its ▾ menu.
-    const ALL: [(BottomTab, icons::ViewIcon, &'static str); 8] = [
+    const ALL: [(BottomTab, icons::ViewIcon, &'static str); 5] = [
         (BottomTab::Search, icons::ViewIcon::Search, "Recherche"),
         (BottomTab::Problems, icons::ViewIcon::Problems, "Problèmes"),
         (BottomTab::Terminal, icons::ViewIcon::Terminal, "Terminal"),
         (BottomTab::Output, icons::ViewIcon::Output, "Sortie"),
-        (BottomTab::Claude, icons::ViewIcon::Claude, "Claude"),
-        (BottomTab::Git, icons::ViewIcon::Git, "Git"),
-        (BottomTab::Pulls, icons::ViewIcon::PullRequests, "Pull requests (GitHub)"),
         (BottomTab::Debug, icons::ViewIcon::Debug, "Débogage"),
     ];
 
@@ -304,9 +296,6 @@ impl BottomTab {
             BottomTab::Problems => Cmd::ShowProblems,
             BottomTab::Terminal => Cmd::ToggleTerminal,
             BottomTab::Output => Cmd::ShowOutput,
-            BottomTab::Claude => Cmd::Claude,
-            BottomTab::Git => Cmd::ShowGit,
-            BottomTab::Pulls => Cmd::PullRequests,
             BottomTab::Debug => Cmd::Debug,
         }
     }
@@ -1021,8 +1010,6 @@ pub struct App {
     shot: Option<screenshot::Shot>,
     /// When the states of the conversations in a terminal were last read (Claude dans un terminal).
     claude_term_read: Option<Instant>,
-    /// The list of the conversations is drawn beside the one being drawn (its « + » makes « + Nouvelle » useless).
-    claude_list_shown: bool,
     /// The window of the versions side by side (state of each, update, remove…).
     versions_view: Option<versions_view::VersionsView>,
     /// Versions side by side in the opened folder (`odoo/17.0`, `odoo/20.0`…, see `git::Versions`).
@@ -1291,7 +1278,6 @@ impl App {
             version_add: None,
             shot: None,
             claude_term_read: None,
-            claude_list_shown: false,
             versions_view: None,
             versions: Vec::new(),
             version: String::new(),
@@ -2716,21 +2702,21 @@ mod font_tests {
             all(&mut app);
             assert_eq!(app.bottom, Some(tab));
         }
-        // a view has one place: ⇲ keeps Git in the bottom panel, its shortcut opens it there,
-        // ⇱ puts it back in a tab, and the shortcut then shows that tab
-        let git_tab = |app: &App| app.docs.iter().any(|d| d.view == document::View::Git);
-        app.move_view(BottomTab::Git, false);
+        // a view has one place: ⇲ keeps the debugger in the bottom panel, its shortcut opens it
+        // there, ⇱ puts it back in a tab, and the shortcut then shows that tab
+        let debug_tab = |app: &App| app.docs.iter().any(|d| d.view == document::View::Debug);
+        app.move_view(BottomTab::Debug, false);
         app.bottom = None;
-        app.open_tool(BottomTab::Git);
-        assert_eq!(app.bottom, Some(BottomTab::Git));
-        assert!(!git_tab(&app));
-        app.move_view(BottomTab::Git, true);
-        assert!(git_tab(&app));
+        app.open_tool(BottomTab::Debug);
+        assert_eq!(app.bottom, Some(BottomTab::Debug));
+        assert!(!debug_tab(&app));
+        app.move_view(BottomTab::Debug, true);
+        assert!(debug_tab(&app));
         app.bottom = Some(BottomTab::Terminal);
-        app.open_tool(BottomTab::Git);
-        assert!(app.showing(document::View::Git));
+        app.open_tool(BottomTab::Debug);
+        assert!(app.showing(document::View::Debug));
         assert_eq!(app.bottom, Some(BottomTab::Terminal));
-        assert!(app.settings.views_in_tab.contains(&"git".to_string()));
+        assert!(app.settings.views_in_tab.contains(&"debug".to_string()));
         // Ctrl+K opens the list of the views; a chord still works after it, Échap closes it
         let press = |app: &mut App, key: Key, modifiers: egui::Modifiers| {
             let ev = egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers };

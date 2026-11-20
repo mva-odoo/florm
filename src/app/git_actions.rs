@@ -357,9 +357,6 @@ impl App {
     /// The graph view on the staged / unstaged changes, scrolled to the diff of `rel`.
     /// The git view (tab): branch, remote actions and commit on top, then the graph and diffs.
     pub(super) fn open_git_view(&mut self) {
-        if self.bottom == Some(BottomTab::Git) {
-            self.bottom = None;
-        }
         self.show_tab(document::View::Git);
         self.git_view_load();
     }
@@ -372,9 +369,9 @@ impl App {
         self.git_refresh();
     }
 
-    /// The git view is shown, in the editor area or in the bottom panel.
+    /// The git view is shown (in its tab).
     pub(super) fn git_shown(&self) -> bool {
-        self.has_tab(document::View::Git) || self.bottom == Some(BottomTab::Git)
+        self.has_tab(document::View::Git)
     }
 
     pub(super) fn show_diff(&mut self, rel: String, untracked: bool) {

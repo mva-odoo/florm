@@ -1,7 +1,8 @@
 //! What the views (Recherche, Git, GitHub, Docker, Claude, Débogage, Terminal) share, so that
 //! they behave the same: their title, the buttons at the right of their header always in the
-//! same order (⟳ read again, ⇱ / ⇲ editor tab or bottom panel, ⋯ the other actions and options),
-//! and the notice in the bottom panel when the view is in an editor tab.
+//! same order (⟳ read again, ⇱ / ⇲ editor tab or bottom panel for those that can be in both,
+//! ⋯ the other actions and options), and the notice in the bottom panel when the view is in an
+//! editor tab.
 
 use eframe::egui::{self, RichText};
 
@@ -18,10 +19,11 @@ pub fn title(ui: &mut egui::Ui, text: &str) {
     ui.label(RichText::new(text).strong().size(15.0));
 }
 
-/// The right of a header, drawn first in a right-to-left layout: ⋯ at the end, then ⇱ / ⇲ (`big`:
-/// the view is in an editor tab), then ⟳ when `refresh` gives its tooltip. `more` fills the ⋯
-/// menu (its secondary actions and options). What the caller adds after it goes on their left.
-pub fn controls(ui: &mut egui::Ui, big: bool, refresh: Option<&str>, more: Option<&mut dyn FnMut(&mut egui::Ui)>) -> Option<BarAct> {
+/// The right of a header, drawn first in a right-to-left layout: ⋯ at the end, then ⇱ / ⇲ for a
+/// view that can be in both places (`place`: Some(true) when it is in an editor tab), then ⟳ when
+/// `refresh` gives its tooltip. `more` fills the ⋯ menu (its secondary actions and options). What
+/// the caller adds after it goes on their left.
+pub fn controls(ui: &mut egui::Ui, place: Option<bool>, refresh: Option<&str>, more: Option<&mut dyn FnMut(&mut egui::Ui)>) -> Option<BarAct> {
     let mut act = None;
     if let Some(more) = more {
         ui.menu_button(RichText::new("⋯").strong(), |ui| {
@@ -31,13 +33,15 @@ pub fn controls(ui: &mut egui::Ui, big: bool, refresh: Option<&str>, more: Optio
         .response
         .on_hover_text(t!("Autres actions et options", "Other actions and options"));
     }
-    let (kind, tip) = if big {
-        (crate::icons::Layout::ToBottom, t!("Dans le panneau du bas", "In the bottom panel"))
-    } else {
-        (crate::icons::Layout::ToTab, t!("En grand, dans un onglet de l'éditeur", "Large, in an editor tab"))
-    };
-    if crate::icons::layout_button(ui, kind, tip).clicked() {
-        act = Some(BarAct::Move(!big));
+    if let Some(big) = place {
+        let (kind, tip) = if big {
+            (crate::icons::Layout::ToBottom, t!("Dans le panneau du bas", "In the bottom panel"))
+        } else {
+            (crate::icons::Layout::ToTab, t!("En grand, dans un onglet de l'éditeur", "Large, in an editor tab"))
+        };
+        if crate::icons::layout_button(ui, kind, tip).clicked() {
+            act = Some(BarAct::Move(!big));
+        }
     }
     if let Some(tip) = refresh {
         if ui.small_button("⟳").on_hover_text(tip).clicked() {
