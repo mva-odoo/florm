@@ -382,7 +382,8 @@ in the palette, or **▾ → Debug** in the bottom panel. During a session, the 
     as you like (Florm's terminal, yours, `docker compose up`): **Copy the command** gives the line
     to run. **■ Stop waiting** (or Shift+F5) stops waiting, F5 waits again.
 - **Paused**: the line is highlighted in yellow, the window comes to the front and the debugger opens in the bottom panel, under the file (unless it is in the other half of a split editor). On the left the
-  **Variables** (click to unfold `self`, a recordset…), the **Watch** (expressions evaluated again
+  **Variables** (click to unfold `self`, a recordset…; its fields first, the `__x__` and the
+  groups of debugpy at the end), the **Watch** (expressions evaluated again
   at each stop), the **Call stack** (click on a call: its line and its variables, in green).
   Hovering a name shows its value (`self.partner_id.name`).
 - **Console** (on the right): an expression evaluated in the paused frame (in Python:

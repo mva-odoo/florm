@@ -388,7 +388,8 @@ la barre d'état affiche **en cours** ou **en pause** : un clic montre la vue.
     commande** donne la ligne à lancer. **■ Arrêter l'attente** (ou Maj+F5) arrête d'attendre,
     F5 reprend.
 - **En pause** : la ligne est surlignée en jaune, la fenêtre passe devant et le débogage s'ouvre dans le panneau du bas, sous le fichier (sauf s'il est dans l'autre moitié d'un éditeur divisé). À gauche les
-  **Variables** (clic pour déplier `self`, un recordset…), l'**Espion** (des expressions
+  **Variables** (clic pour déplier `self`, un recordset… ; ses champs d'abord, les `__x__` et
+  les groupes de debugpy à la fin), l'**Espion** (des expressions
   réévaluées à chaque arrêt), la **Pile d'appels** (clic sur un appel : sa ligne et ses
   variables, en vert). Le survol d'un nom montre sa valeur (`self.partner_id.name`).
 - **Console** (à droite) : une expression évaluée dans le cadre en pause (en Python :

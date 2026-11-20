@@ -24,7 +24,7 @@ pub(super) fn parse_frames(body: &Value, target: &Target, mounts: &[(String, Pat
 }
 
 pub(super) fn parse_vars(body: &Value, parent_expr: Option<&str>) -> Vec<Var> {
-    body["variables"]
+    let mut vars: Vec<Var> = body["variables"]
         .as_array()
         .map(|a| {
             a.iter()
@@ -33,10 +33,18 @@ pub(super) fn parse_vars(body: &Value, parent_expr: Option<&str>) -> Vec<Var> {
                     let expr = v["evaluateName"].as_str().map(String::from).or_else(|| parent_expr.is_none().then(|| name.clone()));
                     Var { value: v["value"].as_str().unwrap_or("").to_string(), ty: v["type"].as_str().unwrap_or("").to_string(), reference: v["variablesReference"].as_i64().unwrap_or(0), expr, name }
                 })
-                // the dunder attributes and the special groups of debugpy last
                 .collect()
         })
-        .unwrap_or_default()
+        .unwrap_or_default();
+    // the dunder attributes and the special groups of debugpy last (it puts its groups first):
+    // the fields of a record are seen at once; the order of the others is kept
+    vars.sort_by_key(|v| is_special(&v.name));
+    vars
+}
+
+/// `__init__`, or a group of debugpy ("special variables", "function variables"…).
+fn is_special(name: &str) -> bool {
+    (name.len() > 4 && name.starts_with("__") && name.ends_with("__")) || name.ends_with(" variables")
 }
 
 impl App {
@@ -552,6 +560,14 @@ mod tests {
         app.debug_response(Req::Start, "attach", false, "refused".into(), json!({}));
         assert!(app.debug.session.is_none());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn special_variables_last() {
+        let names = ["special variables", "function variables", "__dict__", "partner_id", "__", "amount", "0"];
+        let body = json!({ "variables": names.iter().map(|n| json!({ "name": n, "value": "" })).collect::<Vec<_>>() });
+        let order: Vec<String> = parse_vars(&body, None).into_iter().map(|v| v.name).collect();
+        assert_eq!(order, ["partner_id", "__", "amount", "0", "special variables", "function variables", "__dict__"]);
     }
 
     #[test]
