@@ -122,7 +122,7 @@ florm .              # ouvre le dossier courant
 florm fichier.py     # ouvre un fichier
 ```
 
-Les préférences s'ouvrent avec **Ctrl+,** et sont enregistrées dans `~/.config/florm/settings.toml` (`%APPDATA%\florm\settings.toml` sous Windows). Le guide intégré est dans le menu Aide. GitHub, Claude et le débogueur peuvent être désactivés (interrupteur en haut de leur section des préférences, ou `github`, `claude`, `debugger` = `false` dans `settings.toml`) : leurs vues, commandes et boutons disparaissent. Ils sont désactivés à l'installation ; tant qu'ils le sont, leur section indique si ce qu'il leur faut est installé (`gh`, `claude`, Python et debugpy) et, sinon, comment l'installer.
+Les préférences s'ouvrent avec **Ctrl+,** et sont enregistrées dans `~/.config/florm/settings.toml` (`%APPDATA%\florm\settings.toml` sous Windows). Le guide intégré est dans le menu Aide. Git, GitHub, Claude et le débogueur peuvent être désactivés (Git l'est tout seul quand `git` n'est pas installé) (interrupteur en haut de leur section des préférences, ou `github`, `claude`, `debugger` = `false` dans `settings.toml`) : leurs vues, commandes et boutons disparaissent. Ils sont désactivés à l'installation ; tant qu'ils le sont, leur section indique si ce qu'il leur faut est installé (`gh`, `claude`, Python et debugpy) et, sinon, comment l'installer.
 
 ## Outils et connexions
 

@@ -155,6 +155,7 @@ impl App {
             Feature::GitHub => &[Tool::Gh],
             Feature::Claude => &[Tool::Claude],
             Feature::Debugger => &[],
+            Feature::Git => &[Tool::Git],
         };
         ui.add_space(12.0);
         ui.label(RichText::new(t!("Ce qu'il faut pour l'activer", "What it needs to be turned on")).strong());

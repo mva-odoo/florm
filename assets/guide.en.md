@@ -644,6 +644,10 @@ classes, tags…, italic or not), applied right away. **Save the theme** writes 
 `themes` folder of the configuration; **Edit this theme** / **Delete this theme** when it is
 one of yours.
 
+**Git can be turned off too** (Preferences → Git), and it is by itself when the `git` command is
+not installed: no more Git view, history, blame, change marks in the gutter nor pull requests, and
+`git` is no longer called. Its section then tells how to install it.
+
 **GitHub, Claude and the debugger can be turned off**: a switch on top of their section of the
 preferences (Pull requests, Claude, Debugger). Off, their views, commands, menus, icons,
 shortcuts and buttons go away (✨ and ✂ of Git, AI review, ✳ column and breakpoints of the

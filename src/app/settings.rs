@@ -43,15 +43,16 @@ impl App {
         self.set_status(t!("Préférences rechargées", "Preferences reloaded"));
     }
 
-    /// GitHub, the debugger and Claude on or off as the settings say: the views of those turned
+    /// Git, GitHub, the debugger and Claude on or off as the settings say: the views of those turned
     /// off are closed (tab and bottom panel), a debugging session is stopped.
     pub(super) fn apply_features(&mut self) {
         use crate::features::{self, Feature};
         let s = &self.settings;
-        features::set_all(s.github, s.debugger, s.claude);
+        features::set_all(s.github, s.debugger, s.claude, s.git && crate::tools::Tool::Git.installed());
         crate::claude_account::set_default(super::claude_ui::default_account_dir(s));
         let off = |v: &document::View| match v {
             document::View::PullRequests => !features::on(Feature::GitHub),
+            document::View::Git | document::View::History | document::View::Conflicts => !features::on(Feature::Git),
             document::View::Debug => !features::on(Feature::Debugger),
             document::View::Claude => !features::on(Feature::Claude),
             _ => false,

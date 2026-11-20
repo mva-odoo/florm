@@ -45,7 +45,9 @@ pub struct Settings {
     pub diff_side_by_side: bool,
     /// Claude's commands run in the sandbox of Claude Code (bubblewrap on Linux, Seatbelt on macOS).
     pub claude_sandbox: bool,
-    /// Parts that can be turned off: GitHub (pull requests), the debugger, Claude.
+    /// Parts that can be turned off: Git (off by itself without `git`), GitHub (pull requests),
+    /// the debugger, Claude.
+    pub git: bool,
     pub github: bool,
     pub debugger: bool,
     pub claude: bool,
@@ -192,6 +194,7 @@ impl Default for Settings {
             search_in_tab: false,
             diff_side_by_side: false,
             claude_sandbox: true,
+            git: true,
             github: true,
             debugger: true,
             claude: true,
@@ -295,6 +298,8 @@ search_in_tab = false
 diff_side_by_side = false
 # Fonctions à activer ou désactiver (false : leurs vues, commandes, menus et boutons disparaissent).
 # Désactivées à l'installation : Préférences → leur section dit ce qu'il faut installer pour les activer.
+# Git est actif dès que la commande git est installée
+git = true
 github = false
 debugger = false
 claude = false

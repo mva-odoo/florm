@@ -16,7 +16,15 @@ fn git(dir: &Path) -> std::process::Command {
     c
 }
 
+/// Git turned off (Préférences → Git, or `git` not installed): nothing is run.
+fn off() -> Option<String> {
+    (!crate::features::on(crate::features::Feature::Git)).then(|| t!("Git est désactivé (Préférences → Git)", "Git is turned off (Preferences → Git)").to_string())
+}
+
 fn exec(dir: &Path, args: &[&str]) -> Result<(String, String), String> {
+    if let Some(e) = off() {
+        return Err(e);
+    }
     let out = git(dir)
         .args(args)
         .current_dir(dir)
@@ -40,6 +48,9 @@ pub fn run(dir: &Path, args: &[&str]) -> Result<String, String> {
 
 /// Like `run`, with extra environment variables and text written to stdin.
 pub fn run_with(dir: &Path, args: &[&str], env: &[(&str, &str)], input: Option<&str>) -> Result<String, String> {
+    if let Some(e) = off() {
+        return Err(e);
+    }
     let mut child = git(dir)
         .args(args)
         .current_dir(dir)

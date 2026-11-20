@@ -675,6 +675,7 @@ impl App {
                 });
             }
             PrefSection::Git => {
+                feature_toggle(ui, rc, sec, s);
                 pref_row(ui, rc, t!("Branche et remote dans l'arborescence", "Branch and remote in the tree"), t!("Sur le dossier de chaque dépôt git : sa branche, la branche distante suivie (↑ à pousser, ↓ à récupérer) et le nombre de fichiers modifiés ; survol : les remotes.", "On the folder of each git repository: its branch, the tracked remote branch (↑ to push, ↓ to pull) and the number of changed files; hover: the remotes."), |ui| {
                     toggle_switch(ui, &mut s.tree_git_info);
                 });
@@ -1079,6 +1080,7 @@ impl App {
             }
         }
         let needs = match sec {
+            PrefSection::Git if !crate::features::on(crate::features::Feature::Git) => Some(crate::features::Feature::Git),
             PrefSection::PullRequests if !self.settings.github => Some(crate::features::Feature::GitHub),
             PrefSection::Claude if !self.settings.claude => Some(crate::features::Feature::Claude),
             PrefSection::Debug if !self.settings.debugger => Some(crate::features::Feature::Debugger),
@@ -1265,6 +1267,7 @@ impl App {
             ("search_in_tab", s.search_in_tab, before.search_in_tab),
             ("claude_sandbox", s.claude_sandbox, before.claude_sandbox),
             ("claude_done_blink", s.claude_done_blink, before.claude_done_blink),
+            ("git", s.git, before.git),
             ("github", s.github, before.github),
             ("debugger", s.debugger, before.debugger),
             ("claude", s.claude, before.claude),
@@ -1291,7 +1294,7 @@ impl App {
         if s.claude_sandbox != before.claude_sandbox {
             self.claude_restart_terms();
         }
-        if (s.github, s.debugger, s.claude) != (before.github, before.debugger, before.claude) {
+        if (s.git, s.github, s.debugger, s.claude) != (before.git, before.github, before.debugger, before.claude) {
             self.apply_features();
         }
         let mut lint_changed = s.python_linter != before.python_linter || s.python_lint_args != before.python_lint_args || s.lint_live != before.lint_live;
@@ -1418,6 +1421,7 @@ impl App {
 /// The switch of GitHub, Claude or the debugger, on top of its section.
 fn feature_switch(s: &mut Settings, sec: PrefSection) -> Option<&mut bool> {
     match sec {
+        PrefSection::Git => Some(&mut s.git),
         PrefSection::PullRequests => Some(&mut s.github),
         PrefSection::Claude => Some(&mut s.claude),
         PrefSection::Debug => Some(&mut s.debugger),
@@ -1434,6 +1438,10 @@ fn feature_toggle(ui: &mut egui::Ui, rc: &mut RowCtx, sec: PrefSection, s: &mut 
         PrefSection::PullRequests => (
             t!("Activer GitHub", "Enable GitHub"),
             t!("Désactivé : plus de vue Pull requests, de création de PR, de lien GitHub ni de PR liées dans la vue Git ; gh n'est plus appelé.", "Off: no more Pull requests view, PR creation, GitHub link nor linked PRs in the Git view; gh is no longer called."),
+        ),
+        PrefSection::Git => (
+            t!("Activer Git", "Enable Git"),
+            t!("Désactivé (ou git pas installé) : plus de vue Git, d'historique, de blame, de marques de changement dans la marge ni de pull requests ; git n'est plus appelé.", "Off (or git not installed): no more Git view, history, blame, change marks in the gutter nor pull requests; git is no longer called."),
         ),
         PrefSection::Claude => (
             t!("Activer Claude", "Enable Claude"),

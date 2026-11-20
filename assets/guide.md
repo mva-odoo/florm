@@ -660,6 +660,10 @@ fonctions, classes, balises…, en italique ou non), appliquées tout de suite. 
 thème** l'écrit dans le dossier `themes` de la configuration ; **Modifier ce thème** /
 **Supprimer ce thème** quand c'est un des tiens.
 
+**Git se désactive aussi** (Préférences → Git), et il l'est tout seul quand la commande `git` n'est
+pas installée : plus de vue Git, d'historique, de blame, de marques de changement dans la marge ni
+de pull requests, et `git` n'est plus appelé. Sa section dit alors comment l'installer.
+
 **GitHub, Claude et le débogueur se désactivent** : un interrupteur en haut de leur section des
 préférences (Pull requests, Claude, Débogueur). Désactivés, leurs vues, commandes, menus, icônes,
 raccourcis et boutons disparaissent (✨ et ✂ de Git, revue IA, colonne ✳ et points d'arrêt de la

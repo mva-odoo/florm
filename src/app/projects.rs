@@ -298,6 +298,7 @@ impl App {
             ("claude", _) if !on(Feature::Claude) => return false,
             ("pulls", _) if !on(Feature::GitHub) => return false,
             ("debug", _) if !on(Feature::Debugger) => return false,
+            ("git", _) if !on(Feature::Git) => return false,
             ("claude", key) => self.claude_restore_tab(key.parse().unwrap_or(0)),
             ("pulls", _) => self.open_pulls(),
             ("debug", _) => self.open_debug(),

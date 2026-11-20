@@ -1173,7 +1173,7 @@ impl App {
     /// `new` with only the egui context (the tests make an app without a window).
     fn with_ctx(egui_ctx: &egui::Context, arg: Option<PathBuf>) -> Self {
         let (settings, settings_err) = config::load();
-        crate::features::set_all(settings.github, settings.debugger, settings.claude);
+        crate::features::set_all(settings.github, settings.debugger, settings.claude, settings.git && crate::tools::Tool::Git.installed());
         crate::claude_account::set_default(claude_ui::default_account_dir(&settings));
         // Florm has its own palette: egui must not switch to its light / dark style with the system
         // theme (Windows), and both styles get the same settings

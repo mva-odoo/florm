@@ -122,7 +122,7 @@ florm .              # opens the current folder
 florm file.py        # opens a file
 ```
 
-The preferences open with **Ctrl+,** and are saved in `~/.config/florm/settings.toml` (`%APPDATA%\florm\settings.toml` on Windows). The built-in guide is in the Help menu. GitHub, Claude and the debugger can be turned off (switch at the top of their section of the preferences, or `github`, `claude`, `debugger` = `false` in `settings.toml`): their views, commands and buttons disappear. They are off at installation; as long as they are, their section tells whether what they need is installed (`gh`, `claude`, Python and debugpy) and, if not, how to install it.
+The preferences open with **Ctrl+,** and are saved in `~/.config/florm/settings.toml` (`%APPDATA%\florm\settings.toml` on Windows). The built-in guide is in the Help menu. Git, GitHub, Claude and the debugger can be turned off (Git is by itself when `git` is not installed) (switch at the top of their section of the preferences, or `github`, `claude`, `debugger` = `false` in `settings.toml`): their views, commands and buttons disappear. They are off at installation; as long as they are, their section tells whether what they need is installed (`gh`, `claude`, Python and debugpy) and, if not, how to install it.
 
 ## Tools and connections
 

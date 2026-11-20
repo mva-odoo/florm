@@ -131,7 +131,7 @@ impl App {
                 let active_view = self.docs.get(self.active).map(|d| d.view);
                 for (on, icon, view, label, cmd) in [
                     (on(Feature::Claude), icons::ViewIcon::Claude, Some(crate::document::View::Claude), "Claude", Cmd::Claude),
-                    (true, icons::ViewIcon::Git, Some(crate::document::View::Git), "Git", Cmd::ShowGit),
+                    (on(Feature::Git), icons::ViewIcon::Git, Some(crate::document::View::Git), "Git", Cmd::ShowGit),
                     (on(Feature::GitHub), icons::ViewIcon::PullRequests, Some(crate::document::View::PullRequests), t!("Pull requests (GitHub)", "Pull requests (GitHub)"), Cmd::PullRequests),
                     (true, icons::ViewIcon::Terminal, None, "Terminal", Cmd::ToggleTerminal),
                 ] {

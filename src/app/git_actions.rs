@@ -4,6 +4,10 @@ use super::*;
 
 impl App {
     pub(super) fn git_refresh(&mut self) {
+        // Git off (or not installed): nothing asked, nothing to show
+        if !crate::features::on(crate::features::Feature::Git) {
+            return;
+        }
         let Some(selected) = self.repo.clone() else { return };
         let repos = self.repos.clone();
         self.jobs.spawn(move || {
