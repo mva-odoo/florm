@@ -414,7 +414,8 @@ Les variables sont remplies d'après le fichier : dans `estate/views/estate_prop
 
 Pour ajouter les tiens : **Outils → Dossier des modèles**, un fichier par modèle
 (son nom = le nom du modèle, son extension = le type de fichier). Un fichier qui porte le nom
-d'un modèle intégré le remplace.
+d'un modèle intégré le remplace, avec « · » à la place de « : » (interdit dans un nom de fichier
+sous Windows) : `Python · pdb.py` remplace « Python : pdb ».
 
 **Déclencheurs**, comme les snippets de Sublime : taper `ipdb` dans un fichier Python le
 propose dans les suggestions, **Tab** (ou Entrée) le remplace par

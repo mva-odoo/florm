@@ -31,6 +31,8 @@ Chaque fichier de ce dossier est un modèle : son nom devient le nom du modèle,
 le type de fichier pour lequel il est proposé en premier (ex. « Ma vue kanban.xml »).\n\n\
 Un nom d'un seul mot (lettres, chiffres, _) sert aussi de déclencheur : avec « ipdb.py », taper\n\
 `ipdb` dans un fichier .py le propose dans les suggestions, et Tab le développe.\n\n\
+Pour remplacer un modèle intégré, donne au fichier le même nom, avec « · » à la place de « : »\n\
+(interdit dans un nom de fichier sous Windows) : « Python · pdb.py » remplace « Python : pdb ».\n\n\
 Variables remplacées à l'insertion, d'après le fichier courant :\n\n\
 - `${model}` : sale.order (d'après le nom du fichier : sale_order_views.xml, sale_order.py)\n\
 - `${model_}` : sale_order\n\
@@ -77,7 +79,7 @@ fn load_dirs(dirs: &[PathBuf]) -> Vec<Template> {
                 continue;
             }
             let Ok(body) = std::fs::read_to_string(&p) else { continue };
-            let name = p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+            let name = name_of(&p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default());
             let ext = p.extension().map(|s| s.to_string_lossy().to_lowercase()).unwrap_or_default();
             let trigger = if is_word(&name) { name.clone() } else { String::new() };
             // a user template with a built-in's trigger replaces it too
@@ -86,6 +88,17 @@ fn load_dirs(dirs: &[PathBuf]) -> Vec<Template> {
         }
     }
     v
+}
+
+/// The file name of template `name`: « : » (refused in a file name on Windows) becomes « · ».
+pub fn file_stem(name: &str) -> String {
+    name.replace(':', "·")
+}
+
+/// The name of the template of file stem `stem` (« Python · pdb » or, written by hand on Linux
+/// or macOS, « Python : pdb »).
+fn name_of(stem: &str) -> String {
+    stem.replace('·', ":")
 }
 
 fn is_word(s: &str) -> bool {
@@ -199,15 +212,19 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("florm_tpl_user_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         install_readme(&dir);
-        // ":" cannot be in a file name on Windows: the built-in one cannot be replaced there
-        if cfg!(windows) {
-            return;
-        }
-        std::fs::write(dir.join("Python : pdb.py"), "breakpoint()").unwrap();
+        // « · » for « : », refused in a file name on Windows
+        std::fs::write(dir.join("Python · pdb.py"), "breakpoint()").unwrap();
         std::fs::write(dir.join("Kanban.xml"), "<kanban/>").unwrap();
         let all = load(&dir);
         assert_eq!(all.iter().filter(|t| t.name == "Python : pdb").count(), 1);
         assert_eq!(all.iter().find(|t| t.name == "Python : pdb").unwrap().body, "breakpoint()");
+        // the files written with « : » on Linux or macOS still replace it
+        if cfg!(unix) {
+            std::fs::write(dir.join("Python : ipdb.py"), "breakpoint()").unwrap();
+            let all = load(&dir);
+            assert_eq!(all.iter().filter(|t| t.name == "Python : ipdb").map(|t| t.body.as_str()).collect::<Vec<_>>(), ["breakpoint()"]);
+            std::fs::remove_file(dir.join("Python : ipdb.py")).unwrap();
+        }
         assert!(all.iter().any(|t| t.name == "Kanban" && t.ext == "xml"));
         assert!(!all.iter().any(|t| t.name == "README"));
         assert_eq!(all.iter().find(|t| t.name == "Kanban").unwrap().trigger, "Kanban");

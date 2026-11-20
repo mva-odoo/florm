@@ -62,7 +62,8 @@ impl TemplateDraft {
     /// The file it goes to, in templates folder `dir`.
     fn path_in(&self, dir: &Path) -> PathBuf {
         let name = self.name.trim();
-        dir.join(if self.ext.is_empty() { name.to_string() } else { format!("{name}.{}", self.ext) })
+        let stem = templates::file_stem(name);
+        dir.join(if self.ext.is_empty() { stem } else { format!("{stem}.{}", self.ext) })
     }
 
     /// Writes it (the old file goes when it was renamed); the error to show otherwise.
@@ -72,8 +73,9 @@ impl TemplateDraft {
 
     fn save_in(&mut self, dir: &Path) -> Result<(), String> {
         let name = self.name.trim();
-        if name.is_empty() || name.contains(['/', '\\']) || name.starts_with('.') || name == "README" {
-            return Err(t!("Le nom ne peut pas être vide, commencer par un point ni contenir / ou \\", "The name cannot be empty, start with a dot or contain / or \\").into());
+        // the characters a file name cannot have on Windows (« : » becomes « · »)
+        if name.is_empty() || name.contains(['/', '\\', '<', '>', '"', '|', '?', '*']) || name.starts_with('.') || name == "README" {
+            return Err(t!("Le nom ne peut pas être vide, commencer par un point ni contenir / \\ < > \" | ? *", "The name cannot be empty, start with a dot or contain / \\ < > \" | ? *").into());
         }
         let path = self.path_in(dir);
         if self.orig.as_ref() != Some(&path) && path.exists() {
@@ -220,6 +222,20 @@ mod tests {
         assert!(TemplateDraft { name: "a/b".into(), ..TemplateDraft::new() }.save_in(&dir).is_err());
         d.delete().unwrap();
         assert!(templates::load(&dir).iter().all(|t| t.path.is_none()));
+        // a built-in changed: saved under a name Windows accepts, it replaces the built-in one
+        let builtin = templates::load(&dir).into_iter().find(|t| t.name == "Python : pdb").unwrap();
+        let mut d = TemplateDraft::of(&builtin);
+        d.body = "breakpoint()".into();
+        d.save_in(&dir).unwrap();
+        assert!(dir.join("Python · pdb.py").is_file());
+        let all = templates::load(&dir);
+        assert_eq!(all.iter().filter(|t| t.name == "Python : pdb").map(|t| t.body.as_str()).collect::<Vec<_>>(), ["breakpoint()"]);
+        // changed again: the same file
+        let mut d = TemplateDraft::of(all.iter().find(|t| t.name == "Python : pdb").unwrap());
+        d.body = "import pdb; pdb.set_trace()".into();
+        d.save_in(&dir).unwrap();
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        assert!(TemplateDraft { name: "a?b".into(), ..TemplateDraft::new() }.save_in(&dir).is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

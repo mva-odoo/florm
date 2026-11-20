@@ -408,7 +408,8 @@ The variables are filled from the file: in `estate/views/estate_property_views.x
 
 To add yours: **Tools → Templates folder**, one file per template
 (its name = the name of the template, its extension = the type of file). A file with the name
-of a built-in template replaces it.
+of a built-in template replaces it, with “·” in place of “:” (refused in a file name on
+Windows): `Python · pdb.py` replaces “Python : pdb”.
 
 **Triggers**, like Sublime's snippets: typing `ipdb` in a Python file suggests it,
 **Tab** (or Enter) replaces it with `import ipdb; ipdb.set_trace()`. Also `pdb`. A template of
