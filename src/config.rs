@@ -627,13 +627,31 @@ fn top_level_index(text: &str, key: &str) -> Option<usize> {
     })
 }
 
+/// The line after the value starting at line `i`: the first that makes `lines[i..end]` valid
+/// TOML. Line `i` alone when none does (a value already broken is not made worse).
+fn value_end(lines: &[String], i: usize) -> usize {
+    let mut text = String::new();
+    for (j, l) in lines.iter().enumerate().skip(i) {
+        text.push_str(l);
+        text.push('\n');
+        if text.parse::<toml::Table>().is_ok() {
+            return j + 1;
+        }
+    }
+    i + 1
+}
+
 fn set_setting_in(p: &std::path::Path, key: &str, value: &str) -> Result<(), String> {
     let text = std::fs::read_to_string(p).unwrap_or_default();
     let mut lines: Vec<String> = text.lines().map(String::from).collect();
     let section = lines.iter().position(|l| l.trim_start().starts_with('[')).unwrap_or(lines.len());
     let line = format!("{key} = {value}");
     match top_level_index(&text, key) {
-        Some(i) => lines[i] = line,
+        // the whole old value is replaced, even written over several lines (a list, a long text)
+        Some(i) => {
+            let end = value_end(&lines, i);
+            lines.splice(i..end, [line]);
+        }
         None => lines.insert(section, line),
     }
     std::fs::write(p, lines.join("\n") + "\n").map_err(|e| e.to_string())
@@ -642,6 +660,25 @@ fn set_setting_in(p: &std::path::Path, key: &str, value: &str) -> Result<(), Str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A value written over several lines by hand is replaced whole: the file stays valid.
+    #[test]
+    fn set_setting_replaces_a_value_over_several_lines() {
+        let p = std::env::temp_dir().join(format!("florm_cfg_multi_{}.toml", std::process::id()));
+        let text = "exclude = [\n  \"a\",\n  # b aussi\n  \"b\",\n]\nnote = \"\"\"\nun\ndeux = 2\n\"\"\"\nlsp = true\n\n[keys]\n\"ctrl+r\" = \"git_push\"\n";
+        std::fs::write(&p, text).unwrap();
+        set_setting_in(&p, "exclude", "[\"c\"]").unwrap();
+        set_setting_in(&p, "note", "\"court\"").unwrap();
+        let out = std::fs::read_to_string(&p).unwrap();
+        assert_eq!(out, "exclude = [\"c\"]\nnote = \"court\"\nlsp = true\n\n[keys]\n\"ctrl+r\" = \"git_push\"\n");
+        let t: toml::Table = out.parse().unwrap();
+        assert_eq!(t["keys"]["ctrl+r"].as_str(), Some("git_push"));
+        // a broken value: only its line is replaced
+        std::fs::write(&p, "exclude = [\nlsp = true\n").unwrap();
+        set_setting_in(&p, "exclude", "[]").unwrap();
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), "exclude = []\nlsp = true\n");
+        let _ = std::fs::remove_file(&p);
+    }
 
     #[test]
     fn set_setting_keeps_comments() {
