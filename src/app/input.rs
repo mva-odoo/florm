@@ -51,8 +51,10 @@ impl App {
                         continue;
                     }
                     // in the terminal, keys go to the shell, except a few global shortcuts
+                    // (and Cmd+Q on macOS, where Cmd means nothing to a shell)
                     if term_focused
                         && !matches!(cmd, Cmd::ToggleTerminal | Cmd::CommandPalette | Cmd::QuickOpen | Cmd::ToggleSidebar | Cmd::Claude | Cmd::ClaudeNextWaiting | Cmd::ClaudeScreenshot)
+                        && !(cfg!(target_os = "macos") && cmd == Cmd::Quit)
                     {
                         continue;
                     }

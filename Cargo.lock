@@ -1304,6 +1304,7 @@ dependencies = [
  "toml 0.8.23",
  "ttf-parser",
  "vt100",
+ "winit",
  "winresource",
  "zbus",
 ]

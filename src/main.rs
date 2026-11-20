@@ -148,6 +148,13 @@ fn main() -> eframe::Result<()> {
         // (other workspace, minimized) never gets: the event loop blocks and the compositor reports
         // "application not responding". Florm only repaints on events, so vsync is not needed.
         vsync: std::env::var_os("WAYLAND_DISPLAY").is_none(),
+        // macOS: the menu winit adds quits at Cmd+Q without telling Florm (no question for unsaved
+        // files, nor for Claude at work); without it, Cmd+Q is Florm's own Quit, which asks
+        #[cfg(target_os = "macos")]
+        event_loop_builder: Some(Box::new(|b| {
+            use winit::platform::macos::EventLoopBuilderExtMacOS;
+            b.with_default_menu(false);
+        })),
         ..Default::default()
     };
     eframe::run_native(

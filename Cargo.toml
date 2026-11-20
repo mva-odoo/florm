@@ -104,6 +104,10 @@ opt-level = 2
 [target.'cfg(any(windows, target_os = "macos"))'.dependencies]
 rfd = { version = "0.15", default-features = false }
 
+# macOS: the default menu of winit taken out, so that Cmd+Q asks before quitting (already used by eframe).
+[target.'cfg(target_os = "macos")'.dependencies]
+winit = { version = "0.30", default-features = false }
+
 # Linux: the desktop's file chooser through the xdg portal (zbus is already used by egui's accessibility).
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus = { version = "4", default-features = false, features = ["async-io"] }
