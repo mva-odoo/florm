@@ -1,0 +1,42 @@
+# Les tests unitaires à chaque push sur main et à chaque pull request, sous Linux, Windows et macOS :
+# ce qui casse sur un seul système se voit avant une release.
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (branche, à la date de l'épinglage)
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      # des tests créent des dépôts et des commits
+      - name: Identité git
+        run: |
+          git config --global user.name "Florm CI"
+          git config --global user.email "ci@florm.invalid"
+      # sous Linux, aussi les tests qui montent toute l'application (FLORM_TEST_APP)
+      - name: cargo test
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then export FLORM_TEST_APP=1; fi
+          cargo test --locked
