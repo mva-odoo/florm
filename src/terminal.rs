@@ -398,7 +398,9 @@ impl Terminal {
             return;
         }
         let focus = std::mem::take(&mut self.want_focus);
-        match self.grid(ui, i, focus, colors, light) {
+        // a rounded block of the editor's color in the panel
+        let act = egui::Frame::none().fill(colors.bg).rounding(6.0).show(ui, |ui| self.grid(ui, i, focus, colors, light)).inner;
+        match act {
             Some(GridAct::Restart) => self.restart(i, &ctx, shell),
             Some(GridAct::NewTerminal) => self.open(&ctx, shell, None),
             None => {}
@@ -625,6 +627,8 @@ impl Terminal {
         let (rect, resp) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
         let gid = Self::grid_id(s.id);
         let resp = ui.interact(rect, gid, Sense::click_and_drag()).union(resp);
+        // room above the first row and under the last one (the whole area still takes the clicks)
+        let rect = rect.shrink2(egui::vec2(0.0, 4.0));
         let pad = 6.0;
         let cols = (((rect.width() - 2.0 * pad) / cw).floor() as u16).max(10);
         let rows = ((rect.height() / rh).floor() as u16).max(2);
@@ -832,7 +836,8 @@ fn strip_ansi(s: &str) -> String {
 #[allow(clippy::too_many_arguments)]
 fn paint(ui: &egui::Ui, rect: Rect, pad: f32, rh: f32, cw: f32, font: &FontId, s: &Session, c: Colors, light: bool, focused: bool) {
     let painter = ui.painter_at(rect);
-    painter.rect_filled(rect, 0.0, c.bg);
+    // rounded: it stays inside the rounded block of the bottom panel
+    painter.rect_filled(rect, 4.0, c.bg);
     let parser = s.parser.lock().unwrap();
     let screen = parser.screen();
     let (rows, cols) = screen.size();

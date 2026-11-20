@@ -176,7 +176,9 @@ impl App {
         }
         // the debugger needs room for its bars and content
         let min_h = if self.bottom == Some(BottomTab::Debug) { 360.0 } else { 80.0 };
-        egui::TopBottomPanel::bottom("bottom").resizable(true).default_height(230.0).height_range(min_h..=900.0).show(
+        // room on the sides and under its content, so that it does not touch the status bar
+        let frame = egui::Frame::side_top_panel(&ctx.style()).inner_margin(egui::Margin { left: 8.0, right: 8.0, top: 2.0, bottom: 8.0 });
+        egui::TopBottomPanel::bottom("bottom").resizable(true).default_height(230.0).height_range(min_h..=900.0).frame(frame).show(
             ctx,
             |ui| {
                 // one view at a time, no row of tabs: its name, ▾ for the others
