@@ -540,7 +540,7 @@ new in it work as they are. Claude's changes are reviewed in the **Git** view.
   → Image from the clipboard** gives it to Claude. An image or a PDF can also be dropped from the
   file manager on Claude, or chosen with **+ Context → Image or PDF…**. An image is made smaller
   (1568 pixels) to cost fewer tokens.
-- **Several Claude accounts** (work, personal…): **Preferences → Claude → Claude accounts**,
+- **Several Claude accounts** (work, personal…): **👤 → + Add an account…** at the top of Claude, or **Preferences → Claude → Claude accounts**,
   “+ Add an account”, then **Log in…** (done once, in a terminal of Florm; each account has its
   folder, `~/.claude-perso` for instance). The **👤** menu at the top of a conversation chooses its
   account: changed on the way, Claude starts again with it and the conversation keeps its context.

@@ -516,6 +516,10 @@ impl App {
             self.set_status(tf!("Compte Claude : {name}", "Claude account: {name}"));
             self.claude_set_account(name);
         }
+        if a.manage_accounts {
+            self.prefs.section = PrefSection::Claude;
+            self.open_settings();
+        }
         if a.read_commits {
             if let Some(dir) = self.claude.dir.clone() {
                 let id = self.claude.id;

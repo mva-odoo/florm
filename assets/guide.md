@@ -550,7 +550,7 @@ ses nouveautés marchent tels quels. Les changements de Claude se revoient dans 
   **+ Contexte → Image du presse-papiers** la donne à Claude. Une image ou un PDF se glisse aussi
   depuis le gestionnaire de fichiers sur Claude, ou se choisit avec **+ Contexte → Image ou PDF…**.
   Une image est réduite à 1568 pixels pour coûter moins de tokens.
-- **Plusieurs comptes Claude** (pro, perso…) : **Préférences → Claude → Comptes Claude**,
+- **Plusieurs comptes Claude** (pro, perso…) : **👤 → + Ajouter un compte…** en haut de Claude, ou **Préférences → Claude → Comptes Claude**,
   « + Ajouter un compte », puis **Se connecter…** (la connexion se fait une fois, dans un terminal
   de Florm ; chaque compte a son dossier, `~/.claude-perso` par exemple). Le menu **👤** en haut
   d'une conversation choisit son compte : changé en cours de route, Claude redémarre avec lui et la

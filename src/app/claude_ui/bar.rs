@@ -30,6 +30,8 @@ pub(super) struct Acts {
     pub(super) open_saved: Option<u64>,
     pub(super) forget_saved: Option<u64>,
     pub(super) account: Option<String>,
+    /// « Gérer les comptes… »: Préférences → Claude.
+    pub(super) manage_accounts: bool,
     /// The panel of the session shown (true) or hidden.
     pub(super) side: Option<bool>,
     pub(super) restart: bool,
@@ -169,19 +171,24 @@ pub(super) fn bar(ui: &mut egui::Ui, c: &mut ClaudeUi, accent: Color32, d: BarDa
                     a.new_conv = true;
                 }
                 context_menu(ui, c, &mut a);
-                // the account it runs with (its session follows it)
-                if accounts.len() > 1 {
-                    ui.menu_button(format!("👤 {account_name}"), |ui| {
-                        for x in accounts {
-                            if ui.selectable_label(x.name == account_name, &x.name).clicked() && x.name != account_name {
-                                a.account = Some(x.name.clone());
-                                ui.close_menu();
-                            }
+                // the account it runs with (its session follows it); always there, to find how to add one
+                ui.menu_button(format!("👤 {account_name}"), |ui| {
+                    ui.set_min_width(200.0);
+                    for x in accounts {
+                        if ui.selectable_label(x.name == account_name, &x.name).clicked() && x.name != account_name {
+                            a.account = Some(x.name.clone());
+                            ui.close_menu();
                         }
-                    })
-                    .response
-                    .on_hover_text(t!("Le compte Claude de cette conversation (son abonnement et ses quotas) ; changé, Claude redémarre avec lui, la conversation continue", "The Claude account of this conversation (its subscription and quotas); changed, Claude starts again with it, the conversation goes on"));
-                }
+                    }
+                    ui.separator();
+                    let label = if accounts.len() > 1 { t!("Gérer les comptes…", "Manage the accounts…") } else { t!("+ Ajouter un compte…", "+ Add an account…") };
+                    if ui.button(label).on_hover_text(t!("Préférences → Claude → Comptes Claude : un autre abonnement (pro, perso…), sa connexion, ses dossiers", "Preferences → Claude → Claude accounts: another subscription (work, personal…), its login, its folders")).clicked() {
+                        a.manage_accounts = true;
+                        ui.close_menu();
+                    }
+                })
+                .response
+                .on_hover_text(t!("Le compte Claude de cette conversation (son abonnement et ses quotas) ; changé, Claude redémarre avec lui, la conversation continue", "The Claude account of this conversation (its subscription and quotas); changed, Claude starts again with it, the conversation goes on"));
                 ui.menu_button(tf!("Historique ({})", "History ({})", history.len()), |ui| {
                     ui.set_min_width(420.0);
                     if history.is_empty() {
