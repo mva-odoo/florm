@@ -77,6 +77,9 @@ pub struct Node {
     /// Modification time of the folder when its children were read (an entry added or removed
     /// by another program changes it).
     mtime: Option<std::time::SystemTime>,
+    /// When they were read: a change in the same tick of the file system's clock as the reading
+    /// keeps the same date, the names are compared then.
+    read_at: Option<std::time::SystemTime>,
 }
 
 impl Node {
@@ -85,11 +88,12 @@ impl Node {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| path.display().to_string());
-        Node { path, name, is_dir, expanded: false, children: None, mtime: None }
+        Node { path, name, is_dir, expanded: false, children: None, mtime: None, read_at: None }
     }
 
     fn load(&mut self) {
         self.mtime = std::fs::metadata(&self.path).and_then(|m| m.modified()).ok();
+        self.read_at = Some(std::time::SystemTime::now());
         let mut v = Vec::new();
         if let Ok(rd) = std::fs::read_dir(&self.path) {
             for e in rd.flatten() {
@@ -190,11 +194,37 @@ impl Node {
             self.refresh();
             return true;
         }
+        // changed just before it was read: its date cannot tell a later change, its names can
+        if self.same_tick() {
+            if self.names_changed() {
+                self.refresh();
+                return true;
+            }
+            self.read_at = Some(std::time::SystemTime::now());
+        }
         let mut any = false;
         for c in self.children.iter_mut().flatten().filter(|c| c.is_dir && c.expanded) {
             any |= c.refresh_changed();
         }
         any
+    }
+
+    /// The folder changed less than 2 s before its children were read.
+    fn same_tick(&self) -> bool {
+        match (self.mtime, self.read_at) {
+            (Some(m), Some(r)) => r.duration_since(m).map_or(true, |d| d < std::time::Duration::from_secs(2)),
+            _ => false,
+        }
+    }
+
+    /// The entries on disk are not those read.
+    fn names_changed(&self) -> bool {
+        let Ok(rd) = std::fs::read_dir(&self.path) else { return false };
+        let mut disk: Vec<String> = rd.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n != ".git").collect();
+        let mut read: Vec<String> = self.children.iter().flatten().map(|c| c.name.clone()).collect();
+        disk.sort();
+        read.sort();
+        disk != read
     }
 
     /// Re-reads expanded directories while keeping what was open.
@@ -960,6 +990,30 @@ mod tests {
         assert!(src.expanded);
         assert_eq!(src.children.as_ref().unwrap().iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["a", "b"]);
         assert!(!t.refresh_changed());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A folder created in the same tick of the clock of the file system as the reading (its
+    /// date does not change): seen all the same, by its names.
+    #[cfg(unix)]
+    #[test]
+    fn a_change_in_the_same_tick_is_seen() {
+        let root = std::env::temp_dir().join(format!("florm_tree_tick_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("a")).unwrap();
+        let mut t = Node::new(root.clone(), true);
+        t.expand_paths(&HashSet::new());
+        t.load();
+        let date = std::fs::metadata(&root).unwrap().modified().unwrap();
+        std::fs::create_dir(root.join("b")).unwrap();
+        std::fs::File::open(&root).unwrap().set_modified(date).unwrap();
+        assert_eq!(std::fs::metadata(&root).unwrap().modified().unwrap(), date);
+        assert!(t.refresh_changed());
+        assert_eq!(t.children.as_ref().unwrap().iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["a", "b"]);
+        assert!(!t.refresh_changed());
+        // long after: the date is trusted again, the folder is no longer listed at each check
+        t.read_at = Some(date + std::time::Duration::from_secs(10));
+        assert!(!t.same_tick());
         let _ = std::fs::remove_dir_all(&root);
     }
 

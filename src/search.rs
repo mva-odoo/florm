@@ -383,7 +383,9 @@ mod tests {
         assert_eq!(rels(&format!("{}/*.py", dir.display())), ["a.py"]);
         assert_eq!(rels("./**/*.xml"), ["sub/b.xml"]);
         assert_eq!(rels("./*.py"), ["a.py"]);
-        let q = Query { pattern: "foo".into(), include: "/elsewhere/*.py".into(), ..Default::default() };
+        // an absolute folder of this system, outside the one searched
+        let elsewhere = std::env::temp_dir().join("florm_search_elsewhere");
+        let q = Query { pattern: "foo".into(), include: format!("{}/*.py", elsewhere.display()), ..Default::default() };
         assert!(run(&dir, &q, &crate::walk::Exclusions::none(), 1, &gen).error.is_some());
         let _ = std::fs::remove_dir_all(&dir);
     }

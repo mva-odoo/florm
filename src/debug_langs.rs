@@ -484,7 +484,7 @@ mod tests {
         let v = go_launch(&w("go run . --port 8080"), cwd).unwrap();
         assert_eq!((v["mode"].as_str(), v["args"].clone()), (Some("debug"), json!(["--port", "8080"])));
         let v = node_launch(&w("node --inspect-brk app.js a b"), cwd);
-        assert_eq!((v["program"].as_str(), v["args"].clone(), v["runtimeArgs"].clone()), (Some("/p/app.js"), json!(["a", "b"]), json!(["--inspect-brk"])));
+        assert_eq!((v["program"].as_str().map(Path::new), v["args"].clone(), v["runtimeArgs"].clone()), (Some(Path::new("/p/app.js")), json!(["a", "b"]), json!(["--inspect-brk"])));
         let v = node_launch(&w("npx jest src/a.test.ts -t adds"), cwd);
         assert_eq!(v["runtimeExecutable"], "npx");
         assert_eq!(v["runtimeArgs"], json!(["jest", "src/a.test.ts", "-t", "adds", "--runInBand"]));
