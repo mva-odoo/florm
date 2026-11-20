@@ -77,16 +77,11 @@ impl App {
             ui.label(t!("Aucun dépôt git dans ce dossier.", "No git repository in this folder."));
             if let Some(root) = self.root.clone() {
                 if ui.button("git init").clicked() {
-                    match git::run(&root, &["init"]) {
-                        Ok(o) => {
-                            self.log(o);
-                            self.repos = git::find_repos(&root, 3);
-                            if let Some(r) = self.repos.first().cloned() {
-                                self.select_repo(r);
-                            }
-                        }
-                        Err(e) => self.log(e),
-                    }
+                    self.set_status(t!("Création du dépôt git…", "Creating the git repository…"));
+                    self.jobs.spawn(move || {
+                        let result = git::run(&root, &["init"]);
+                        JobResult::RepoInit { root: root.clone(), dir: root.clone(), result, repos: git::find_repos(&root, 3) }
+                    });
                 }
             }
             return;

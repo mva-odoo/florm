@@ -2,10 +2,16 @@
 
 use super::*;
 
+/// The session key of the work done without a folder.
+fn loose_key() -> PathBuf {
+    PathBuf::new()
+}
+
 impl App {
     pub(super) fn open_project(&mut self, path: PathBuf) {
         self.set_root(path);
         self.restore_session();
+        self.restore_loose();
     }
 
     pub(super) fn switch_project(&mut self, path: PathBuf) {
@@ -128,12 +134,54 @@ impl App {
     }
 
     pub(super) fn save_session(&mut self) {
-        if let Some(r) = &self.root {
-            let (session, backups) = self.current_session();
-            project::save_session(r, &session);
-            project::save_backups(r, &backups);
+        let (session, backups) = self.current_session();
+        match &self.root {
+            Some(r) => {
+                project::save_session(r, &session);
+                project::save_backups(r, &backups);
+            }
+            // without a folder, only the unsaved work is kept (hot exit, crash)
+            None => {
+                let files = session.files.into_iter().filter(|f| f.backup.is_some()).collect();
+                project::save_session(&loose_key(), &Session { files, ..Default::default() });
+                project::save_backups(&loose_key(), &backups);
+            }
         }
         self.last_session_save = Instant::now();
+    }
+
+    /// Brings back the unsaved work of a session without a folder. Once in a project, it moves into
+    /// the project's session.
+    pub(super) fn restore_loose(&mut self) {
+        let key = loose_key();
+        let Some(s) = project::load_session(&key) else { return };
+        let mut restored = 0;
+        for f in &s.files {
+            let Some(text) = f.backup.as_deref().and_then(|b| project::load_backup(&key, b)) else { continue };
+            let named = !f.path.as_os_str().is_empty();
+            if !(named && f.path.is_file() && self.open_path(f.path.clone())) {
+                self.new_doc();
+                if named {
+                    let d = &mut self.docs[self.active];
+                    d.path = Some(f.path.clone());
+                    d.syntax = self.hl.detect(Some(&f.path), "");
+                }
+            }
+            let d = &mut self.docs[self.active];
+            if d.rope != text.as_str() {
+                d.set_text(&text);
+            }
+            d.goto_line(f.line, f.col);
+            restored += 1;
+        }
+        if self.root.is_some() {
+            self.save_session();
+            project::save_session(&key, &Session::default());
+            project::save_backups(&key, &[]);
+        }
+        if restored > 0 {
+            self.set_status(tf!("{restored} fichier(s) avec des modifications non enregistrées restauré(s)", "{restored} file(s) with unsaved changes restored"));
+        }
     }
 
     fn restore_session(&mut self) {

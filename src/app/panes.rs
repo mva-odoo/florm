@@ -628,17 +628,29 @@ impl App {
                                         ui.close_menu();
                                     }
                                     ui.separator();
-                                    let mut entries: Vec<(String, PathBuf, bool)> = std::fs::read_dir(dir)
-                                        .map(|rd| {
-                                            rd.flatten()
-                                                .filter(|e| e.file_name() != ".git")
-                                                .map(|e| (e.file_name().to_string_lossy().into_owned(), e.path(), e.path().is_dir()))
-                                                .collect()
-                                        })
-                                        .unwrap_or_default();
-                                    entries.sort_by(|a, b| b.2.cmp(&a.2).then_with(|| a.0.to_lowercase().cmp(&b.0.to_lowercase())));
+                                    // read again every 2 s, not at every frame (slow on WSL and network folders)
+                                    type Entries = std::sync::Arc<Vec<(String, PathBuf, bool)>>;
+                                    let id = egui::Id::new(("crumb_entries", dir));
+                                    let cached = ui.ctx().data(|d| d.get_temp::<(Instant, Entries)>(id)).filter(|(t, _)| t.elapsed() < Duration::from_secs(2));
+                                    let entries = match cached {
+                                        Some((_, e)) => e,
+                                        None => {
+                                            let mut e: Vec<(String, PathBuf, bool)> = std::fs::read_dir(dir)
+                                                .map(|rd| {
+                                                    rd.flatten()
+                                                        .filter(|e| e.file_name() != ".git")
+                                                        .map(|e| (e.file_name().to_string_lossy().into_owned(), e.path(), e.path().is_dir()))
+                                                        .collect()
+                                                })
+                                                .unwrap_or_default();
+                                            e.sort_by(|a, b| b.2.cmp(&a.2).then_with(|| a.0.to_lowercase().cmp(&b.0.to_lowercase())));
+                                            let e: Entries = std::sync::Arc::new(e);
+                                            ui.ctx().data_mut(|d| d.insert_temp(id, (Instant::now(), e.clone())));
+                                            e
+                                        }
+                                    };
                                     egui::ScrollArea::vertical().max_height(380.0).show(ui, |ui| {
-                                        for (name, path, is_dir) in entries {
+                                        for (name, path, is_dir) in entries.iter().cloned() {
                                             let label = if is_dir { format!("📁 {name}") } else { name };
                                             if ui.button(label).clicked() {
                                                 if is_dir {

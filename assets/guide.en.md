@@ -314,7 +314,8 @@ Problems are underlined in the code and listed in **Problems** (bottom panel):
   Lint), while typing. **JavaScript**: `eslint`, on save.
 - **Language servers** (Preferences → Editor → Language servers): their errors too, for every
   language they know (TypeScript, Rust, Go, C…). **Format the file** (palette) goes through `ruff`
-  for Python, through the language server for the others.
+  for Python, through the language server for the others. To format every Python file on save:
+  Preferences → Editor.
 - **XML and JSON**: a badly formed file (unclosed or badly nested tag, missing quote), live.
 
 ## Tests (pytest, jest, cargo, go)
@@ -698,7 +699,7 @@ Above the text of a `.md` file, a **formatting bar**: **B** bold, *I* italic, ~~
 `c` code, Link, headings H1 to H3, lists (• and 1.), checkbox ☐, quote ❝, code block, horizontal
 rule `――` and table `▦`. A button puts the syntax around the selection, or on the selected lines;
 a second click removes the prefix. The text stays editable by hand. To hide the bar:
-`markdown_toolbar = false` in `settings.toml`. The rendered preview stays Ctrl+Shift+V (tab) or
+Preferences → Appearance → Markdown toolbar. The rendered preview stays Ctrl+Shift+V (tab) or
 Ctrl+K V (side).
 
 In the preview (and in Claude's answers), **Mermaid sequence diagrams** (` ```mermaid ` then
@@ -730,6 +731,9 @@ In the preview (and in Claude's answers), **Mermaid sequence diagrams** (` ```me
 - **Auto-save** (Preferences → Editor): **On leaving** saves the changed files when Florm loses
   the focus or another tab is shown; **After a pause**, a second after the last key. New files
   without a name are left out.
+- **Unsaved work**: when closing, it is kept and reopened the next time, even without an open
+  folder. It is also copied every 30 seconds: if Florm crashes, it comes back at the next start,
+  with a message telling where the error is written (`crash.log`, in the configuration folder).
 - **Colored brackets**: each level of parentheses, brackets and braces has its color (gold,
   purple, blue), not counting those in strings and comments. The indentation guide of the block
   of the cursor is stronger than the others.

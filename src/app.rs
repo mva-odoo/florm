@@ -1406,6 +1406,18 @@ impl App {
                 None => app.rebuild_keymap(),
             },
         }
+        if app.root.is_none() {
+            app.restore_loose();
+        }
+        if crate::crash::take_pending() {
+            let log = crate::crash::log_path();
+            app.log(tf!("Florm s'est fermé à cause d'une erreur. Détails : {}", "Florm closed because of an error. Details: {}", log.display()));
+            app.set_error(tf!(
+                "Florm s'est fermé à cause d'une erreur la dernière fois (détails dans {}).",
+                "Florm closed because of an error last time (details in {}).",
+                log.display()
+            ));
+        }
         app
     }
 
@@ -2437,6 +2449,36 @@ mod font_tests {
         let again = App::with_ctx(&ctx, Some(proj.clone()));
         assert_eq!(views(&again), before);
         assert_eq!(again.docs[again.active].view, document::View::Help);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Unsaved work done without a folder is kept, then moves into the project opened next.
+    /// `FLORM_TEST_APP=1 cargo test loose_work`.
+    #[test]
+    fn loose_work_comes_back() {
+        if std::env::var_os("FLORM_TEST_APP").is_none() {
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("florm_loose_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (conf, proj) = (dir.join("conf"), dir.join("proj"));
+        std::fs::create_dir_all(&conf).unwrap();
+        std::fs::create_dir_all(&proj).unwrap();
+        std::fs::write(conf.join("settings.toml"), "check_updates = false\nlsp = false\n").unwrap();
+        let _lock = config::TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("FLORM_CONFIG", &conf);
+        let ctx = egui::Context::default();
+        let mut app = App::with_ctx(&ctx, Some(proj.clone()));
+        app.close_folder();
+        assert!(app.root.is_none());
+        app.new_doc();
+        app.docs[app.active].set_text("pas encore enregistré");
+        assert!(app.docs[app.active].is_dirty());
+        app.save_session();
+        // the next start opens the project: the loose work joins it, and is no longer loose
+        let again = App::with_ctx(&ctx, Some(proj.clone()));
+        assert!(again.docs.iter().any(|d| d.rope == "pas encore enregistré"));
+        assert!(project::load_session(&std::path::PathBuf::new()).is_some_and(|s| s.files.is_empty()));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

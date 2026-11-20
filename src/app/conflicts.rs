@@ -308,14 +308,10 @@ impl App {
             }
             ConfAct::Resolve(rel, b, how) => self.conflict_resolve(&repo, &rel, &b, how),
             ConfAct::Side(rel, first) => {
+                // the open tab follows by itself (files changed on disk are reloaded)
                 let side = if first { "--ours" } else { "--theirs" };
-                match git::run(&repo, &["checkout", side, "--", &rel]) {
-                    Ok(_) => {
-                        self.reload_open(&repo.join(&rel));
-                        self.git_job_at(repo, "add", &["add", "--", &rel]);
-                    }
-                    Err(e) => self.set_error(tf!("git checkout {side} : {e}", "git checkout {side}: {e}")),
-                }
+                let cmds = vec![vec!["checkout".into(), side.into(), "--".into(), rel.clone()], vec!["add".into(), "--".into(), rel]];
+                self.git_seq_at(repo, &format!("checkout {side}"), cmds);
             }
             ConfAct::Mark(rel) => self.git_job_at(repo, "add", &["add", "--", &rel]),
             ConfAct::MarkReady(list) => {

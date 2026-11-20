@@ -471,6 +471,9 @@ impl App {
                         s.rulers = rulers.split(',').filter_map(|c| c.trim().parse().ok()).filter(|c| *c > 0).collect();
                     }
                 });
+                pref_row(ui, rc, t!("Barre de mise en forme Markdown", "Markdown toolbar"), t!("Au-dessus du texte d'un fichier .md : gras, italique, titres, listes, liens… autour de la sélection.", "Above the text of a .md file: bold, italic, headings, lists, links… around the selection."), |ui| {
+                    toggle_switch(ui, &mut s.markdown_toolbar);
+                });
                 pref_row(ui, rc, t!("Barre de menus", "Menu bar"), t!("Fichier, Édition, Sélection… en haut de la fenêtre. Masquée, les menus restent accessibles par ☰ en bas à gauche.", "File, Edit, Selection… at the top of the window. Hidden, the menus are still under ☰ at the bottom left."), |ui| {
                     toggle_switch(ui, &mut s.show_menu_bar);
                 });
@@ -591,7 +594,10 @@ impl App {
                         }
                     });
                 });
-                pref_row(ui, rc, t!("Garder le travail non enregistré", "Keep unsaved work"), t!("À la fermeture (ou en changeant de projet), les modifications non enregistrées sont gardées et rouvertes ensuite, sans question.", "When closing (or switching project), unsaved changes are kept and reopened later, without asking."), |ui| {
+                pref_row(ui, rc, t!("Formater les fichiers Python à l'enregistrement", "Format Python files on save"), t!("Lance « ruff format » (comme Ctrl+Alt+F) avant chaque enregistrement d'un fichier Python.", "Runs “ruff format” (like Ctrl+Alt+F) before each save of a Python file."), |ui| {
+                    toggle_switch(ui, &mut s.format_on_save);
+                });
+                pref_row(ui, rc, t!("Garder le travail non enregistré", "Keep unsaved work"), t!("À la fermeture (ou en changeant de projet), les modifications non enregistrées sont gardées et rouvertes ensuite, sans question, même sans dossier ouvert. Elles sont aussi copiées toutes les 30 secondes : après un plantage, on ne perd au plus que les dernières.", "When closing (or switching project), unsaved changes are kept and reopened later, without asking, even without an open folder. They are also copied every 30 seconds: after a crash, only the last ones can be lost."), |ui| {
                     toggle_switch(ui, &mut s.hot_exit);
                 });
             }
@@ -1269,6 +1275,8 @@ impl App {
             ("ai_complete", s.ai_complete, before.ai_complete),
             ("trim_trailing_whitespace_on_save", s.trim_trailing_whitespace_on_save, before.trim_trailing_whitespace_on_save),
             ("hot_exit", s.hot_exit, before.hot_exit),
+            ("format_on_save", s.format_on_save, before.format_on_save),
+            ("markdown_toolbar", s.markdown_toolbar, before.markdown_toolbar),
             ("lsp", s.lsp, before.lsp),
             ("lint_live", s.lint_live, before.lint_live),
             ("lint_on_save", s.lint_on_save, before.lint_on_save),

@@ -6,21 +6,23 @@ use super::*;
 use crate::document::{self, Document, Edit, EditKind};
 
 /// The buttons of the toolbar, in order: (label, tip, what it does).
-const FORMATS: [(&str, &str, Fmt); 13] = [
-    ("B", "Gras : **texte**", Fmt::Wrap("**", "**")),
-    ("I", "Italique : *texte*", Fmt::Wrap("*", "*")),
-    ("S", "Barré : ~~texte~~", Fmt::Wrap("~~", "~~")),
-    ("`c`", "Code en ligne : `code`", Fmt::Wrap("`", "`")),
-    ("Lien", "Lien : [texte](adresse)", Fmt::Link),
-    ("H1", "Titre de niveau 1", Fmt::Line(Prefix::Heading(1))),
-    ("H2", "Titre de niveau 2", Fmt::Line(Prefix::Heading(2))),
-    ("H3", "Titre de niveau 3", Fmt::Line(Prefix::Heading(3))),
-    ("•", "Liste à puces", Fmt::Line(Prefix::Bullet)),
-    ("1.", "Liste numérotée", Fmt::Line(Prefix::Numbered)),
-    ("☐", "Case à cocher (tâche)", Fmt::Line(Prefix::Task)),
-    ("“", "Citation", Fmt::Line(Prefix::Quote)),
-    ("```", "Bloc de code", Fmt::CodeBlock),
-];
+fn formats() -> [(&'static str, &'static str, Fmt); 13] {
+    [
+        ("B", t!("Gras : **texte**", "Bold: **text**"), Fmt::Wrap("**", "**")),
+        ("I", t!("Italique : *texte*", "Italic: *text*"), Fmt::Wrap("*", "*")),
+        ("S", t!("Barré : ~~texte~~", "Strikethrough: ~~text~~"), Fmt::Wrap("~~", "~~")),
+        ("`c`", t!("Code en ligne : `code`", "Inline code: `code`"), Fmt::Wrap("`", "`")),
+        (t!("Lien", "Link"), t!("Lien : [texte](adresse)", "Link: [text](address)"), Fmt::Link),
+        ("H1", t!("Titre de niveau 1", "Heading level 1"), Fmt::Line(Prefix::Heading(1))),
+        ("H2", t!("Titre de niveau 2", "Heading level 2"), Fmt::Line(Prefix::Heading(2))),
+        ("H3", t!("Titre de niveau 3", "Heading level 3"), Fmt::Line(Prefix::Heading(3))),
+        ("•", t!("Liste à puces", "Bulleted list"), Fmt::Line(Prefix::Bullet)),
+        ("1.", t!("Liste numérotée", "Numbered list"), Fmt::Line(Prefix::Numbered)),
+        ("☐", t!("Case à cocher (tâche)", "Checkbox (task)"), Fmt::Line(Prefix::Task)),
+        ("“", t!("Citation", "Quote"), Fmt::Line(Prefix::Quote)),
+        ("```", t!("Bloc de code", "Code block"), Fmt::CodeBlock),
+    ]
+}
 
 /// What a button does to the text.
 #[derive(Clone, Copy)]
@@ -167,7 +169,7 @@ impl App {
             .frame(egui::Frame::none().fill(bg).inner_margin(egui::Margin::symmetric(6.0, 3.0)))
             .show_inside(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
-                    for (label, tip, fmt) in FORMATS {
+                    for (label, tip, fmt) in formats() {
                         if ui.small_button(label).on_hover_text(tip).clicked() {
                             act = Some(fmt);
                         }

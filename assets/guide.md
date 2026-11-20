@@ -317,7 +317,8 @@ Les problèmes sont soulignés dans le code et listés dans **Problèmes** (pann
   Lint), pendant la frappe. **JavaScript** : `eslint`, à l'enregistrement.
 - **Serveurs de langage** (Préférences → Éditeur → Serveurs de langage) : leurs erreurs aussi, pour
   tous les langages qu'ils connaissent (TypeScript, Rust, Go, C…). **Formater le fichier** (palette)
-  passe par `ruff` pour Python, par le serveur de langage pour les autres.
+  passe par `ruff` pour Python, par le serveur de langage pour les autres. Pour formater chaque
+  fichier Python à l'enregistrement : Préférences → Éditeur.
 - **XML et JSON** : un fichier mal formé (balise non fermée, mal imbriquée, guillemet oublié), en direct.
 
 ## Tests (pytest, jest, cargo, go)
@@ -714,7 +715,7 @@ Au-dessus du texte d'un fichier `.md`, une **barre de mise en forme** : **B** gr
 ~~S~~ barré, `c` code, Lien, titres H1 à H3, listes (• et 1.), case à cocher ☐, citation ❝, bloc
 de code, ligne horizontale `――` et tableau `▦`. Le bouton met la syntaxe autour de la sélection, ou
 sur les lignes sélectionnées ; un second clic enlève le préfixe. Le texte reste modifiable à la main.
-Pour masquer la barre : `markdown_toolbar = false` dans `settings.toml`. L'aperçu rendu reste
+Pour masquer la barre : Préférences → Apparence → Barre de mise en forme Markdown. L'aperçu rendu reste
 Ctrl+Shift+V (onglet) ou Ctrl+K V (à côté).
 
 Dans l'aperçu (et dans les réponses de Claude), les **diagrammes de séquence Mermaid**
@@ -747,6 +748,10 @@ Le **HTML** courant s'affiche aussi : `<br>`, `<b>`, `<i>`, `<kbd>`, `<img>`, `<
 - **Enregistrement automatique** (Préférences → Éditeur) : **En quittant** enregistre les
   fichiers modifiés quand Florm perd le focus ou qu'on change d'onglet ; **Après une pause**, une
   seconde après la dernière touche. Les nouveaux fichiers sans nom ne sont pas concernés.
+- **Travail non enregistré** : à la fermeture, il est gardé et rouvert la fois suivante, même
+  sans dossier ouvert. Il est aussi copié toutes les 30 secondes : si Florm plante, on le retrouve
+  au démarrage suivant, avec un message qui indique où l'erreur est notée (`crash.log`, dans le
+  dossier de configuration).
 - **Crochets colorés** : chaque niveau de parenthèses, crochets et accolades a sa couleur (or,
   violet, bleu), sans compter ceux des chaînes et des commentaires. Le guide d'indentation du bloc
   du curseur est plus marqué que les autres.

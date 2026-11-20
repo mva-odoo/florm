@@ -11,6 +11,7 @@ mod commands;
 mod config;
 mod copilot;
 mod conflict;
+mod crash;
 mod dap;
 mod debug_langs;
 mod diff;
@@ -117,6 +118,7 @@ fn main() -> eframe::Result<()> {
         };
         std::process::exit(code);
     }
+    crash::install();
     #[cfg(target_os = "linux")]
     prefer_x11_on_wsl();
     #[cfg(target_os = "macos")]

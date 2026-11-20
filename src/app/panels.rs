@@ -300,7 +300,7 @@ impl App {
     pub(super) fn periodic(&mut self, ctx: &egui::Context) {
         self.tests_check();
         // with hot exit, unsaved changes are kept in the session: no question
-        let keeps = self.settings.hot_exit && self.root.is_some();
+        let keeps = self.settings.hot_exit;
         let working = self.claude_working();
         // Claude at work: closing would cut it; asked first (closing once it is done is offered)
         if ctx.input(|i| i.viewport().close_requested()) && !self.claude_quit_ok && working > 0 {
