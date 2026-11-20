@@ -74,12 +74,6 @@ pub fn tags_at(path: &Path, text: &str, line: usize) -> Option<String> {
     module_of(path).map(|m| format!("/{m}"))
 }
 
-/// The command for `tags`, cut into arguments like a shell (quotes kept together).
-pub fn command(template: &str, tags: &str) -> Vec<String> {
-    let template = if template.trim().is_empty() { DEFAULT_COMMAND } else { template };
-    split(&template.replace("{tags}", tags))
-}
-
 /// `s` cut into arguments like a shell (quotes kept together).
 pub fn split(s: &str) -> Vec<String> {
     let (mut out, mut cur, mut quote, mut any) = (Vec::new(), String::new(), None, false);
@@ -104,42 +98,6 @@ pub fn split(s: &str) -> Vec<String> {
         out.push(cur);
     }
     out
-}
-
-/// Result of a run, from the line Odoo writes at the end:
-/// "odoo.tests.result: 1 failed, 0 error(s) of 12 tests when loading database 'x'".
-#[derive(Debug, PartialEq)]
-pub struct Summary {
-    pub failed: usize,
-    pub errors: usize,
-    pub total: usize,
-}
-
-pub fn summary(log: &str) -> Option<Summary> {
-    let line = log.lines().rev().find(|l| l.contains(" failed, ") && l.contains(" error(s) of "))?;
-    let num_before = |s: &str, pat: &str| -> Option<usize> {
-        let head = &s[..s.find(pat)?];
-        head.rsplit(|c: char| !c.is_ascii_digit()).next()?.parse().ok()
-    };
-    let total = {
-        let rest = &line[line.find(" error(s) of ")? + " error(s) of ".len()..];
-        rest.split_whitespace().next()?.parse().ok()?
-    };
-    Some(Summary { failed: num_before(line, " failed, ")?, errors: num_before(line, " error(s) of ")?, total })
-}
-
-impl Summary {
-    pub fn ok(&self) -> bool {
-        self.failed == 0 && self.errors == 0
-    }
-
-    pub fn text(&self) -> String {
-        if self.ok() {
-            tf!("✔ {} test(s) réussi(s)", "✔ {} test(s) passed", self.total)
-        } else {
-            tf!("✖ {} échec(s), {} erreur(s) sur {} test(s)", "✖ {} failure(s), {} error(s) out of {} test(s)", self.failed, self.errors, self.total)
-        }
-    }
 }
 
 /// A traceback line in a logical line of the terminal: `File "/path/x.py", line 12` → (path, line).
@@ -208,17 +166,8 @@ class Other:
     }
 
     #[test]
-    fn commands() {
-        assert_eq!(command("", ":T"), ["odoo", "--stop-after-init", "--test-enable", "--test-tags", ":T"]);
-        assert_eq!(command("odoo -d 'ma base' --test-tags {tags}", "/m"), ["odoo", "-d", "ma base", "--test-tags", "/m"]);
-    }
-
-    #[test]
-    fn summaries() {
-        let log = "2026-10-22 INFO db odoo.tests.result: 1 failed, 2 error(s) of 12 tests when loading database 'x'\n";
-        assert_eq!(summary(log), Some(Summary { failed: 1, errors: 2, total: 12 }));
-        assert!(summary("INFO db odoo.tests.result: 0 failed, 0 error(s) of 3 tests").unwrap().ok());
-        assert_eq!(summary("nothing"), None);
+    fn words_of_a_command() {
+        assert_eq!(split("odoo -d 'ma base' --test-tags /m"), ["odoo", "-d", "ma base", "--test-tags", "/m"]);
     }
 
     #[test]

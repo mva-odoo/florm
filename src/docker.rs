@@ -3,8 +3,7 @@
 //! (`stdin_open` and `tty` in docker-compose.yml) so that an `ipdb` in it can be answered there.
 
 use serde::Deserialize;
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Stdio;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -99,15 +98,6 @@ fn parse_labels(s: &str) -> Vec<(String, String)> {
     out
 }
 
-/// A command to run in a container.
-pub struct Exec {
-    pub argv: Vec<String>,
-    /// Folder of its compose project (`docker compose exec` is run there).
-    pub cwd: Option<PathBuf>,
-    /// (folder in the container, folder here), for the files of its tracebacks.
-    pub mounts: Vec<(String, PathBuf)>,
-}
-
 #[derive(Deserialize)]
 #[serde(rename_all = "PascalCase")]
 struct Mount {
@@ -121,7 +111,6 @@ struct Mount {
 #[serde(rename_all = "PascalCase")]
 struct Inspect {
     state: InspectState,
-    config: InspectConfig,
     #[serde(default)]
     mounts: Vec<Mount>,
 }
@@ -130,42 +119,6 @@ struct Inspect {
 #[serde(rename_all = "PascalCase")]
 struct InspectState {
     running: bool,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "PascalCase")]
-struct InspectConfig {
-    #[serde(default)]
-    labels: Option<HashMap<String, String>>,
-}
-
-/// `cmd` run in the container `name`, interactive: `docker compose exec <service>` in the folder
-/// of its project when it is a compose one (the service, even after it was recreated), else
-/// `docker exec -it`.
-pub fn exec_in(name: &str, cmd: &[String]) -> Result<Exec, String> {
-    let out = run(&["inspect", name])?;
-    let mut info: Vec<Inspect> = serde_json::from_str(&out).map_err(|e| format!("docker inspect : {e}"))?;
-    let info = info.pop().ok_or_else(|| tf!("Conteneur introuvable : {name}", "Container not found: {name}"))?;
-    if !info.state.running {
-        return Err(tf!("{name} est arrêté : démarrez-le d'abord", "{name} is stopped: start it first"));
-    }
-    let labels = info.config.labels.unwrap_or_default();
-    let mounts = info.mounts.into_iter().filter(|m| !m.source.is_empty() && !m.destination.is_empty()).map(|m| (m.destination, PathBuf::from(m.source))).collect();
-    let label = |k: &str| labels.get(k).filter(|v| !v.is_empty());
-    let (mut argv, cwd) = match (label("com.docker.compose.service"), label("com.docker.compose.project")) {
-        (Some(service), Some(project)) => {
-            // the project by its name and files: it may not be named after its folder (`-p`)
-            let mut a = vec!["docker".to_string(), "compose".into(), "-p".into(), project.clone()];
-            for f in label("com.docker.compose.project.config_files").map_or("", |v| v).split(',').filter(|f| Path::new(f).is_file()) {
-                a.extend(["-f".to_string(), f.to_string()]);
-            }
-            a.extend(["exec".to_string(), service.clone()]);
-            (a, label("com.docker.compose.project.working_dir").map(PathBuf::from).filter(|d| d.is_dir()))
-        }
-        _ => (vec!["docker".to_string(), "exec".into(), "-it".into(), name.to_string()], None),
-    };
-    argv.extend(cmd.iter().cloned());
-    Ok(Exec { argv, cwd, mounts })
 }
 
 /// The folders of the container `name` (container folder, folder here), once it is checked to

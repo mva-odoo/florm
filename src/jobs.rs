@@ -145,8 +145,6 @@ pub enum JobResult {
     /// Symbols of the whole project (go to definition, completion).
     /// `bool`: only the repositories being worked on so far, the whole index follows.
     SymbolIndex(PathBuf, crate::index::Index, bool),
-    /// Odoo tests ready to run in a container.
-    TestsReady { tags: String, result: Result<crate::docker::Exec, String> },
     /// The debugger checked what it needs and found the program (or not).
     /// A debugging session prepared (its number: a later one replaces it).
     DebugReady { id: u64, cfg: crate::dap::Config, title: String, result: Result<crate::dap::Prepared, crate::dap::Failure> },

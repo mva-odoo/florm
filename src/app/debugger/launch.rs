@@ -117,8 +117,7 @@ impl App {
         }
     }
 
-    /// The Odoo test `tags` under the debugger: in the container of the debugger, else in the one
-    /// of the tests when there is no odoo-bin here.
+    /// The Odoo test `tags` under the debugger: in its container, else with its odoo-bin.
     pub(in crate::app) fn debug_test(&mut self, tags: String) {
         let mut cfg = self.debug_config();
         // pytest, jest, cargo test, go test: their command under the debugger of their language
@@ -140,14 +139,10 @@ impl App {
             return;
         }
         cfg.mode = Mode::Launch;
-        if cfg.target == Target::Local && cfg.command.trim().is_empty() && !self.settings.odoo_test_container.is_empty() {
-            cfg.target = Target::Docker(self.settings.odoo_test_container.clone());
-        }
         let quoted = if tags.contains(char::is_whitespace) { format!("'{tags}'") } else { tags.clone() };
         cfg.command = match &cfg.target {
             Target::Docker(_) => {
-                let t = Some(self.settings.odoo_test_command.trim()).filter(|t| !t.is_empty()).unwrap_or(crate::odoo_test::DEFAULT_COMMAND);
-                t.replace("{tags}", &quoted)
+                crate::odoo_test::DEFAULT_COMMAND.replace("{tags}", &quoted)
             }
             Target::Local if cfg.command.trim().is_empty() => String::new(),
             Target::Local => format!("{} --stop-after-init --test-enable --test-tags {quoted}", cfg.command),

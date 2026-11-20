@@ -317,16 +317,10 @@ The tests of any project run on this computer, with nothing to set:
 
 ## Odoo tests
 
-The Odoo tests run in a Docker container, set once in **Preferences → Tests** (the container, and
-the command if the default one does not suit; `{tags}` in it is replaced by the tags).
-
-- **Run**: “Tests: run tests…” in the palette, or **Ctrl+F6** the first time. Florm asks for the tags, those of
-  the code under the cursor already filled (`:MyClass`, `/my_module`, `:MyClass.test_x`); **Enter**
-  runs. Without a container set, the preferences open at the right place.
-- **Ctrl+F6** then runs the last tags again, from anywhere; **Ctrl+Shift+F6** the test under the
-  cursor; the **▶** in the gutter of a test file runs that one.
-- The output shows in the bottom panel (an `ipdb` in a test works there), the summary in the status
-  bar; **Ctrl+click** on a `File "…", line N` line opens the file.
+An Odoo test is debugged with **Alt+F6** (cursor in the test): it runs under the debugger, on this
+computer with the `odoo-bin` of the folder or in the container of the debugger. To simply run them,
+a terminal is enough (`odoo --test-enable --test-tags …`); **Ctrl+click** on a `File "…", line N`
+line there opens the file.
 
 ## Debugger
 

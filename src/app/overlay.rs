@@ -237,7 +237,7 @@ impl App {
                 Prompt::OpenFolder => t!("Ouvrir le dossier", "Open the folder").into(),
                 Prompt::OpenFile => t!("Ouvrir le fichier", "Open the file").into(),
                 Prompt::CompareWith => t!("Comparer le fichier avec   (un fichier, ou un dossier pour comparer son dossier ; Tab complète)", "Compare the file with   (a file, or a folder to compare its folder; Tab completes)").into(),
-                Prompt::TestTags(_) => t!("Tests à lancer   (Odoo : /module, :Classe.test_methode ; ou une commande : pytest …, cargo test …, go test …, npx jest … ; Entrée lance)", "Tests to run   (Odoo: /module, :Class.test_method; or a command: pytest …, cargo test …, go test …, npx jest …; Enter runs)").into(),
+                Prompt::TestTags(_) => t!("Tests à lancer   (une commande : pytest …, cargo test …, go test …, npx jest … ; Entrée lance)", "Tests to run   (a command: pytest …, cargo test …, go test …, npx jest …; Enter runs)").into(),
                 Prompt::SaveAs => t!("Enregistrer sous", "Save as").into(),
                 Prompt::NewFile(d) => tf!("Nouveau fichier dans {}", "New file in {}", d.display()),
                 Prompt::NewFolder(d) => tf!("Nouveau dossier dans {}", "New folder in {}", d.display()),

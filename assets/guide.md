@@ -322,17 +322,10 @@ Les tests de n'importe quel projet se lancent sur cet ordinateur, sans rien rég
 
 ## Tests Odoo
 
-Les tests Odoo tournent dans un conteneur Docker, réglé une fois dans **Préférences → Tests**
-(le conteneur, et la commande si celle par défaut ne convient pas ; `{tags}` y est remplacé par les
-tags).
-
-- **Lancer** : « Tests : lancer des tests… » dans la palette, ou **Ctrl+F6** la première fois. Florm demande les tags,
-  ceux du code sous le curseur déjà remplis (`:MaClasse`, `/mon_module`, `:MaClasse.test_x`) ;
-  **Entrée** lance. Sans conteneur réglé, les préférences s'ouvrent au bon endroit.
-- **Ctrl+F6** relance ensuite les derniers tags, de n'importe où ; **Ctrl+Maj+F6** le test sous le
-  curseur ; le **▶** dans la marge d'un fichier de test lance celui-là.
-- La sortie s'affiche dans le panneau du bas (un `ipdb` dans un test s'y pilote), le résumé dans la
-  barre d'état ; **Ctrl+clic** sur une ligne `File "…", line N` ouvre le fichier.
+Un test Odoo se débogue avec **Alt+F6** (curseur dans le test) : il tourne sous le débogueur, sur cet
+ordinateur avec l'`odoo-bin` du dossier ou dans le conteneur du débogueur. Pour simplement les
+lancer, un terminal suffit (`odoo --test-enable --test-tags …`) ; **Ctrl+clic** sur une ligne
+`File "…", line N` y ouvre le fichier.
 
 ## Débogueur
 

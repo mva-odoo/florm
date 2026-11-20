@@ -404,11 +404,11 @@ impl App {
                 None => self.run_tests(String::new()),
             },
             TestRun => self.run_tests(String::new()),
-            TestHere => match self.test_tags_here() {
+            TestHere => match self.test_tags_here(false) {
                 Some(t) => self.run_tests(t),
                 None => self.set_status(t!("Pas de test sous le curseur (Odoo, pytest, jest, cargo, go)", "No test under the cursor (Odoo, pytest, jest, cargo, go)")),
             },
-            DebugTestHere => match self.test_tags_here() {
+            DebugTestHere => match self.test_tags_here(true) {
                 Some(t) => self.debug_test(t),
                 None => self.set_status(t!("Pas de test sous le curseur (Odoo, pytest, jest, cargo, go)", "No test under the cursor (Odoo, pytest, jest, cargo, go)")),
             },

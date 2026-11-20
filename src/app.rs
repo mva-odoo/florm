@@ -1087,7 +1087,6 @@ enum PrefSection {
     Git,
     PullRequests,
     Claude,
-    Tests,
     Debug,
     Terminal,
     Keys,
@@ -1096,14 +1095,13 @@ enum PrefSection {
 }
 
 /// (section, French name, English name).
-const PREF_SECTIONS: [(PrefSection, &str, &str); 12] = [
+const PREF_SECTIONS: [(PrefSection, &str, &str); 11] = [
     (PrefSection::Appearance, "Apparence", "Appearance"),
     (PrefSection::Editor, "Éditeur", "Editor"),
     (PrefSection::Lint, "Lint", "Lint"),
     (PrefSection::Git, "Git", "Git"),
     (PrefSection::PullRequests, "Pull requests", "Pull requests"),
     (PrefSection::Claude, "Claude", "Claude"),
-    (PrefSection::Tests, "Tests", "Tests"),
     (PrefSection::Debug, "Débogueur", "Debugger"),
     (PrefSection::Terminal, "Terminal", "Terminal"),
     (PrefSection::Keys, "Raccourcis", "Shortcuts"),

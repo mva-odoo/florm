@@ -113,12 +113,8 @@ pub struct Settings {
     pub index_max_files: usize,
     /// Look for a newer release of Florm at startup (GitHub).
     pub check_updates: bool,
-    /// Odoo tests: command run in the container (`{tags}`: the tags), empty: the default one.
-    pub odoo_test_command: String,
-    /// Last tags run, newest first.
+    /// Last test commands run, newest first.
     pub odoo_test_history: Vec<String>,
-    /// Container the tests run in.
-    pub odoo_test_container: String,
     /// Views opened in an editor tab rather than in the bottom panel: "debug" (search has its own
     /// setting; Git, the pull requests and Claude are always in a tab). ⇱ / ⇲ in a view change it.
     pub views_in_tab: Vec<String>,
@@ -231,9 +227,7 @@ impl Default for Settings {
             exclude: ["__pycache__/", "*.pyc", "node_modules/", ".venv/", "*.egg-info/"].map(String::from).to_vec(),
             index_max_files: 150_000,
             check_updates: true,
-            odoo_test_command: String::new(),
             odoo_test_history: Vec::new(),
-            odoo_test_container: String::new(),
             views_in_tab: vec!["debug".into()],
             debug_target: String::new(),
             debug_mode: "launch".into(),
@@ -362,9 +356,6 @@ exclude = ["__pycache__/", "*.pyc", "node_modules/", ".venv/", "*.egg-info/"]
 index_max_files = 150000
 # chercher une nouvelle version de Florm au démarrage (releases GitHub)
 check_updates = true
-# tests Odoo dans un conteneur (Préférences → Tests) : commande lancée, {tags} = les tags
-# vide = "odoo --stop-after-init --test-enable --test-tags {tags}"
-odoo_test_command = ""
 # débogueur (F5, vue Débogage) : programme Python lancé sur cet ordinateur (vide = l'odoo-bin du
 # dossier) et dans un conteneur (vide = "odoo --workers 0 --http-port 8070") ; ceux de Node, Rust /
 # C et Go (vides = npm start ou le "main" de package.json, cargo run, go run .)

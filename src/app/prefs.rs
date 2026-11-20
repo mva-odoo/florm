@@ -814,14 +814,6 @@ impl App {
                     self.open_path(p);
                 }
             }
-            PrefSection::Tests => {
-                pref_row(ui, rc, t!("Conteneur des tests Odoo", "Odoo tests container"), t!("Le conteneur Docker où tournent les tests Odoo (Ctrl+F6, ▶ dans la marge des fichiers de test).", "The Docker container the Odoo tests run in (Ctrl+F6, ▶ in the gutter of test files)."), |ui| {
-                    crate::input::add(ui, egui::TextEdit::singleline(&mut s.odoo_test_container).desired_width(260.0).font(egui::TextStyle::Monospace));
-                });
-                pref_row_wide(ui, rc, t!("Commande des tests Odoo", "Odoo tests command"), t!("Lancée dans le conteneur, {tags} est remplacé par les tags. Vide : la commande par défaut.", "Run in the container, {tags} is replaced by the tags. Empty: the default command."), |ui| {
-                    crate::input::add(ui, egui::TextEdit::singleline(&mut s.odoo_test_command).desired_width(f32::INFINITY).font(egui::TextStyle::Monospace).hint_text(crate::odoo_test::DEFAULT_COMMAND));
-                });
-            }
             PrefSection::Debug => {
                 feature_toggle(ui, rc, sec, s);
                 pref_row(ui, rc, t!("Mode", "Mode"), t!("Lancer : Florm lance le programme sous le débogueur. S'attacher : F5 attend le programme lancé avec debugpy --listen. Dans les deux modes, dès qu'un point d'arrêt est posé, Florm attend tout seul un programme lancé avec debugpy et s'y attache.", "Launch: Florm runs the program under the debugger. Attach: F5 waits for the program started with debugpy --listen. In both modes, as soon as a breakpoint is set, Florm waits by itself for a program started with debugpy and attaches to it."), |ui| {
@@ -1310,12 +1302,6 @@ impl App {
         }
         if s.claude_done_sound != before.claude_done_sound {
             self.persist("claude_done_sound", config::toml_str(&s.claude_done_sound));
-        }
-        if s.odoo_test_container != before.odoo_test_container {
-            self.persist("odoo_test_container", config::toml_str(&s.odoo_test_container));
-        }
-        if s.odoo_test_command != before.odoo_test_command {
-            self.persist("odoo_test_command", config::toml_str(&s.odoo_test_command));
         }
         if s.debug_docker_command != before.debug_docker_command {
             self.persist("debug_docker_command", config::toml_str(&s.debug_docker_command));
