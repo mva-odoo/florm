@@ -147,9 +147,9 @@ fn conv_title(c: &ClaudeUi) -> String {
 }
 
 impl App {
-    /// Shows Claude in the bottom panel, or in an editor tab (`claude_in_tab`).
+    /// Shows Claude in the bottom panel, or in an editor tab ("claude" in `views_in_tab`).
     pub(super) fn open_claude(&mut self) {
-        if self.settings.claude_in_tab {
+        if self.settings.views_in_tab.iter().any(|k| k == "claude") {
             if self.bottom == Some(BottomTab::Claude) {
                 self.bottom = None;
             }
@@ -201,8 +201,13 @@ impl App {
                 }
             }
         }
-        self.settings.claude_in_tab = to_tab;
-        self.persist("claude_in_tab", to_tab.to_string());
+        let list = &mut self.settings.views_in_tab;
+        list.retain(|k| k != "claude");
+        if to_tab {
+            list.push("claude".into());
+        }
+        let v = config::toml_str_array(list);
+        self.persist("views_in_tab", v);
         self.open_claude();
     }
 

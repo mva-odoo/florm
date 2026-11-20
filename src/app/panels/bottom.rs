@@ -82,7 +82,7 @@ impl App {
     }
 
     /// The view goes into an editor tab (`big`) or into the bottom panel, and opens there from now
-    /// on (⇱ / ⇲ of Git, GitHub, Docker and the debugger; search and Claude have their own setting).
+    /// on (⇱ / ⇲ of Git, GitHub, Docker, Claude and the debugger; search has its own setting).
     pub(in crate::app) fn move_view(&mut self, tab: BottomTab, big: bool) {
         let key = tab.key();
         let list = &mut self.settings.views_in_tab;
@@ -103,7 +103,6 @@ impl App {
     fn prefers_tab(&self, tab: BottomTab) -> bool {
         match tab {
             BottomTab::Search => self.settings.search_in_tab,
-            BottomTab::Claude => self.settings.claude_in_tab,
             BottomTab::Terminal | BottomTab::Problems | BottomTab::Output => false,
             _ => self.settings.views_in_tab.contains(&tab.key()),
         }

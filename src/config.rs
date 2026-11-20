@@ -43,8 +43,6 @@ pub struct Settings {
     pub search_in_tab: bool,
     /// Diffs side by side (old on the left, new on the right) instead of in one column.
     pub diff_side_by_side: bool,
-    /// Claude in an editor tab instead of the bottom panel.
-    pub claude_in_tab: bool,
     /// Every conversation in one Claude tab, listed on its left, instead of a tab each.
     pub claude_one_tab: bool,
     /// Claude's commands run in the sandbox of Claude Code (bubblewrap on Linux, Seatbelt on macOS).
@@ -122,7 +120,7 @@ pub struct Settings {
     /// Container the tests run in.
     pub odoo_test_container: String,
     /// Views opened in an editor tab rather than in the bottom panel: "git", "pulls",
-    /// "debug" (search and Claude have their own setting). ⇱ / ⇲ in a view change it.
+    /// "debug", "claude" (search has its own setting). ⇱ / ⇲ in a view change it.
     pub views_in_tab: Vec<String>,
     /// Debugger: the container the program runs in, empty for this computer.
     pub debug_target: String,
@@ -195,7 +193,6 @@ impl Default for Settings {
             show_menu_bar: true,
             search_in_tab: false,
             diff_side_by_side: false,
-            claude_in_tab: false,
             claude_one_tab: true,
             claude_sandbox: true,
             github: true,
@@ -304,8 +301,6 @@ diff_side_by_side = false
 github = false
 debugger = false
 claude = false
-# Claude (Ctrl+Alt+C) dans un onglet plutôt que dans le panneau du bas
-claude_in_tab = false
 # toutes les conversations dans un seul onglet Claude, listées à sa gauche, plutôt qu'un onglet chacune
 claude_one_tab = true
 # les commandes de Claude tournent dans le bac à sable de Claude Code : écriture dans le projet seulement,
@@ -320,7 +315,7 @@ claude_accounts = []
 claude_account = ""
 # dossiers dont les conversations utilisent un compte : "dossier=nom du compte"
 claude_account_folders = []
-# vues qui s'ouvrent dans un onglet plutôt que dans le panneau du bas ("git", "pulls", "debug") ;
+# vues qui s'ouvrent dans un onglet plutôt que dans le panneau du bas ("git", "pulls", "debug", "claude") ;
 # ⇱ / ⇲ dans l'en-tête d'une vue changent ce choix
 views_in_tab = ["git", "pulls", "debug"]
 # barre de mise en forme au-dessus du Markdown (le texte reste modifiable à la main)
@@ -522,12 +517,26 @@ pub fn load() -> (Settings, Option<String>) {
             Err(e) => err = Some(format!("{} : {e}", sp.display())),
         }
     }
+    migrate_claude_in_tab(&mut table);
     match toml::Value::Table(table).try_into::<Settings>() {
         Ok(v) => {
             crate::i18n::set(crate::i18n::from_code(&v.language));
             (v, err)
         }
         Err(e) => (Settings::default(), Some(format!("settings.toml : {e}"))),
+    }
+}
+
+/// `claude_in_tab = true` of the older versions: "claude" in `views_in_tab`, like the other views.
+fn migrate_claude_in_tab(table: &mut toml::Table) {
+    if table.remove("claude_in_tab").and_then(|v| v.as_bool()) != Some(true) {
+        return;
+    }
+    let default = || toml::Value::Array(Settings::default().views_in_tab.into_iter().map(toml::Value::String).collect());
+    if let Some(list) = table.entry("views_in_tab").or_insert_with(default).as_array_mut() {
+        if !list.iter().any(|v| v.as_str() == Some("claude")) {
+            list.push(toml::Value::String("claude".into()));
+        }
     }
 }
 
@@ -645,6 +654,18 @@ fn set_setting_in(p: &std::path::Path, key: &str, value: &str) -> Result<(), Str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn claude_in_tab_becomes_a_view_in_tab() {
+        let mut t: toml::Table = toml::from_str("claude_in_tab = true").unwrap();
+        migrate_claude_in_tab(&mut t);
+        let s: Settings = toml::Value::Table(t).try_into().unwrap();
+        assert_eq!(s.views_in_tab, ["git", "pulls", "debug", "claude"]);
+        let mut t: toml::Table = toml::from_str("claude_in_tab = false\nviews_in_tab = [\"git\"]").unwrap();
+        migrate_claude_in_tab(&mut t);
+        let s: Settings = toml::Value::Table(t).try_into().unwrap();
+        assert_eq!(s.views_in_tab, ["git"]);
+    }
 
     /// A value written over several lines by hand is replaced whole: the file stays valid.
     #[test]

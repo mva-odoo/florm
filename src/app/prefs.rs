@@ -719,9 +719,6 @@ impl App {
             }
             PrefSection::Claude => {
                 feature_toggle(ui, rc, sec, s);
-                pref_row(ui, rc, t!("Claude en onglet", "Claude in a tab"), t!("Ctrl+Alt+C ouvre Claude dans un onglet de l'éditeur plutôt que dans le panneau du bas (boutons « en onglet » / « en bas » de son en-tête pour changer).", "Ctrl+Alt+C opens Claude in an editor tab rather than in the bottom panel (“in a tab” / “at the bottom” buttons of its header to switch)."), |ui| {
-                    toggle_switch(ui, &mut s.claude_in_tab);
-                });
                 pref_row(ui, rc, t!("Un seul onglet Claude", "One Claude tab"), t!("Toutes les conversations dans le même onglet, listées à sa gauche (ce qu'elles font, leur dossier, depuis quand elles travaillent) : « Nouvelle conversation » ne crée plus d'onglet. Clic droit sur une conversation de la liste : l'ouvrir dans son propre onglet.", "Every conversation in the same tab, listed on its left (what they do, their folder, how long they have been working): “New conversation” no longer makes a tab. Right click on a conversation of the list: open it in its own tab."), |ui| {
                     toggle_switch(ui, &mut s.claude_one_tab);
                 });
@@ -1269,7 +1266,6 @@ impl App {
             ("breadcrumbs", s.breadcrumbs, before.breadcrumbs),
             ("show_menu_bar", s.show_menu_bar, before.show_menu_bar),
             ("search_in_tab", s.search_in_tab, before.search_in_tab),
-            ("claude_in_tab", s.claude_in_tab, before.claude_in_tab),
             ("claude_one_tab", s.claude_one_tab, before.claude_one_tab),
             ("claude_sandbox", s.claude_sandbox, before.claude_sandbox),
             ("claude_done_blink", s.claude_done_blink, before.claude_done_blink),
