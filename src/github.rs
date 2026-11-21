@@ -12,7 +12,20 @@ fn gh(dir: &Path, args: &[&str]) -> Result<String, String> {
 }
 
 /// Like `gh`, with `input` written on its standard input (`gh api --input -`).
+/// On macOS gh reads its token from the Keychain and gives up after a few seconds: when Florm
+/// starts (after an update…) and the Keychain answers slowly, gh says it is not logged in. Asked
+/// again a moment later, it finds its token: one retry before telling the user to log in.
 fn gh_with(dir: &Path, args: &[&str], input: Option<String>) -> Result<String, String> {
+    match gh_once(dir, args, input.clone()) {
+        Err(e) if e.contains("gh auth login") => {
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            gh_once(dir, args, input).map_err(|e| if e.contains("gh auth login") { not_logged().to_string() } else { e })
+        }
+        r => r,
+    }
+}
+
+fn gh_once(dir: &Path, args: &[&str], input: Option<String>) -> Result<String, String> {
     let mut child = crate::os::command("gh")
         .args(args)
         .current_dir(dir)
@@ -30,12 +43,10 @@ fn gh_with(dir: &Path, args: &[&str], input: Option<String>) -> Result<String, S
         });
     }
     let out = child.wait_with_output().map_err(|e| e.to_string())?;
-    let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
     if out.status.success() {
-        Ok(stdout)
+        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
     } else {
-        let e = String::from_utf8_lossy(&out.stderr).trim().to_string();
-        Err(if e.contains("gh auth login") { not_logged().to_string() } else { e })
+        Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
     }
 }
 
