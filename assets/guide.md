@@ -435,10 +435,10 @@ avec `gh auth login` (connexion par le navigateur). Sans `gh`, la vue explique c
   (case à gauche de chacun, dans Conversation ou Fichiers ; « Tous » en haut), puis
   **✳ Envoyer à Claude**. Une conversation Claude s'ouvre dans le dépôt avec chaque
   commentaire (fichier:ligne, code commenté, réponses) et change le code ; tu relis dans sa
-  revue. Il faut d'abord **⤵ Checkout** la branche de la PR.
+  revue. Il faut d'abord **⤵ Checkout** la branche de la PR (menu **⋯**).
 - **Appliquer la suggestion** : un commentaire avec un bloc `suggestion` remplace les lignes
   dans ton fichier et l'enregistre (Ctrl+Z dans le fichier pour annuler). Il faut d'abord
-  **⤵ Checkout** pour avoir la branche de la PR.
+  **⤵ Checkout** pour avoir la branche de la PR (menu **⋯**).
 - Branche de la PR active : les commentaires non résolus sont **dans l'éditeur**, une petite
   bulle dans la marge, le texte au survol.
 - **Commits** : un clic montre le message complet du commit et ses changements à lui seul ;
@@ -464,12 +464,11 @@ avec `gh auth login` (connexion par le navigateur). Sans `gh`, la vue explique c
   revue** / **Repasser en brouillon**, **Fermer** / **Rouvrir**. Fusionner, fermer et rebaser
   demandent confirmation.
 - Sous le message : **✔ Approuver** ou **✖ Demander des changements** (le message dit quoi).
-- À droite : les relecteurs avec leur avis (✔ approuvé, ✖ changements demandés, 💬 commenté, ⏳ en
-  attente), « Relecture requise » quand le dépôt exige une approbation, et les relecteurs suggérés
-  par GitHub (**Demander** en un clic) ; les assignés ; les étiquettes et le jalon. Pour ajouter
-  quelqu'un d'autre : **Ajouter sur GitHub ↗**, qui complète les logins.
+- À droite, pour information : les relecteurs avec leur avis (✔ approuvé, ✖ changements demandés,
+  💬 commenté, ⏳ en attente), « Relecture requise » quand le dépôt exige une approbation, et les
+  assignés. Ils se changent sur GitHub, comme les étiquettes et le jalon.
 - Tes commentaires ont **✏** (modifier) et **🗑** (supprimer). Le titre, la description et les
-  réactions se changent sur GitHub (**Ouvrir sur GitHub**).
+  réactions se changent sur GitHub (**⋯** → **Ouvrir sur GitHub**).
 - Clic droit sur une PR de la liste (ou **⋯** dans l'en-tête) : ouvrir, ouvrir sur GitHub,
   checkout, copier le lien ou le numéro.
 

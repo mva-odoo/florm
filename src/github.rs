@@ -257,19 +257,6 @@ fn parse_checks(rollup: &[Value]) -> Vec<Check> {
     out
 }
 
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
-pub struct Label {
-    pub name: String,
-    #[serde(default)]
-    pub color: String,
-}
-
-#[derive(Clone, Debug, Default, Deserialize)]
-struct Milestone {
-    #[serde(default)]
-    title: String,
-}
-
 /// A conversation on lines of a file.
 #[derive(Clone, Debug)]
 pub struct Thread {
@@ -332,16 +319,11 @@ pub struct PrDetail {
     /// "org/team", and PENDING, APPROVED, CHANGES_REQUESTED, COMMENTED or DISMISSED).
     pub reviewers: Vec<(String, String)>,
     pub assignees: Vec<String>,
-    pub labels: Vec<Label>,
-    /// Title of the milestone, empty when none.
-    pub milestone: String,
     pub checks: Vec<Check>,
     /// My login.
     pub viewer: String,
     /// Files marked as viewed by me, by path.
     pub viewed: HashSet<String>,
-    /// Reviewers GitHub suggests (who touched these lines), not asked yet.
-    pub suggested: Vec<String>,
 }
 
 impl PrDetail {
@@ -386,10 +368,6 @@ struct View {
     #[serde(default)]
     assignees: Vec<Author>,
     #[serde(default)]
-    labels: Vec<Label>,
-    #[serde(default)]
-    milestone: Option<Milestone>,
-    #[serde(default)]
     status_check_rollup: Vec<Value>,
 }
 
@@ -422,7 +400,6 @@ const EXTRA: &str = "query($owner:String!,$repo:String!,$n:Int!){viewer{login} r
 comments(last:100){nodes{id viewerDidAuthor}} \
 reviews(last:100){nodes{id viewerDidAuthor}} \
 files(first:100){nodes{path viewerViewedState}} \
-suggestedReviewers{reviewer{login}} \
 reviewThreads(first:100){nodes{id isResolved isOutdated path line startLine originalLine diffSide \
 comments(first:100){nodes{id databaseId author{login} body createdAt diffHunk viewerDidAuthor}}}}}}}";
 
@@ -432,7 +409,7 @@ pub fn detail(dir: &Path, n: u64) -> Result<PrDetail, String> {
     // the three questions at the same time (the same three as one after the other, so the same
     // count for GitHub's limits): the wait is the slowest of them, not their sum
     let fields = "id,url,number,title,body,author,createdAt,state,isDraft,headRefName,headRefOid,baseRefName,commits,comments,reviews,\
-reviewDecision,mergeable,mergeStateStatus,reviewRequests,assignees,labels,milestone,statusCheckRollup";
+reviewDecision,mergeable,mergeStateStatus,reviewRequests,assignees,statusCheckRollup";
     let n_var = format!("n={n}");
     let query = format!("query={EXTRA}");
     let (view, extra, diff) = std::thread::scope(|s| {
@@ -470,11 +447,6 @@ reviewDecision,mergeable,mergeStateStatus,reviewRequests,assignees,labels,milest
         })
         .collect();
     let reviewers = reviewers_of(&asked, &reviewed, &author_login);
-    let suggested: Vec<String> = pr["suggestedReviewers"]
-        .as_array()
-        .map(|a| a.iter().filter_map(|s| s["reviewer"]["login"].as_str().map(String::from)).collect())
-        .unwrap_or_default();
-    let suggested = suggested.into_iter().filter(|s| *s != author_login && !reviewers.iter().any(|(w, _)| w == s)).collect();
     let viewed = pr["files"]["nodes"]
         .as_array()
         .map(|a| a.iter().filter(|f| f["viewerViewedState"] == "VIEWED").filter_map(|f| f["path"].as_str().map(String::from)).collect())
@@ -487,12 +459,9 @@ reviewDecision,mergeable,mergeStateStatus,reviewRequests,assignees,labels,milest
         merge_state: v.merge_state_status,
         reviewers,
         assignees: v.assignees.into_iter().map(|a| a.login).collect(),
-        labels: v.labels,
-        milestone: v.milestone.map(|m| m.title).unwrap_or_default(),
         checks: parse_checks(&v.status_check_rollup),
         viewer: extra["data"]["viewer"]["login"].as_str().unwrap_or("").to_string(),
         viewed,
-        suggested,
         number: v.number,
         title: v.title,
         body: v.body,
@@ -797,13 +766,6 @@ pub fn delete_comment_args(id: &str) -> Vec<String> {
 pub fn set_viewed(dir: &Path, pr_id: &str, path: &str, viewed: bool) -> Result<String, String> {
     let m = if viewed { "markFileAsViewed" } else { "unmarkFileAsViewed" };
     graphql(dir, &format!("mutation($id:ID!,$p:String!){{{m}(input:{{pullRequestId:$id,path:$p}}){{clientMutationId}}}}"), &[("id", pr_id), ("p", path)])
-}
-
-/// Labels of the repository and titles of its open milestones, to choose from.
-pub fn choices(dir: &Path) -> Result<(Vec<Label>, Vec<String>), String> {
-    let labels = serde_json::from_str(&gh(dir, &["label", "list", "--limit", "300", "--json", "name,color"])?).map_err(|e| e.to_string())?;
-    let milestones = gh(dir, &["api", "repos/{owner}/{repo}/milestones", "--jq", ".[].title"]).unwrap_or_default();
-    Ok((labels, milestones.lines().map(String::from).filter(|l| !l.is_empty()).collect()))
 }
 
 /// The log of a GitHub Actions job: its failed steps only, or all when none failed.

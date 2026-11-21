@@ -428,10 +428,10 @@ palette).
   left of each, in Conversation or Files; “All” at the top), then **✳ Send to Claude**. A
   Claude conversation opens in the repository with each comment (file:line, commented code,
   replies) and changes the code; you check it in its review. You first need **⤵ Checkout** of
-  the branch of the PR.
+  the branch of the PR (menu **⋯**).
 - **Apply the suggestion**: a comment with a `suggestion` block replaces the lines in your file
   and saves it (Ctrl+Z in the file to undo). You first need **⤵ Checkout** to have the branch
-  of the PR.
+  of the PR (menu **⋯**).
 - Branch of the PR checked out: the unresolved comments are **in the editor**, a small bubble in
   the margin, the text on hover.
 - **Commits**: a click shows the whole message of the commit and its changes alone;
@@ -456,12 +456,11 @@ palette).
   branch** (merge or rebase of the base), **Ready for review** / **Back to draft**, **Close** /
   **Reopen**. Merge, close and rebase ask first.
 - Under the message: **✔ Approve** or **✖ Request changes** (the message says what).
-- On the right: the reviewers with their verdict (✔ approved, ✖ changes requested, 💬 commented,
-  ⏳ waiting), “Review required” when the repository asks for an approval, and the reviewers GitHub
-  suggests (**Ask** in one click); the assignees; the labels and milestone. To add someone else:
-  **Add on GitHub ↗**, which completes the logins.
+- On the right, for information: the reviewers with their verdict (✔ approved, ✖ changes
+  requested, 💬 commented, ⏳ waiting), “Review required” when the repository asks for an approval,
+  and the assignees. They are changed on GitHub, like the labels and the milestone.
 - Your comments have **✏** (edit) and **🗑** (delete). The title, the description and the
-  reactions are changed on GitHub (**Open on GitHub**).
+  reactions are changed on GitHub (**⋯** → **Open on GitHub**).
 - Right-click a PR of the list (or **⋯** in the header): open, open on GitHub, checkout, copy
   the link or the number.
 
