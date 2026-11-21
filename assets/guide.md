@@ -415,8 +415,8 @@ avec `gh auth login` (connexion par le navigateur). Sans `gh`, la vue explique c
 - À gauche, les PR du dépôt (ouvertes, fusionnées, fermées, les tiennes), filtrables. Chaque
   ligne : les initiales de l'auteur (le point dessus dit si la PR est ouverte, brouillon, fusionnée
   ou fermée), le titre sur deux lignes au plus, `#numéro · branche · âge`, et à droite l'état de
-  la CI (**✔** passée, **✖** un échec, **●** en cours) puis de la revue (**👍** approuvée,
-  **✖** à corriger, **👁** revue demandée). Au départ,
+  la revue (**👍** approuvée, **✖** à corriger, **👁** revue demandée) ; les checks sont dans la PR
+  ouverte (la liste se charge ainsi bien plus vite). Au départ,
   **les tiennes** (préférence « Auteur affiché au départ » pour voir toutes les PR).
 - Une PR que tu viens de créer s'ouvre dès que GitHub la connaît (quelques secondes).
 - **Conversation**, comme sur GitHub : la description en haut, puis tout ce qui s'est passé du

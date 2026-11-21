@@ -1479,16 +1479,6 @@ fn pr_row(ui: &mut egui::Ui, pr: &github::PrSummary, selected: bool, accent: Col
         ui.painter().rect_filled(rect, 6.0, v.widgets.hovered.weak_bg_fill);
     }
     let p = ui.painter().with_clip_rect(rect);
-    // a bar on the left in the color of its checks: the failing ones stand out in the list
-    let ci_color = match pr.ci() {
-        Some(github::Ci::Success) => Some(ok()),
-        Some(github::Ci::Failure) => Some(err()),
-        Some(github::Ci::Pending) => Some(warn()),
-        None => None,
-    };
-    if let Some(c) = ci_color {
-        p.rect_filled(egui::Rect::from_min_size(rect.min + egui::vec2(0.0, 6.0), egui::vec2(3.0, rect.height() - 12.0)), 1.5, c);
-    }
     // the author: a round badge with the initials, its color from the login, the state of the pull
     // request in a small dot on it
     let login = &pr.author.login;
@@ -1509,17 +1499,8 @@ fn pr_row(ui: &mut egui::Ui, pr: &github::PrSummary, selected: bool, accent: Col
     }
     let info = crate::history::elided(ui, &info, egui::FontId::proportional(11.5), v.weak_text_color(), title_w);
     p.galley(egui::pos2(rect.left() + text_x, rect.top() + 9.0 + title.size().y), info, v.weak_text_color());
-    // on the right: the checks, then the review
+    // on the right: the review
     let rx = rect.right() - right_w / 2.0 - 4.0;
-    let (ci, ci_tip) = match pr.ci() {
-        Some(github::Ci::Success) => (Some(("✔", ok())), t!("CI : tout est passé", "CI: everything passed")),
-        Some(github::Ci::Failure) => (Some(("✖", err())), t!("CI : au moins un échec", "CI: at least one failure")),
-        Some(github::Ci::Pending) => (Some(("●", warn())), t!("CI : en cours", "CI: running")),
-        None => (None, ""),
-    };
-    if let Some((g, color)) = ci {
-        p.text(egui::pos2(rx, rect.top() + 14.0), Align2::CENTER_CENTER, g, egui::FontId::proportional(13.0), color);
-    }
     let review = match pr.review_decision.as_deref() {
         Some("APPROVED") => Some(("👍", ok(), t!("Approuvée", "Approved"))),
         Some("CHANGES_REQUESTED") => Some(("✖", err(), t!("Des changements sont demandés", "Changes requested"))),
@@ -1527,12 +1508,9 @@ fn pr_row(ui: &mut egui::Ui, pr: &github::PrSummary, selected: bool, accent: Col
         _ => None,
     };
     if let Some((g, color, _)) = review {
-        p.text(egui::pos2(rx, rect.top() + 34.0), Align2::CENTER_CENTER, g, egui::FontId::proportional(12.0), color);
+        p.text(egui::pos2(rx, rect.top() + 18.0), Align2::CENTER_CENTER, g, egui::FontId::proportional(12.0), color);
     }
     let mut tip = format!("{}\n{} · {} → {}", pr.title, login, pr.head_ref_name, pr.base_ref_name);
-    if !ci_tip.is_empty() {
-        tip.push_str(&format!("\n{ci_tip}"));
-    }
     if let Some((_, _, t)) = review {
         tip.push_str(&format!("\n{t}"));
     }

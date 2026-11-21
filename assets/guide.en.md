@@ -408,8 +408,8 @@ palette).
 
 - Each row of the list: the author's initials (the dot on them says whether the pull request is
   open, a draft, merged or closed), the title on two lines at most, `#number · branch · age`, and on
-  the right the state of the CI (**✔** passed, **✖** a failure, **●** running) then of the review
-  (**👍** approved, **✖** to fix, **👁** review requested).
+  the right the state of the review (**👍** approved, **✖** to fix, **👁** review requested); the
+  checks are in the open PR (the list loads much faster that way).
 - On the left, the PRs of the repository (open, merged, closed, yours), with a filter. At the
   start, **yours** (preference “Author shown at the start” to see all of them).
 - A PR you just created opens as soon as GitHub knows it (a few seconds).

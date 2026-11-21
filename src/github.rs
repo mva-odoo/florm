@@ -74,43 +74,11 @@ pub struct PrSummary {
     pub review_decision: Option<String>,
     #[serde(default)]
     pub url: String,
-    /// The checks of its last commit (CI): each with a `state` (statuses) or a `conclusion` /
-    /// `status` (check runs).
-    #[serde(default)]
-    pub status_check_rollup: Vec<serde_json::Value>,
 }
 
-/// The state of the checks of a pull request, all together.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Ci {
-    Success,
-    Failure,
-    Pending,
-}
-
-impl PrSummary {
-    /// Failed as soon as one check failed, pending while one is running, success when all passed;
-    /// None without any check.
-    pub fn ci(&self) -> Option<Ci> {
-        let mut any = false;
-        let mut pending = false;
-        for c in &self.status_check_rollup {
-            let state = c["conclusion"].as_str().filter(|s| !s.is_empty()).or_else(|| c["state"].as_str()).unwrap_or("").to_ascii_uppercase();
-            let running = c["status"].as_str().is_some_and(|s| !s.eq_ignore_ascii_case("COMPLETED")) && c["conclusion"].as_str().unwrap_or("").is_empty();
-            any = true;
-            match state.as_str() {
-                "FAILURE" | "ERROR" | "TIMED_OUT" | "CANCELLED" | "ACTION_REQUIRED" | "STARTUP_FAILURE" => return Some(Ci::Failure),
-                "PENDING" | "EXPECTED" | "QUEUED" | "IN_PROGRESS" | "" => pending = true,
-                _ if running => pending = true,
-                _ => {}
-            }
-        }
-        any.then_some(if pending { Ci::Pending } else { Ci::Success })
-    }
-}
-
-/// Fields of `PrSummary` for `gh pr list --json`.
-const SUMMARY: &str = "number,title,author,headRefName,baseRefName,isDraft,state,updatedAt,reviewDecision,url,statusCheckRollup";
+/// Fields of `PrSummary` for `gh pr list --json` (no checks: they took three quarters of the time
+/// of the list, 4 s out of 5 for 100 pull requests).
+const SUMMARY: &str = "number,title,author,headRefName,baseRefName,isDraft,state,updatedAt,reviewDecision,url";
 
 /// Which pull requests: all, mine, those where my review is asked, those I reviewed.
 pub const WHO: [(&str, &str, &str); 4] = [
@@ -878,16 +846,6 @@ mod tests {
         // a comment after an approval does not take it back; asked again: waiting; the author is not one
         assert_eq!(reviewers_of(&asked, &reviews, "me"), vec![r("alice", "APPROVED"), r("bob", "CHANGES_REQUESTED"), r("carol", "PENDING"), r("odoo/team", "PENDING")]);
         assert!(reviewers_of(&[], &[], "me").is_empty());
-    }
-
-    #[test]
-    fn the_checks_are_summed_up() {
-        let pr = |checks: serde_json::Value| PrSummary { number: 1, title: String::new(), author: Author::default(), head_ref_name: String::new(), base_ref_name: String::new(), is_draft: false, state: "OPEN".into(), updated_at: String::new(), review_decision: None, url: String::new(), status_check_rollup: serde_json::from_value(checks).unwrap() };
-        assert_eq!(pr(serde_json::json!([])).ci(), None);
-        assert_eq!(pr(serde_json::json!([{"state": "SUCCESS"}, {"conclusion": "SUCCESS", "status": "COMPLETED"}])).ci(), Some(Ci::Success));
-        assert_eq!(pr(serde_json::json!([{"state": "PENDING"}, {"state": "SUCCESS"}])).ci(), Some(Ci::Pending));
-        assert_eq!(pr(serde_json::json!([{"state": "PENDING"}, {"conclusion": "FAILURE", "status": "COMPLETED"}])).ci(), Some(Ci::Failure));
-        assert_eq!(pr(serde_json::json!([{"conclusion": "", "status": "IN_PROGRESS"}])).ci(), Some(Ci::Pending));
     }
 
     #[test]
