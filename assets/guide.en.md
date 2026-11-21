@@ -27,12 +27,6 @@ Two open files of the same name: their folder shows in grey after the title (`in
 
 On the right of the tab strip: **+** opens an empty text tab (Ctrl+N), **▾** a view in a tab, each with its icon: Search, Claude, Git, Pull requests (GitHub), Debug, then Terminal, Preferences and Welcome. When the tabs no longer fit in the strip, ‹ › scroll them and the same **▾** lists all the open tabs at the top.
 
-**Groups of tabs**: right click a tab → **Add to a group** (an existing one or **+ New
-group**). The tabs of a group stay side by side, with a band of its color and its name before
-them: a click on the name folds the group (only its name stays, with the number of tabs), right
-click to rename it, close its tabs or dissolve it. In a pull request, **📑 Open the files** opens
-them in the group “PR #…”. The groups are kept with the session.
-
 On restart (or back to a project), everything comes back as you left it: the tabs and the views,
 the cursor position, the split editor with its tabs on each side, the open bottom panel and the
 sidebar shown or not.

@@ -27,13 +27,6 @@ Deux fichiers ouverts du même nom : leur dossier s'affiche en gris après le ti
 
 À droite de la barre d'onglets : **+** ouvre un onglet texte vide (Ctrl+N), **▾** une vue dans un onglet, chacune avec son icône : Recherche, Claude, Git, Pull requests (GitHub), Débogage, puis Terminal, Préférences et Accueil. Quand les onglets ne tiennent plus dans la barre, ‹ › les font défiler et le même **▾** liste en haut tous les onglets ouverts.
 
-**Groupes d'onglets** : clic droit sur un onglet → **Ajouter à un groupe** (un existant ou
-**+ Nouveau groupe**). Les onglets d'un groupe restent côte à côte, avec une bande de sa couleur
-et son nom devant eux : un clic sur le nom replie le groupe (seul son nom reste, avec le nombre
-d'onglets), clic droit pour le renommer, fermer ses onglets ou le dissoudre. Dans une pull
-request, **📑 Ouvrir les fichiers** les ouvre dans le groupe « PR #… ». Les groupes sont gardés
-avec la session.
-
 Au redémarrage (ou en revenant sur un projet), tout revient comme tu l'as laissé : les onglets et
 les vues, la position du curseur, l'éditeur divisé avec ses onglets de chaque côté, le panneau du
 bas ouvert et la barre latérale affichée ou non.
