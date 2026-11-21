@@ -518,6 +518,9 @@ impl App {
                         if ui.button("⟳").on_hover_text(t!("Recharger la pull request", "Reload the pull request")).clicked() {
                             act = Some(PrAct::Select(d.number));
                         }
+                        if ui.button(t!("Ouvrir sur GitHub", "Open on GitHub")).clicked() {
+                            act = Some(PrAct::Web(d.number));
+                        }
                         if crate::features::on(crate::features::Feature::Claude)
                             && ui
                             .add_enabled(!p.ai.loading, egui::Button::new(t!("✳ Revue IA", "✳ AI review")))
@@ -529,6 +532,12 @@ impl App {
                         }
                         if checked_out {
                             ui.label(RichText::new(t!("✔ branche active", "✔ current branch")).color(ok())).on_hover_text(t!("Les commentaires sur les lignes sont aussi dans l'éditeur", "The comments on the lines are in the editor too"));
+                        } else if ui
+                            .add_enabled(!p.busy, filled_button("⤵ Checkout", accent))
+                            .on_hover_text(t!("gh pr checkout : prendre la branche de la PR pour la modifier, appliquer les suggestions et voir les commentaires dans l'éditeur", "gh pr checkout: take the branch of the PR to change it, apply the suggestions and see the comments in the editor"))
+                            .clicked()
+                        {
+                            act = Some(PrAct::Checkout(d.number));
                         }
                     });
                 });
@@ -1143,13 +1152,16 @@ fn quick_menu(ui: &mut egui::Ui, n: u64, url: &str, in_list: bool, act: &mut Opt
     if in_list && ui.button(t!("Ouvrir", "Open")).clicked() {
         pick(PrAct::Select(n), ui);
     }
-    if ui.button(t!("Ouvrir sur GitHub", "Open on GitHub")).clicked() {
-        pick(PrAct::Web(n), ui);
+    // in the open pull request they are buttons of its header
+    if in_list {
+        if ui.button(t!("Ouvrir sur GitHub", "Open on GitHub")).clicked() {
+            pick(PrAct::Web(n), ui);
+        }
+        if ui.button("⤵ Checkout").clicked() {
+            pick(PrAct::Checkout(n), ui);
+        }
+        ui.separator();
     }
-    if ui.button("⤵ Checkout").clicked() {
-        pick(PrAct::Checkout(n), ui);
-    }
-    ui.separator();
     if !url.is_empty() && ui.button(t!("Copier le lien", "Copy the link")).clicked() {
         ui.ctx().copy_text(url.to_string());
         pick(PrAct::Copied(url.to_string()), ui);
@@ -1915,7 +1927,7 @@ fn suggestion_ui(
                     return;
                 }
                 let why = if !checked_out {
-                    Some(t!("Fais d'abord « ⤵ Checkout » de la PR (menu ⋯)", "First do “⤵ Checkout” of the PR (menu ⋯)"))
+                    Some(t!("Fais d'abord « ⤵ Checkout » de la PR", "First do “⤵ Checkout” of the PR"))
                 } else if t.line.is_none() || t.outdated {
                     Some(t!("Le code a changé depuis ce commentaire", "The code changed since this comment"))
                 } else {

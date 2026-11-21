@@ -422,10 +422,10 @@ palette).
   left of each, in Conversation or Files; “All” at the top), then **✳ Send to Claude**. A
   Claude conversation opens in the repository with each comment (file:line, commented code,
   replies) and changes the code; you check it in its review. You first need **⤵ Checkout** of
-  the branch of the PR (menu **⋯**).
+  the branch of the PR (button in the header).
 - **Apply the suggestion**: a comment with a `suggestion` block replaces the lines in your file
   and saves it (Ctrl+Z in the file to undo). You first need **⤵ Checkout** to have the branch
-  of the PR (menu **⋯**).
+  of the PR (button in the header).
 - Branch of the PR checked out: the unresolved comments are **in the editor**, a small bubble in
   the margin, the text on hover.
 - **Commits**: a click shows the whole message of the commit and its changes alone;
@@ -454,8 +454,9 @@ palette).
   requested, 💬 commented, ⏳ waiting), “Review required” when the repository asks for an approval,
   and the assignees. They are changed on GitHub, like the labels and the milestone.
 - Your comments have **✏** (edit) and **🗑** (delete). The title, the description and the
-  reactions are changed on GitHub (**⋯** → **Open on GitHub**).
-- Right-click a PR of the list (or **⋯** in the header): open, open on GitHub, checkout, copy
+  reactions are changed on GitHub (**Open on GitHub** button of the header).
+- Right-click a PR of the list: open, open on GitHub, checkout, copy the link or the number. In
+  the open PR, **Open on GitHub** and **⤵ Checkout** are buttons of the header, and **⋯** copies
   the link or the number.
 
 ## Claude
