@@ -1,7 +1,7 @@
 //! Pull requests of GitHub (through `gh`): list, description and conversation, commits, diff,
 //! comments on lines (read, answered, resolved, written from the diff) with their suggestions
 //! applied in the files, and shown in the editor; checks, reviews, merge, reviewers and labels,
-//! reactions, files viewed.
+//! files viewed.
 
 use super::*;
 use crate::github::{self, Part};
@@ -16,8 +16,7 @@ const DRAFT_PR: &str = "pr";
 const DRAFT_LINE: &str = "line";
 /// Key of the kept remarks of the AI review, published together.
 const DRAFT_AI: &str = "ai";
-/// Keys of the title / description being changed, and of the comment being changed.
-const DRAFT_HEAD: &str = "head";
+/// Key of the comment being changed.
 const DRAFT_EDIT: &str = "edit";
 
 /// `gh pr merge` methods and their labels.
@@ -89,8 +88,6 @@ pub(super) struct PrUi {
     busy: bool,
     /// AI review of the selected pull request: remarks proposed, published only when asked.
     pub(super) ai: ai_review::AiReview,
-    /// Title, description and base being changed (✏ of the header).
-    head_edit: Option<(String, String, String)>,
     /// Comment being changed: its id and its new text.
     editing: Option<(String, String)>,
     /// Labels and milestones of the repository, read once.
@@ -140,12 +137,9 @@ pub(super) enum PrAct {
     Gh { label: String, cmds: Vec<Vec<String>>, draft: Option<String> },
     /// Same, asked first: it cannot be undone.
     Ask { title: String, msg: String, yes: String, label: String, cmds: Vec<Vec<String>> },
-    React { id: String, content: String, add: bool },
     /// Save the text of the comment being changed.
     SaveComment,
     DeleteComment(String),
-    /// Save the title, description and base being changed.
-    SaveHead,
     Viewed(String, bool),
     /// The log of a GitHub Actions job (name of the check, job).
     Log(String, u64),
@@ -216,7 +210,6 @@ impl App {
             self.pr.applied.clear();
             self.pr.shifts.clear();
             self.pr.ai = Default::default();
-            self.pr.head_edit = None;
             self.pr.editing = None;
         }
         self.pr.selected = Some(n);
@@ -322,9 +315,6 @@ impl App {
                     }
                     if k == DRAFT_AI {
                         self.pr.ai.notes.retain(|n| !n.keep);
-                    }
-                    if k == DRAFT_HEAD {
-                        self.pr.head_edit = None;
                     }
                     if k == DRAFT_EDIT {
                         self.pr.editing = None;
@@ -514,36 +504,13 @@ impl App {
                     Some(Ok(d)) => d,
                 };
                 // header
-                let mut cancel_edit = false;
-                if let Some((title, body, base)) = &mut p.head_edit {
-                    crate::input::add(ui, egui::TextEdit::singleline(title).font(egui::FontId::proportional(16.0)).desired_width(f32::INFINITY));
-                    ui.horizontal(|ui| {
-                        ui.label(t!("Branche de base :", "Base branch:"));
-                        crate::input::add(ui, egui::TextEdit::singleline(base).desired_width(180.0));
-                    });
-                    ui.add(egui::TextEdit::multiline(body).hint_text(t!("Description (Markdown)", "Description (Markdown)")).desired_rows(6).desired_width(f32::INFINITY));
-                    ui.horizontal(|ui| {
-                        if ui.add_enabled(!p.busy && !title.trim().is_empty(), filled_button(t!("Enregistrer", "Save"), accent)).clicked() {
-                            act = Some(PrAct::SaveHead);
-                        }
-                        cancel_edit = ui.button(t!("Annuler", "Cancel")).clicked();
-                    });
-                    ui.add_space(4.0);
-                } else {
-                    ui.horizontal(|ui| {
-                        ui.add(egui::Label::new(RichText::new(&d.title).size(17.0).strong()).truncate());
-                        ui.label(RichText::new(format!("#{}", d.number)).size(17.0).weak());
-                        if ui.small_button("✏").on_hover_text(t!("Modifier le titre, la description ou la branche de base", "Edit the title, the description or the base branch")).clicked() {
-                            p.head_edit = Some((d.title.clone(), d.body.clone(), d.base.clone()));
-                        }
-                        if p.detail_loading {
-                            spinner(ui);
-                        }
-                    });
-                }
-                if cancel_edit {
-                    p.head_edit = None;
-                }
+                ui.horizontal(|ui| {
+                    ui.add(egui::Label::new(RichText::new(&d.title).size(17.0).strong()).truncate());
+                    ui.label(RichText::new(format!("#{}", d.number)).size(17.0).weak());
+                    if p.detail_loading {
+                        spinner(ui);
+                    }
+                });
                 // who wants to merge what, on its own line (wrapped when narrow), then the actions:
                 // on one line they ran over the branch names
                 // like GitHub: the state in a full pill, « bob wants to merge 2 commits into [17.0] from [17.0-fix] »
@@ -662,7 +629,6 @@ impl App {
                                             } else {
                                                 egui_commonmark::CommonMarkViewer::new().show(ui, cache, &super::md::autolink(&d.body));
                                             }
-                                            ui.horizontal_wrapped(|ui| reactions_row(ui, &d.id, &d.reactions, p.busy, &mut act));
                                         });
                                     }
                                     Event::Comment(k) => {
@@ -677,7 +643,7 @@ impl App {
                                             tracking(ui, icon, color, &c.author.login, &date, t);
                                         } else {
                                             comment_block(ui, &c.author.login, &date, review.map(|(t, c, _)| (t, c)), |ui| {
-                                                let tools = CommentTools { id: &c.id, body: &c.body, mine: c.mine, deletable: !c.is_review(), reactions: &c.reactions, busy: p.busy, accent };
+                                                let tools = CommentTools { id: &c.id, body: &c.body, mine: c.mine, deletable: !c.is_review(), busy: p.busy, accent };
                                                 comment_body(ui, cache, tools, &mut p.editing, &mut act, |ui, cache, _| {
                                                     egui_commonmark::CommonMarkViewer::new().show(ui, cache, &super::md::autolink(&c.body));
                                                 });
@@ -1018,15 +984,6 @@ impl App {
             }
             Some(PrAct::Gh { label, cmds, draft }) => self.pr_job(label, Some(n), draft, move || github::run_all(&repo, &cmds)),
             Some(PrAct::Ask { title, msg, yes, label, cmds }) => self.confirm = Some(Confirm::Gh { title, msg, yes, label, repo, cmds, n }),
-            Some(PrAct::React { id, content, add }) => {
-                // shown at once, GitHub follows
-                if let Some(Ok(d)) = &mut self.pr.detail {
-                    if let Some(r) = d.reactions_mut(&id) {
-                        github::toggle_reaction(r, &content, add);
-                    }
-                }
-                self.pr_job(t!("Réaction", "Reaction").into(), None, None, move || github::react(&repo, &id, &content, add));
-            }
             Some(PrAct::SaveComment) => {
                 let Some((id, body)) = self.pr.editing.clone() else { return };
                 self.pr_job(t!("Commentaire modifié", "Comment edited").into(), Some(n), Some(DRAFT_EDIT.into()), move || github::edit_comment(&repo, &id, body.trim()));
@@ -1041,26 +998,6 @@ impl App {
                     cmds: vec![github::delete_comment_args(&id)],
                     n,
                 });
-            }
-            Some(PrAct::SaveHead) => {
-                let (Some(Ok(d)), Some((title, body, base))) = (&self.pr.detail, &self.pr.head_edit) else { return };
-                let mut more: Vec<&str> = Vec::new();
-                let (title, base) = (title.trim(), base.trim());
-                if title != d.title {
-                    more.extend(["--title", title]);
-                }
-                if *body != d.body {
-                    more.extend(["--body", body]);
-                }
-                if !base.is_empty() && base != d.base {
-                    more.extend(["--base", base]);
-                }
-                if more.is_empty() {
-                    self.pr.head_edit = None;
-                    return;
-                }
-                let cmds = vec![github::pr_args("edit", n, &more)];
-                self.pr_job(t!("Pull request modifiée", "Pull request edited").into(), Some(n), Some(DRAFT_HEAD.into()), move || github::run_all(&repo, &cmds));
             }
             Some(PrAct::Viewed(path, yes)) => {
                 let Some(Ok(d)) = &mut self.pr.detail else { return };
@@ -1617,49 +1554,19 @@ fn hex_color(hex: &str) -> Color32 {
     Color32::from_rgb(c(0), c(2), c(4))
 }
 
-/// The reactions given (a click gives or takes back mine), then ☺ to add one (🙂 is not in the fonts
-/// of egui: a box).
-fn reactions_row(ui: &mut egui::Ui, id: &str, reactions: &[github::Reaction], busy: bool, act: &mut Option<PrAct>) {
-    if id.is_empty() {
-        return;
-    }
-    for r in reactions {
-        let tip = if r.mine { t!("Retirer ta réaction", "Take back your reaction") } else { t!("Réagir pareil", "React the same") };
-        if ui.add_enabled(!busy, egui::Button::new(RichText::new(format!("{} {}", github::emoji(&r.content), r.count)).small()).selected(r.mine).rounding(10.0)).on_hover_text(tip).clicked() {
-            *act = Some(PrAct::React { id: id.into(), content: r.content.clone(), add: !r.mine });
-        }
-    }
-    ui.add_enabled_ui(!busy, |ui| {
-        ui.menu_button(RichText::new("☺").small(), |ui| {
-            ui.horizontal(|ui| {
-                for (content, e) in github::REACTIONS {
-                    let mine = reactions.iter().any(|r| r.content == content && r.mine);
-                    if ui.add(egui::Button::new(e).selected(mine)).clicked() {
-                        *act = Some(PrAct::React { id: id.into(), content: content.into(), add: !mine });
-                        ui.close_menu();
-                    }
-                }
-            });
-        })
-        .response
-        .on_hover_text(t!("Ajouter une réaction", "Add a reaction"));
-    });
-}
-
-/// What a comment needs for its reactions and, when mine, to be changed or deleted.
+/// What a comment needs, when mine, to be changed or deleted.
 struct CommentTools<'a> {
     id: &'a str,
     body: &'a str,
     mine: bool,
     /// Reviews cannot be deleted, only changed.
     deletable: bool,
-    reactions: &'a [github::Reaction],
     busy: bool,
     accent: Color32,
 }
 
-/// The body of a comment (`show`), or its editor while it is being changed; then its reactions
-/// and, for mine, ✏ / 🗑.
+/// The body of a comment (`show`), or its editor while it is being changed; then, for mine,
+/// ✏ / 🗑.
 fn comment_body(
     ui: &mut egui::Ui,
     cache: &mut egui_commonmark::CommonMarkCache,
@@ -1686,7 +1593,6 @@ fn comment_body(
     }
     show(ui, cache, act);
     ui.horizontal_wrapped(|ui| {
-        reactions_row(ui, c.id, c.reactions, c.busy, act);
         if c.mine && !c.id.is_empty() {
             if ui.add_enabled(!c.busy, egui::Button::new("✏").small().frame(false)).on_hover_text(t!("Modifier ton commentaire", "Edit your comment")).clicked() {
                 *editing = Some((c.id.to_string(), c.body.to_string()));
@@ -2117,7 +2023,7 @@ fn thread_ui(
                 }
                 for c in &t.comments {
                     comment_block(ui, &c.author, &c.created_at, None, |ui| {
-                        let tools = CommentTools { id: &c.id, body: &c.body, mine: c.mine, deletable: true, reactions: &c.reactions, busy, accent };
+                        let tools = CommentTools { id: &c.id, body: &c.body, mine: c.mine, deletable: true, busy, accent };
                         comment_body(ui, cache, tools, editing, act, |ui, cache, act| {
                             for part in github::parts(&c.body) {
                                 match part {
@@ -2357,8 +2263,7 @@ mod render_check {
                     let mut act = None;
                     merge_box(ui, &d, &mut method, &mut delete, &mut all, false, Color32::BLUE, &mut act);
                     side_info(ui, &d, None, false, &mut act);
-                    let reactions = [github::Reaction { content: "HEART".into(), count: 3, mine: true }];
-                    let tools = CommentTools { id: "IC_1", body: "salut", mine: true, deletable: true, reactions: &reactions, busy: false, accent: Color32::BLUE };
+                    let tools = CommentTools { id: "IC_1", body: "salut", mine: true, deletable: true, busy: false, accent: Color32::BLUE };
                     comment_body(ui, &mut cache, tools, &mut editing, &mut act, |ui, _, _| {
                         ui.label("salut");
                     });
@@ -2367,7 +2272,7 @@ mod render_check {
             shapes = out.shapes;
         }
         let t = texts(&shapes);
-        for want in ["Checks", "CI / tests", "Logs", "17.0", "alice", "✔", "tfr", "Demander", "Ajouter sur GitHub ↗", "bug ✖", "❤ 3", "🗑"] {
+        for want in ["Checks", "CI / tests", "Logs", "17.0", "alice", "✔", "tfr", "Demander", "Ajouter sur GitHub ↗", "bug ✖", "🗑"] {
             assert!(t.contains(want), "{want}: {t}");
         }
     }

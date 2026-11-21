@@ -460,9 +460,8 @@ palette).
   ⏳ waiting), “Review required” when the repository asks for an approval, and the reviewers GitHub
   suggests (**Ask** in one click); the assignees; the labels and milestone. To add someone else:
   **Add on GitHub ↗**, which completes the logins.
-- **✏** next to the title: change the title, the description or the base branch.
-- Under each message, its **reactions** (a click gives or takes back yours, 🙂 to add one);
-  your comments have **✏** (edit) and **🗑** (delete).
+- Your comments have **✏** (edit) and **🗑** (delete). The title, the description and the
+  reactions are changed on GitHub (**Open on GitHub**).
 - Right-click a PR of the list (or **⋯** in the header): open, open on GitHub, checkout, copy
   the link or the number.
 

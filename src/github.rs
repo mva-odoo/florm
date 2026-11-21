@@ -189,8 +189,6 @@ pub struct Comment {
     /// Written by me (to change or delete it).
     #[serde(skip)]
     pub mine: bool,
-    #[serde(skip)]
-    pub reactions: Vec<Reaction>,
 }
 
 impl Comment {
@@ -198,36 +196,6 @@ impl Comment {
     pub fn is_review(&self) -> bool {
         self.id.starts_with("PRR_")
     }
-}
-
-/// A reaction to a comment: its kind ("THUMBS_UP"…), how many gave it, and whether I did.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Reaction {
-    pub content: String,
-    pub count: u64,
-    pub mine: bool,
-}
-
-/// The reactions of GitHub and their emoji.
-pub const REACTIONS: [(&str, &str); 8] =
-    [("THUMBS_UP", "👍"), ("THUMBS_DOWN", "👎"), ("LAUGH", "😄"), ("HOORAY", "🎉"), ("CONFUSED", "😕"), ("HEART", "❤"), ("ROCKET", "🚀"), ("EYES", "👀")];
-
-pub fn emoji(content: &str) -> &'static str {
-    REACTIONS.iter().find(|(c, _)| *c == content).map_or("?", |(_, e)| e)
-}
-
-/// My reaction `content` added (or taken back) in `list`, before GitHub answers.
-pub fn toggle_reaction(list: &mut Vec<Reaction>, content: &str, add: bool) {
-    match list.iter_mut().find(|r| r.content == content) {
-        Some(r) if r.mine != add => {
-            r.mine = add;
-            r.count = if add { r.count + 1 } else { r.count.saturating_sub(1) };
-        }
-        Some(_) => {}
-        None if add => list.push(Reaction { content: content.into(), count: 1, mine: true }),
-        None => {}
-    }
-    list.retain(|r| r.count > 0);
 }
 
 /// A check of the last commit: a GitHub Actions job or a status sent by another service.
@@ -329,12 +297,11 @@ pub struct LineComment {
     pub created_at: String,
     pub diff_hunk: String,
     pub mine: bool,
-    pub reactions: Vec<Reaction>,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct PrDetail {
-    /// GraphQL id (files viewed, reactions).
+    /// GraphQL id (files viewed).
     pub id: String,
     pub url: String,
     pub number: u64,
@@ -371,8 +338,6 @@ pub struct PrDetail {
     pub checks: Vec<Check>,
     /// My login.
     pub viewer: String,
-    /// Reactions to the description.
-    pub reactions: Vec<Reaction>,
     /// Files marked as viewed by me, by path.
     pub viewed: HashSet<String>,
     /// Reviewers GitHub suggests (who touched these lines), not asked yet.
@@ -380,16 +345,6 @@ pub struct PrDetail {
 }
 
 impl PrDetail {
-    /// Reactions of the description (`id` of the pull request) or of a comment.
-    pub fn reactions_mut(&mut self, id: &str) -> Option<&mut Vec<Reaction>> {
-        if id == self.id {
-            return Some(&mut self.reactions);
-        }
-        if let Some(c) = self.comments.iter_mut().find(|c| c.id == id) {
-            return Some(&mut c.reactions);
-        }
-        self.threads.iter_mut().flat_map(|t| t.comments.iter_mut()).find(|c| c.id == id).map(|c| &mut c.reactions)
-    }
 }
 
 #[derive(Deserialize)]
@@ -462,16 +417,14 @@ fn reviewers_of(asked: &[String], reviews: &[(String, String)], author: &str) ->
     out
 }
 
-/// What `gh pr view` does not give: who I am, the conversations on lines, reactions, files viewed.
+/// What `gh pr view` does not give: who I am, the conversations on lines, files viewed.
 const EXTRA: &str = "query($owner:String!,$repo:String!,$n:Int!){viewer{login} repository(owner:$owner,name:$repo){pullRequest(number:$n){\
-reactionGroups{...R} \
-comments(last:100){nodes{id viewerDidAuthor reactionGroups{...R}}} \
-reviews(last:100){nodes{id viewerDidAuthor reactionGroups{...R}}} \
+comments(last:100){nodes{id viewerDidAuthor}} \
+reviews(last:100){nodes{id viewerDidAuthor}} \
 files(first:100){nodes{path viewerViewedState}} \
 suggestedReviewers{reviewer{login}} \
 reviewThreads(first:100){nodes{id isResolved isOutdated path line startLine originalLine diffSide \
-comments(first:100){nodes{id databaseId author{login} body createdAt diffHunk viewerDidAuthor reactionGroups{...R}}}}}}}} \
-fragment R on ReactionGroup{content viewerHasReacted reactors{totalCount}}";
+comments(first:100){nodes{id databaseId author{login} body createdAt diffHunk viewerDidAuthor}}}}}}}";
 
 /// Everything shown for pull request `n`: description, commits, comments, threads on lines, diff.
 pub fn detail(dir: &Path, n: u64) -> Result<PrDetail, String> {
@@ -499,15 +452,13 @@ reviewDecision,mergeable,mergeStateStatus,reviewRequests,assignees,labels,milest
     let mut comments: Vec<Comment> = v.comments.into_iter().chain(v.reviews.into_iter().filter(|r| !r.body.trim().is_empty() || r.state == "APPROVED" || r.state == "CHANGES_REQUESTED")).collect();
     comments.sort_by(|a, b| a.created_at.cmp(&b.created_at));
     let pr = &extra["data"]["repository"]["pullRequest"];
-    // mine and reactions, by id
-    let mut extra_of: HashMap<&str, (bool, Vec<Reaction>)> = HashMap::new();
+    // mine, by id
+    let mut mine_of: HashMap<&str, bool> = HashMap::new();
     for c in ["comments", "reviews"].iter().filter_map(|k| pr[k]["nodes"].as_array()).flatten() {
-        extra_of.insert(c["id"].as_str().unwrap_or(""), (c["viewerDidAuthor"].as_bool().unwrap_or(false), parse_reactions(&c["reactionGroups"])));
+        mine_of.insert(c["id"].as_str().unwrap_or(""), c["viewerDidAuthor"].as_bool().unwrap_or(false));
     }
     for c in comments.iter_mut() {
-        if let Some((mine, r)) = extra_of.remove(c.id.as_str()) {
-            (c.mine, c.reactions) = (mine, r);
-        }
+        c.mine = mine_of.get(c.id.as_str()).copied().unwrap_or(false);
     }
     let owner = v.url.split('/').nth(3).unwrap_or("").to_string();
     let asked: Vec<String> = v
@@ -540,7 +491,6 @@ reviewDecision,mergeable,mergeStateStatus,reviewRequests,assignees,labels,milest
         milestone: v.milestone.map(|m| m.title).unwrap_or_default(),
         checks: parse_checks(&v.status_check_rollup),
         viewer: extra["data"]["viewer"]["login"].as_str().unwrap_or("").to_string(),
-        reactions: parse_reactions(&pr["reactionGroups"]),
         viewed,
         suggested,
         number: v.number,
@@ -558,23 +508,6 @@ reviewDecision,mergeable,mergeStateStatus,reviewRequests,assignees,labels,milest
         threads,
         diff,
     })
-}
-
-/// `reactionGroups` of GraphQL: those given at least once.
-fn parse_reactions(groups: &Value) -> Vec<Reaction> {
-    groups
-        .as_array()
-        .map(|a| {
-            a.iter()
-                .map(|g| Reaction {
-                    content: g["content"].as_str().unwrap_or("").to_string(),
-                    count: g["reactors"]["totalCount"].as_u64().unwrap_or(0),
-                    mine: g["viewerHasReacted"].as_bool().unwrap_or(false),
-                })
-                .filter(|r| r.count > 0)
-                .collect()
-        })
-        .unwrap_or_default()
 }
 
 fn parse_threads(v: &Value) -> Vec<Thread> {
@@ -603,7 +536,6 @@ fn parse_threads(v: &Value) -> Vec<Thread> {
                             created_at: c["createdAt"].as_str().unwrap_or("").to_string(),
                             diff_hunk: c["diffHunk"].as_str().unwrap_or("").to_string(),
                             mine: c["viewerDidAuthor"].as_bool().unwrap_or(false),
-                            reactions: parse_reactions(&c["reactionGroups"]),
                         })
                         .collect()
                 })
@@ -843,12 +775,6 @@ fn graphql(dir: &Path, query: &str, vars: &[(&str, &str)]) -> Result<String, Str
     run(dir, &a).map(|_| String::new())
 }
 
-/// My reaction to a comment (or to the pull request) added or taken back.
-pub fn react(dir: &Path, subject: &str, content: &str, add: bool) -> Result<String, String> {
-    let m = if add { "addReaction" } else { "removeReaction" };
-    graphql(dir, &format!("mutation($id:ID!,$c:ReactionContent!){{{m}(input:{{subjectId:$id,content:$c}}){{clientMutationId}}}}"), &[("id", subject), ("c", content)])
-}
-
 /// The text of one of my comments ("IC_…"), comments on lines ("PRRC_…") or reviews ("PRR_…") changed.
 pub fn edit_comment(dir: &Path, id: &str, body: &str) -> Result<String, String> {
     let (m, field) = if id.starts_with("PRRC_") {
@@ -1070,21 +996,6 @@ mod tests {
     }
 
     #[test]
-    fn reactions() {
-        let g: Value = serde_json::from_str(r#"[{"content":"THUMBS_UP","viewerHasReacted":true,"reactors":{"totalCount":2}},{"content":"EYES","viewerHasReacted":false,"reactors":{"totalCount":0}}]"#).unwrap();
-        let mut r = parse_reactions(&g);
-        assert_eq!(r, vec![Reaction { content: "THUMBS_UP".into(), count: 2, mine: true }]);
-        toggle_reaction(&mut r, "THUMBS_UP", true);
-        assert_eq!(r[0].count, 2);
-        toggle_reaction(&mut r, "HEART", true);
-        toggle_reaction(&mut r, "THUMBS_UP", false);
-        assert_eq!(r.iter().map(|r| (r.content.as_str(), r.count, r.mine)).collect::<Vec<_>>(), [("THUMBS_UP", 1, false), ("HEART", 1, true)]);
-        toggle_reaction(&mut r, "HEART", false);
-        assert_eq!(r.len(), 1);
-        assert_eq!(emoji("ROCKET"), "🚀");
-    }
-
-    #[test]
     fn checks() {
         let rollup: Vec<Value> = serde_json::from_str(
             r#"[{"__typename":"CheckRun","name":"lint","workflowName":"CI","status":"COMPLETED","conclusion":"SUCCESS","detailsUrl":"https://github.com/o/r/actions/runs/11/job/22"},
@@ -1106,66 +1017,5 @@ mod tests {
         assert_eq!(review_args(5, "approve", ""), ["pr", "review", "5", "--approve"]);
         assert_eq!(review_args(5, "request-changes", "non"), ["pr", "review", "5", "--request-changes", "--body", "non"]);
         assert_eq!(pr_args("ready", 5, &["--undo"]), ["pr", "ready", "5", "--undo"]);
-    }
-}
-
-#[cfg(test)]
-mod emoji_tests {
-    use super::*;
-
-    /// Every emoji of the reactions must be drawn by a font egui ships (else a box). Checked
-    /// against the font files, by their character map.
-    #[test]
-    fn reactions_are_in_egui_fonts() {
-        let dir = std::fs::read_dir(std::env::var("CARGO_HOME").map(std::path::PathBuf::from).unwrap_or_else(|_| {
-            std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".cargo")
-        }).join("registry/src"));
-        let Ok(dir) = dir else { return };
-        let font = dir
-            .flatten()
-            .flat_map(|e| std::fs::read_dir(e.path()).into_iter().flatten().flatten())
-            .find_map(|e| {
-                let p = e.path().join("epaint_default_fonts-0.29.1/fonts/NotoEmoji-Regular.ttf");
-                p.is_file().then_some(p)
-            });
-        let Some(font) = font else { return };
-        let bytes = std::fs::read(font).unwrap();
-        let face = ttf_parser_cmap(&bytes);
-        let mut all: Vec<&str> = REACTIONS.iter().map(|(_, e)| *e).collect();
-        all.push("☺");
-        for e in all {
-            let c = e.chars().next().unwrap() as u32;
-            assert!(face.contains(&c), "{e} (U+{c:04X}) is not in the emoji font of egui");
-        }
-    }
-
-    /// Code points of the format 4 subtables of a TrueType cmap (enough for the emoji font).
-    fn ttf_parser_cmap(d: &[u8]) -> std::collections::HashSet<u32> {
-        let u16at = |i: usize| u16::from_be_bytes([d[i], d[i + 1]]) as usize;
-        let u32at = |i: usize| u32::from_be_bytes([d[i], d[i + 1], d[i + 2], d[i + 3]]) as usize;
-        let mut out = std::collections::HashSet::new();
-        let n = u16at(4);
-        let mut cmap = 0;
-        for i in 0..n {
-            let rec = 12 + 16 * i;
-            if &d[rec..rec + 4] == b"cmap" {
-                cmap = u32at(rec + 8);
-            }
-        }
-        let nt = u16at(cmap + 2);
-        for i in 0..nt {
-            let s = cmap + u32at(cmap + 4 + 8 * i + 4);
-            if u16at(s) == 4 {
-                let segx2 = u16at(s + 6);
-                for k in 0..segx2 / 2 {
-                    let end = u16at(s + 14 + 2 * k);
-                    let start = u16at(s + 16 + segx2 + 2 * k);
-                    if start <= end && end < 0xFFFF {
-                        out.extend(start as u32..=end as u32);
-                    }
-                }
-            }
-        }
-        out
     }
 }

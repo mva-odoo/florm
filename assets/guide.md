@@ -468,9 +468,8 @@ avec `gh auth login` (connexion par le navigateur). Sans `gh`, la vue explique c
   attente), « Relecture requise » quand le dépôt exige une approbation, et les relecteurs suggérés
   par GitHub (**Demander** en un clic) ; les assignés ; les étiquettes et le jalon. Pour ajouter
   quelqu'un d'autre : **Ajouter sur GitHub ↗**, qui complète les logins.
-- **✏** à côté du titre : changer le titre, la description ou la branche de base.
-- Sous chaque message, ses **réactions** (un clic donne ou retire la tienne, 🙂 pour en
-  ajouter) ; tes commentaires ont **✏** (modifier) et **🗑** (supprimer).
+- Tes commentaires ont **✏** (modifier) et **🗑** (supprimer). Le titre, la description et les
+  réactions se changent sur GitHub (**Ouvrir sur GitHub**).
 - Clic droit sur une PR de la liste (ou **⋯** dans l'en-tête) : ouvrir, ouvrir sur GitHub,
   checkout, copier le lien ou le numéro.
 

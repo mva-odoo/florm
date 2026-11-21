@@ -112,7 +112,7 @@ mod tests {
     use super::*;
 
     fn comment(author: &str, body: &str, hunk: &str) -> github::LineComment {
-        github::LineComment { id: String::new(), db_id: 0, author: author.into(), body: body.into(), created_at: String::new(), diff_hunk: hunk.into(), mine: false, reactions: Vec::new() }
+        github::LineComment { id: String::new(), db_id: 0, author: author.into(), body: body.into(), created_at: String::new(), diff_hunk: hunk.into(), mine: false }
     }
 
     #[test]
