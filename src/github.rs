@@ -12,20 +12,7 @@ fn gh(dir: &Path, args: &[&str]) -> Result<String, String> {
 }
 
 /// Like `gh`, with `input` written on its standard input (`gh api --input -`).
-/// On macOS gh reads its token from the Keychain and gives up after a few seconds: when Florm
-/// starts (after an update…) and the Keychain answers slowly, gh says it is not logged in. Asked
-/// again a moment later, it finds its token: one retry before telling the user to log in.
 fn gh_with(dir: &Path, args: &[&str], input: Option<String>) -> Result<String, String> {
-    match gh_once(dir, args, input.clone()) {
-        Err(e) if e.contains("gh auth login") => {
-            std::thread::sleep(std::time::Duration::from_secs(2));
-            gh_once(dir, args, input).map_err(|e| if e.contains("gh auth login") { not_logged().to_string() } else { e })
-        }
-        r => r,
-    }
-}
-
-fn gh_once(dir: &Path, args: &[&str], input: Option<String>) -> Result<String, String> {
     let mut child = crate::os::command("gh")
         .args(args)
         .current_dir(dir)
@@ -46,7 +33,28 @@ fn gh_once(dir: &Path, args: &[&str], input: Option<String>) -> Result<String, S
     if out.status.success() {
         Ok(String::from_utf8_lossy(&out.stdout).into_owned())
     } else {
-        Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+        Err(explain(String::from_utf8_lossy(&out.stderr).trim()))
+    }
+}
+
+/// What gh says, in the user's words when it is about logging in. A repository whose remotes are
+/// not on GitHub (GitLab…) also gets "please use `gh auth login`" from gh: not a login problem.
+fn explain(e: &str) -> String {
+    if e.contains("known GitHub host") {
+        t!("Ce dépôt n'est pas sur GitHub (ses remotes pointent ailleurs, GitLab…) : choisis un autre dépôt en haut de la vue.", "This repository is not on GitHub (its remotes point elsewhere, GitLab…): pick another repository at the top of the view.").to_string()
+    } else if e.contains("gh auth login") {
+        not_logged().to_string()
+    } else {
+        e.to_string()
+    }
+}
+
+/// Whether a remote of `repo` is on GitHub, from its `.git/config` (no process: called while
+/// drawing). Unknown (a worktree, an unreadable file): yes.
+pub fn on_github(repo: &Path) -> bool {
+    match std::fs::read_to_string(repo.join(".git").join("config")) {
+        Ok(cfg) => cfg.lines().any(|l| l.trim_start().starts_with("url") && l.contains("github")),
+        Err(_) => true,
     }
 }
 
@@ -848,6 +856,27 @@ pub fn hunk_tail(diff_hunk: &str, n: usize) -> Vec<(Option<usize>, Option<usize>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_repository_off_github_is_not_a_login_problem() {
+        let gitlab = "none of the git remotes configured for this repository point to a known GitHub host. To tell gh about a new GitHub host, please use `gh auth login`";
+        assert!(!explain(gitlab).contains("gh auth login"));
+        assert_eq!(explain("To get started with GitHub CLI, please run:  gh auth login"), not_logged());
+        assert_eq!(explain("HTTP 404: Not Found"), "HTTP 404: Not Found");
+    }
+
+    #[test]
+    fn repositories_on_github_are_found() {
+        let t = std::env::temp_dir().join(format!("florm-gh-{}", std::process::id()));
+        for (name, url) in [("hub", "git@github.com:a/b.git"), ("lab", "git@gitlab.example.com:a/b.git")] {
+            std::fs::create_dir_all(t.join(name).join(".git")).unwrap();
+            std::fs::write(t.join(name).join(".git/config"), format!("[remote \"origin\"]\n\turl = {url}\n")).unwrap();
+        }
+        assert!(on_github(&t.join("hub")));
+        assert!(!on_github(&t.join("lab")));
+        assert!(on_github(&t.join("unknown")));
+        let _ = std::fs::remove_dir_all(&t);
+    }
 
     #[test]
     fn the_reviewers_are_those_asked_and_those_who_reviewed() {

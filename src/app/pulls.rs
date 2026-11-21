@@ -155,8 +155,10 @@ impl App {
 
     /// The pull requests read, wherever the view is shown.
     pub(super) fn pulls_load(&mut self) {
-        // the current repository at first (else the first one of the folder); the one chosen in the view stays
-        let repo = self.pr.repo.clone().filter(|r| self.repos.contains(r)).or_else(|| self.repo.clone()).or_else(|| self.repos.first().cloned());
+        // the one chosen in the view stays; else the current repository, else the first one of the
+        // folder, those on GitHub first (a folder of projects may begin with a GitLab one)
+        let current = self.repo.clone().into_iter().chain(self.repos.iter().cloned());
+        let repo = self.pr.repo.clone().filter(|r| self.repos.contains(r)).or_else(|| current.clone().find(|r| github::on_github(r))).or_else(|| current.clone().next());
         if self.pr.list.is_none() || self.pr.repo != repo {
             self.load_prs(repo);
         }
