@@ -401,7 +401,8 @@ reviewDecision,mergeable,mergeStateStatus,reviewRequests,assignees,statusCheckRo
     let query = format!("query={EXTRA}");
     let (view, extra, diff) = std::thread::scope(|s| {
         let extra = s.spawn(|| gh(dir, &["api", "graphql", "-F", "owner={owner}", "-F", "repo={repo}", "-F", &n_var, "-f", &query]));
-        let diff = s.spawn(|| gh(dir, &["pr", "diff", &ns, "--color", "never"]));
+        // straight from the API: `gh pr diff` first looks the pull request up (one more round trip)
+        let diff = s.spawn(|| gh(dir, &["api", &format!("repos/{{owner}}/{{repo}}/pulls/{n}"), "-H", "Accept: application/vnd.github.v3.diff"]));
         let view = gh(dir, &["pr", "view", &ns, "--json", fields]);
         let join = |h: std::thread::ScopedJoinHandle<'_, Result<String, String>>| h.join().unwrap_or_else(|_| Err("gh".into()));
         (view, join(extra), join(diff))
