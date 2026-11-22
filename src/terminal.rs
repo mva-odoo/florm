@@ -1016,6 +1016,8 @@ fn key_bytes(key: Key, m: Modifiers, app_cursor: bool) -> Option<Vec<u8>> {
         }
     };
     Some(match key {
+        // Shift/Alt+Enter: ESC CR (Meta+Enter), a new line without sending in Claude Code, zsh, fish
+        Key::Enter if (m.shift || m.alt) && !m.ctrl => b"\x1b\r".to_vec(),
         Key::Enter => b"\r".to_vec(),
         Key::Backspace if m.ctrl || m.alt => b"\x1b\x7f".to_vec(),
         Key::Backspace => b"\x7f".to_vec(),
@@ -1071,6 +1073,9 @@ mod tests {
         assert_eq!(key_bytes(Key::ArrowLeft, Modifiers::CTRL, false), Some(b"\x1b[1;5D".to_vec()));
         assert_eq!(key_bytes(Key::Delete, none, false), Some(b"\x1b[3~".to_vec()));
         assert_eq!(key_bytes(Key::A, none, false), None);
+        assert_eq!(key_bytes(Key::Enter, none, false), Some(b"\r".to_vec()));
+        assert_eq!(key_bytes(Key::Enter, Modifiers::SHIFT, false), Some(b"\x1b\r".to_vec()));
+        assert_eq!(key_bytes(Key::Enter, Modifiers::ALT, false), Some(b"\x1b\r".to_vec()));
     }
 
     #[cfg(unix)]

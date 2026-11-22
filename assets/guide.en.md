@@ -270,6 +270,8 @@ The operations started from Florm put the original version between the two sides
 ## Terminal
 
 - **Ctrl+`**: the terminal in the bottom panel.
+- **Shift+Enter** (or Alt / Option+Enter) goes to a new line without sending, in Claude as in zsh
+  and fish.
 - **Ctrl+Shift+`**: a terminal **in a
   tab** of the editor. Like any tab, it can be dragged to the right or bottom edge of the editor
   to be next to a file (or right click on the tab → Split right / down).

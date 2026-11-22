@@ -274,6 +274,8 @@ Les opérations lancées depuis Florm mettent la version d'origine entre les deu
 ## Terminal
 
 - **Ctrl+`** : le terminal dans le panneau du bas.
+- **Maj+Entrée** (ou Alt / Option+Entrée) va à la ligne sans envoyer, dans Claude comme dans zsh
+  et fish.
 - **Ctrl+Shift+`** : un terminal **dans un onglet** de
   l'éditeur. Comme tout onglet, il se glisse sur le bord droit ou bas de l'éditeur pour être à
   côté d'un fichier (ou clic droit sur l'onglet → Diviser à droite / en bas).
