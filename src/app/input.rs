@@ -247,6 +247,8 @@ impl App {
                 } else if maximize::restore_shown(ctx) {
                 } else if self.showing(document::View::History) {
                     self.leave_tab(document::View::History);
+                } else if self.showing(document::View::Tour) {
+                    self.leave_tab(document::View::Tour);
                 } else if self.showing(document::View::Git) && self.history_detail_open() {
                     self.close_history_detail();
                 } else if self.showing(document::View::Git) {
@@ -800,6 +802,10 @@ impl App {
                 self.show_wip(false);
                 self.ai_review_wip();
             }
+            GitExplain => match self.history.repo.clone().or_else(|| self.repo.clone()) {
+                Some(repo) => self.explain_worktree(repo),
+                None => self.set_status(t!("Pas de dépôt git ouvert", "No git repository open")),
+            },
             GitCheckout => self.pick_branch(BranchPick::Checkout, None),
             GitNewBranch => self.open_prompt(Prompt::NewBranch),
             GitAddVersion => match self.root.clone() {

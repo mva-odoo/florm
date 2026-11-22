@@ -252,6 +252,8 @@ pub enum View {
     History,
     /// The assistant of a merge, rebase or cherry-pick stopped on conflicts.
     Conflicts,
+    /// The guided tour of changes, idea by idea (🗺).
+    Tour,
 }
 
 /// Files shown as images rather than text.

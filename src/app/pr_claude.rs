@@ -59,23 +59,32 @@ pub(super) fn request(d: &github::PrDetail, ids: &HashSet<String>) -> String {
     );
     let mut k = 0;
     for t in d.threads.iter().filter(|t| ids.contains(&t.id)) {
-        let Some(first) = t.comments.first() else { continue };
+        if t.comments.is_empty() {
+            continue;
+        }
         k += 1;
-        let line = t.line.or(t.original_line).map(|l| format!(":{l}")).unwrap_or_default();
-        let lines = match (t.start_line, t.line) {
-            (Some(a), Some(b)) if a != b => format!(":{a}-{b}"),
-            _ => line,
-        };
-        let outdated = if t.outdated { t!(" (le code a changé depuis)", " (the code changed since)") } else { "" };
-        out += &format!("\n\n{k}. `{}{lines}`{outdated} — @{} :\n{}", t.path, first.author, quote(&first.body));
-        for r in &t.comments[1..] {
-            out += &format!("\n   {} @{} :\n{}", t!("Réponse de", "Reply of"), r.author, quote(&r.body));
-        }
-        let hunk: Vec<&str> = first.diff_hunk.lines().collect();
-        if !hunk.is_empty() {
-            let end = &hunk[hunk.len().saturating_sub(HUNK_LINES)..];
-            out += &format!("\n   {}\n   ```diff\n{}\n   ```", t!("Code commenté :", "Commented code:"), end.iter().map(|l| format!("   {l}")).collect::<Vec<_>>().join("\n"));
-        }
+        out += &format!("\n\n{k}. {}", thread_text(t));
+    }
+    out
+}
+
+/// A conversation on a line: where, the comment and its replies, the code commented.
+pub(super) fn thread_text(t: &github::Thread) -> String {
+    let Some(first) = t.comments.first() else { return String::new() };
+    let line = t.line.or(t.original_line).map(|l| format!(":{l}")).unwrap_or_default();
+    let lines = match (t.start_line, t.line) {
+        (Some(a), Some(b)) if a != b => format!(":{a}-{b}"),
+        _ => line,
+    };
+    let outdated = if t.outdated { t!(" (le code a changé depuis)", " (the code changed since)") } else { "" };
+    let mut out = format!("`{}{lines}`{outdated} — @{} :\n{}", t.path, first.author, quote(&first.body));
+    for r in &t.comments[1..] {
+        out += &format!("\n   {} @{} :\n{}", t!("Réponse de", "Reply of"), r.author, quote(&r.body));
+    }
+    let hunk: Vec<&str> = first.diff_hunk.lines().collect();
+    if !hunk.is_empty() {
+        let end = &hunk[hunk.len().saturating_sub(HUNK_LINES)..];
+        out += &format!("\n   {}\n   ```diff\n{}\n   ```", t!("Code commenté :", "Commented code:"), end.iter().map(|l| format!("   {l}")).collect::<Vec<_>>().join("\n"));
     }
     out
 }

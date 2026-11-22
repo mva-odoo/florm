@@ -54,7 +54,7 @@ impl App {
             document::View::PullRequests => !features::on(Feature::GitHub),
             document::View::Git | document::View::History | document::View::Conflicts => !features::on(Feature::Git),
             document::View::Debug => !features::on(Feature::Debugger),
-            document::View::Claude => !features::on(Feature::Claude),
+            document::View::Claude | document::View::Tour => !features::on(Feature::Claude),
             _ => false,
         };
         for i in (0..self.docs.len()).rev() {

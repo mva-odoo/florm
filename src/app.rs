@@ -50,6 +50,7 @@ mod md_toolbar;
 mod theme_edit;
 mod template_edit;
 mod commit_plan;
+mod guided_tour;
 mod panes;
 mod compare;
 mod lsp_client;
@@ -1054,6 +1055,9 @@ pub struct App {
     blame_mode: bool,
     blame_req: Option<(u64, usize, u64)>,
     line_history: Option<LineHistoryUi>,
+    /// The guided tour of changes (🗺), and the number of the last one started.
+    guided: Option<guided_tour::TourUi>,
+    tour_gen: u64,
     /// The window of the versions of a file (local history).
     local_history: Option<compare::LocalHistory>,
     /// Search history and last filters, shared by all projects.
@@ -1301,6 +1305,8 @@ impl App {
             blame_mode: false,
             blame_req: None,
             line_history: None,
+            guided: None,
+            tour_gen: 0,
             local_history: None,
             state: project::load_state(),
             lint_inflight: HashSet::new(),
@@ -1737,7 +1743,7 @@ fn doc_tab(d: &Document) -> (TabIcon<'_>, String) {
         View::Debug => Some(ViewIcon::Debug),
         View::Git | View::History | View::Conflicts => Some(ViewIcon::Git),
         View::Settings => Some(ViewIcon::Settings),
-        View::Claude => Some(ViewIcon::Claude),
+        View::Claude | View::Tour => Some(ViewIcon::Claude),
         View::Text | View::Image | View::Preview(_) => None,
     };
     let title = d.title();

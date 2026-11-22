@@ -554,7 +554,7 @@ impl App {
         let pushed = wip.as_ref().and_then(|s| s.upstream()).is_some_and(|(_, ahead, _)| ahead == 0);
         let focus_commit = std::mem::take(&mut self.git.focus_commit);
         // AI review of the changes not committed: asked, kept remarks given to Claude, a remark's action
-        let (mut ai_start, mut ai_fix, mut ai_act) = (false, false, None);
+        let (mut ai_start, mut ai_fix, mut ai_act, mut explain_start) = (false, false, None, false);
         let ai = &mut self.git.ai;
         let cache = &mut self.md_cache;
         let h = &mut self.history;
@@ -962,6 +962,10 @@ impl App {
                             if crate::features::on(crate::features::Feature::Claude) && ui.add_enabled(!ai.loading, egui::Button::new(t!("✳ Revue IA", "✳ AI review"))).on_hover_text(tip).clicked() {
                                 ai_start = true;
                             }
+                            let tip = t!("Claude range tout ce qui n'est pas commité par idée et explique chacune, bloc de code par bloc de code : tu gardes ou enlèves une idée entière", "Claude sorts everything not committed by idea and explains each one, block of code by block of code: you keep or take out a whole idea");
+                            if crate::features::on(crate::features::Feature::Claude) && ui.button(t!("🗺 Expliquer", "🗺 Explain")).on_hover_text(tip).clicked() {
+                                explain_start = true;
+                            }
                         });
                         chips = st
                             .entries
@@ -1292,6 +1296,11 @@ impl App {
         }
         if ai_start {
             self.ai_review_wip();
+        }
+        if explain_start {
+            if let Some(repo) = self.history.repo.clone().or_else(|| self.repo.clone()) {
+                self.explain_worktree(repo);
+            }
         }
         if ai_fix {
             self.ai_fix_with_claude();

@@ -367,7 +367,7 @@ impl App {
     }
 
     /// An open tab of `path` (without changes) shows the file as it is now on the disk.
-    fn reload_open(&mut self, path: &Path) {
+    pub(super) fn reload_open(&mut self, path: &Path) {
         for d in self.docs.iter_mut().filter(|d| d.path.as_deref() == Some(path) && !d.is_dirty()) {
             let _ = d.reload_from_disk();
         }

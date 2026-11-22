@@ -41,9 +41,11 @@ fn card(ui: &mut egui::Ui, title: &str, add: impl FnOnce(&mut egui::Ui)) {
 
 /// The panel.
 /// Returns the file changed by Claude clicked in its list (to open).
-pub(super) fn session_ui(ui: &mut egui::Ui, c: &ClaudeUi, project: &str, branch: Option<&str>, limits: &[(String, f32, i64)], accent: Color32) -> Option<PathBuf> {
+/// Returns the file changed by Claude clicked in its list (to open), and whether 🗺 was clicked.
+pub(super) fn session_ui(ui: &mut egui::Ui, c: &ClaudeUi, project: &str, branch: Option<&str>, limits: &[(String, f32, i64)], accent: Color32) -> (Option<PathBuf>, bool) {
     let weak = ui.visuals().weak_text_color();
     let mut open = None;
+    let mut explain = false;
     egui::ScrollArea::vertical().id_salt(("claude_session", c.id)).auto_shrink([false, false]).show(ui, |ui| {
         ui.add_space(4.0);
         card(ui, t!("Utilisation", "Usage"), |ui| {
@@ -95,9 +97,13 @@ pub(super) fn session_ui(ui: &mut egui::Ui, c: &ClaudeUi, project: &str, branch:
                         open = Some(p.clone());
                     }
                 }
+                let tip = t!("Claude range les changements non commités du dossier par idée et explique chacune pas à pas : tu gardes ou enlèves une idée entière", "Claude sorts the uncommitted changes of the folder by idea and explains each one step by step: you keep or take out a whole idea");
+                if ui.small_button(t!("🗺 Expliquer ces changements", "🗺 Explain these changes")).on_hover_text(tip).clicked() {
+                    explain = true;
+                }
             });
         }
         ui.label(RichText::new(t!("Dans Claude : /model, /mcp, /memory, /agents, /usage, Maj+Tab pour le mode", "In Claude: /model, /mcp, /memory, /agents, /usage, Shift+Tab for the mode")).small().color(weak));
     });
-    open
+    (open, explain)
 }

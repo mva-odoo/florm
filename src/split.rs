@@ -77,7 +77,7 @@ pub fn rebase_in_progress(repo: &Path) -> bool {
     ["rebase-merge", "rebase-apply"].iter().any(|n| git_dir_path(repo, n).is_some_and(|p| p.exists()))
 }
 
-fn parse_diff(text: &str) -> Vec<FileChange> {
+pub fn parse_diff(text: &str) -> Vec<FileChange> {
     let mut files: Vec<FileChange> = Vec::new();
     for l in text.lines() {
         if let Some(rest) = l.strip_prefix("diff --git ") {

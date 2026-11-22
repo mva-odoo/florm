@@ -444,6 +444,9 @@ palette).
   (“shorter”, “in English”, “are you sure? look at `_compute_total`”): it answers under the remark
   and rewrites it when needed, **↶ Previous version** goes back. Also in the Git view, for the
   changes not committed yet.
+- **🗺 Explain** (header of the PR): the PR explained idea by idea in a guided tour (see below).
+  **🗺 Explain this comment**, under each conversation: Claude rephrases what the reviewer asks,
+  says whether they are right and why, and what it would change.
 - At the bottom of the conversation, the merge box, in the color of the state (red blocked,
   orange something missing, green ready): where the PR stands (**Review required**,
   **Conflicts**, **Behind**, **Ready to merge**…), the **checks** (the failing ones always shown,
@@ -563,6 +566,26 @@ into several commits by theme, each with its message. The plan takes the place o
 list: read and change the messages, move a block from one commit to another (**→**), leave it out
 of the commits, change the order (**↑**). Nothing is committed before **Commit the N commits**;
 **Cancel** leaves everything as before.
+
+### 🗺 Guided tour: understanding a change
+
+To understand **what Claude proposes and why**, idea by idea rather than file by file.
+**🗺 Explain** in the Git view (next to ✳ AI review), **🗺 Explain these changes** under the
+changed files of Claude's Session panel, or the palette (“Git: explain the uncommitted changes”):
+Claude sorts all the uncommitted changes into **ideas** (an idea often touches several files) and
+explains them in a **🗺** tab:
+
+- **🎯 The problem and 💡 the idea** first, in a few sentences, then **one page per step**:
+  a short explanation, **⚠ What could break** when there is a real risk, then **the real code** of
+  the idea block by block, each block under a sentence saying what it does (Claude only sorts the
+  blocks of the diff, it rewrites nothing). At the end, **⚖ To decide**.
+- **✔ I keep this idea**, or **✖ I take this idea out**: all its blocks are taken out of the
+  files at once, **↶ Put back** puts them back. A copy of what is taken out is kept 30 days
+  (`tours` folder of Florm's configuration), even when the tour is closed.
+- **💬 A question about this step?**: “why not a plain dict?”, “give an example”… Claude answers
+  under the step (**Ctrl+Enter**).
+- On a pull request, the tour only explains (**✔ I understand**): nothing is taken out.
+- **⟳** explains again from the start. Count one to a few minutes.
 
 ## Markdown
 

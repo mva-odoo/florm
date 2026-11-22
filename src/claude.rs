@@ -417,7 +417,7 @@ pub fn base64_decode(text: &str) -> Option<Vec<u8>> {
 
 /// Runs `claude` once with `args`, `input` on its standard input; returns its answer (its
 /// spaces at the start kept: the indentation of code).
-fn run_once(dir: &Path, args: &[&str], input: String) -> Result<String, String> {
+pub(crate) fn run_once(dir: &Path, args: &[&str], input: String) -> Result<String, String> {
     run_with(crate::claude_account::command(), dir, args, input)
 }
 

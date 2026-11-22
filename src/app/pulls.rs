@@ -144,6 +144,17 @@ pub(super) enum PrAct {
     Copied(String),
     /// The conversations ticked sent to Claude, to handle them in the code.
     ToClaude,
+    /// 🗺 The pull request explained idea by idea.
+    Explain,
+    /// 🗺 A conversation (its id) explained.
+    ExplainThread(String),
+}
+
+/// 🗺 under a conversation: Claude explains it step by step.
+fn explain_button(ui: &mut egui::Ui) -> bool {
+    ui.small_button(t!("🗺 Expliquer ce commentaire", "🗺 Explain this comment"))
+        .on_hover_text(t!("Claude reformule ce que le relecteur demande, dit s'il a raison et pourquoi, et ce que ça changerait, étape par étape", "Claude rephrases what the reviewer asks, says whether they are right and why, and what it would change, step by step"))
+        .clicked()
 }
 
 impl App {
@@ -530,6 +541,14 @@ impl App {
                             act = Some(PrAct::AiReview);
                             p.section = PrSection::Files;
                         }
+                        if crate::features::on(crate::features::Feature::Claude)
+                            && ui
+                                .button(t!("🗺 Expliquer", "🗺 Explain"))
+                                .on_hover_text(t!("Claude range les changements de la PR par idée et explique chacune, bloc de code par bloc de code", "Claude sorts the changes of the PR by idea and explains each one, block of code by block of code"))
+                                .clicked()
+                        {
+                            act = Some(PrAct::Explain);
+                        }
                         if checked_out {
                             ui.label(RichText::new(t!("✔ branche active", "✔ current branch")).color(ok())).on_hover_text(t!("Les commentaires sur les lignes sont aussi dans l'éditeur", "The comments on the lines are in the editor too"));
                         } else if ui
@@ -640,6 +659,9 @@ impl App {
                                             ui.vertical(|ui| {
                                                 let draft = p.drafts.entry(t.id.clone()).or_default();
                                                 thread_ui(ui, t, cache, &p.applied, &p.shifts, checked_out, p.busy, draft, &mut p.editing, accent, false, &mut act);
+                                                if crate::features::on(crate::features::Feature::Claude) && explain_button(ui) {
+                                                    act = Some(PrAct::ExplainThread(t.id.clone()));
+                                                }
                                             });
                                         });
                                     }
@@ -824,6 +846,9 @@ impl App {
                                 }
                                 let draft = drafts.entry(t.id.clone()).or_default();
                                 thread_ui(ui, t, cache, applied, shifts, checked_out, busy, draft, editing, accent, true, &mut line_act);
+                                if crate::features::on(crate::features::Feature::Claude) && explain_button(ui) {
+                                    line_act = Some(PrAct::ExplainThread(t.id.clone()));
+                                }
                             }
                             for &k in ai_at.get(&i).map_or(&[][..], |v| &v[..]) {
                                 ai_review::note_card(ui, cache, k, &mut ai_notes[k], true, accent, &mut ai_act);
@@ -989,6 +1014,16 @@ impl App {
             }
             Some(PrAct::Copied(what)) => self.set_status(tf!("Copié : {what}", "Copied: {what}")),
             Some(PrAct::ToClaude) => self.pr_to_claude(repo),
+            Some(PrAct::Explain) => {
+                if let Some(Ok(d)) = self.pr.detail.clone() {
+                    self.explain_pr(repo, &d);
+                }
+            }
+            Some(PrAct::ExplainThread(id)) => {
+                if let Some(Ok(d)) = self.pr.detail.clone() {
+                    self.explain_thread(repo, &d, &id);
+                }
+            }
             None => {}
         }
     }

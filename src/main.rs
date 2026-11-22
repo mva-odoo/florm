@@ -57,6 +57,7 @@ mod symbols;
 mod templates;
 mod terminal;
 mod tools;
+mod tour;
 mod walk;
 mod wrap;
 

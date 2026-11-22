@@ -453,9 +453,10 @@ impl App {
         let a = bar::bar(ui, c, accent, d);
         let side = a.side.unwrap_or(self.settings.claude_review);
         let mut open_file = None;
+        let mut explain = false;
         if side {
             egui::SidePanel::right(egui::Id::new("claude_session").with(c.id)).resizable(true).default_width(230.0).width_range(200.0..=420.0).show_inside(ui, |ui| {
-                open_file = session::session_ui(ui, c, &dir_name, branch.as_deref(), limits, accent);
+                (open_file, explain) = session::session_ui(ui, c, &dir_name, branch.as_deref(), limits, accent);
             });
         }
         egui::CentralPanel::default().frame(egui::Frame::none().fill(colors.bg)).show_inside(ui, |ui| match c.term {
@@ -468,6 +469,9 @@ impl App {
         self.claude_apply(a);
         if let Some(p) = open_file {
             self.open_path(p);
+        }
+        if let Some(dir) = self.claude.dir.clone().filter(|_| explain) {
+            self.explain_worktree(dir);
         }
     }
 

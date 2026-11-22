@@ -37,6 +37,14 @@ pub enum JobResult {
     CommitPlan(PathBuf, Result<(Vec<split::Block>, Vec<(String, Vec<usize>)>), String>),
     /// The commits of the plan made (short hash, subject), and the error that stopped them.
     CommitPlanDone(PathBuf, Vec<(String, String)>, Option<String>),
+    /// The guided tour of changes (its number): the ideas and the blocks they are made of.
+    Tour(u64, Result<(crate::tour::Tour, Vec<split::Block>), String>),
+    /// The blocks of a step of the tour (tour, step) taken out of the files: how to put them back.
+    TourDrop(u64, usize, Result<Vec<crate::tour::Undo>, String>),
+    /// The blocks of a step of the tour put back in the files.
+    TourRestore(u64, usize, Result<(), String>),
+    /// Claude's answer to a question on a step of the tour.
+    TourAnswer(u64, usize, Result<String, String>),
     /// Commit message written by Claude.
     CommitMessage(Result<String, String>),
     /// Commit after a task of the queue of conversation (id): the first line of its message.
