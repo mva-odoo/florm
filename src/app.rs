@@ -49,7 +49,6 @@ mod claude_ui;
 mod md_toolbar;
 mod theme_edit;
 mod template_edit;
-mod commit_plan;
 mod guided_tour;
 mod panes;
 mod compare;
@@ -830,10 +829,6 @@ struct GitUi {
     status: Option<git::Status>,
     /// Claude is writing the commit message.
     suggesting: bool,
-    /// Claude is splitting the changes into commits by theme, and the plan it made (to read
-    /// over before committing).
-    planning: bool,
-    plan: Option<commit_plan::CommitPlan>,
     error: Option<String>,
     commit_msg: String,
     /// The commit replaces the last one (`--amend`).

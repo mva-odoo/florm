@@ -255,8 +255,8 @@ impl App {
                 format!("{current}\n")
             };
             let head = t!(
-                "<!-- Consignes que Claude suit pour écrire les messages de commit de ce projet (✨ et ✂ de la vue Git). -->\n<!-- Les lignes <!-- … --> sont ignorées. Fichier à commiter pour le partager avec l'équipe. -->\n\n",
-                "<!-- Rules Claude follows when writing the commit messages of this project (✨ and ✂ of the Git view). -->\n<!-- The <!-- … --> lines are ignored. Commit this file to share it with the team. -->\n\n"
+                "<!-- Consignes que Claude suit pour écrire les messages de commit de ce projet (✨ de la vue Git). -->\n<!-- Les lignes <!-- … --> sont ignorées. Fichier à commiter pour le partager avec l'équipe. -->\n\n",
+                "<!-- Rules Claude follows when writing the commit messages of this project (✨ of the Git view). -->\n<!-- The <!-- … --> lines are ignored. Commit this file to share it with the team. -->\n\n"
             );
             let write = std::fs::create_dir_all(path.parent().unwrap_or(&repo)).and_then(|()| std::fs::write(&path, format!("{head}{body}")));
             if let Err(e) = write {
@@ -265,7 +265,7 @@ impl App {
             }
         }
         self.open_path(path);
-        self.set_status(t!("Consignes des messages de commit : Claude les suit pour ✨ et ✂", "Commit message rules: Claude follows them for ✨ and ✂"));
+        self.set_status(t!("Consignes des messages de commit : Claude les suit pour ✨", "Commit message rules: Claude follows them for ✨"));
     }
 
     /// The user's own rules for the commit messages (config folder), for every repository that
@@ -274,10 +274,10 @@ impl App {
         let path = crate::claude::my_commit_rules_path();
         if !path.exists() {
             let text = t!(
-                "<!-- Tes consignes pour les messages de commit écrits par Claude (✨ et ✂ de la vue Git), dans tous les dépôts. -->\n\
+                "<!-- Tes consignes pour les messages de commit écrits par Claude (✨ de la vue Git), dans tous les dépôts. -->\n\
                  <!-- Un dépôt avec ses propres consignes (.florm/commit.md, ou une section « commit » de son CLAUDE.md) passe avant. -->\n\
                  <!-- Les lignes <!-- … --> sont ignorées. Exemple à adapter : -->\n\n",
-                "<!-- Your rules for the commit messages written by Claude (✨ and ✂ of the Git view), in every repository. -->\n\
+                "<!-- Your rules for the commit messages written by Claude (✨ of the Git view), in every repository. -->\n\
                  <!-- A repository with its own rules (.florm/commit.md, or a « commit » section of its CLAUDE.md) comes first. -->\n\
                  <!-- The <!-- … --> lines are ignored. An example to adapt: -->\n\n"
             );

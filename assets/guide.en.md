@@ -228,13 +228,13 @@ explains how to install it (the system is detected) and comes back by itself as 
   - **Remotes**: add (“name URL”) or remove a remote. **Submodules**: init and update them,
     follow their remote branch, take the URLs again, add one.
   - **Delete the untracked files** (`git clean`): the list is shown first.
-  - **✨ Commit message rules**: opens `.florm/commit.md`, what Claude must follow for ✨ and ✂ in
+  - **✨ Commit message rules**: opens `.florm/commit.md`, what Claude must follow for ✨ in
     this project (language, prefixes, length…). Commit it to share it. Without this file, Claude
     takes the “Commits” section of the project's CLAUDE.md if there is one.
   - **✨ My commit message rules**: yours, for every repository without its own (`commit.md` of
     the config folder): nothing to add to a shared repository. For instance: in English,
     `[FIX] module: …`, the why in the body, `task-…` at the end.
-  - Both also open with a **right click on ✨ or ✂**, next to the commit message.
+  - Both also open with a **right click on ✨**, next to the commit message.
 - **File history** (right click in the editor, Git menu): all its commits, through its renames.
   **Line history** (Ctrl+Alt+B) also takes several selected lines; each commit shows the whole
   block that changed around these lines, with some context. The history opens in a tab (↑ / ↓ to
@@ -561,12 +561,6 @@ new in it work as they are. Claude's changes are reviewed in the **Git** view.
 changes (else all of them), in the style of the last commits of the repository and from your
 first request in the Claude tab.
 
-**✂ next to ✨**: instead of a single commit, Claude splits all the changes (new files included)
-into several commits by theme, each with its message. The plan takes the place of the Git view's
-list: read and change the messages, move a block from one commit to another (**→**), leave it out
-of the commits, change the order (**↑**). Nothing is committed before **Commit the N commits**;
-**Cancel** leaves everything as before.
-
 ### 🗺 Guided tour: understanding a change
 
 To understand **what Claude proposes and why**, idea by idea rather than file by file.
@@ -661,6 +655,6 @@ not installed: no more Git view, history, blame, change marks in the gutter nor 
 
 **GitHub, Claude and the debugger can be turned off**: a switch on top of their section of the
 preferences (Pull requests, Claude, Debugger). Off, their views, commands, menus, icons,
-shortcuts and buttons go away (✨ and ✂ of Git, AI review, ✳ column and breakpoints of the
+shortcuts and buttons go away (✨ of Git, AI review, ✳ column and breakpoints of the
 margin, linked PRs in the Git view…), and `gh` is no longer called. The same switch brings them
 back, without restarting.

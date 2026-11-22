@@ -1431,7 +1431,7 @@ fn feature_toggle(ui: &mut egui::Ui, rc: &mut RowCtx, sec: PrefSection, s: &mut 
         ),
         PrefSection::Claude => (
             t!("Activer Claude", "Enable Claude"),
-            t!("Désactivé : plus de vue Claude, de ✨ / ✂ dans Git, de revue IA, de « Corriger avec Claude » ni d'entrées Claude dans les menus.", "Off: no more Claude view, ✨ / ✂ in Git, AI review, “Fix with Claude” nor Claude entries in the menus."),
+            t!("Désactivé : plus de vue Claude, de ✨ dans Git, de revue IA, de « Corriger avec Claude » ni d'entrées Claude dans les menus.", "Off: no more Claude view, ✨ in Git, AI review, “Fix with Claude” nor Claude entries in the menus."),
         ),
         _ => (
             t!("Activer le débogueur", "Enable the debugger"),

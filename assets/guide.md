@@ -233,12 +233,12 @@ explique comment l'installer (le système est détecté) et reprend toute seule 
     et mettre à jour, suivre leur branche distante, reprendre les URL, en ajouter un.
   - **Supprimer les fichiers non suivis** (`git clean`) : la liste est montrée avant.
   - **✨ Consignes des messages de commit** : ouvre `.florm/commit.md`, ce que Claude doit suivre
-    pour ✨ et ✂ dans ce projet (langue, préfixes, longueur…). À commiter pour le partager.
+    pour ✨ dans ce projet (langue, préfixes, longueur…). À commiter pour le partager.
     Sans ce fichier, Claude prend la section « Commits » du CLAUDE.md du projet s'il y en a une.
   - **✨ Mes consignes des messages de commit** : les tiennes, pour tous les dépôts qui n'ont pas
     les leurs (`commit.md` du dossier de configuration) : rien à ajouter dans un dépôt partagé.
     Par exemple : en anglais, `[FIX] module: …`, le pourquoi dans le corps, `task-…` à la fin.
-  - Les deux s'ouvrent aussi d'un **clic droit sur ✨ ou ✂**, à côté du message du commit.
+  - Les deux s'ouvrent aussi d'un **clic droit sur ✨**, à côté du message du commit.
 - **Historique du fichier** (clic droit dans l'éditeur, menu Git) : tous ses commits, à travers
   ses renommages. **Historique de la ligne** (Ctrl+Alt+B) prend aussi plusieurs lignes sélectionnées ;
   chaque commit montre tout le bloc qui a changé autour de ces lignes, avec un peu de contexte.
@@ -571,12 +571,6 @@ ses nouveautés marchent tels quels. Les changements de Claude se revoient dans 
 indexés (sinon tous), dans le style des derniers commits du dépôt et d'après ta première demande
 dans l'onglet Claude.
 
-**✂ à côté de ✨** : au lieu d'un seul commit, Claude découpe tous les changements (nouveaux
-fichiers compris) en plusieurs commits par thème, chacun avec son message. Le plan remplace la
-liste de la vue Git : relis et modifie les messages, déplace un bloc d'un commit à l'autre (**→**),
-laisse-le hors des commits, change l'ordre (**↑**). Rien n'est commité avant **Commiter les N
-commits** ; **Annuler** laisse tout comme avant.
-
 ### 🗺 Visite guidée : comprendre un changement
 
 Pour comprendre **ce que Claude propose et pourquoi**, idée par idée plutôt que fichier par
@@ -675,7 +669,7 @@ de pull requests, et `git` n'est plus appelé. Sa section dit alors comment l'in
 
 **GitHub, Claude et le débogueur se désactivent** : un interrupteur en haut de leur section des
 préférences (Pull requests, Claude, Débogueur). Désactivés, leurs vues, commandes, menus, icônes,
-raccourcis et boutons disparaissent (✨ et ✂ de Git, revue IA, colonne ✳ et points d'arrêt de la
+raccourcis et boutons disparaissent (✨ de Git, revue IA, colonne ✳ et points d'arrêt de la
 marge, PR liées dans la vue Git…), et `gh` n'est plus appelé. Le même interrupteur les ramène,
 sans redémarrer. **À l'installation, les trois sont désactivés** : leur section dit alors ce qu'il
 leur faut (`gh` ; `claude` ; Python et debugpy), coché ✔ si c'est installé, sinon avec les commandes

@@ -32,11 +32,6 @@ pub enum JobResult {
     /// The commits of a pull request fetched to show one of them in the Git view: repository,
     /// commit, and what git said.
     PrCommitFetched(std::path::PathBuf, String, Result<String, String>),
-    /// The changes not committed split by Claude into commits: the blocks, then each commit's
-    /// message and blocks.
-    CommitPlan(PathBuf, Result<(Vec<split::Block>, Vec<(String, Vec<usize>)>), String>),
-    /// The commits of the plan made (short hash, subject), and the error that stopped them.
-    CommitPlanDone(PathBuf, Vec<(String, String)>, Option<String>),
     /// The guided tour of changes (its number): the ideas and the blocks they are made of.
     Tour(u64, Result<(crate::tour::Tour, Vec<split::Block>), String>),
     /// The blocks of a step of the tour (tour, step) taken out of the files: how to put them back.

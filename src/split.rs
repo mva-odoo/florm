@@ -1,5 +1,5 @@
 //! The changes not committed read as blocks (hunks, or whole files), so that Claude can share
-//! them out into several commits by theme (`commit_plan`), and each part committed apart.
+//! them out by idea (the guided tour, `crate::tour`).
 
 use crate::git;
 use std::path::Path;
@@ -19,19 +19,14 @@ pub struct FileChange {
     pub header: Vec<String>,
     pub hunks: Vec<Hunk>,
     pub binary: bool,
-    /// New file not yet in the index: only committed whole.
+    /// New file not yet in the index: only taken whole.
     pub untracked: bool,
 }
 
 impl FileChange {
-    /// Whether hunks (and lines of hunks) can be committed separately.
+    /// Whether its hunks can be taken apart (else the file goes whole).
     pub fn partial_ok(&self) -> bool {
         self.kind == 'M' && !self.binary && !self.untracked
-    }
-
-    /// Selection with nothing chosen: one flag per line of each hunk (only +/- lines matter).
-    pub fn empty_selection(&self) -> Vec<Vec<bool>> {
-        self.hunks.iter().map(|h| vec![false; h.lines.len()]).collect()
     }
 }
 
@@ -41,30 +36,6 @@ impl Hunk {
         i > 0 && self.lines.get(i).is_some_and(|l| l.starts_with('+') || l.starts_with('-'))
     }
 
-    /// The hunk restricted to the chosen lines, like editing it in `git add -p` (e): an added line
-    /// not chosen is dropped, a removed line not chosen stays as context. None if nothing is chosen.
-    pub fn restricted(&self, chosen: &[bool]) -> Option<String> {
-        if !(1..self.lines.len()).any(|i| self.is_change(i) && chosen.get(i).copied().unwrap_or(false)) {
-            return None;
-        }
-        let mut out = vec![self.lines[0].clone()];
-        let mut dropped = false;
-        for (i, l) in self.lines.iter().enumerate().skip(1) {
-            let on = chosen.get(i).copied().unwrap_or(false);
-            match l.chars().next() {
-                Some('+') if !on => {
-                    dropped = true;
-                    continue;
-                }
-                Some('-') if !on => out.push(format!(" {}", &l[1..])),
-                // "\ No newline at end of file" belongs to the line before
-                Some('\\') if dropped => {}
-                _ => out.push(l.clone()),
-            }
-            dropped = false;
-        }
-        Some(out.join("\n"))
-    }
 }
 
 fn git_dir_path(repo: &Path, name: &str) -> Option<std::path::PathBuf> {
@@ -129,72 +100,7 @@ fn changes(repo: &Path, added: &[String]) -> Result<Vec<FileChange>, String> {
     Ok(files)
 }
 
-/// Choice of each +/- line of hunk `h` in `chosen`; a hunk without such lines (binary file) has one
-/// flag, the one of its header line.
-pub fn hunk_flags(h: &Hunk, chosen: &[bool]) -> Vec<bool> {
-    let flag = |i: usize| chosen.get(i).copied().unwrap_or(false);
-    let v: Vec<bool> = (1..h.lines.len()).filter(|&i| h.is_change(i)).map(flag).collect();
-    if v.is_empty() {
-        vec![flag(0)]
-    } else {
-        v
-    }
-}
-
-/// Whether something of file `f` is chosen in `sel` (its lines, per hunk).
-pub fn any_chosen(f: &FileChange, sel: &[Vec<bool>]) -> bool {
-    f.hunks.iter().zip(sel).any(|(h, s)| hunk_flags(h, s).iter().any(|&b| b))
-}
-
-/// Whether every change of file `f` is chosen.
-pub fn all_chosen(f: &FileChange, sel: &[Vec<bool>]) -> bool {
-    f.hunks.iter().zip(sel).all(|(h, s)| hunk_flags(h, s).iter().all(|&b| b))
-}
-
-/// Stages the chosen lines (`sel[file][hunk][line]`), whole files when everything or a
-/// non-splittable file is chosen. The index is reset first, so hunks (computed against HEAD)
-/// apply to it as they are.
-pub fn stage(repo: &Path, files: &[FileChange], sel: &[Vec<Vec<bool>>]) -> Result<(), String> {
-    git::run(repo, &["reset", "-q"])?;
-    for (f, s) in files.iter().zip(sel) {
-        if !any_chosen(f, s) {
-            continue;
-        }
-        if !f.partial_ok() || all_chosen(f, s) {
-            git::run(repo, &["add", "-A", "--", &f.path])?;
-            continue;
-        }
-        let mut patch = f.header.join("\n") + "\n";
-        for (h, chosen) in f.hunks.iter().zip(s) {
-            if let Some(text) = h.restricted(chosen) {
-                patch.push_str(&text);
-                patch.push('\n');
-            }
-        }
-        git::run_with(repo, &["apply", "--cached", "--recount", "-"], &[], Some(&patch))
-            .map_err(|e| format!("{} : {e}", f.path))?;
-    }
-    Ok(())
-}
-
-/// Stages the selection and commits it; returns (short hash, subject). On failure nothing stays staged.
-pub fn commit_part(repo: &Path, files: &[FileChange], sel: &[Vec<Vec<bool>>], message: &str) -> Result<(String, String), String> {
-    let r = stage(repo, files, sel).and_then(|()| commit(repo, message));
-    if r.is_err() {
-        let _ = git::run(repo, &["reset", "-q"]);
-    }
-    r
-}
-
-/// Commits what is staged; returns (short hash, subject).
-pub fn commit(repo: &Path, message: &str) -> Result<(String, String), String> {
-    git::run_with(repo, &["commit", "-q", "-F", "-"], &[], Some(message))?;
-    let out = git::stdout(repo, &["log", "-1", "--format=%h%x1f%s"])?;
-    let (h, s) = out.trim().split_once('\x1f').unwrap_or((out.trim(), ""));
-    Ok((h.to_string(), s.to_string()))
-}
-
-/// The changes not committed (staged or not, new files included), for a split by theme.
+/// The changes not committed (staged or not, new files included), for the guided tour.
 pub fn worktree_changes(repo: &Path) -> Result<Vec<FileChange>, String> {
     let untracked: Vec<String> = git::stdout(repo, &["-c", "core.quotePath=false", "ls-files", "--others", "--exclude-standard"])?
         .lines()
@@ -204,7 +110,7 @@ pub fn worktree_changes(repo: &Path) -> Result<Vec<FileChange>, String> {
     changes(repo, &untracked)
 }
 
-/// A part of the changes that goes into one commit: a hunk, or a whole file (new, deleted,
+/// A part of the changes: a hunk, or a whole file (new, deleted,
 /// binary: not splittable).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Block {
@@ -254,81 +160,4 @@ pub fn blocks_text(blocks: &[Block]) -> String {
         out.push('\n');
     }
     out
-}
-
-/// Commits `planned` (blocks of an earlier reading of the changes) with `message`. The changes
-/// are read again: each block is found by its file and its lines (the commits before it moved the
-/// line numbers). Returns (short hash, subject).
-pub fn commit_blocks(repo: &Path, planned: &[Block], message: &str) -> Result<(String, String), String> {
-    let files = worktree_changes(repo)?;
-    let mut sel: Vec<Vec<Vec<bool>>> = files.iter().map(FileChange::empty_selection).collect();
-    for b in planned {
-        let gone = || tf!("{} : ce bloc n'est plus dans les fichiers (modifiés depuis ?)", "{}: this block is no longer in the files (changed since?)", b.path);
-        let i = files.iter().position(|f| f.path == b.path).ok_or_else(gone)?;
-        let f = &files[i];
-        let hunks: Vec<usize> = if b.changed.is_empty() || !f.partial_ok() {
-            (0..f.hunks.len()).collect()
-        } else {
-            let k = f.hunks.iter().position(|h| (1..h.lines.len()).filter(|&j| h.is_change(j)).map(|j| &h.lines[j]).eq(b.changed.iter())).ok_or_else(gone)?;
-            vec![k]
-        };
-        for k in hunks {
-            sel[i][k] = vec![true; f.hunks[k].lines.len()];
-        }
-    }
-    commit_part(repo, &files, &sel, message)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn g(repo: &Path, args: &[&str]) -> String {
-        git::run(repo, args).unwrap_or_else(|e| panic!("git {args:?}: {e}"))
-    }
-
-    #[test]
-    fn commits_blocks_of_one_file_apart() {
-        let repo = std::env::temp_dir().join(format!("florm_plan_{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&repo);
-        std::fs::create_dir_all(&repo).unwrap();
-        g(&repo, &["init", "-q", "-b", "main"]);
-        g(&repo, &["config", "user.name", "t"]);
-        g(&repo, &["config", "user.email", "t@t"]);
-        let lines: Vec<String> = (0..40).map(|i| format!("line {i}")).collect();
-        std::fs::write(repo.join("a.txt"), lines.join("\n") + "\n").unwrap();
-        g(&repo, &["add", "."]);
-        g(&repo, &["commit", "-qm", "base"]);
-        let mut l2 = lines.clone();
-        l2[2] = "top".into();
-        l2.insert(30, "added below".into());
-        std::fs::write(repo.join("a.txt"), l2.join("\n") + "\n").unwrap();
-        std::fs::write(repo.join("new.txt"), "new\n").unwrap();
-        let b = blocks(&worktree_changes(&repo).unwrap());
-        assert_eq!(b.len(), 3);
-        assert!(blocks_text(&b).contains("### B3 — new.txt (nouveau fichier)"));
-        // the second hunk first: the first one has to be found again after it
-        commit_blocks(&repo, &[b[1].clone(), b[2].clone()], "second").unwrap();
-        commit_blocks(&repo, &[b[0].clone()], "first").unwrap();
-        assert!(g(&repo, &["status", "--porcelain"]).trim().is_empty());
-        assert_eq!(g(&repo, &["log", "--format=%s", "-2"]).trim(), "first\nsecond");
-        assert!(commit_blocks(&repo, &[b[0].clone()], "again").is_err());
-        let _ = std::fs::remove_dir_all(&repo);
-    }
-
-    #[test]
-    fn chosen_lines_of_a_hunk() {
-        let h = Hunk { lines: ["@@ -1,3 +1,3 @@", " a", "-b", "-c", "+B", "+C", " d"].iter().map(|s| s.to_string()).collect() };
-        // nothing chosen
-        assert_eq!(h.restricted(&[false; 7]), None);
-        // only "-b" and "+B": c stays, C is not added
-        let mut on = vec![false; 7];
-        on[2] = true;
-        on[4] = true;
-        assert_eq!(h.restricted(&on).unwrap(), "@@ -1,3 +1,3 @@\n a\n-b\n c\n+B\n d");
-        // an added line without newline at the end of the file: its marker goes with it
-        let h = Hunk { lines: ["@@ -1 +1,2 @@", " a", "+b", "\\ No newline at end of file"].iter().map(|s| s.to_string()).collect() };
-        assert_eq!(h.restricted(&[false, false, false, false]), None);
-        assert_eq!(h.restricted(&[false, false, true, false]).unwrap(), "@@ -1 +1,2 @@\n a\n+b\n\\ No newline at end of file");
-    }
 }

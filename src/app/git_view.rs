@@ -499,11 +499,6 @@ impl App {
         if self.install_guide(ui, crate::tools::Tool::Git, false) {
             return;
         }
-        // commits proposed by Claude: read over before committing, in place of the list
-        if self.git.plan.is_some() {
-            self.commit_plan_ui(ui);
-            return;
-        }
         let (mut select, mut diff_to_tab, mut close_detail) = (None, false, false);
         let mut diff_click: Option<history::DiffClick> = None;
         let source = match (self.history.wip_sel, &self.history.compare) {
@@ -545,7 +540,6 @@ impl App {
         };
         let mut open_pr = None;
         let (mut do_commit, mut suggest_msg, suggesting) = (false, false, self.git.suggesting);
-        let (mut ask_plan, planning) = (false, self.git.planning);
         let mut open_rules: Option<bool> = None;
         let commit_msg = &mut self.git.commit_msg;
         let amend = &mut self.git.amend;
@@ -639,7 +633,7 @@ impl App {
         let mut list = |ui: &mut egui::Ui| {
             if n_staged + n_changed > 0 || !commit_msg.is_empty() || focus_commit || *amend {
                 let was = *amend;
-                (do_commit, suggest_msg, ask_plan, open_rules) = commit_box(ui, commit_msg, amend, pushed, focus_commit, n_staged, n_changed, suggesting, planning, accent);
+                (do_commit, suggest_msg, open_rules) = commit_box(ui, commit_msg, amend, pushed, focus_commit, n_staged, n_changed, suggesting, accent);
                 start_amend = *amend && !was;
             }
             if let Some(st) = &wip {
@@ -1186,9 +1180,6 @@ impl App {
         if suggest_msg {
             self.suggest_commit_message();
         }
-        if ask_plan {
-            self.start_commit_plan();
-        }
         match open_rules {
             Some(true) => self.open_my_commit_rules(),
             Some(false) => self.open_commit_rules(),
@@ -1360,11 +1351,10 @@ pub(super) fn worktree_diff(repo: &Path, args: &[&str]) -> Result<String, String
     })
 }
 
-/// Message and button of the next commit, ✨ to have it written by Claude, ✂ to have Claude split
-/// the changes into several commits; returns (commit now, ask the message, ask the split, rules
-/// to open: Some(true) the user's own, Some(false) the project's).
+/// Message and button of the next commit, ✨ to have it written by Claude; returns (commit now,
+/// ask the message, rules to open: Some(true) the user's own, Some(false) the project's).
 #[allow(clippy::too_many_arguments)]
-fn commit_box(ui: &mut egui::Ui, msg: &mut String, amend: &mut bool, pushed: bool, focus: bool, n_staged: usize, n_changed: usize, suggesting: bool, planning: bool, accent: Color32) -> (bool, bool, bool, Option<bool>) {
+fn commit_box(ui: &mut egui::Ui, msg: &mut String, amend: &mut bool, pushed: bool, focus: bool, n_staged: usize, n_changed: usize, suggesting: bool, accent: Color32) -> (bool, bool, Option<bool>) {
     let claude_on = crate::features::on(crate::features::Feature::Claude);
     let (label, tip) = if *amend && n_staged > 0 {
         (tf!("✔ Modifier le dernier commit (+{n_staged} indexé(s))", "✔ Amend the last commit (+{n_staged} staged)"), t!("Le dernier commit est remplacé : ce message, et les fichiers indexés en plus", "The last commit is replaced: this message, and the staged files added"))
@@ -1376,8 +1366,8 @@ fn commit_box(ui: &mut egui::Ui, msg: &mut String, amend: &mut bool, pushed: boo
         (tf!("✔ Commit tout ({n_changed})", "✔ Commit all ({n_changed})"), t!("Rien d'indexé : valide toutes les modifications des fichiers suivis", "Nothing staged: commits all the changes of the tracked files"))
     };
     let can = !msg.trim().is_empty() && (*amend || n_staged > 0 || n_changed > 0);
-    let (mut go, mut suggest, mut plan, mut rules) = (false, false, false, None);
-    // right click on ✨ or ✂: the rules Claude follows for the messages
+    let (mut go, mut suggest, mut rules) = (false, false, None);
+    // right click on ✨: the rules Claude follows for the messages
     let rules_menu = |resp: egui::Response, rules: &mut Option<bool>| {
         resp.context_menu(|ui| {
             if ui.button(t!("Mes consignes de commit (tous les dépôts)…", "My commit rules (every repository)…")).on_hover_text(t!("Langue, format, préfixes… pour les dépôts sans consignes à eux : rien à ajouter dans le dépôt", "Language, format, prefixes… for the repositories without rules of their own: nothing to add to the repository")).clicked() {
@@ -1393,14 +1383,6 @@ fn commit_box(ui: &mut egui::Ui, msg: &mut String, amend: &mut bool, pushed: boo
     egui::Frame::none().inner_margin(egui::Margin { left: 4.0, right: 4.0, top: 4.0, bottom: 6.0 }).show(ui, |ui| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
             let clicked = ui.add_enabled(can, filled_button(label, accent)).on_hover_text(tip).clicked();
-            if !claude_on {
-            } else if planning {
-                spinner(ui);
-            } else {
-                let resp = ui.button("✂").on_hover_text(t!("Claude découpe les changements (tous, nouveaux fichiers compris) en plusieurs commits par thème, avec leurs messages : tu relis et modifies le plan avant de commiter.\nClic droit : les consignes des messages (langue, format…)", "Claude splits the changes (all of them, new files included) into several commits by theme, with their messages: you read and change the plan before committing.\nRight click: the rules of the messages (language, format…)"));
-                plan = resp.clicked();
-                rules_menu(resp, &mut rules);
-            }
             if !claude_on {
             } else if suggesting {
                 spinner(ui);
@@ -1433,7 +1415,7 @@ fn commit_box(ui: &mut egui::Ui, msg: &mut String, amend: &mut bool, pushed: boo
             }
         });
     });
-    (go, suggest, plan, rules)
+    (go, suggest, rules)
 }
 
 /// A changed file in the list next to the diff: status letter, name, folder, lines added / removed.
