@@ -373,20 +373,26 @@ impl App {
         let n = tour.steps.len();
         let editable = g.editable();
         // the steps on the left
+        // the titles go to the line: a long one must not widen the panel past its room
         egui::SidePanel::left(egui::Id::new("tour_steps"))
             .resizable(true)
             .default_width(260.0)
             .width_range(180.0..=420.0)
+            .frame(egui::Frame::none().fill(fill).inner_margin(egui::Margin { left: 10.0, right: 8.0, top: 4.0, bottom: 4.0 }))
             .show_inside(ui, |ui| {
                 egui::ScrollArea::vertical().id_salt("tour_steps_list").auto_shrink([false, false]).show(ui, |ui| {
                     ui.add_space(6.0);
                     let mut row = |ui: &mut egui::Ui, page: usize, mark: RichText, text: &str| {
-                        ui.horizontal(|ui| {
+                        let (sel, w) = (g.page == page, ui.available_width());
+                        ui.horizontal_top(|ui| {
+                            ui.set_max_width(w);
                             ui.label(mark);
-                            if ui.selectable_label(g.page == page, text).clicked() {
+                            let text = if sel { RichText::new(text).strong().color(accent) } else { RichText::new(text) };
+                            if ui.add(egui::Label::new(text).wrap().sense(Sense::click())).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
                                 act = Some(TourAct::Page(page));
                             }
                         });
+                        ui.add_space(2.0);
                     };
                     row(ui, 0, RichText::new("🎯"), t!("Le problème et l'idée", "The problem and the idea"));
                     ui.separator();
@@ -415,7 +421,7 @@ impl App {
         let page_frame = egui::Frame::none().fill(self.hl.colors.bg).inner_margin(egui::Margin { left: 20.0, right: 20.0, top: 8.0, bottom: 0.0 });
         egui::CentralPanel::default().frame(page_frame).show_inside(ui, |ui| {
             egui::ScrollArea::vertical().id_salt(("tour_page", g.page)).auto_shrink([false, false]).show(ui, |ui| {
-                ui.set_max_width(900.0);
+                ui.set_max_width(ui.available_width().min(900.0));
                 ui.add_space(6.0);
                 if g.page == 0 {
                     section(ui, cache, t!("🎯 Le problème", "🎯 The problem"), &tour.problem, accent);
