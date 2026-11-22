@@ -518,9 +518,11 @@ new in it work as they are. Claude's changes are reviewed in the **Git** view.
   conversation in the repository, which starts with the request.
 - **Picture of Florm**: **Ctrl+Alt+I**, from any view (a pull request, a file, the
   preferences…), takes a picture of Florm's window as it is and writes its path in Claude's field:
-  no need to switch screens. Also in **+ Context → Picture of Florm**. Florm takes the picture
-  itself: no permission of the system.
-- **Images**: a capture made with the system's tool (**Print**) goes to the clipboard; **+ Context
+  no need to switch screens. Also the **📷** button at the top of Claude (with the shortcut written
+  on it, Cmd+Alt+I on Mac) and **+ Context → Picture of Florm**. Florm takes the picture itself:
+  no permission of the system.
+- **Images**: a capture made with the system's tool (**Print**; **Cmd+Ctrl+Shift+4** on Mac,
+  **Win+Shift+S** on Windows, recalled when hovering 📷) goes to the clipboard; **+ Context
   → Image from the clipboard** gives it to Claude. An image or a PDF can also be dropped from the
   file manager on Claude, or chosen with **+ Context → Image or PDF…**. An image is made smaller
   (1568 pixels) to cost fewer tokens.

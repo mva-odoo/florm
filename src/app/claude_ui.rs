@@ -447,9 +447,10 @@ impl App {
         let limits = self.claude_limits.get(&self.claude_limits_key(&self.claude.account)).unwrap_or(&no_limits);
         let branch = self.claude.dir.as_deref().and_then(git::head_branch);
         let accent = self.hl.colors.accent;
+        let shot_keys = self.keymap.label(Cmd::ClaudeScreenshot);
         let (term, colors, light) = (&mut self.term, self.hl.colors, self.hl.is_light());
         let c = &mut self.claude;
-        let d = bar::BarData { dirs: &dirs, dir_name: &dir_name, history: &history, accounts: &accounts, account_name: &account_name, limits, side: self.settings.claude_review };
+        let d = bar::BarData { dirs: &dirs, dir_name: &dir_name, history: &history, accounts: &accounts, account_name: &account_name, limits, side: self.settings.claude_review, shot_keys: &shot_keys };
         let a = bar::bar(ui, c, accent, d);
         let side = a.side.unwrap_or(self.settings.claude_review);
         let mut open_file = None;

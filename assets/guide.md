@@ -527,9 +527,11 @@ ses nouveautés marchent tels quels. Les changements de Claude se revoient dans 
   une conversation dans le dépôt, qui démarre avec la demande.
 - **Capture de Florm** : **Ctrl+Alt+I**, depuis n'importe quelle vue (une pull request, un
   fichier, les préférences…), prend une image de la fenêtre de Florm telle qu'elle est et écrit son
-  chemin dans le champ de Claude : pas besoin de changer d'écran. Aussi dans **+ Contexte → Capture
-  de Florm**. Florm prend l'image lui-même : aucune autorisation du système.
-- **Images** : une capture faite avec l'outil du système (**Impr**) va dans le presse-papiers ;
+  chemin dans le champ de Claude : pas besoin de changer d'écran. Aussi le bouton **📷** en haut
+  de Claude (avec le raccourci écrit dessus, Cmd+Alt+I sur Mac) et **+ Contexte → Capture de
+  Florm**. Florm prend l'image lui-même : aucune autorisation du système.
+- **Images** : une capture faite avec l'outil du système (**Impr** ; **Cmd+Ctrl+Maj+4** sur Mac,
+  **Win+Maj+S** sous Windows, rappelés au survol de 📷) va dans le presse-papiers ;
   **+ Contexte → Image du presse-papiers** la donne à Claude. Une image ou un PDF se glisse aussi
   depuis le gestionnaire de fichiers sur Claude, ou se choisit avec **+ Contexte → Image ou PDF…**.
   Une image est réduite à 1568 pixels pour coûter moins de tokens.
