@@ -272,6 +272,26 @@ The operations started from Florm put the original version between the two sides
 - **Ctrl+`**: the terminal in the bottom panel.
 - **Shift+Enter** (or Alt / Option+Enter) goes to a new line without sending, in Claude as in zsh
   and fish.
+- **Links**: **Ctrl+click** (⌘+click on a Mac) on a web address opens it in the browser; on a file
+  path printed by a program (`src/app.rs:12`, `~/notes.txt`, a full path, the `b/…` of a diff), it
+  opens it in Florm, at the line. With Ctrl held, the link under the mouse is underlined. In
+  Claude as in the shell.
+- **Double click** selects a whole word (a path, an address), **triple click** the line.
+- **Dragging a file** onto a terminal writes its path at the prompt (quoted when needed): Claude
+  reads the file, an image included.
+- The links a program puts on its own text (“PR #12” leading to the page of the PR…) open the
+  same way.
+- **Ctrl+Shift+F** (⌘F on a Mac, or right click → Find…) searches the whole history of the
+  terminal: **Enter** goes up to the older match, **Shift+Enter** down, **Esc** closes. Capitals
+  only count if you type one.
+- The bold, italic, underlined and grayed text of the programs is shown, and the cursor shape they
+  ask for (the bar of Claude's field, a blinking cursor). A program that copies text (Claude's
+  `/copy`, vim, tmux, even over ssh) puts it in the clipboard.
+- **Theme colors**: the black, grays and white of the programs are those of Florm's theme, and the
+  other colors match it; a program that asks for the terminal's colors (Claude Code, vim) gets
+  those of the theme and picks its light or dark colors accordingly.
+- A program that rings (the terminal bell) shows 🔔 before the name of its tab until you come back
+  to it; if Florm is behind another window, its icon says so.
 - **Ctrl+Shift+`**: a terminal **in a
   tab** of the editor. Like any tab, it can be dragged to the right or bottom edge of the editor
   to be next to a file (or right click on the tab → Split right / down).

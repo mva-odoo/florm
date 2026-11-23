@@ -1599,12 +1599,20 @@ impl eframe::App for App {
         let (dropped, pos): (Vec<PathBuf>, _) = ctx.input(|i| (i.raw.dropped_files.iter().filter_map(|f| f.path.clone()).collect(), i.pointer.latest_pos()));
         // images dropped on Claude: their paths written into its field
         let on_claude = self.claude.drop_area.is_some_and(|(f, r)| f + 2 >= ctx.cumulative_pass_nr() && pos.is_none_or(|p| r.contains(p)));
+        // on a terminal (Claude's too): the paths typed at its prompt, as Ghostty or iTerm do
+        let on_term = pos.and_then(|p| self.term.grid_at(p, ctx.cumulative_pass_nr()));
+        let mut for_term = Vec::new();
         for p in dropped {
             if on_claude && claude_ui::is_image_file(&p) {
                 self.claude_attach_image_file(&p);
+            } else if on_term.is_some() {
+                for_term.push(p);
             } else {
                 self.open_path(p);
             }
+        }
+        if let (Some(id), false) = (on_term, for_term.is_empty()) {
+            self.term.drop_paths(id, &for_term);
         }
         // The git panel follows the repository of the active file.
         let cur = self.docs.get(self.active).and_then(|d| d.path.clone());

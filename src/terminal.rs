@@ -58,6 +58,204 @@ fn replies(out: &[u8], cursor: impl Fn() -> (u16, u16)) -> Vec<u8> {
 
 type SharedWriter = Arc<Mutex<Box<dyn Write + Send>>>;
 
+/// A link a program wrapped around its text (OSC 8): its address, where it starts and ends (rows
+/// counted from the first line ever printed, end excluded), and the text it covered then.
+#[derive(Clone, Debug)]
+struct Osc8 {
+    uri: String,
+    start: (u64, u16),
+    end: (u64, u16),
+    text: String,
+}
+
+/// Most OSC 8 links kept (a program redrawing its screen sends the same ones again and again).
+const OSC8_MAX: usize = 400;
+
+/// What a program tells its terminal besides the screen: its title, its folder, what it copies,
+/// its links, its bell; and what it asks of it (the colors of the theme).
+struct Told {
+    ctx: egui::Context,
+    title: String,
+    /// Its folder (OSC 7, sent by fish and by shells set up for it): the relative paths of its
+    /// links are from there.
+    cwd: Option<PathBuf>,
+    /// To answer its questions (the colors of the theme).
+    writer: Option<SharedWriter>,
+    /// Text and background of the theme of Florm, given to the programs that ask (OSC 10 / 11):
+    /// Claude Code, vim… choose their light or dark colors from them.
+    colors: (Color32, Color32),
+    /// It rang (BEL) since its terminal was last looked at.
+    bell: bool,
+    /// Rows dropped off the top of the history: the first line ever printed is row 0.
+    dropped: u64,
+    /// The OSC 8 link being written (its address and start), and those written.
+    osc8_open: Option<(String, (u64, u16))>,
+    osc8: Vec<Osc8>,
+}
+
+impl Told {
+    fn new(ctx: &egui::Context, writer: Option<SharedWriter>) -> Self {
+        Told { ctx: ctx.clone(), title: String::new(), cwd: None, writer, colors: (Color32::WHITE, Color32::BLACK), bell: false, dropped: 0, osc8_open: None, osc8: Vec::new() }
+    }
+
+    /// Row `r` of the live screen, counted from the first line ever printed.
+    fn abs_row(&self, sc: &vt100::Screen, r: u16) -> u64 {
+        self.dropped + sc.scrollback_len() as u64 + r as u64
+    }
+
+    fn answer(&self, bytes: &[u8]) {
+        if let Some(w) = &self.writer {
+            let mut w = w.lock().unwrap();
+            let _ = w.write_all(bytes);
+            let _ = w.flush();
+        }
+    }
+
+    /// The OSC 8 link at cell `cell` of the screen shown (scrolled back `offset` rows), if its
+    /// text is still there (a program redrawing its screen leaves old links behind).
+    fn osc8_at(&self, sc: &vt100::Screen, cell: (u16, u16)) -> Option<(String, Vec<(u16, u16)>)> {
+        let top = (self.dropped + sc.scrollback_len() as u64).checked_sub(sc.scrollback() as u64)?;
+        let pos = (top + cell.0 as u64, cell.1);
+        let cols = sc.size().1.get();
+        let rows = sc.size().0.get() as u64;
+        let l = self.osc8.iter().rev().find(|l| l.start <= pos && pos < l.end)?;
+        // its cells on the screen shown, and the text they hold now
+        let (r1, r2) = (l.start.0.checked_sub(top)?, l.end.0.checked_sub(top)?);
+        if r2 >= rows && !(r2 == rows && l.end.1 == 0) {
+            return None;
+        }
+        let (r1, r2) = (r1 as u16, r2 as u16);
+        let text = sc.contents_between(r1, l.start.1, r2, l.end.1);
+        if !l.text.is_empty() && text != l.text {
+            return None;
+        }
+        let mut cells = Vec::new();
+        let (mut r, mut c) = (r1, l.start.1);
+        while (r, c) < (r2, l.end.1) {
+            cells.push((r, c));
+            c += 1;
+            if c >= cols {
+                (r, c) = (r + 1, 0);
+            }
+        }
+        Some((l.uri.clone(), cells))
+    }
+}
+
+impl vt100::Callbacks for Told {
+    fn audible_bell(&mut self, _: &mut vt100::Screen) {
+        self.bell = true;
+        // Florm behind another window: its icon asks for attention
+        if !self.ctx.input(|i| i.viewport().focused.unwrap_or(true)) {
+            self.ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational));
+        }
+        self.ctx.request_repaint();
+    }
+
+    fn visual_bell(&mut self, sc: &mut vt100::Screen) {
+        self.audible_bell(sc);
+    }
+
+    fn on_scroll(&mut self, _: vt100::capture::RowContents<'_>, alternate: bool) {
+        if !alternate {
+            self.dropped += 1;
+        }
+    }
+    fn set_window_title(&mut self, _: &mut vt100::Screen, title: &[u8]) {
+        self.title = String::from_utf8_lossy(title).into_owned();
+    }
+
+    /// OSC 52: a program copies (Claude Code's /copy, vim, tmux…), even far away (ssh).
+    fn copy_to_clipboard(&mut self, _: &mut vt100::Screen, _ty: &[u8], data: &[u8]) {
+        if let Some(text) = crate::claude::base64_decode(&String::from_utf8_lossy(data)).and_then(|b| String::from_utf8(b).ok()) {
+            self.ctx.copy_text(text);
+            self.ctx.request_repaint();
+        }
+    }
+
+    fn unhandled_osc(&mut self, sc: &mut vt100::Screen, params: &[&[u8]]) {
+        match params {
+            // OSC 7 ; file://host/path
+            [b"7", url, ..] => {
+                let url = String::from_utf8_lossy(url);
+                if let Some(path) = url.strip_prefix("file://").and_then(|r| r.find('/').map(|i| &r[i..])) {
+                    self.cwd = Some(PathBuf::from(percent_decode(path)));
+                }
+            }
+            // OSC 10 / 11 ; ? : the text and background colors of the theme
+            [n @ (b"10" | b"11"), b"?"] => {
+                let c = if *n == b"10" { self.colors.0 } else { self.colors.1 };
+                let n = String::from_utf8_lossy(n);
+                self.answer(format!("\x1b]{n};rgb:{0:02x}{0:02x}/{1:02x}{1:02x}/{2:02x}{2:02x}\x1b\\", c.r(), c.g(), c.b()).as_bytes());
+            }
+            // OSC 8 ; params ; uri : a link starts (an empty uri ends it)
+            [b"8", _, uri, ..] => {
+                let (r, c) = sc.cursor_position();
+                let at = (self.abs_row(sc, r), c);
+                if let Some((uri, start)) = self.osc8_open.take() {
+                    if start < at {
+                        // the text it covers, read now if it is all on the live screen
+                        let live = (self.dropped + sc.scrollback_len() as u64, sc.scrollback());
+                        let text = match (start.0.checked_sub(live.0), live.1) {
+                            (Some(r1), 0) => sc.contents_between(r1 as u16, start.1, r, c),
+                            _ => String::new(),
+                        };
+                        self.osc8.push(Osc8 { uri, start, end: at, text });
+                        if self.osc8.len() > OSC8_MAX {
+                            self.osc8.drain(..OSC8_MAX / 4);
+                        }
+                    }
+                }
+                let uri = String::from_utf8_lossy(uri).into_owned();
+                if !uri.is_empty() {
+                    self.osc8_open = Some((uri, at));
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// `path` as a shell reads it back: as is when plain, else between quotes.
+fn shell_quote(path: &str) -> String {
+    let plain = |c: char| c.is_ascii_alphanumeric() || "/._-+~:@%,=".contains(c) || (cfg!(windows) && c == '\\');
+    if !path.is_empty() && path.chars().all(plain) {
+        path.to_string()
+    } else if cfg!(windows) {
+        format!("\"{path}\"")
+    } else {
+        format!("'{}'", path.replace('\'', "'\\''"))
+    }
+}
+
+/// `%20` and the like decoded (the paths of OSC 7).
+fn percent_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        let hex = |c: u8| (c as char).to_digit(16);
+        match (b[i], b.get(i + 1).copied().and_then(hex), b.get(i + 2).copied().and_then(hex)) {
+            (b'%', Some(h), Some(l)) => {
+                out.push((h * 16 + l) as u8);
+                i += 3;
+            }
+            (c, ..) => {
+                out.push(c);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Rows and columns as the emulator takes them (at least one of each).
+fn nz(n: u16) -> std::num::NonZeroU16 {
+    std::num::NonZeroU16::new(n.max(1)).unwrap_or(std::num::NonZeroU16::MIN)
+}
+
+type Parser = vt100::Parser<Told>;
+
 /// Text to type in a shell once it started (`None`: it printed something, type at once): typed
 /// earlier, fish would take it for the answer it waits from the terminal.
 type Typeahead = Arc<Mutex<Option<Vec<u8>>>>;
@@ -79,7 +277,7 @@ struct Session {
     /// files of its tracebacks.
     mounts: Vec<(String, PathBuf)>,
     name: String,
-    parser: Arc<Mutex<vt100::Parser>>,
+    parser: Arc<Mutex<Parser>>,
     writer: SharedWriter,
     master: Box<dyn MasterPty + Send>,
     child: Box<dyn Child + Send + Sync>,
@@ -89,6 +287,77 @@ struct Session {
     size: (u16, u16),
     /// Selection in visible cells: (row, col) anchor and end.
     sel: Option<((u16, u16), (u16, u16))>,
+    /// The last word looked at as a link (the word, its first and last cells) and what it opens:
+    /// the disk is asked once per word, not at each frame.
+    link_cache: Option<(LinkKey, Option<Link>)>,
+    /// The search in its history, while its bar is open.
+    search: Option<Search>,
+    /// Last key typed: the cursor does not blink while typing.
+    typed_at: std::time::Instant,
+}
+
+/// The search in the history of a terminal (Ctrl+Shift+F, ⌘F on macOS).
+#[derive(Default)]
+struct Search {
+    query: String,
+    /// The query `hits` are of.
+    of: String,
+    /// Its matches, oldest first: row (counted from the first line ever printed), first char, end.
+    hits: Vec<(u64, u16, u16)>,
+    /// The match shown (index in `hits`).
+    current: Option<usize>,
+    /// The field takes the keyboard at the next frame.
+    focus: bool,
+}
+
+/// Every line of the history then of the screen, oldest first, and the row of the first one
+/// (counted from the first line ever printed). The view is left where it was.
+fn all_lines(p: &mut Parser) -> (Vec<String>, u64) {
+    let first = p.callbacks().dropped;
+    let sc = p.screen_mut();
+    let cols = sc.size().1.get();
+    let (keep, total) = (sc.scrollback(), sc.scrollback_len());
+    let mut lines: Vec<String> = Vec::with_capacity(total + 50);
+    loop {
+        let off = total.saturating_sub(lines.len());
+        sc.set_scrollback(off);
+        let top = total - off;
+        let before = lines.len();
+        for (k, row) in sc.rows(0, cols).enumerate() {
+            if top + k == lines.len() {
+                lines.push(row);
+            }
+        }
+        if off == 0 || lines.len() == before {
+            break;
+        }
+    }
+    sc.set_scrollback(keep);
+    (lines, first)
+}
+
+/// Where `query` is in `lines` (the first one at row `first`): case ignored unless it has a capital.
+fn find_hits(lines: &[String], first: u64, query: &str) -> Vec<(u64, u16, u16)> {
+    if query.is_empty() {
+        return Vec::new();
+    }
+    let exact = query.chars().any(char::is_uppercase);
+    let fold = |t: &str| if exact { t.to_string() } else { t.to_lowercase() };
+    let q: Vec<char> = fold(query).chars().collect();
+    let mut hits = Vec::new();
+    for (k, line) in lines.iter().enumerate() {
+        let l: Vec<char> = fold(line).chars().collect();
+        let mut i = 0;
+        while i + q.len() <= l.len() {
+            if l[i..i + q.len()] == q[..] {
+                hits.push((first + k as u64, i as u16, (i + q.len()) as u16));
+                i += q.len();
+            } else {
+                i += 1;
+            }
+        }
+    }
+    hits
 }
 
 impl Session {
@@ -117,6 +386,9 @@ impl Session {
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
         cmd.env("TERM_PROGRAM", "florm");
+        // the links of the programs (OSC 8) are understood: Claude Code and the tools in Node send
+        // them when this is set
+        cmd.env("FORCE_HYPERLINK", "1");
         for (k, v) in env {
             if v.is_empty() {
                 cmd.env_remove(k);
@@ -128,7 +400,8 @@ impl Session {
         drop(pair.slave);
         let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
         let writer: SharedWriter = Arc::new(Mutex::new(pair.master.take_writer().map_err(|e| e.to_string())?));
-        let parser = Arc::new(Mutex::new(vt100::Parser::new(size.0, size.1, SCROLLBACK)));
+        let told = Told::new(ctx, Some(writer.clone()));
+        let parser = Arc::new(Mutex::new(Parser::new_with_callbacks(nz(size.0), nz(size.1), SCROLLBACK, told)));
         parser.lock().unwrap().process(prefill);
         let exited = Arc::new(AtomicBool::new(false));
         let typeahead: Typeahead = Arc::new(Mutex::new(Some(Vec::new())));
@@ -171,7 +444,7 @@ impl Session {
             .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| shell.to_string());
-        Ok(Session { id: 0, docked: false, embedded: false, cmd: None, once: false, capture, mounts: Vec::new(), name, parser, writer, master: pair.master, child, exited, typeahead, cwd, size, sel: None })
+        Ok(Session { id: 0, docked: false, embedded: false, cmd: None, once: false, capture, mounts: Vec::new(), name, parser, writer, master: pair.master, child, exited, typeahead, cwd, size, sel: None, link_cache: None, search: None, typed_at: std::time::Instant::now() })
     }
 
     fn write(&mut self, bytes: &[u8]) {
@@ -181,22 +454,28 @@ impl Session {
             let _ = w.flush();
         }
         // typing brings the view back to the prompt
-        self.parser.lock().unwrap().set_scrollback(0);
+        self.parser.lock().unwrap().screen_mut().set_scrollback(0);
         self.sel = None;
+        self.typed_at = std::time::Instant::now();
     }
 
     fn resize(&mut self, rows: u16, cols: u16) {
         if self.size != (rows, cols) {
             self.size = (rows, cols);
-            self.parser.lock().unwrap().set_size(rows, cols);
+            self.parser.lock().unwrap().set_size(nz(rows), nz(cols));
             let _ = self.master.resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 });
         }
     }
 
     fn title(&self) -> String {
-        let t = self.parser.lock().unwrap().screen().title().to_string();
-        if t.trim().is_empty() {
-            self.name.clone()
+        let (t, bell) = {
+            let p = self.parser.lock().unwrap();
+            (p.callbacks().title.clone(), p.callbacks().bell)
+        };
+        let t = if t.trim().is_empty() { self.name.clone() } else { t };
+        // it rang while not looked at
+        if bell {
+            format!("🔔 {t}")
         } else {
             t
         }
@@ -205,6 +484,114 @@ impl Session {
     /// Shown in the bottom panel.
     fn in_panel(&self) -> bool {
         !self.docked && !self.embedded
+    }
+
+    /// The link at cell `cell` (visible): a URL, or a file printed by the program that is there.
+    fn link_at(&mut self, cell: (u16, u16)) -> Option<Link> {
+        let osc8 = {
+            let p = self.parser.lock().unwrap();
+            p.callbacks().osc8_at(p.screen(), cell)
+        };
+        if let Some((uri, cells)) = osc8 {
+            return osc8_target(&uri).map(|target| Link { target, cells });
+        }
+        let (text, cells, cwd) = {
+            let p = self.parser.lock().unwrap();
+            let (text, cells) = line_at(p.screen(), cell.0);
+            (text, cells, p.callbacks().cwd.clone().unwrap_or_else(|| self.cwd.clone()))
+        };
+        let at = cells.iter().position(|&c| c == cell)?;
+        let (a, b) = word_at(&text, at)?;
+        let word: String = text[a..b].iter().collect();
+        let key = (word.clone(), cells[a], cells[b - 1]);
+        if let Some((k, link)) = &self.link_cache {
+            if *k == key {
+                return link.clone();
+            }
+        }
+        let target = match candidate(&word) {
+            Some(Cand::Url(u)) => Some(Target::Url(u)),
+            Some(Cand::Path(p, line)) => resolve(&p, &cwd, &self.mounts).map(|f| Target::File(f, line)),
+            None => None,
+        };
+        let mut covered: Vec<(u16, u16)> = cells[a..b].to_vec();
+        covered.dedup();
+        let link = target.map(|target| Link { target, cells: covered });
+        self.link_cache = Some((key, link.clone()));
+        link
+    }
+
+    /// The cells of the word (double click) or of the whole line (triple click) at `cell`.
+    fn select_around(&mut self, cell: (u16, u16), line: bool) {
+        let (text, cells) = line_at(self.parser.lock().unwrap().screen(), cell.0);
+        let Some(at) = cells.iter().position(|&c| c == cell) else { return };
+        let range = if line {
+            let end = text.iter().rposition(|c| !c.is_whitespace()).map(|e| e + 1);
+            end.map(|e| (0, e))
+        } else {
+            word_at(&text, at)
+        };
+        if let Some((a, b)) = range {
+            self.sel = Some((cells[a], cells[b - 1]));
+        }
+    }
+
+    /// The matches of the search read again (the history grew), the one shown kept if it is there.
+    fn search_refresh(&mut self) {
+        let Some(q) = self.search.as_ref().map(|q| q.query.clone()) else { return };
+        let (lines, first) = all_lines(&mut self.parser.lock().unwrap());
+        let hits = find_hits(&lines, first, &q);
+        let Some(search) = self.search.as_mut() else { return };
+        let kept = search.current.and_then(|i| search.hits.get(i).copied()).filter(|_| search.of == q);
+        search.current = kept.and_then(|h| hits.iter().position(|x| *x == h)).or_else(|| hits.len().checked_sub(1));
+        search.hits = hits;
+        search.of = q;
+    }
+
+    /// The next match (`older`: up, toward the start of the history), scrolled into view.
+    fn search_step(&mut self, older: bool) {
+        self.search_refresh();
+        let Some(search) = self.search.as_mut() else { return };
+        let n = search.hits.len();
+        if n == 0 {
+            return;
+        }
+        let i = match search.current {
+            Some(i) if older => (i + n - 1) % n,
+            Some(i) => (i + 1) % n,
+            None => n - 1,
+        };
+        search.current = Some(i);
+        self.search_show();
+    }
+
+    /// The match shown scrolled into view.
+    fn search_show(&mut self) {
+        let Some(row) = self.search.as_ref().and_then(|q| q.hits.get(q.current?)).map(|h| h.0) else { return };
+        let mut p = self.parser.lock().unwrap();
+        let dropped = p.callbacks().dropped;
+        let sc = p.screen_mut();
+        let (rows, total) = (sc.size().0.get() as usize, sc.scrollback_len());
+        let local = row.saturating_sub(dropped) as usize;
+        // on the live screen: no scrolling; in the history: the match in the middle
+        let off = if local >= total { 0 } else { (total - local + rows / 2).min(total) };
+        sc.set_scrollback(off);
+    }
+
+    /// The matches on the screen shown: (row, first col, end, the one shown).
+    fn search_marks(&self) -> Vec<(u16, u16, u16, bool)> {
+        let Some(search) = &self.search else { return Vec::new() };
+        let p = self.parser.lock().unwrap();
+        let sc = p.screen();
+        let rows = sc.size().0.get() as u64;
+        let top = p.callbacks().dropped + sc.scrollback_len() as u64 - sc.scrollback() as u64;
+        search
+            .hits
+            .iter()
+            .enumerate()
+            .filter(|(_, h)| h.0 >= top && h.0 < top + rows)
+            .map(|(i, h)| ((h.0 - top) as u16, h.1, h.2, search.current == Some(i)))
+            .collect()
     }
 
     fn selected_text(&self) -> Option<String> {
@@ -230,8 +617,10 @@ pub struct Terminal {
     pub focus_tab: Option<u64>,
     /// Session of the bottom panel asked to move into an editor tab ("⇱").
     pub dock_request: Option<u64>,
-    /// File (and line) of a traceback Ctrl+clicked in a terminal, for the app to open.
+    /// File (and line) of a traceback or a path Ctrl+clicked in a terminal, for the app to open.
     pub open_request: Option<(PathBuf, usize)>,
+    /// Where each grid was drawn, and in which pass: files dropped there are typed into it.
+    grids: std::collections::HashMap<u64, (u64, Rect)>,
     sessions: Vec<Session>,
     /// Shown session of the bottom panel (index in `sessions`, never a docked one).
     active: usize,
@@ -248,7 +637,7 @@ enum GridAct {
 
 impl Terminal {
     pub fn new() -> Self {
-        Terminal { cwd: None, want_focus: false, focus_tab: None, dock_request: None, open_request: None, sessions: Vec::new(), active: 0, next_id: 1, error: None }
+        Terminal { cwd: None, want_focus: false, focus_tab: None, dock_request: None, open_request: None, grids: Default::default(), sessions: Vec::new(), active: 0, next_id: 1, error: None }
     }
 
     fn cwd(&self) -> PathBuf {
@@ -619,8 +1008,23 @@ impl Terminal {
         self.sessions.iter().filter(|s| s.docked && !s.embedded).map(|s| s.id).collect()
     }
 
+    /// The session whose grid is at `pos` (drawn during pass `pass` or the one before).
+    pub fn grid_at(&self, pos: Pos2, pass: u64) -> Option<u64> {
+        self.grids.iter().find(|(_, (p, r))| p + 1 >= pass && r.contains(pos)).map(|(id, _)| *id)
+    }
+
+    /// Files dropped on the terminal of session `id`: their paths typed at its prompt, quoted for
+    /// the shell (`claude` takes the images among them as images).
+    pub fn drop_paths(&mut self, id: u64, paths: &[PathBuf]) -> bool {
+        let text: Vec<String> = paths.iter().map(|p| shell_quote(&p.to_string_lossy())).collect();
+        self.paste(id, &format!("{} ", text.join(" ")))
+    }
+
     /// The grid of session `i`: drawing, mouse selection, wheel, keyboard, context menu.
     fn grid(&mut self, ui: &mut egui::Ui, i: usize, want_focus: bool, colors: Colors, light: bool) -> Option<GridAct> {
+        let pass = ui.ctx().cumulative_pass_nr();
+        let id = self.sessions[i].id;
+        self.grids.insert(id, (pass, ui.available_rect_before_wrap()));
         let s = &mut self.sessions[i];
         let font = egui::TextStyle::Monospace.resolve(ui.style());
         let (rh, cw) = ui.fonts(|f| (f.row_height(&font), crate::editor_view::char_width(f, &font)));
@@ -638,6 +1042,14 @@ impl Terminal {
             resp.request_focus();
         }
         let focused = resp.has_focus();
+        {
+            let mut p = s.parser.lock().unwrap();
+            let told = p.callbacks_mut();
+            told.colors = (colors.fg, colors.bg);
+            if focused {
+                told.bell = false;
+            }
+        }
         if focused {
             ui.memory_mut(|m| {
                 m.set_focus_lock_filter(gid, egui::EventFilter { tab: true, horizontal_arrows: true, vertical_arrows: true, escape: true })
@@ -651,18 +1063,29 @@ impl Terminal {
             let r = ((p.y - rect.top()) / rh).floor().clamp(0.0, (rows - 1) as f32) as u16;
             (r, c)
         };
-        // Ctrl+clic on a traceback line (File "…", line N): its file
-        let link = (resp.hovered() && ui.input(|i| i.modifiers.command))
-            .then(|| ui.input(|i| i.pointer.hover_pos()))
-            .flatten()
-            .and_then(|p| traceback_at(s, cell_at(p).0));
-        if link.is_some() {
-            ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
-            if resp.clicked() {
-                self.open_request = link;
-                return None;
+        // Ctrl+clic (Cmd+clic) on a link: a URL, a file printed by the program (src/app.rs:12), a
+        // traceback line (File "…", line N)
+        let command = ui.input(|i| i.modifiers.command);
+        let hover = resp.hover_pos().map(cell_at);
+        let link = hover.and_then(|c| s.link_at(c));
+        let traceback = if link.is_none() && command { hover.and_then(|c| traceback_at(s, c.0)) } else { None };
+        if link.is_some() || traceback.is_some() {
+            if command {
+                ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+                if resp.clicked() {
+                    match link.map(|l| l.target) {
+                        Some(Target::Url(u)) => ui.ctx().open_url(egui::OpenUrl::new_tab(u)),
+                        Some(Target::File(f, line)) => self.open_request = Some((f, line)),
+                        None => self.open_request = traceback,
+                    }
+                    return None;
+                }
+            } else {
+                let tip = if cfg!(target_os = "macos") { t!("⌘+clic : ouvrir", "⌘+click: open") } else { t!("Ctrl+clic : ouvrir", "Ctrl+click: open") };
+                resp.clone().on_hover_text_at_pointer(tip);
             }
         }
+        let shown_link = link.filter(|_| command);
         // selection with the mouse
         if resp.drag_started() {
             if let Some(p) = resp.interact_pointer_pos() {
@@ -675,6 +1098,14 @@ impl Terminal {
             }
         } else if resp.clicked() {
             s.sel = None;
+        }
+        // double click: the word (a path, a URL whole); triple click: the line
+        if let Some(c) = resp.interact_pointer_pos().map(cell_at) {
+            if resp.triple_clicked() {
+                s.select_around(c, true);
+            } else if resp.double_clicked() {
+                s.select_around(c, false);
+            }
         }
 
         // mouse wheel: scrollback, or arrow keys for full-screen programs (less, vim…)
@@ -694,7 +1125,7 @@ impl Terminal {
                     let mut p = s.parser.lock().unwrap();
                     let cur = p.screen().scrollback();
                     let next = if dy > 0.0 { cur + lines } else { cur.saturating_sub(lines) };
-                    p.set_scrollback(next);
+                    p.screen_mut().set_scrollback(next);
                 }
             }
         }
@@ -726,6 +1157,12 @@ impl Terminal {
                         None => {}
                     },
                     Event::Cut if !exited => s.write(b"\x18"),
+                    // Ctrl+Shift+F (⌘F): search the history
+                    Event::Key { key: Key::F, pressed: true, modifiers, .. } if (modifiers.ctrl && modifiers.shift) || (cfg!(target_os = "macos") && modifiers.mac_cmd) => {
+                        let query = s.search.take().map(|q| q.query).or_else(|| s.selected_text().filter(|t| !t.contains('\n'))).unwrap_or_default();
+                        s.search = Some(Search { query, focus: true, ..Default::default() });
+                        s.search_refresh();
+                    }
                     Event::Key { key, pressed: true, modifiers, .. } => {
                         if exited {
                             if key == Key::Enter && !s.once {
@@ -750,6 +1187,7 @@ impl Terminal {
             for (label, a, on) in [
                 (t!("Copier", "Copy"), 0, has_sel),
                 (t!("Coller", "Paste"), 1, true),
+                (t!("Rechercher… (Ctrl+Maj+F)", "Find… (Ctrl+Shift+F)"), 5, true),
                 (t!("Tout effacer", "Clear all"), 2, true),
                 (t!("Interrompre (Ctrl+C)", "Interrupt (Ctrl+C)"), 3, true),
                 (t!("Nouveau terminal", "New terminal"), 4, true),
@@ -778,9 +1216,17 @@ impl Terminal {
             }
             Some(3) => s.write(b"\x03"),
             Some(4) => return Some(GridAct::NewTerminal),
+            Some(5) => {
+                s.search = Some(Search { query: s.search.take().map(|q| q.query).unwrap_or_default(), focus: true, ..Default::default() });
+                s.search_refresh();
+            }
             _ => {}
         }
-        paint(ui, rect, pad, rh, cw, &font, s, colors, light, focused);
+        if s.search.is_some() {
+            search_bar(ui, s, rect, gid);
+        }
+        let marks = s.search_marks();
+        paint(ui, rect, pad, rh, cw, &font, s, colors, light, focused, shown_link.as_ref(), &marks);
         None
     }
 }
@@ -789,7 +1235,7 @@ impl Terminal {
 fn traceback_at(s: &Session, r: u16) -> Option<(PathBuf, usize)> {
     let p = s.parser.lock().unwrap();
     let sc = p.screen();
-    let (rows, cols) = sc.size();
+    let (rows, cols) = (sc.size().0.get(), sc.size().1.get());
     let (mut a, mut b) = (r, r);
     while a > 0 && sc.row_wrapped(a - 1) {
         a -= 1;
@@ -799,6 +1245,202 @@ fn traceback_at(s: &Session, r: u16) -> Option<(PathBuf, usize)> {
     }
     let (path, line) = crate::odoo_test::traceback_location(&sc.contents_between(a, 0, b, cols))?;
     Some((crate::odoo_test::map_path(&path, &s.mounts), line))
+}
+
+/// The bar of the search in the history, at the top right of the terminal: the field, where it is
+/// (3/12), ↑ ↓ and ×. Enter goes up to the older match, Shift+Enter down, Échap closes it.
+fn search_bar(ui: &mut egui::Ui, s: &mut Session, rect: Rect, gid: Id) {
+    let mut close = false;
+    let mut step = None;
+    let area = egui::Area::new(gid.with("search")).order(egui::Order::Foreground).fixed_pos(rect.right_top() + egui::vec2(-330.0, 6.0));
+    area.show(ui.ctx(), |ui| {
+        egui::Frame::popup(ui.style()).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                let Some(search) = s.search.as_mut() else { return };
+                let field = ui.add(egui::TextEdit::singleline(&mut search.query).desired_width(150.0).hint_text(t!("Rechercher", "Find")));
+                if std::mem::take(&mut search.focus) {
+                    field.request_focus();
+                }
+                let (enter, shift, esc) = ui.input(|i| (i.key_pressed(Key::Enter), i.modifiers.shift, i.key_pressed(Key::Escape)));
+                if field.lost_focus() && enter {
+                    step = Some(!shift);
+                    field.request_focus();
+                } else if esc && (field.has_focus() || field.lost_focus()) {
+                    close = true;
+                }
+                let count = match (search.current, search.hits.len()) {
+                    (_, 0) if search.query.is_empty() => String::new(),
+                    (_, 0) => t!("aucun", "none").to_string(),
+                    (Some(i), n) => format!("{}/{n}", i + 1),
+                    (None, n) => n.to_string(),
+                };
+                ui.label(RichText::new(count).small().weak());
+                if ui.small_button("↑").on_hover_text(t!("Plus ancien (Entrée)", "Older (Enter)")).clicked() {
+                    step = Some(true);
+                }
+                if ui.small_button("↓").on_hover_text(t!("Plus récent (Maj+Entrée)", "Newer (Shift+Enter)")).clicked() {
+                    step = Some(false);
+                }
+                if ui.small_button("×").on_hover_text(t!("Fermer (Échap)", "Close (Esc)")).clicked() {
+                    close = true;
+                }
+            });
+        });
+    });
+    if close {
+        s.search = None;
+        ui.memory_mut(|m| m.request_focus(gid));
+        return;
+    }
+    // typing: the newest match shown
+    if s.search.as_ref().is_some_and(|q| q.query != q.of) {
+        s.search_refresh();
+        s.search_show();
+    }
+    if let Some(older) = step {
+        s.search_step(older);
+    }
+}
+
+/// What a Ctrl+click (Cmd+click on macOS) on the text opens.
+#[derive(Clone, Debug, PartialEq)]
+enum Target {
+    Url(String),
+    /// A file here, at a line (1-based; 0: none).
+    File(PathBuf, usize),
+}
+
+/// A link of the screen: what it opens and the cells it covers (visible rows).
+#[derive(Clone, Debug, PartialEq)]
+struct Link {
+    target: Target,
+    cells: Vec<(u16, u16)>,
+}
+
+/// A word of the screen looked at as a link: the word, its first and last cells.
+type LinkKey = (String, (u16, u16), (u16, u16));
+
+/// A word of a line that may be a link: a URL, or a path (with its line and column) to look for.
+#[derive(Clone, Debug, PartialEq)]
+enum Cand {
+    Url(String),
+    Path(String, usize),
+}
+
+/// The text of the line at visible row `r` with the rows it wraps onto, and the cell of each char.
+fn line_at(sc: &vt100::Screen, r: u16) -> (Vec<char>, Vec<(u16, u16)>) {
+    let (rows, cols) = (sc.size().0.get(), sc.size().1.get());
+    let (mut a, mut b) = (r, r);
+    while a > 0 && sc.row_wrapped(a - 1) {
+        a -= 1;
+    }
+    while b + 1 < rows && sc.row_wrapped(b) {
+        b += 1;
+    }
+    let (mut text, mut cells) = (Vec::new(), Vec::new());
+    for row in a..=b {
+        for col in 0..cols {
+            let Some(cell) = sc.cell(row, col) else { break };
+            if cell.is_wide_continuation() {
+                continue;
+            }
+            let t = cell.contents();
+            for ch in if t.is_empty() { " " } else { t }.chars() {
+                text.push(ch);
+                cells.push((row, col));
+            }
+        }
+    }
+    (text, cells)
+}
+
+/// Not part of a word that could be a link: spaces, quotes, brackets, and the frames, bullets and
+/// arrows of the programs (Claude Code's: written as codes, they are never drawn).
+fn breaks_word(c: char) -> bool {
+    c.is_whitespace() || "\"'`<>()[]{}|,;".contains(c) || ('\u{2500}'..='\u{25ff}').contains(&c) || ('\u{2190}'..='\u{21ff}').contains(&c) || ('\u{23e9}'..='\u{23ff}').contains(&c) || matches!(c, '\u{23bf}' | '\u{273b}' | '\u{2733}' | '\u{23fa}' | '\u{2026}')
+}
+
+/// The word of `text` around char `at`: its bounds (end excluded), without the punctuation that
+/// ends a sentence.
+fn word_at(text: &[char], at: usize) -> Option<(usize, usize)> {
+    if at >= text.len() || breaks_word(text[at]) {
+        return None;
+    }
+    let mut a = at;
+    while a > 0 && !breaks_word(text[a - 1]) {
+        a -= 1;
+    }
+    let mut b = at + 1;
+    while b < text.len() && !breaks_word(text[b]) {
+        b += 1;
+    }
+    while b > a && matches!(text[b - 1], '.' | ':' | '!' | '?') {
+        b -= 1;
+    }
+    (b > a && at < b).then_some((a, b))
+}
+
+/// What the word `w` could open: a URL, or a path that looks like one (a folder in it, or a name
+/// with an extension), with `:line`, `:line:col` or `#Lline` after it.
+fn candidate(w: &str) -> Option<Cand> {
+    if ["https://", "http://", "file://"].iter().any(|p| w.starts_with(p)) {
+        return (w.len() > 8).then(|| Cand::Url(w.to_string()));
+    }
+    if w.contains("://") {
+        return None;
+    }
+    let (path, line) = match w.split_once("#L") {
+        Some((p, l)) => (p, l.parse().unwrap_or(0)),
+        None => {
+            let mut parts = w.splitn(3, ':');
+            let first = parts.next().unwrap_or("");
+            // C:\x on Windows: the drive is part of the path
+            let (path, rest) = if first.len() == 1 && w.len() > 2 && w.as_bytes()[2] == b'\\' {
+                let mut it = w[2..].splitn(2, ':');
+                (&w[..2 + it.next().unwrap_or("").len()], it.next().unwrap_or(""))
+            } else {
+                (first, &w[first.len()..])
+            };
+            let line = rest.trim_start_matches(':').split(':').next().and_then(|l| l.parse().ok()).unwrap_or(0);
+            (path, line)
+        }
+    };
+    let name = path.rsplit(['/', '\\']).next().unwrap_or("");
+    let ext = name.rsplit_once('.').is_some_and(|(stem, e)| !stem.is_empty() && !e.is_empty() && e.chars().all(|c| c.is_ascii_alphanumeric()) && e.chars().any(|c| c.is_ascii_alphabetic()));
+    let looks = path.contains('/') || path.contains('\\') || ext;
+    (looks && !path.is_empty() && !path.chars().all(|c| c.is_ascii_digit() || c == '.')).then(|| Cand::Path(path.to_string(), line))
+}
+
+/// What the address of an OSC 8 link opens: a page, or a file here (`file://host/path`, with
+/// `#Lline` or `:line` after it). Other schemes are left alone.
+fn osc8_target(uri: &str) -> Option<Target> {
+    if let Some(rest) = uri.strip_prefix("file://") {
+        let path = percent_decode(&rest[rest.find('/')?..]);
+        return match candidate(&path) {
+            Some(Cand::Path(p, line)) if Path::new(&p).is_file() => Some(Target::File(PathBuf::from(p), line)),
+            _ => Path::new(&path).is_file().then(|| Target::File(PathBuf::from(&path), 0)),
+        };
+    }
+    ["https://", "http://", "mailto:"].iter().any(|p| uri.starts_with(p)).then(|| Target::Url(uri.to_string()))
+}
+
+/// The file of path `p` printed by a program working in `cwd`, if it is there (`a/` and `b/` of a
+/// git diff tried too, container folders through `mounts`).
+fn resolve(p: &str, cwd: &Path, mounts: &[(String, PathBuf)]) -> Option<PathBuf> {
+    let home = |rest: &str| crate::config::home().join(rest);
+    let mut tries = vec![match p.strip_prefix("~/") {
+        Some(rest) => home(rest),
+        None if Path::new(p).is_absolute() => PathBuf::from(p),
+        None => cwd.join(p),
+    }];
+    if let Some(rest) = p.strip_prefix("a/").or_else(|| p.strip_prefix("b/")) {
+        tries.push(cwd.join(rest));
+    }
+    // a folder of a container is a Unix path, even on Windows
+    if (Path::new(p).is_absolute() || p.starts_with('/')) && !mounts.is_empty() {
+        tries.push(crate::odoo_test::map_path(p, mounts));
+    }
+    tries.into_iter().find(|t| t.is_file())
 }
 
 /// Text without its escape sequences (colors, cursor moves, titles) and carriage returns.
@@ -833,28 +1475,58 @@ fn strip_ansi(s: &str) -> String {
     out
 }
 
+/// How the text of a cell is drawn besides its colors.
+#[derive(Clone, Copy, PartialEq)]
+struct Style {
+    bold: bool,
+    italic: bool,
+    underline: bool,
+}
+
+fn style_of(cell: &vt100::Cell) -> Style {
+    Style { bold: cell.bold(), italic: cell.italic(), underline: cell.underline() }
+}
+
+/// Text of one style at `pos`: italic through the layout, bold drawn twice a little apart (the
+/// monospace font has no bold of its own), underline as a line under the cells.
 #[allow(clippy::too_many_arguments)]
-fn paint(ui: &egui::Ui, rect: Rect, pad: f32, rh: f32, cw: f32, font: &FontId, s: &Session, c: Colors, light: bool, focused: bool) {
+fn draw_text(painter: &egui::Painter, pos: Pos2, text: &str, font: &FontId, fg: Color32, st: Style, rh: f32, width: f32) {
+    let job = egui::text::LayoutJob::single_section(text.to_string(), egui::TextFormat { font_id: font.clone(), color: fg, italics: st.italic, ..Default::default() });
+    let galley = painter.layout_job(job);
+    if st.bold {
+        painter.galley(pos + egui::vec2(0.6, 0.0), galley.clone(), fg);
+    }
+    painter.galley(pos, galley, fg);
+    if st.underline {
+        let y = pos.y + rh - 2.0;
+        painter.line_segment([Pos2::new(pos.x, y), Pos2::new(pos.x + width, y)], Stroke::new(1.0_f32, fg));
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn paint(ui: &egui::Ui, rect: Rect, pad: f32, rh: f32, cw: f32, font: &FontId, s: &Session, c: Colors, light: bool, focused: bool, link: Option<&Link>, marks: &[(u16, u16, u16, bool)]) {
     let painter = ui.painter_at(rect);
     // rounded: it stays inside the rounded block of the bottom panel
     painter.rect_filled(rect, 4.0, c.bg);
     let parser = s.parser.lock().unwrap();
     let screen = parser.screen();
-    let (rows, cols) = screen.size();
+    let (rows, cols) = (screen.size().0.get(), screen.size().1.get());
     let sel = s.sel.map(|(a, b)| if a <= b { (a, b) } else { (b, a) }).filter(|(a, b)| a != b);
     let in_sel = |r: u16, col: u16| sel.is_some_and(|(a, b)| (r, col) >= a && (r, col) <= b);
+    let x_of = |col: u16| rect.left() + pad + col as f32 * cw;
     for r in 0..rows {
         let y = rect.top() + r as f32 * rh;
         let mut col = 0;
         while col < cols {
             let Some(cell) = screen.cell(r, col) else { break };
             let (fg, bg) = cell_colors(cell, c, light);
+            let st = style_of(cell);
             let selected = in_sel(r, col);
-            // run of cells with the same colors (background first, then the text)
+            // run of cells drawn the same way (background first, then the text)
             let start = col;
             while col < cols {
                 let Some(cc) = screen.cell(r, col) else { break };
-                if cell_colors(cc, c, light) != (fg, bg) || in_sel(r, col) != selected {
+                if cell_colors(cc, c, light) != (fg, bg) || style_of(cc) != st || in_sel(r, col) != selected {
                     break;
                 }
                 col += 1;
@@ -862,8 +1534,7 @@ fn paint(ui: &egui::Ui, rect: Rect, pad: f32, rh: f32, cw: f32, font: &FontId, s
             let end = col;
             let bg = if selected { c.selection } else { bg };
             if bg != c.bg {
-                let x = rect.left() + pad + start as f32 * cw;
-                painter.rect_filled(Rect::from_min_size(Pos2::new(x, y), egui::vec2((end - start) as f32 * cw, rh)), 0.0, bg);
+                painter.rect_filled(Rect::from_min_size(Pos2::new(x_of(start), y), egui::vec2((end - start) as f32 * cw, rh)), 0.0, bg);
             }
             // ASCII text is drawn in one go, any other character (prompt icons, box drawing, wide
             // characters…) at the position of its own cell: a glyph of another width (fallback
@@ -872,7 +1543,7 @@ fn paint(ui: &egui::Ui, rect: Rect, pad: f32, rh: f32, cw: f32, font: &FontId, s
             let mut text_col = start;
             let flush = |text: &mut String, at: u16| {
                 if !text.trim().is_empty() {
-                    painter.text(Pos2::new(rect.left() + pad + at as f32 * cw, y), Align2::LEFT_TOP, text.as_str(), font.clone(), fg);
+                    draw_text(&painter, Pos2::new(x_of(at), y), text, font, fg, st, rh, text.chars().count() as f32 * cw);
                 }
                 text.clear();
             };
@@ -886,11 +1557,11 @@ fn paint(ui: &egui::Ui, rect: Rect, pad: f32, rh: f32, cw: f32, font: &FontId, s
                     if text.is_empty() {
                         text_col = k;
                     }
-                    text.push_str(if t.is_empty() { " " } else { &t });
+                    text.push_str(if t.is_empty() { " " } else { t });
                     continue;
                 }
                 flush(&mut text, text_col);
-                let x = rect.left() + pad + k as f32 * cw;
+                let x = x_of(k);
                 let cells = if cc.is_wide() { 2.0 } else { 1.0 };
                 let g = painter.layout_no_wrap(t.to_string(), font.clone(), fg);
                 let gw = g.size().x;
@@ -901,24 +1572,63 @@ fn paint(ui: &egui::Ui, rect: Rect, pad: f32, rh: f32, cw: f32, font: &FontId, s
                 } else {
                     painter.galley(Pos2::new(x + (cw * cells - gw) / 2.0, y), g, fg);
                 }
+                if st.underline {
+                    painter.line_segment([Pos2::new(x, y + rh - 2.0), Pos2::new(x + cw * cells, y + rh - 2.0)], Stroke::new(1.0_f32, fg));
+                }
             }
             flush(&mut text, text_col);
         }
     }
-    // cursor (only when looking at the live screen)
-    if !screen.hide_cursor() && screen.scrollback() == 0 && !s.exited.load(Ordering::Relaxed) {
+    // the matches of the search: framed, the one shown filled
+    for &(r, c0, c1, current) in marks {
+        let m = Rect::from_min_size(Pos2::new(x_of(c0), rect.top() + r as f32 * rh), egui::vec2((c1 - c0) as f32 * cw, rh));
+        if current {
+            painter.rect_filled(m, 2.0, c.find);
+            let text: String = (c0..c1).filter_map(|k| screen.cell(r, k)).map(|x| if x.contents().is_empty() { " " } else { x.contents() }).collect();
+            painter.text(m.min, Align2::LEFT_TOP, text, font.clone(), c.bg);
+        } else {
+            painter.rect_stroke(m, 2.0, Stroke::new(1.0_f32, c.find));
+        }
+    }
+    // the link under the mouse while Ctrl (Cmd) is held: underlined in the accent color
+    if let Some(l) = link {
+        for &(r, col) in &l.cells {
+            let y = rect.top() + (r as f32 + 1.0) * rh - 1.5;
+            painter.line_segment([Pos2::new(x_of(col), y), Pos2::new(x_of(col) + cw, y)], Stroke::new(1.5_f32, c.accent));
+        }
+    }
+    // cursor (only when looking at the live screen), in the shape the program asked for; a
+    // blinking one stays on while typing
+    use vt100::CursorStyle as Cs;
+    let style = screen.cursor_style();
+    let blinks = focused && matches!(style, Cs::BlinkBlock | Cs::BlinkUnderline | Cs::BlinkVerticalBar);
+    let ms = s.typed_at.elapsed().as_millis() as u64;
+    let lit = !blinks || ms < 530 || (ms / 530).is_multiple_of(2);
+    if blinks {
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(530 - ms % 530));
+    }
+    if lit && !screen.hide_cursor() && screen.scrollback() == 0 && !s.exited.load(Ordering::Relaxed) {
         let (r, col) = screen.cursor_position();
-        let cur = Rect::from_min_size(Pos2::new(rect.left() + pad + col as f32 * cw, rect.top() + r as f32 * rh), egui::vec2(cw, rh));
-        if focused {
-            painter.rect_filled(cur, 1.0, c.caret);
-            if let Some(cell) = screen.cell(r, col) {
-                let t = cell.contents();
-                if !t.is_empty() {
-                    painter.text(cur.min, Align2::LEFT_TOP, t, font.clone(), c.bg);
+        let cell = Rect::from_min_size(Pos2::new(x_of(col), rect.top() + r as f32 * rh), egui::vec2(cw, rh));
+        match style {
+            Cs::BlinkVerticalBar | Cs::SteadyVerticalBar => {
+                painter.rect_filled(Rect::from_min_size(cell.min, egui::vec2(2.0, rh)), 0.0, c.caret);
+            }
+            Cs::BlinkUnderline | Cs::SteadyUnderline => {
+                painter.rect_filled(Rect::from_min_size(Pos2::new(cell.left(), cell.bottom() - 2.0), egui::vec2(cw, 2.0)), 0.0, c.caret);
+            }
+            _ if focused => {
+                painter.rect_filled(cell, 1.0, c.caret);
+                if let Some(cc) = screen.cell(r, col) {
+                    let t = cc.contents();
+                    if !t.is_empty() {
+                        painter.text(cell.min, Align2::LEFT_TOP, t, font.clone(), c.bg);
+                    }
                 }
             }
-        } else {
-            painter.rect_stroke(cur, 1.0, Stroke::new(1.0_f32, c.caret));
+            _ => {
+                painter.rect_stroke(cell, 1.0, Stroke::new(1.0_f32, c.caret));
+            }
         }
     }
     if screen.scrollback() > 0 {
@@ -940,8 +1650,25 @@ fn paint(ui: &egui::Ui, rect: Rect, pad: f32, rh: f32, cw: f32, font: &FontId, s
     }
 }
 
-/// ANSI colors 0–15, readable on the theme background.
-fn ansi(i: u8, light: bool) -> Color32 {
+/// ANSI colors 0–15 in the theme of Florm: its black, grays and white are made from its background
+/// and text (the gray of the hints of Claude Code is the gray of the theme), the other colors
+/// readable on its background, a little toward its text color.
+fn ansi(i: u8, c: Colors, light: bool) -> Color32 {
+    use crate::icons::mix;
+    match i {
+        0 if light => mix(c.fg, Color32::BLACK, 0.2),
+        0 => mix(c.bg, c.fg, 0.22),
+        7 if light => mix(c.bg, c.fg, 0.55),
+        7 => mix(c.fg, c.bg, 0.12),
+        8 => mix(c.bg, c.fg, 0.5),
+        15 if light => c.fg,
+        15 => mix(c.fg, Color32::WHITE, 0.5),
+        _ => mix(ansi_base(i, light), c.fg, 0.12),
+    }
+}
+
+/// The colors of `ansi` before the theme.
+fn ansi_base(i: u8, light: bool) -> Color32 {
     const DARK: [u32; 16] = [
         0x3b4252, 0xe06c75, 0x98c379, 0xe5c07b, 0x61afef, 0xc678dd, 0x56b6c2, 0xc8ccd4, //
         0x6b7385, 0xff7a85, 0xb5e890, 0xffd68a, 0x82c4ff, 0xdd9bf0, 0x7fd8e4, 0xffffff,
@@ -954,10 +1681,10 @@ fn ansi(i: u8, light: bool) -> Color32 {
     Color32::from_rgb((h >> 16) as u8, (h >> 8) as u8, h as u8)
 }
 
-fn color(c: vt100::Color, default: Color32, light: bool) -> Color32 {
+fn color(c: vt100::Color, default: Color32, theme: Colors, light: bool) -> Color32 {
     match c {
         vt100::Color::Default => default,
-        vt100::Color::Idx(i) if i < 16 => ansi(i, light),
+        vt100::Color::Idx(i) if i < 16 => ansi(i, theme, light),
         vt100::Color::Idx(i) if i < 232 => {
             let i = i - 16;
             let v = |x: u8| if x == 0 { 0 } else { 55 + x * 40 };
@@ -972,15 +1699,19 @@ fn color(c: vt100::Color, default: Color32, light: bool) -> Color32 {
 }
 
 fn cell_colors(cell: &vt100::Cell, c: Colors, light: bool) -> (Color32, Color32) {
-    let mut fg = color(cell.fgcolor(), c.fg, light);
-    let mut bg = color(cell.bgcolor(), c.bg, light);
+    let mut fg = color(cell.fgcolor(), c.fg, c, light);
+    let mut bg = color(cell.bgcolor(), c.bg, c, light);
     // bold with a basic color: its bright variant, like most terminals
     if cell.bold() {
         if let vt100::Color::Idx(i) = cell.fgcolor() {
             if i < 8 {
-                fg = ansi(i + 8, light);
+                fg = ansi(i + 8, c, light);
             }
         }
+    }
+    // dim (Claude Code's hints, what is less important): halfway to the background
+    if cell.dim() {
+        fg = crate::icons::mix(fg, bg, 0.45);
     }
     if cell.inverse() {
         std::mem::swap(&mut fg, &mut bg);
@@ -1053,6 +1784,318 @@ fn key_bytes(key: Key, m: Modifiers, app_cursor: bool) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A parser of `rows` × `cols` with the callbacks of Florm, `bytes` already shown.
+    fn screen_of(rows: u16, cols: u16, bytes: &[u8]) -> Parser {
+        let told = Told::new(&egui::Context::default(), None);
+        let mut p = Parser::new_with_callbacks(nz(rows), nz(cols), 100, told);
+        p.process(bytes);
+        p
+    }
+
+    fn words(line: &str) -> Vec<String> {
+        let text: Vec<char> = line.chars().collect();
+        let mut out = Vec::new();
+        let mut i = 0;
+        while i < text.len() {
+            match word_at(&text, i) {
+                Some((a, b)) => {
+                    out.push(text[a..b].iter().collect());
+                    i = b.max(i + 1);
+                }
+                None => i += 1,
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn words_of_a_line() {
+        // the frames and bullets of Claude Code, the brackets of its tools, the end of a sentence
+        assert_eq!(words("⏺ Update(src/app.rs)"), ["Update", "src/app.rs"]);
+        assert_eq!(words("  ⎿  Voir https://github.com/o/r/pull/12."), ["Voir", "https://github.com/o/r/pull/12"]);
+        assert_eq!(words("│ src/terminal.rs:1234:5: warning"), ["src/terminal.rs:1234:5", "warning"]);
+        assert_eq!(words("\"a b\""), ["a", "b"]);
+    }
+
+    #[test]
+    fn what_a_word_opens() {
+        assert_eq!(candidate("https://x.io/a?b=1"), Some(Cand::Url("https://x.io/a?b=1".into())));
+        assert_eq!(candidate("https://"), None);
+        assert_eq!(candidate("src/app.rs:12:5"), Some(Cand::Path("src/app.rs".into(), 12)));
+        assert_eq!(candidate("src/app.rs#L40"), Some(Cand::Path("src/app.rs".into(), 40)));
+        assert_eq!(candidate("README.md"), Some(Cand::Path("README.md".into(), 0)));
+        assert_eq!(candidate("~/notes.txt"), Some(Cand::Path("~/notes.txt".into(), 0)));
+        assert_eq!(candidate(r"C:\src\app.rs:3"), Some(Cand::Path(r"C:\src\app.rs".into(), 3)));
+        // not paths: versions, numbers, words, an extension of digits only ("e.g" is one, but only
+        // a link if such a file is there)
+        for w in ["1.70.2", "42", "Update", "x.123", "ssh://h/x", "."] {
+            assert!(!matches!(candidate(w), Some(Cand::Path(..))), "{w}");
+        }
+    }
+
+    #[test]
+    fn paths_are_looked_for_from_the_folder() {
+        let dir = std::env::temp_dir().join(format!("florm_term_links_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(dir.join("src/app.rs"), "").unwrap();
+        assert_eq!(resolve("src/app.rs", &dir, &[]), Some(dir.join("src/app.rs")));
+        // the a/ and b/ of a git diff
+        assert_eq!(resolve("b/src/app.rs", &dir, &[]), Some(dir.join("b/src/app.rs")).filter(|p| p.is_file()).or(Some(dir.join("src/app.rs"))));
+        let abs = dir.join("src/app.rs").to_string_lossy().into_owned();
+        assert_eq!(resolve(&abs, Path::new("/elsewhere"), &[]), Some(PathBuf::from(&abs)));
+        // a folder of a container, and a file that is not there
+        let mounts = vec![("/mnt/code".to_string(), dir.clone())];
+        assert_eq!(resolve("/mnt/code/src/app.rs", Path::new("/"), &mounts), Some(dir.join("src/app.rs")));
+        assert_eq!(resolve("src/gone.rs", &dir, &[]), None);
+        assert_eq!(resolve("src", &dir, &[]), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A URL too long for one row: one word over the rows it wraps onto.
+    #[test]
+    fn a_wrapped_url_is_one_link() {
+        // "see https://example." then "com/a/very/long/path" (20 columns each), then " ok"
+        let p = screen_of(4, 20, b"see https://example.com/a/very/long/path ok");
+        let (text, cells) = line_at(p.screen(), 1);
+        let at = cells.iter().position(|&c| c == (1, 3)).unwrap();
+        let (a, b) = word_at(&text, at).unwrap();
+        let w: String = text[a..b].iter().collect();
+        assert_eq!(w, "https://example.com/a/very/long/path");
+        assert_eq!((cells[a], cells[b - 1]), ((0, 4), (1, 19)));
+    }
+
+    #[test]
+    fn what_programs_tell() {
+        // OSC 7: the folder of the shell, for the relative paths
+        let p = screen_of(4, 20, b"\x1b]7;file://host/home/x/my%20dir\x07\x1b]2;titre\x07");
+        assert_eq!(p.callbacks().cwd.as_deref(), Some(Path::new("/home/x/my dir")));
+        assert_eq!(p.callbacks().title, "titre");
+        // dim text: halfway to the background
+        let p = screen_of(2, 10, b"\x1b[2mgris\x1b[0m net");
+        let sc = p.screen();
+        assert!(sc.cell(0, 0).unwrap().dim() && !sc.cell(0, 5).unwrap().dim());
+        let c = Colors { bg: Color32::BLACK, fg: Color32::WHITE, selection: Color32::GRAY, line_hl: Color32::GRAY, gutter_bg: Color32::BLACK, gutter_fg: Color32::GRAY, caret: Color32::WHITE, find: Color32::GRAY, guide: Color32::GRAY, accent: Color32::BLUE, accent2: Color32::BLUE };
+        let (fg, _) = cell_colors(sc.cell(0, 0).unwrap(), c, false);
+        assert!(fg.r() > 100 && fg.r() < 200, "{fg:?}");
+        // the shape of the cursor (Claude Code's field: a bar)
+        let p = screen_of(2, 10, b"\x1b[6 q");
+        assert_eq!(p.screen().cursor_style(), vt100::CursorStyle::SteadyVerticalBar);
+    }
+
+    /// A real program prints a URL and a path: Ctrl+click opens them, a double click selects the
+    /// whole URL.
+    #[cfg(unix)]
+    #[test]
+    fn ctrl_click_opens_the_links_of_a_program() {
+        let dir = std::env::temp_dir().join(format!("florm_term_click_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(dir.join("src/app.rs"), "").unwrap();
+        let ctx = egui::Context::default();
+        let mut t = Terminal::new();
+        let argv: Vec<String> = ["sh", "-c", "printf 'voir https://x.io/doc et src/app.rs:7\\n'; sleep 5"].map(String::from).to_vec();
+        let id = t.open_embedded(&ctx, &argv, dir.clone(), &[]).unwrap();
+        let screen = |t: &Terminal| t.sessions[0].parser.lock().unwrap().screen().contents();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !screen(&t).contains("src/app.rs:7") {
+            assert!(std::time::Instant::now() < deadline, "{}", screen(&t));
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let gray = Color32::GRAY;
+        let colors = Colors { bg: Color32::BLACK, fg: Color32::WHITE, selection: gray, line_hl: gray, gutter_bg: gray, gutter_fg: gray, caret: gray, find: gray, guide: gray, accent: Color32::BLUE, accent2: Color32::BLUE };
+        let screen_rect = Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(900.0, 300.0)));
+        // a clock: the clicks far apart in time are not taken for a double click
+        let clock = std::cell::Cell::new(0.0);
+        let frame = |t: &mut Terminal, events: Vec<Event>, command: bool| {
+            let modifiers = Modifiers { ctrl: command, command, ..Default::default() };
+            clock.set(clock.get() + 1.0);
+            ctx.run(egui::RawInput { screen_rect, events, modifiers, time: Some(clock.get()), ..Default::default() }, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| t.embedded_ui(ui, id, false, colors, false));
+            })
+        };
+        frame(&mut t, Vec::new(), false);
+        // the middle of the cell of `text` on the screen
+        let font = egui::TextStyle::Monospace.resolve(&ctx.style());
+        let (rh, cw) = ctx.fonts(|f| (f.row_height(&font), crate::editor_view::char_width(f, &font)));
+        let grid = t.grids[&id].1;
+        let at = |t: &Terminal, text: &str| {
+            let contents = screen(t);
+            let (row, line) = contents.lines().enumerate().find(|(_, l)| l.contains(text)).unwrap();
+            let col = line[..line.find(text).unwrap()].chars().count() + 1;
+            Pos2::new(grid.left() + 6.0 + (col as f32 + 0.5) * cw, grid.top() + 4.0 + (row as f32 + 0.5) * rh)
+        };
+        let click = |p: Pos2, command: bool| {
+            let modifiers = Modifiers { ctrl: command, command, ..Default::default() };
+            vec![
+                Event::PointerMoved(p),
+                Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed: true, modifiers },
+                Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed: false, modifiers },
+            ]
+        };
+        let p = at(&t, "x.io");
+        frame(&mut t, vec![Event::PointerMoved(p)], true);
+        let out = frame(&mut t, click(p, true), true);
+        assert_eq!(out.platform_output.open_url.map(|u| u.url).as_deref(), Some("https://x.io/doc"));
+        let p = at(&t, "app.rs");
+        frame(&mut t, vec![Event::PointerMoved(p)], true);
+        frame(&mut t, click(p, true), true);
+        assert_eq!(t.open_request.take(), Some((dir.join("src/app.rs"), 7)));
+        // without Ctrl, nothing opens; a double click selects the whole URL
+        let p = at(&t, "x.io");
+        let mut twice = click(p, false);
+        twice.extend(click(p, false));
+        let out = frame(&mut t, twice, false);
+        assert!(out.platform_output.open_url.is_none());
+        assert_eq!(t.sessions[0].selected_text().as_deref(), Some("https://x.io/doc"));
+        t.close(id);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// What a program writes to its terminal's input, kept to be read.
+    #[derive(Clone, Default)]
+    struct Sink(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for Sink {
+        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(b);
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn programs_learn_the_colors_of_the_theme() {
+        let sink = Sink::default();
+        let writer: SharedWriter = Arc::new(Mutex::new(Box::new(sink.clone())));
+        let mut told = Told::new(&egui::Context::default(), Some(writer));
+        told.colors = (Color32::from_rgb(0xee, 0xdd, 0xcc), Color32::from_rgb(0x12, 0x34, 0x56));
+        let mut p = Parser::new_with_callbacks(nz(4), nz(20), 10, told);
+        // asked as Claude Code or vim do, ended by BEL or by ESC \
+        p.process(b"\x1b]11;?\x07\x1b]10;?\x1b\\");
+        let answer = String::from_utf8(sink.0.lock().unwrap().clone()).unwrap();
+        assert_eq!(answer, "\x1b]11;rgb:1212/3434/5656\x1b\\\x1b]10;rgb:eeee/dddd/cccc\x1b\\");
+    }
+
+    #[test]
+    fn links_sent_by_programs() {
+        let mut p = screen_of(4, 30, b"voir \x1b]8;;https://x.io/pr/12\x07PR #12\x1b]8;;\x07 ok");
+        let (uri, cells) = p.callbacks().osc8_at(p.screen(), (0, 7)).unwrap();
+        assert_eq!(uri, "https://x.io/pr/12");
+        assert_eq!(cells, (5..11).map(|c| (0, c)).collect::<Vec<_>>());
+        assert!(p.callbacks().osc8_at(p.screen(), (0, 12)).is_none());
+        // a link that scrolled into the history follows its text
+        p.process(b"\r\n1\r\n2\r\n3\r\n");
+        let shown = |p: &Parser| (0..4).find(|&r| p.callbacks().osc8_at(p.screen(), (r, 6)).is_some());
+        assert_eq!(shown(&p), None);
+        p.screen_mut().set_scrollback(3);
+        assert_eq!(shown(&p), Some(0));
+        // redrawn over by other text: the old link is gone
+        p.screen_mut().set_scrollback(0);
+        let mut p = screen_of(4, 30, b"\x1b]8;;https://x.io\x07lien\x1b]8;;\x07");
+        p.process(b"\r\x1b[2Kautre");
+        assert!(p.callbacks().osc8_at(p.screen(), (0, 1)).is_none());
+        // what their addresses open
+        assert_eq!(osc8_target("https://x.io/a"), Some(Target::Url("https://x.io/a".into())));
+        assert_eq!(osc8_target("javascript:alert(1)"), None);
+        let f = std::env::temp_dir().join(format!("florm_osc8_{}.txt", std::process::id()));
+        std::fs::write(&f, "").unwrap();
+        let uri = format!("file://host{}", f.display());
+        if cfg!(unix) {
+            assert_eq!(osc8_target(&uri), Some(Target::File(f.clone(), 0)));
+        }
+        let _ = std::fs::remove_file(&f);
+    }
+
+    #[test]
+    fn search_in_the_history() {
+        let mut out = Vec::new();
+        for i in 1..=30 {
+            out.extend(format!("ligne {i}\r\n").into_bytes());
+        }
+        let mut p = screen_of(5, 20, &out);
+        let (lines, first) = all_lines(&mut p);
+        assert_eq!(first, 0);
+        assert_eq!(lines.len(), 31);
+        assert_eq!((lines[0].as_str(), lines[29].as_str()), ("ligne 1", "ligne 30"));
+        assert_eq!(p.screen().scrollback(), 0);
+        // case ignored, unless a capital is typed
+        let hits = find_hits(&lines, first, "LIGNE 2");
+        assert!(hits.is_empty());
+        let hits = find_hits(&lines, first, "ligne 2");
+        assert_eq!(hits.len(), 11);
+        assert_eq!(hits[0], (1, 0, 7));
+        assert_eq!(find_hits(&lines, 0, "e 3").len(), 2);
+        assert!(find_hits(&lines, 0, "").is_empty());
+    }
+
+    #[test]
+    fn bell_and_palette() {
+        let p = screen_of(2, 10, b"x\x07");
+        assert!(p.callbacks().bell);
+        let gray = Color32::GRAY;
+        let c = Colors { bg: Color32::from_rgb(10, 20, 30), fg: Color32::from_rgb(210, 220, 230), selection: gray, line_hl: gray, gutter_bg: gray, gutter_fg: gray, caret: gray, find: gray, guide: gray, accent: gray, accent2: gray };
+        // the gray of the hints: between the background and the text of the theme
+        assert_eq!(ansi(8, c, false), crate::icons::mix(c.bg, c.fg, 0.5));
+        assert_eq!(ansi(15, c, true), c.fg);
+        assert_ne!(ansi(1, c, false), ansi_base(1, false));
+    }
+
+    /// Ctrl+Shift+F in a real terminal: its history searched, the view scrolled to the match.
+    #[cfg(unix)]
+    #[test]
+    fn the_search_scrolls_to_its_match() {
+        let ctx = egui::Context::default();
+        let mut t = Terminal::new();
+        let argv: Vec<String> = ["sh", "-c", "i=1; while [ $i -le 300 ]; do echo ligne-$i; i=$((i+1)); done; sleep 5"].map(String::from).to_vec();
+        let id = t.open_embedded(&ctx, &argv, std::env::temp_dir(), &[]).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !t.sessions[0].parser.lock().unwrap().screen().contents().contains("ligne-300") {
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let gray = Color32::GRAY;
+        let colors = Colors { bg: Color32::BLACK, fg: Color32::WHITE, selection: gray, line_hl: gray, gutter_bg: gray, gutter_fg: gray, caret: gray, find: gray, guide: gray, accent: gray, accent2: gray };
+        let screen_rect = Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(700.0, 300.0)));
+        // the keyboard given to the terminal once, as the Claude tab does
+        let first = std::cell::Cell::new(true);
+        let frame = |t: &mut Terminal, events: Vec<Event>, modifiers: Modifiers| {
+            ctx.run(egui::RawInput { screen_rect, events, modifiers, ..Default::default() }, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| t.embedded_ui(ui, id, first.replace(false), colors, false));
+            });
+        };
+        frame(&mut t, Vec::new(), Modifiers::default());
+        let m = Modifiers { ctrl: true, shift: true, command: true, ..Default::default() };
+        frame(&mut t, vec![Event::Key { key: Key::F, physical_key: None, pressed: true, repeat: false, modifiers: m }], m);
+        assert!(t.sessions[0].search.is_some());
+        frame(&mut t, vec![Event::Text("ligne-42".into())], Modifiers::default());
+        frame(&mut t, Vec::new(), Modifiers::default());
+        let s = &t.sessions[0];
+        let search = s.search.as_ref().unwrap();
+        assert_eq!((search.query.as_str(), search.hits.len()), ("ligne-42", 1));
+        assert!(s.parser.lock().unwrap().screen().scrollback() > 0);
+        let marks = s.search_marks();
+        assert_eq!(marks.len(), 1);
+        assert!(marks[0].3);
+        let row = marks[0].0;
+        assert!(s.parser.lock().unwrap().screen().contents_between(row, 0, row, 20).starts_with("ligne-42"));
+        t.close(id);
+    }
+
+    #[test]
+    fn dropped_paths_quoted() {
+        assert_eq!(shell_quote("/tmp/a-b_c.png"), "/tmp/a-b_c.png");
+        if cfg!(unix) {
+            assert_eq!(shell_quote("/tmp/my file.png"), "'/tmp/my file.png'");
+            assert_eq!(shell_quote("/tmp/it's"), r"'/tmp/it'\''s'");
+        } else {
+            assert_eq!(shell_quote(r"C:\my file.png"), "\"C:\\my file.png\"");
+        }
+        assert_eq!(percent_decode("a%2Fb%zz"), "a/b%zz");
+    }
 
     #[test]
     fn answers_terminal_queries() {
@@ -1142,7 +2185,7 @@ mod tests {
                 let txt = p.screen().contents();
                 txt.contains("rouge 42").then(|| {
                     // the "r" of "rouge" is red
-                    let (rows, cols) = p.screen().size();
+                    let (rows, cols) = (p.screen().size().0.get(), p.screen().size().1.get());
                     (0..rows)
                         .flat_map(|r| (0..cols).map(move |c| (r, c)))
                         .find(|&(r, c)| {
@@ -1162,6 +2205,6 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
         s.resize(10, 40);
-        assert_eq!(s.parser.lock().unwrap().screen().size(), (10, 40));
+        assert_eq!(s.parser.lock().unwrap().screen().size(), (nz(10), nz(40)));
     }
 }

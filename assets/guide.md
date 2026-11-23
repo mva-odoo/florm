@@ -276,6 +276,27 @@ Les opérations lancées depuis Florm mettent la version d'origine entre les deu
 - **Ctrl+`** : le terminal dans le panneau du bas.
 - **Maj+Entrée** (ou Alt / Option+Entrée) va à la ligne sans envoyer, dans Claude comme dans zsh
   et fish.
+- **Liens** : **Ctrl+clic** (⌘+clic sur Mac) sur une adresse web l'ouvre dans le navigateur ; sur un
+  chemin de fichier affiché par un programme (`src/app.rs:12`, `~/notes.txt`, un chemin complet,
+  le `b/…` d'un diff), il l'ouvre dans Florm, à la ligne. Avec Ctrl enfoncé, le lien sous la souris
+  est souligné. Valable dans Claude comme dans le shell.
+- **Double clic** sélectionne un mot entier (un chemin, une adresse), **triple clic** la ligne.
+- **Glisser un fichier** sur un terminal écrit son chemin à l'invite (entre guillemets s'il le
+  faut) : Claude lit le fichier, une image comprise.
+- Les liens qu'un programme place lui-même sur son texte (« PR #12 » qui mène à la page de la
+  PR…) s'ouvrent de la même façon.
+- **Ctrl+Maj+F** (⌘F sur Mac, ou clic droit → Rechercher…) cherche dans tout l'historique du
+  terminal : **Entrée** remonte au résultat plus ancien, **Maj+Entrée** redescend, **Échap**
+  ferme. Les majuscules ne comptent que si tu en tapes une.
+- Le gras, l'italique, le souligné et le texte grisé des programmes s'affichent, ainsi que la forme
+  du curseur qu'ils demandent (la barre du champ de Claude, un curseur qui clignote). Un programme
+  qui copie du texte (`/copy` de Claude, vim, tmux, même par ssh) le met dans le presse-papiers.
+- **Couleurs du thème** : le noir, les gris et le blanc des programmes sont ceux du thème de
+  Florm, et les autres couleurs s'y accordent ; un programme qui demande les couleurs du terminal
+  (Claude Code, vim) reçoit celles du thème et choisit ses couleurs claires ou sombres en
+  conséquence.
+- Un programme qui sonne (la cloche du terminal) affiche 🔔 devant le nom de son onglet jusqu'à ce
+  que tu y reviennes ; si Florm est derrière une autre fenêtre, son icône le signale.
 - **Ctrl+Shift+`** : un terminal **dans un onglet** de
   l'éditeur. Comme tout onglet, il se glisse sur le bord droit ou bas de l'éditeur pour être à
   côté d'un fichier (ou clic droit sur l'onglet → Diviser à droite / en bas).

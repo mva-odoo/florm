@@ -174,7 +174,8 @@ mod tests {
             app.tests_check();
         }
         let status = app.status.as_ref().map(|s| s.text.clone()).unwrap_or_default();
-        assert!(status.starts_with("✔ go test ./calc"), "{status}");
+        let out = app.tests.run.as_ref().and_then(|r| app.term.output(r.session)).unwrap_or_default();
+        assert!(status.starts_with("✔ go test ./calc"), "{status}\n---\n{out}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
