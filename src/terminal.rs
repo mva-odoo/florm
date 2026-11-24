@@ -2189,7 +2189,7 @@ mod tests {
         let colors = Colors { bg: Color32::BLACK, fg: Color32::WHITE, selection: gray, line_hl: gray, gutter_bg: gray, gutter_fg: gray, caret: gray, find: gray, guide: gray, accent: gray, accent2: gray };
         let screen_rect = Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(700.0, 300.0)));
         let first = std::cell::Cell::new(true);
-        let mut frame = |t: &mut Terminal, events: Vec<Event>| {
+        let frame = |t: &mut Terminal, events: Vec<Event>| {
             let mut asked = false;
             let _ = ctx.run(egui::RawInput { screen_rect, events, ..Default::default() }, |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| asked = t.embedded_ui(ui, id, first.replace(false), colors, false));
@@ -2231,7 +2231,7 @@ mod tests {
         // the keyboard given to the terminal once, as the Claude tab does
         let first = std::cell::Cell::new(true);
         let frame = |t: &mut Terminal, events: Vec<Event>, modifiers: Modifiers| {
-            ctx.run(egui::RawInput { screen_rect, events, modifiers, ..Default::default() }, |ctx| {
+            let _ = ctx.run(egui::RawInput { screen_rect, events, modifiers, ..Default::default() }, |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| t.embedded_ui(ui, id, first.replace(false), colors, false));
             });
         };

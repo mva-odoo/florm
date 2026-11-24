@@ -2589,7 +2589,7 @@ mod font_tests {
         let ctx = egui::Context::default();
         let mut app = App::with_ctx(&ctx, Some(proj.clone()));
         let screen = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 800.0)));
-        let mut frame = |app: &mut App| {
+        let frame = |app: &mut App| {
             let _ = ctx.run(egui::RawInput { screen_rect: screen, ..Default::default() }, |ctx| {
                 app.sidebar(ctx);
                 app.central(ctx);
@@ -2627,7 +2627,7 @@ mod font_tests {
         let again = App::with_ctx(&ctx, Some(proj.clone()));
         assert_eq!(views(&again), views(&app));
         // every view, large in a tab then in the bottom panel
-        let mut all = |app: &mut App| {
+        let all = |app: &mut App| {
             let _ = ctx.run(egui::RawInput { screen_rect: screen, ..Default::default() }, |ctx| {
                 app.sidebar(ctx);
                 if app.bottom.is_some() {

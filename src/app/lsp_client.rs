@@ -786,6 +786,7 @@ mod tests {
     /// With clangd (when installed): the errors it sends are underlined and stay when a linter
     /// runs again, and the file is formatted by it.
     #[test]
+    #[ignore = "runs the clangd installed: cargo test -- --ignored"]
     fn errors_and_formatting_of_a_language_server() {
         if !crate::tools::locate("clangd") {
             return;

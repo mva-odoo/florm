@@ -701,6 +701,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "runs the ruff installed: cargo test -- --ignored"]
     fn ruff_format_and_fix() {
         if !is_installed("ruff") {
             return;
@@ -774,6 +775,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "runs the flake8 installed: cargo test -- --ignored"]
     fn python_linter_failure_is_reported() {
         if !is_installed("flake8") {
             return;

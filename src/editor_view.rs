@@ -1546,7 +1546,7 @@ mod defs_popup_tests {
         let id = Id::new("ed");
         let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1600.0, 1000.0))), ..Default::default() };
         let defs = |n: usize| (0..n).map(|k| (PathBuf::from(format!("/p/{k}.py")), k, "m subscription".to_string(), format!("enterprise/18.0/sale_subscription_{k}/controllers/portal.py:{k}"))).collect::<Vec<_>>();
-        let mut height = |doc: &mut Document, n: usize| {
+        let height = |doc: &mut Document, n: usize| {
             doc.hover_defs = Some(((n, 0), defs(n), 0));
             for _ in 0..3 {
                 let _ = ctx.run(input.clone(), |ctx| {

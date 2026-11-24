@@ -464,6 +464,7 @@ mod lsp_tests {
     /// With gopls (when installed): the cursor away from a name used without its import, the
     /// server's fix is offered all the same, and applying it adds the import.
     #[test]
+    #[ignore = "runs the gopls installed (slow, up to 60 s): cargo test -- --ignored"]
     fn the_import_of_a_language_server() {
         if !crate::tools::locate("gopls") {
             return;

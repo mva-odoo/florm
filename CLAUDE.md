@@ -10,6 +10,7 @@ Python, Node, Rust/C, Go), tests (pytest, jest, cargo, go, Odoo dans Docker), do
 cargo build                 # debug (les dépendances sont optimisées même en debug, voir Cargo.toml)
 cargo run -- .              # lancer sur le dossier courant
 cargo test                  # tests unitaires (#[cfg(test)] dans les modules)
+cargo test -- --ignored     # tests qui lancent des outils installés (ruff, flake8, clangd, gopls, go)
 cargo build --release       # LTO fat, long : seulement si nécessaire
 scripts/build-windows.sh    # binaire Windows depuis Linux/WSL
 ```
