@@ -460,13 +460,19 @@ impl App {
                 (open_file, explain) = session::session_ui(ui, c, &dir_name, branch.as_deref(), limits, accent);
             });
         }
+        let mut paste_image = false;
         egui::CentralPanel::default().frame(egui::Frame::none().fill(colors.bg)).show_inside(ui, |ui| match c.term {
-            Some(id) => term.embedded_ui(ui, id, std::mem::take(&mut c.focus), colors, light),
+            Some(id) => paste_image = term.embedded_ui(ui, id, std::mem::take(&mut c.focus), colors, light),
             None => {
                 ui.add_space(20.0);
                 ui.vertical_centered(|ui| ui.label(RichText::new(t!("Choisis un dossier en haut pour lancer Claude.", "Choose a folder at the top to start Claude.")).weak()));
             }
         });
+        // Ctrl+V of an image: read on a thread (wl-paste), then given to Claude by its path
+        if paste_image {
+            let label = t!("Image collée", "Pasted image").to_string();
+            self.jobs.spawn(move || JobResult::ClaudeImage { label, png: clipboard_image().ok_or_else(|| t!("pas d'image dans le presse-papiers", "no image in the clipboard").to_string()) });
+        }
         self.claude_apply(a);
         if let Some(p) = open_file {
             self.open_path(p);

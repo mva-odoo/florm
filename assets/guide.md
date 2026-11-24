@@ -564,7 +564,8 @@ ses nouveautés marchent tels quels. Les changements de Claude se revoient dans 
   Florm**. Florm prend l'image lui-même : aucune autorisation du système.
 - **Images** : une capture faite avec l'outil du système (**Impr** ; **Cmd+Ctrl+Maj+4** sur Mac,
   **Win+Maj+S** sous Windows, rappelés au survol de 📷) va dans le presse-papiers ;
-  **+ Contexte → Image du presse-papiers** la donne à Claude. Une image ou un PDF se glisse aussi
+  **Ctrl+V** dans Claude (Cmd+V sur Mac), ou **+ Contexte → Image du presse-papiers**, la donne à
+  Claude. Une image ou un PDF se glisse aussi
   depuis le gestionnaire de fichiers sur Claude, ou se choisit avec **+ Contexte → Image ou PDF…**.
   Une image est réduite à 1568 pixels pour coûter moins de tokens.
 - **Plusieurs comptes Claude** (pro, perso…) : **👤 → + Ajouter un compte…** en haut de Claude, ou **Préférences → Claude → Comptes Claude**,

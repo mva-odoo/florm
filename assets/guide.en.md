@@ -551,8 +551,9 @@ new in it work as they are. Claude's changes are reviewed in the **Git** view.
   on it, Cmd+Alt+I on Mac) and **+ Context → Picture of Florm**. Florm takes the picture itself:
   no permission of the system.
 - **Images**: a capture made with the system's tool (**Print**; **Cmd+Ctrl+Shift+4** on Mac,
-  **Win+Shift+S** on Windows, recalled when hovering 📷) goes to the clipboard; **+ Context
-  → Image from the clipboard** gives it to Claude. An image or a PDF can also be dropped from the
+  **Win+Shift+S** on Windows, recalled when hovering 📷) goes to the clipboard; **Ctrl+V** in
+  Claude (Cmd+V on Mac), or **+ Context → Image from the clipboard**, gives it to Claude. An
+  image or a PDF can also be dropped from the
   file manager on Claude, or chosen with **+ Context → Image or PDF…**. An image is made smaller
   (1568 pixels) to cost fewer tokens.
 - **Several Claude accounts** (work, personal…): **👤 → + Add an account…** at the top of Claude, or **Preferences → Claude → Claude accounts**,

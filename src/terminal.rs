@@ -294,6 +294,10 @@ struct Session {
     search: Option<Search>,
     /// Last key typed: the cursor does not blink while typing.
     typed_at: std::time::Instant,
+    /// Last text pasted with Ctrl+V: a Ctrl+V without one had an image (or nothing) to paste.
+    pasted_at: Option<std::time::Instant>,
+    /// V seen pressed (typed): its release is not a Ctrl+V.
+    v_down: bool,
 }
 
 /// The search in the history of a terminal (Ctrl+Shift+F, ⌘F on macOS).
@@ -444,7 +448,7 @@ impl Session {
             .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| shell.to_string());
-        Ok(Session { id: 0, docked: false, embedded: false, cmd: None, once: false, capture, mounts: Vec::new(), name, parser, writer, master: pair.master, child, exited, typeahead, cwd, size, sel: None, link_cache: None, search: None, typed_at: std::time::Instant::now() })
+        Ok(Session { id: 0, docked: false, embedded: false, cmd: None, once: false, capture, mounts: Vec::new(), name, parser, writer, master: pair.master, child, exited, typeahead, cwd, size, sel: None, link_cache: None, search: None, typed_at: std::time::Instant::now(), pasted_at: None, v_down: false })
     }
 
     fn write(&mut self, bytes: &[u8]) {
@@ -640,6 +644,8 @@ enum GridAct {
     /// The shell ended and Enter was pressed: start a new one in the same place.
     Restart,
     NewTerminal,
+    /// Ctrl+V with no text in the clipboard (an image, for Claude).
+    PasteImage,
 }
 
 impl Terminal {
@@ -799,7 +805,7 @@ impl Terminal {
         match act {
             Some(GridAct::Restart) => self.restart(i, &ctx, shell),
             Some(GridAct::NewTerminal) => self.open(&ctx, shell, None),
-            None => {}
+            Some(GridAct::PasteImage) | None => {}
         }
     }
 
@@ -840,7 +846,7 @@ impl Terminal {
                     self.dock_request = Some(nid);
                 }
             }
-            None => {}
+            Some(GridAct::PasteImage) | None => {}
         });
     }
 
@@ -929,16 +935,20 @@ impl Terminal {
     }
 
     /// Session `id` (`open_embedded`) drawn in `ui`: the whole room, no bar. `focus`: it takes the keyboard.
-    pub fn embedded_ui(&mut self, ui: &mut egui::Ui, id: u64, focus: bool, colors: Colors, light: bool) {
+    /// Returns true on a Ctrl+V with no text to paste (the caller may paste an image).
+    pub fn embedded_ui(&mut self, ui: &mut egui::Ui, id: u64, focus: bool, colors: Colors, light: bool) -> bool {
         let ctx = ui.ctx().clone();
-        let Some(i) = self.sessions.iter().position(|s| s.id == id) else { return };
+        let Some(i) = self.sessions.iter().position(|s| s.id == id) else { return false };
         let focus = focus || self.focus_tab == Some(id);
         if focus {
             self.focus_tab = None;
         }
-        if let Some(GridAct::Restart) = self.grid(ui, i, focus, colors, light) {
-            self.restart(i, &ctx, None);
+        match self.grid(ui, i, focus, colors, light) {
+            Some(GridAct::Restart) => self.restart(i, &ctx, None),
+            Some(GridAct::PasteImage) => return true,
+            _ => {}
         }
+        false
     }
 
     /// Pastes `text` into session `id` as the keyboard's Ctrl+V does (framed when the program
@@ -1161,6 +1171,7 @@ impl Terminal {
                 match ev {
                     Event::Text(t) if !exited => s.write(t.as_bytes()),
                     Event::Paste(t) if !exited => {
+                        s.pasted_at = Some(std::time::Instant::now());
                         let t = without_escapes(&t.replace("\r\n", "\r").replace('\n', "\r"));
                         if bracketed {
                             s.write(format!("\x1b[200~{t}\x1b[201~").as_bytes());
@@ -1183,7 +1194,18 @@ impl Terminal {
                         s.search = Some(Search { query, focus: true, ..Default::default() });
                         s.search_refresh();
                     }
+                    // egui keeps the press of Ctrl+V for itself (a Paste event), and gives nothing
+                    // when the clipboard holds no text (an image): a release of V whose press was
+                    // not seen, with no text pasted just before, is that Ctrl+V
+                    Event::Key { key: Key::V, pressed: false, .. } if !exited => {
+                        if !std::mem::take(&mut s.v_down) && s.pasted_at.is_none_or(|t| t.elapsed() > std::time::Duration::from_millis(1500)) {
+                            outcome = Some(GridAct::PasteImage);
+                        }
+                    }
                     Event::Key { key, pressed: true, modifiers, .. } => {
+                        if key == Key::V {
+                            s.v_down = true;
+                        }
                         if exited {
                             if key == Key::Enter && !s.once {
                                 outcome = Some(GridAct::Restart);
@@ -2152,6 +2174,42 @@ mod tests {
         assert_eq!(ansi(8, c, false), crate::icons::mix(c.bg, c.fg, 0.5));
         assert_eq!(ansi(15, c, true), c.fg);
         assert_ne!(ansi(1, c, false), ansi_base(1, false));
+    }
+
+    /// Ctrl+V with an image in the clipboard: egui gives only the release of V, the Claude tab
+    /// is told so; V typed, or a text pasted, is not that.
+    #[cfg(unix)]
+    #[test]
+    fn a_ctrl_v_with_no_text_asks_for_an_image() {
+        let ctx = egui::Context::default();
+        let mut t = Terminal::new();
+        let argv: Vec<String> = ["sh", "-c", "sleep 5"].map(String::from).to_vec();
+        let id = t.open_embedded(&ctx, &argv, std::env::temp_dir(), &[]).unwrap();
+        let gray = Color32::GRAY;
+        let colors = Colors { bg: Color32::BLACK, fg: Color32::WHITE, selection: gray, line_hl: gray, gutter_bg: gray, gutter_fg: gray, caret: gray, find: gray, guide: gray, accent: gray, accent2: gray };
+        let screen_rect = Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(700.0, 300.0)));
+        let first = std::cell::Cell::new(true);
+        let mut frame = |t: &mut Terminal, events: Vec<Event>| {
+            let mut asked = false;
+            let _ = ctx.run(egui::RawInput { screen_rect, events, ..Default::default() }, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| asked = t.embedded_ui(ui, id, first.replace(false), colors, false));
+            });
+            asked
+        };
+        let key = |pressed: bool, ctrl: bool| {
+            let modifiers = Modifiers { ctrl, command: ctrl, ..Default::default() };
+            Event::Key { key: Key::V, physical_key: None, pressed, repeat: false, modifiers }
+        };
+        frame(&mut t, Vec::new());
+        // the image: only the release, whether Ctrl is still held or not
+        assert!(frame(&mut t, vec![key(false, true)]));
+        assert!(frame(&mut t, vec![key(false, false)]));
+        // v typed
+        assert!(!frame(&mut t, vec![key(true, false), Event::Text("v".into())]));
+        assert!(!frame(&mut t, vec![key(false, false)]));
+        // a text pasted
+        assert!(!frame(&mut t, vec![Event::Paste("texte".into())]));
+        assert!(!frame(&mut t, vec![key(false, true)]));
     }
 
     /// Ctrl+Shift+F in a real terminal: its history searched, the view scrolled to the match.
