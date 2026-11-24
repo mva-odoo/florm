@@ -114,8 +114,9 @@ pub fn settings(exe: &Path, file: &Path, sandbox: bool) -> Value {
         },
         "statusLine": { "type": "command", "command": format!("\"{exe}\" {STATUS_FLAG} \"{file}\"") },
     });
-    // said both ways: off, a sandbox turned on in the user's own settings of Claude Code stays off too
-    v["sandbox"] = json!({ "enabled": sandbox });
+    // said both ways: off, a sandbox turned on in the user's own settings of Claude Code stays off too;
+    // on, no command gets out of it (Claude Code would otherwise ask to run one outside)
+    v["sandbox"] = if sandbox { json!({ "enabled": true, "allowUnsandboxedCommands": false }) } else { json!({ "enabled": false }) };
     v
 }
 
@@ -320,7 +321,7 @@ mod tests {
         // off is said too: the user's own settings cannot turn it back on
         assert!(settings(Path::new("/opt/florm"), &f, false).to_string().contains(r#""sandbox":{"enabled":false}"#));
         let s = settings(Path::new("/opt/florm"), &f, true).to_string();
-        assert!(s.contains(r#"\"/opt/florm\" --claude-hook"#) && s.contains("UserPromptSubmit") && s.contains("SessionStart") && s.contains("SessionEnd") && s.contains(r#""matcher":"Edit|MultiEdit|Write|NotebookEdit""#) && s.contains("statusLine") && s.contains(r#""sandbox":{"enabled":true}"#), "{s}");
+        assert!(s.contains(r#"\"/opt/florm\" --claude-hook"#) && s.contains("UserPromptSubmit") && s.contains("SessionStart") && s.contains("SessionEnd") && s.contains(r#""matcher":"Edit|MultiEdit|Write|NotebookEdit""#) && s.contains("statusLine") && s.contains(r#""sandbox":{"allowUnsandboxedCommands":false,"enabled":true}"#), "{s}");
         let s = Path::new("/s.json");
         assert_eq!(argv(s, &Start { prompt: Some("fais ça"), ..Default::default() }), ["claude", "--settings", "/s.json", "fais ça"]);
         assert_eq!(argv(s, &Start { session_id: "abc", prompt: Some("ignored"), ..Default::default() }), ["claude", "--settings", "/s.json", "--resume", "abc"]);

@@ -523,7 +523,9 @@ ses nouveautés marchent tels quels. Les changements de Claude se revoient dans 
   (Claude s'arrête, elle reste dans l'historique). **Ctrl+Alt+W** : la suivante qui attend ta
   réponse. La barre d'état dit combien travaillent ou attendent.
 - **Bac à sable** (Préférences → Claude, activé par défaut) : les commandes de Claude tournent
-  isolées, elles n'écrivent que dans le projet et le réseau est filtré. Linux : paquets
+  isolées, elles n'écrivent que dans le projet et le réseau est filtré. Claude ne peut lancer
+  **aucune commande hors du bac à sable**, même en mode auto : ce qui en a besoin (un `git push`
+  avec ta clé SSH…), tu le lances toi-même (`! git push` dans Claude, ou un terminal). Linux : paquets
   `bubblewrap` et `socat` ; macOS : intégré (Seatbelt) ; Windows : non disponible. Désactivé,
   il n'y a aucun bac à sable, même si tes réglages de Claude Code en activent un. Le changer ne
   demande pas de redémarrer Florm : les conversations ouvertes repartent avec le nouveau réglage
