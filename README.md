@@ -354,7 +354,7 @@ flake8 --version || ruff --version
 | Ctrl+Alt+N | Insérer un modèle |
 | Ctrl+Alt+G | Graphe des commits |
 | Ctrl+Alt+R | Pull requests GitHub |
-| Ctrl+F6 / Ctrl+Maj+F6 | Tests (Odoo, pytest, jest, cargo, go) : relancer les derniers / lancer celui sous le curseur |
+| Ctrl+F6 / Ctrl+Maj+F6 | Tests (pytest, jest, cargo, go) : relancer les derniers / lancer celui sous le curseur (un test Odoo : Alt+F6, sous le débogueur) |
 | F5 / Maj+F5 / Ctrl+Maj+F5 | Débogage : démarrer ou continuer / arrêter / redémarrer |
 | F9 | Point d'arrêt sur la ligne |
 | F10 / F11 / Maj+F11 / F6 | Pas à pas principal / détaillé / sortant, pause |

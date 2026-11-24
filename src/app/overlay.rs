@@ -95,7 +95,7 @@ impl App {
     }
 
     /// The views, the terminals of the bottom panel and the Claude conversations (when there are
-    /// several), each label after `prefix`: Ctrl+K, and the palette after a #.
+    /// several), each label after `prefix` (the palette puts them after a #).
     fn view_items(&self, prefix: &str) -> Vec<Item> {
         let mut v = Vec::new();
         // the views in a tab of every day: Claude, Git, the pull requests

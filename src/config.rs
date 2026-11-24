@@ -65,9 +65,9 @@ pub struct Settings {
     /// Folders whose conversations use an account: "folder=account name" (the longest that
     /// holds the folder of the conversation).
     pub claude_account_folders: Vec<String>,
-    /// Branch and upstream of git repositories on their folder in the tree.
     /// The toolbar of formatting buttons above a Markdown source (the source stays editable).
     pub markdown_toolbar: bool,
+    /// Branch and upstream of git repositories on their folder in the tree.
     pub tree_git_info: bool,
     /// Show git changes inside the editor (deleted lines in red, added in green).
     pub inline_diff: bool,

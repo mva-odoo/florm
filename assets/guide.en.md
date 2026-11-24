@@ -17,6 +17,10 @@ Every shortcut can be changed in **Preferences → Shortcuts** (Ctrl+,).
 | **F12** | Go to definition (also on `'sale.order'` or `'module.xml_id'`) |
 | **Ctrl+.** | Quick fixes for the problem under the cursor (also the light bulb at the end of the line): import a name of the project, ignore (`# noqa`), `ruff --fix`, fix with Claude, and the fixes of the language server in every language (import a name in Go, Rust, TypeScript…), at the top of the list; the cursor can be anywhere on the line |
 | **Alt+Z** | Word wrap of the lines that are too long (display only; ↑ ↓ follow the rows) |
+| **Shift+F12** | Usages of the symbol (language server, else the whole word in the folder) |
+| **Alt+-** / **Alt++** | Go back to the previous cursor position / forward to the next one (across files too) |
+| **Ctrl+Alt+P** | Switch project (each open folder is one, found again as you left it) |
+| **Ctrl+\** | Split the editor: the current file on the right; **Ctrl+1** goes from one side to the other |
 
 The breadcrumbs above the code are clickable: a folder shows its content, the file lists its
 symbols, a class or a function takes you there. The views (Claude, Git, Pull requests (GitHub),
@@ -29,6 +33,22 @@ On the right of the tab strip: **+** opens an empty text tab (Ctrl+N), **▾** a
 On restart (or back to a project), everything comes back as you left it: the tabs and the views,
 the cursor position, the split editor with its tabs on each side, the open bottom panel and the
 sidebar shown or not.
+
+## Editing
+
+- **Several cursors**: **Ctrl+D** selects the word then adds the next occurrence, **Alt+F3**
+  takes them all, **Ctrl+Shift+L** puts a cursor on each selected line, **Ctrl+Alt+↑ / ↓** adds
+  one above / below, **Ctrl+click** where you want. **Alt+drag** (or drag with the middle button)
+  selects a column. What is pasted is spread over the cursors; Escape goes back to one.
+- **Bookmarks**: **Ctrl+F2** sets or removes a bookmark on the line, **F8 / Shift+F8** go to the
+  next / previous one, “Bookmark: list” (palette) shows them in every open file.
+- **Folding**: **Ctrl+Shift+[** folds the block of the cursor, **Ctrl+Shift+]** unfolds it;
+  **Ctrl+K Ctrl+0** folds everything (classes, functions…), **Ctrl+K Ctrl+J** unfolds everything.
+  Also the arrows in the gutter.
+- **XML and HTML tags**: typing `>` at the end of an opening tag (`<field name="x">`) adds its
+  closing tag (`</field>`) after the cursor, and `</` completes the one of the element still open.
+  Nothing for `<br/>`, `<?xml ?>`, `<!-- -->` nor the HTML tags without a closing one (`<br>`,
+  `<img>`…). Follows the “Auto-close brackets” preference (Preferences → Editor).
 
 ## Sidebar
 
@@ -110,9 +130,9 @@ also the search and the debugger if you want. To see two tabs side by side, spli
 ## Find in folder (Ctrl+Shift+F)
 
 Enter runs the search. The results are colored like in the editor; **F4 / Shift+F4** go to the
-next / previous result. the **in a tab** button puts the search in an editor
+next / previous result. The **in a tab** button puts the search in an editor
 tab (more room), **at the bottom** puts it back at the bottom
-(Preferences → Claude to choose where it opens).
+(Preferences → Editor to choose where it opens).
 
 ### Filter the files
 
@@ -410,7 +430,7 @@ in the palette, or **▾ → Debug** in the bottom panel. During a session, the 
 - **F10** next line, **F11** step into the call, **Shift+F11** finish the function, **F5**
   continue, **F6** pause, **Shift+F5** stop, **Ctrl+Shift+F5** restart.
 - **Tests**: right click on the **▶** of a test in the gutter (or **Alt+F6**) runs it under the
-  debugger: an Odoo test in the chosen container (else the tests' one), a pytest, jest,
+  debugger: an Odoo test in the container chosen for the debugger (else with its odoo-bin command), a pytest, jest,
   `cargo test` or `go test` one on this computer.
 - **Exceptions**: stop on those nothing catches, on all of them (Odoo raises many), or when one
   leaves the code of the project. **My code only** does not step into the code of Odoo nor of the
@@ -419,7 +439,7 @@ in the palette, or **▾ → Debug** in the bottom panel. During a session, the 
 ## Templates
 
 **Ctrl+Alt+N** (or Tools → Insert a template): the templates of the type of the current file
-come first. Florm ships none: add your own (see below).
+come first. Florm ships two, `ipdb` and `pdb` (Python: type `ipdb` then Tab); add your own (see below).
 
 The variables are filled from the file: in `estate/views/estate_property_views.xml`,
 `${model}` = `estate.property`, `${model_}` = `estate_property`, `${Model}` = `EstateProperty`,
@@ -670,6 +690,16 @@ requests, Claude, terminal) only open in the browser when they are `http` or `ht
 - **Distraction-free mode** (**Ctrl+K Z**, or View): full screen, only the text, centered; Escape
   or Ctrl+K Z to leave it.
 - Without word wrap, a line going past the right edge fades out: you see that it goes on.
+
+## Shared configuration
+
+The preferences, shortcuts, templates, themes and Claude skills can come from a GitHub
+repository, the same on every computer: **Preferences → Advanced → Shared configuration**, with
+your login (the `login/florm-config` repository), `owner/repo` or a git address. **Create on
+GitHub** makes the repository (private) from this computer; **Publish** sends your changes,
+**Synchronize** fetches those of the others (also at each startup). What is specific to a
+computer (the commands of the debugger, the language servers and the linter, the trusted
+folders, the Claude accounts…) is never shared.
 
 ## Appearance
 

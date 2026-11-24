@@ -354,7 +354,7 @@ flake8 --version || ruff --version
 | Ctrl+Alt+N | Insert a template |
 | Ctrl+Alt+G | Commit graph |
 | Ctrl+Alt+R | GitHub pull requests |
-| Ctrl+F6 / Ctrl+Shift+F6 | Tests (Odoo, pytest, jest, cargo, go): run the last ones again / run the one under the cursor |
+| Ctrl+F6 / Ctrl+Shift+F6 | Tests (pytest, jest, cargo, go): run the last ones again / run the one under the cursor (an Odoo test: Alt+F6, under the debugger) |
 | F5 / Shift+F5 / Ctrl+Shift+F5 | Debugging: start or continue / stop / restart |
 | F9 | Breakpoint on the line |
 | F10 / F11 / Shift+F11 / F6 | Step over / into / out, pause |

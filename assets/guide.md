@@ -17,6 +17,10 @@ Tous les raccourcis se changent dans **Préférences → Raccourcis** (Ctrl+,).
 | **F12** | Aller à la définition (aussi sur `'sale.order'` ou `'module.xml_id'`) |
 | **Ctrl+.** | Corrections rapides du problème sous le curseur (aussi l'ampoule en bout de ligne) : importer un nom du projet, ignorer (`# noqa`), `ruff --fix`, corriger avec Claude, et les corrections du serveur de langage dans tous les langages (importer un nom en Go, Rust, TypeScript…), en tête de liste ; le curseur peut être n'importe où sur la ligne |
 | **Alt+Z** | Retour à la ligne automatique des lignes trop longues (l'affichage seulement ; ↑ ↓ suivent les rangées) |
+| **Maj+F12** | Les usages du symbole (serveur de langage, sinon le mot entier dans le dossier) |
+| **Alt+-** / **Alt++** | Revenir à la position précédente du curseur / aller à la suivante (aussi d'un fichier à l'autre) |
+| **Ctrl+Alt+P** | Changer de projet (chaque dossier ouvert en est un, retrouvé comme tu l'as laissé) |
+| **Ctrl+\** | Diviser l'éditeur : le fichier courant à droite ; **Ctrl+1** passe d'un côté à l'autre |
 
 Le fil d'Ariane au-dessus du code est cliquable : un dossier montre son contenu, le fichier
 liste ses symboles, une classe ou une fonction y emmène. Les vues (Claude, Git, Pull requests (GitHub),
@@ -29,6 +33,23 @@ Deux fichiers ouverts du même nom : leur dossier s'affiche en gris après le ti
 Au redémarrage (ou en revenant sur un projet), tout revient comme tu l'as laissé : les onglets et
 les vues, la position du curseur, l'éditeur divisé avec ses onglets de chaque côté, le panneau du
 bas ouvert et la barre latérale affichée ou non.
+
+## Éditer
+
+- **Plusieurs curseurs** : **Ctrl+D** sélectionne le mot puis ajoute l'occurrence suivante,
+  **Alt+F3** les prend toutes, **Ctrl+Maj+L** met un curseur sur chaque ligne sélectionnée,
+  **Ctrl+Alt+↑ / ↓** en ajoute un au-dessus / en dessous, **Ctrl+clic** où tu veux.
+  **Alt+glisser** (ou glisser avec le clic du milieu) sélectionne en colonne. Ce qui est collé
+  est réparti sur les curseurs ; Échap revient à un seul.
+- **Signets** : **Ctrl+F2** pose ou retire un signet sur la ligne, **F8 / Maj+F8** vont au
+  suivant / précédent, « Signet : liste » (palette) les montre dans tous les fichiers ouverts.
+- **Replier** : **Ctrl+Maj+[** replie le bloc du curseur, **Ctrl+Maj+]** le déplie ; **Ctrl+K
+  Ctrl+0** replie tout (classes, fonctions…), **Ctrl+K Ctrl+J** déplie tout. Aussi les flèches
+  dans la marge.
+- **Balises XML et HTML** : taper `>` à la fin d'une balise ouvrante (`<field name="x">`) ajoute
+  sa fermeture (`</field>`) après le curseur, et `</` complète celle de l'élément encore ouvert.
+  Rien pour `<br/>`, `<?xml ?>`, `<!-- -->` ni les balises HTML sans fermeture (`<br>`, `<img>`…).
+  Suit la préférence « Fermeture automatique » (Préférences → Éditeur).
 
 ## Barre latérale
 
@@ -112,7 +133,7 @@ côte, divise l'éditeur.
 Entrée lance la recherche. Les résultats sont colorés comme dans l'éditeur ; **F4 / Maj+F4**
 passent au résultat suivant / précédent. Le bouton **en onglet** met la recherche dans
 un onglet de l'éditeur (plus de place), **en bas** la remet en bas
-(Préférences → Claude pour choisir où elle s'ouvre).
+(Préférences → Éditeur pour choisir où elle s'ouvre).
 
 ### Filtrer les fichiers
 
@@ -420,7 +441,7 @@ la barre d'état affiche **en cours** ou **en pause** : un clic montre la vue.
 - **F10** ligne suivante, **F11** entrer dans l'appel, **Maj+F11** finir la fonction, **F5**
   continuer, **F6** pause, **Maj+F5** arrêter, **Ctrl+Maj+F5** redémarrer.
 - **Tests** : clic droit sur le **▶** d'un test dans la marge (ou **Alt+F6**) le lance sous le
-  débogueur : un test Odoo dans le conteneur choisi (sinon celui des tests), un test pytest, jest,
+  débogueur : un test Odoo dans le conteneur choisi pour le débogueur (sinon avec sa commande odoo-bin), un test pytest, jest,
   `cargo test` ou `go test` sur cet ordinateur.
 - **Exceptions** : s'arrêter sur celles que rien n'intercepte, sur toutes (Odoo en lève beaucoup),
   ou quand une sort du code du projet. **Mon code seulement** n'entre pas dans le code d'Odoo ni
@@ -429,7 +450,7 @@ la barre d'état affiche **en cours** ou **en pause** : un clic montre la vue.
 ## Modèles
 
 **Ctrl+Alt+N** (ou Outils → Insérer un modèle) : les modèles du type du fichier courant sont
-proposés en premier. Florm n'en livre aucun : ajoutez les vôtres (voir plus bas).
+proposés en premier. Florm en livre deux, `ipdb` et `pdb` (Python : taper `ipdb` puis Tab) ; ajoute les tiens (voir plus bas).
 
 Les variables sont remplies d'après le fichier : dans `estate/views/estate_property_views.xml`,
 `${model}` = `estate.property`, `${model_}` = `estate_property`, `${Model}` = `EstateProperty`,
@@ -689,6 +710,16 @@ navigateur que s'ils sont en `http` ou `https`.
 - **Mode sans distraction** (**Ctrl+K Z**, ou Affichage) : plein écran, seulement le texte,
   centré ; Échap ou Ctrl+K Z pour en sortir.
 - Sans retour à la ligne, une ligne qui dépasse le bord droit s'estompe : on voit qu'elle continue.
+
+## Configuration partagée
+
+Les préférences, raccourcis, modèles, thèmes et skills de Claude peuvent venir d'un dépôt GitHub,
+le même sur chaque ordinateur : **Préférences → Avancé → Configuration partagée**, avec ton login
+(le dépôt `login/florm-config`), `owner/repo` ou une adresse git. **Créer sur GitHub** fait le
+dépôt (privé) à partir de cet ordinateur ; **Publier** envoie tes changements, **Synchroniser**
+récupère ceux des autres (aussi à chaque démarrage). Ce qui est propre à un ordinateur (les
+commandes du débogueur, des serveurs de langage et du linter, les dossiers de confiance, les
+comptes Claude…) n'est jamais partagé.
 
 ## Apparence
 
