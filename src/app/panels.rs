@@ -172,7 +172,6 @@ impl App {
         }
         ui.separator();
         let what = if has_selection { t!("la sélection", "the selection") } else { t!("la ligne", "the line") };
-        item(ui, &tf!("✳ Modifier ou expliquer {what} avec Claude, ici…", "✳ Edit or explain {what} with Claude, here…"), Cmd::ClaudeInline, true);
         item(ui, &tf!("✳ Demander à Claude à propos de {what}…", "✳ Ask Claude about {what}…"), Cmd::ClaudeAsk, has_path);
         item(ui, &tf!("✳ Ajouter {what} au contexte de Claude", "✳ Add {what} to Claude's context"), Cmd::ClaudeAddSelection, has_path);
         item(ui, t!("✳ Ajouter le fichier au contexte de Claude", "✳ Add the file to Claude's context"), Cmd::ClaudeAddFile, has_path);

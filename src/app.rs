@@ -26,7 +26,6 @@ use std::time::{Duration, Instant};
 
 mod git_view;
 mod ai_review;
-mod inline_ai;
 mod ai_complete;
 mod hints;
 mod mermaid;
@@ -997,8 +996,6 @@ pub struct App {
     md_cache: egui_commonmark::CommonMarkCache,
     /// The Markdown preview shown, cut into pieces for the version of its text.
     md_preview: Option<panes::MdPreview>,
-    /// Claude on the selection, in a small window over the editor (Ctrl+I).
-    inline: Option<inline_ai::InlineAsk>,
     /// AI completion while typing (see ai_complete.rs).
     ai: ai_complete::AiComplete,
     /// The letters put on everything clickable (Alt alone), see `hints`.
@@ -1274,7 +1271,6 @@ impl App {
             pending_focus: false,
             md_cache: egui_commonmark::CommonMarkCache::default(),
             md_preview: None,
-            inline: None,
             ai: Default::default(),
             hints: Default::default(),
             repo_init: None,
@@ -1705,7 +1701,6 @@ impl eframe::App for App {
         self.repo_init_ui(ctx);
         self.versions_view_ui(ctx);
         self.version_add_ui(ctx);
-        self.inline_ai_ui(ctx);
         self.overlay_ui(ctx);
         self.confirm_ui(ctx);
         self.hints_ui(ctx);

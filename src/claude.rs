@@ -445,56 +445,6 @@ pub fn clean_completion(text: &str, before: &str, after: &str) -> String {
     lines.join("\n").trim_end().to_string()
 }
 
-/// The answer of Claude about a selection: the code replacing it, or an explanation.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Inline {
-    Code(String),
-    Explain(String),
-}
-
-/// Claude on a piece of a file (`selection`, with the code `before` and `after` it for the
-/// context): the new code for `ask`, or an explanation if it is a question.
-pub fn inline(dir: &Path, file: &str, before: &str, selection: &str, after: &str, ask: &str) -> Result<Inline, String> {
-    let prompt = tf!(
-        "Tu travailles sur un extrait du fichier {file}. L'entrée standard contient le code autour, pour le contexte, \
-         et l'extrait lui-même entre les lignes <extrait> et </extrait>.\n\
-         Demande : {ask}\n\n\
-         Si la demande est de modifier, réponds uniquement par le nouveau code qui remplace l'extrait (lui seul, pas le code \
-         autour), avec la même indentation, sans bloc de code, sans balise, sans explication.\n\
-         Si c'est une question (expliquer, trouver un bug…), réponds par la ligne EXPLICATION: puis ta réponse, courte, en \
-         Markdown, en français.",
-        "You work on an excerpt of the file {file}. The standard input holds the code around it, for the context, \
-         and the excerpt itself between the lines <extrait> and </extrait>.\n\
-         Request: {ask}\n\n\
-         If the request is to change it, answer only with the new code replacing the excerpt (it alone, not the code \
-         around), with the same indentation, without code block, without tag, without explanation.\n\
-         If it is a question (explain, find a bug…), answer with the line EXPLICATION: then your answer, short, in \
-         Markdown, in English."
-    );
-    let input = format!("{before}\n<extrait>\n{selection}\n</extrait>\n{after}");
-    let text = run_once(dir,&["-p", &prompt, "--output-format", "text", "--model", "sonnet", "--tools", "", "--strict-mcp-config", "--setting-sources", "user", "--no-session-persistence"], input)?;
-    Ok(parse_inline(&text))
-}
-
-/// Code (its fence or tags removed) or explanation.
-fn parse_inline(text: &str) -> Inline {
-    let t = text.trim_start();
-    if let Some(rest) = t.strip_prefix("EXPLICATION:").or_else(|| t.strip_prefix("EXPLICATION :")) {
-        return Inline::Explain(rest.trim().to_string());
-    }
-    // the indentation of the first line is kept: only blank lines are taken off
-    let blank = |s: &str| s.trim_matches(['\n', '\r']).to_string();
-    let mut code = blank(text.trim_end());
-    if let Some(r) = code.trim_start().strip_prefix("<extrait>").and_then(|r| r.strip_suffix("</extrait>")) {
-        code = blank(r);
-    }
-    if let Some(r) = code.trim_start().strip_prefix("```") {
-        let body = r.split_once('\n').map_or("", |(_, b)| b);
-        code = blank(body.trim_end().strip_suffix("```").unwrap_or(body));
-    }
-    Inline::Code(code)
-}
-
 /// A remark of an AI review, about a line of the diff (`line` 0 / `path` empty: about the whole).
 #[derive(Clone, Debug, PartialEq)]
 pub struct ReviewNote {
@@ -705,10 +655,6 @@ mod tests {
                 ReviewNote { path: "x.py".into(), line: 2, side: "LEFT".into(), severity: "nit".into(), body: "ok".into() },
             ]
         );
-        assert_eq!(parse_inline("    x = 1\n    y = 2\n"), Inline::Code("    x = 1\n    y = 2".into()));
-        assert_eq!(parse_inline("```python\n    x = 1\n```"), Inline::Code("    x = 1".into()));
-        assert_eq!(parse_inline("<extrait>\n  a\n</extrait>"), Inline::Code("  a".into()));
-        assert_eq!(parse_inline("EXPLICATION: Ça trie la liste."), Inline::Explain("Ça trie la liste.".into()));
         assert_eq!(parse_review("Rien à redire (voir [R12]) : []").unwrap(), vec![]);
         assert!(parse_review("désolé").is_err());
     }

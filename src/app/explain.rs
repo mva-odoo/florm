@@ -17,16 +17,16 @@ fn how() -> &'static str {
 }
 
 impl App {
-    /// `text` sent to a conversation in `dir`: the one shown when it works there (it may know why
-    /// the changes were made), else a new one.
-    fn explain_send(&mut self, dir: PathBuf, text: String, reuse_busy: bool) {
+    /// `text` sent to a conversation in `dir`: the one shown when it works there (`reuse_busy`: even
+    /// when it already talked, it may know why the changes were made), else a new one.
+    pub(super) fn claude_send_in(&mut self, dir: PathBuf, text: String, reuse_busy: bool) {
         let here = self.claude.dir.as_deref() == Some(dir.as_path());
         if !(here && (reuse_busy || self.claude.is_empty())) {
             self.claude_new_in(dir);
         }
         self.open_claude();
         if self.claude_send_text(text) {
-            self.set_status(t!("🗺 Demandé à Claude", "🗺 Asked Claude"));
+            self.set_status(t!("✳ Demandé à Claude", "✳ Asked Claude"));
         }
     }
 
@@ -43,7 +43,7 @@ impl App {
         );
         // the conversation shown may be the one that made them
         let dir = if self.claude.dir.as_deref() == Some(repo.as_path()) { repo } else { root };
-        self.explain_send(dir, text, true);
+        self.claude_send_in(dir, text, true);
     }
 
     /// 🗺 Pull request `d`.
@@ -55,7 +55,7 @@ impl App {
             d.title,
             how()
         );
-        self.explain_send(repo, text, false);
+        self.claude_send_in(repo, text, false);
     }
 
     /// 🗺 A conversation (`id`) of pull request `d`.
@@ -70,6 +70,6 @@ impl App {
             d.title,
             super::pr_claude::thread_text(t)
         );
-        self.explain_send(repo, text, false);
+        self.claude_send_in(repo, text, false);
     }
 }

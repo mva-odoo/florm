@@ -48,7 +48,6 @@ impl App {
                 JobResult::AiReview(key, r) => self.ai_review_loaded(key, r),
                 JobResult::Spelled { uid, version, list } => self.on_spelled(uid, version, list),
                 JobResult::AiRefined { key, id, result } => self.ai_refined(key, id, result),
-                JobResult::InlineAi(n, r) => self.inline_ai_loaded(n, r),
                 JobResult::AiComplete(n, r) => self.ai_complete_loaded(n, r),
                 JobResult::CopilotState(r) => self.copilot_state(r),
                 JobResult::CopilotCode(r) => self.copilot_code(r),

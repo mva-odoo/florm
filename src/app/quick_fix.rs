@@ -181,8 +181,9 @@ impl App {
         if python && !d.read_only && lint::is_installed("ruff") && problems.iter().any(|g| matches!(g.source.as_str(), "ruff" | "flake8" | "pyflakes")) {
             out.push((t!("Corriger tout ce qui peut l'être dans le fichier (ruff --fix)", "Fix everything that can be in the file (ruff --fix)").into(), Fix::Cmd(Cmd::FixDocument)));
         }
-        if let Some(g) = problems.first().filter(|_| crate::features::on(crate::features::Feature::Claude)) {
-            let ask = tf!("Corrige ce problème signalé par {} : {}", "Fix this problem reported by {}: {}", g.source, g.message);
+        if let Some(g) = problems.first().filter(|_| crate::features::on(crate::features::Feature::Claude) && d.path.is_some()) {
+            let place = d.path.as_deref().map(|p| format!("{}:{}", p.display(), line + 1)).unwrap_or_default();
+            let ask = tf!("Corrige ce problème signalé par {} à {place} : {}", "Fix this problem reported by {} at {place}: {}", g.source, g.message);
             out.push((tf!("✳ Corriger avec Claude : {}", "✳ Fix with Claude: {}", g.message), Fix::Claude(ask)));
         }
         out
@@ -299,12 +300,12 @@ impl App {
                 Err(e) => self.set_error(tf!("Dictionnaire : {e}", "Dictionary: {e}")),
             },
             Fix::Cmd(cmd) => self.pending.push(cmd),
+            // in the Claude tab, in the conversation of the project (it reads the file itself)
             Fix::Claude(ask) => {
-                self.inline_ai_open();
-                if let Some(st) = self.inline.as_mut() {
-                    st.ask = ask;
+                let dir = self.docs.get(self.active).and_then(|d| d.path.clone()).and_then(|p| self.repo_for(&p).or_else(|| self.root.clone()).or_else(|| p.parent().map(Path::to_path_buf)));
+                if let Some(dir) = dir {
+                    self.claude_send_in(dir, ask, true);
                 }
-                self.inline_ai_send();
             }
             Fix::Lsp(ci, a) => self.run_code_action(ci, a, ctx),
         }

@@ -54,8 +54,6 @@ pub enum JobResult {
     Spelled { uid: u64, version: u64, list: Vec<crate::spell::Misspelled> },
     /// Claude's answer about a remark of a review: (key of the review, id of the remark).
     AiRefined { key: String, id: u64, result: Result<(String, Option<String>), String> },
-    /// Answer of Claude on a selection in the editor (number of the question).
-    InlineAi(u64, Result<crate::claude::Inline, String>),
     /// Suggestion of the AI completion (number of the request); empty: nothing to suggest.
     AiComplete(u64, Result<String, String>),
     /// Where GitHub Copilot stands ("OK", "NotSignedIn"…), after a check, an installation or a sign-in.
