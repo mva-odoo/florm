@@ -47,10 +47,9 @@ pub struct Settings {
     /// Claude's commands run in the sandbox of Claude Code (bubblewrap on Linux, Seatbelt on macOS).
     pub claude_sandbox: bool,
     /// Parts that can be turned off: Git (off by itself without `git`), GitHub (pull requests),
-    /// the debugger, Claude.
+    /// Claude.
     pub git: bool,
     pub github: bool,
-    pub debugger: bool,
     pub claude: bool,
     /// The panel of the session (context, cost, quotas) on the right of Claude.
     pub claude_review: bool,
@@ -114,30 +113,8 @@ pub struct Settings {
     /// Look for a newer release of Florm at startup (GitHub).
     pub check_updates: bool,
     /// Last test commands run, newest first.
-    pub odoo_test_history: Vec<String>,
-    /// Views opened in an editor tab rather than in the bottom panel: "debug" (search has its own
-    /// setting; Git, the pull requests and Claude are always in a tab). ⇱ / ⇲ in a view change it.
-    pub views_in_tab: Vec<String>,
-    /// Debugger: the container the program runs in, empty for this computer.
-    pub debug_target: String,
-    /// "launch" (Florm starts the program) or "attach" (it listens with debugpy).
-    pub debug_mode: String,
-    /// Python program launched here and its arguments; empty: the odoo-bin of the folder.
-    pub debug_command: String,
-    /// The same for Node, Rust / C and Go; empty: `npm start`, `cargo run`, `go run .`…
-    pub debug_command_node: String,
-    pub debug_command_native: String,
-    pub debug_command_go: String,
-    /// Program launched in the container; empty: `debug::DOCKER_COMMAND`.
-    pub debug_docker_command: String,
-    /// Python of this computer (with debugpy).
-    pub debug_python: String,
-    /// Attach: the port debugpy listens on (in the container, for Docker).
-    pub debug_port: u16,
-    /// Exceptions the debugger stops on: "raised", "uncaught", "userUnhandled".
-    pub debug_exceptions: Vec<String>,
-    /// Step through the code of the project only, not Odoo's nor the libraries'.
-    pub debug_just_my_code: bool,
+    #[serde(alias = "odoo_test_history")]
+    pub test_history: Vec<String>,
     /// State of the pull requests shown at the start: "open", "merged", "closed" or "all".
     pub pr_default_state: String,
     /// Whose pull requests are shown at the start: "mine", "all", "to_review" or "reviewed".
@@ -192,7 +169,6 @@ impl Default for Settings {
             claude_sandbox: true,
             git: true,
             github: true,
-            debugger: true,
             claude: true,
             claude_review: true,
             claude_done_blink: true,
@@ -226,19 +202,7 @@ impl Default for Settings {
             exclude: ["__pycache__/", "*.pyc", "node_modules/", ".venv/", "*.egg-info/"].map(String::from).to_vec(),
             index_max_files: 150_000,
             check_updates: true,
-            odoo_test_history: Vec::new(),
-            views_in_tab: vec!["debug".into()],
-            debug_target: String::new(),
-            debug_mode: "launch".into(),
-            debug_command: String::new(),
-            debug_command_node: String::new(),
-            debug_command_native: String::new(),
-            debug_command_go: String::new(),
-            debug_docker_command: String::new(),
-            debug_python: if cfg!(windows) { "python".into() } else { "python3".into() },
-            debug_port: 5678,
-            debug_exceptions: vec!["uncaught".into()],
-            debug_just_my_code: false,
+            test_history: Vec::new(),
             pr_default_state: "open".into(),
             pr_default_who: "mine".into(),
             pr_show_resolved: false,
@@ -294,7 +258,6 @@ diff_side_by_side = false
 # Git est actif dès que la commande git est installée
 git = true
 github = false
-debugger = false
 claude = false
 # les commandes de Claude tournent dans le bac à sable de Claude Code : écriture dans le projet seulement,
 # réseau filtré (Linux : paquets bubblewrap et socat ; macOS : Seatbelt, intégré ; pas sous Windows).
@@ -308,9 +271,6 @@ claude_accounts = []
 claude_account = ""
 # dossiers dont les conversations utilisent un compte : "dossier=nom du compte"
 claude_account_folders = []
-# le débogage s'ouvre dans un onglet ("debug") plutôt que dans le panneau du bas ; ⇱ / ⇲ dans son
-# en-tête changent ce choix (Git, Pull requests et Claude sont toujours dans un onglet)
-views_in_tab = ["debug"]
 # barre de mise en forme au-dessus du Markdown (le texte reste modifiable à la main)
 markdown_toolbar = true
 # branche et branche distante des dépôts git sur leur dossier dans l'arborescence
@@ -354,14 +314,6 @@ exclude = ["__pycache__/", "*.pyc", "node_modules/", ".venv/", "*.egg-info/"]
 index_max_files = 150000
 # chercher une nouvelle version de Florm au démarrage (releases GitHub)
 check_updates = true
-# débogueur (F5, vue Débogage) : programme Python lancé sur cet ordinateur (vide = l'odoo-bin du
-# dossier) et dans un conteneur (vide = "odoo --workers 0 --http-port 8070") ; ceux de Node, Rust /
-# C et Go (vides = npm start ou le "main" de package.json, cargo run, go run .)
-debug_command = ""
-debug_docker_command = ""
-debug_command_node = ""
-debug_command_native = ""
-debug_command_go = ""
 # pull requests : état affiché au départ ("open", "merged", "closed", "all"), auteur ("mine",
 # "all", "to_review", "reviewed"), conversations résolues affichées, nouvelle PR en brouillon
 pr_default_state = "open"

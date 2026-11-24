@@ -158,13 +158,8 @@ pub enum JobResult {
     /// Symbols of the whole project (go to definition, completion).
     /// `bool`: only the repositories being worked on so far, the whole index follows.
     SymbolIndex(PathBuf, crate::index::Index, bool),
-    /// The debugger checked what it needs and found the program (or not).
-    /// A debugging session prepared (its number: a later one replaces it).
-    DebugReady { id: u64, cfg: crate::dap::Config, title: String, result: Result<crate::dap::Prepared, crate::dap::Failure> },
-    /// The running containers, for the debugger.
-    DebugContainers(Result<Vec<String>, String>),
-    /// A file of a container read for the debugger: its path there, the line to show.
-    DebugSource { remote: String, line: usize, result: Result<String, String> },
+    /// What a commit adds was read: its breakpoints (`ipdb`…, file and line) before it is done.
+    CommitChecked { repo: PathBuf, args: Vec<String>, traces: Vec<(String, usize)> },
     Update { manual: bool, result: Result<Option<crate::update::Update>, String> },
     /// Update downloaded and installed: the program to start for the restart.
     UpdateInstalled { version: String, result: Result<std::path::PathBuf, String> },

@@ -125,7 +125,6 @@ impl App {
             search_include: self.search.q.include.clone(),
             search_exclude: self.search.q.exclude.clone(),
             recent: self.index.recent.clone(),
-            breakpoints: self.debug_session_breakpoints(),
             split: self.is_split().then(|| if self.panes.split_dir == SplitDir::Down { "down" } else { "right" }.to_string()),
             bottom: self.bottom.map(|b| b.key()),
             sidebar_hidden: !self.show_sidebar,
@@ -195,10 +194,8 @@ impl App {
 
     fn restore_session(&mut self) {
         self.index.recent.clear();
-        self.debug_set_breakpoints(Vec::new());
         let Some(root) = self.root.clone() else { return };
         let Some(s) = project::load_session(&root) else { return };
-        self.debug_set_breakpoints(s.breakpoints.clone());
         self.index.recent = s.recent.iter().filter(|p| p.is_file()).cloned().collect();
         if !s.search_include.is_empty() {
             self.search.q.include = s.search_include;
@@ -270,7 +267,7 @@ impl App {
         }
         self.show_sidebar = !s.sidebar_hidden;
         self.claude_restore_listed(&s.claude_listed);
-        if let Some(b) = s.bottom.as_deref().and_then(BottomTab::from_key).filter(|b| b.feature_on()) {
+        if let Some(b) = s.bottom.as_deref().and_then(BottomTab::from_key) {
             self.show_bottom(b, false);
             // back where it was, without taking the keyboard from the editor
             self.search.focus = false;
@@ -287,7 +284,6 @@ impl App {
         Some(match d.view {
             View::Claude => format!("claude:{}", self.claude_tab_key(d.uid)),
             View::PullRequests => "pulls".into(),
-            View::Debug => "debug".into(),
             View::Search => "search".into(),
             View::Help => "help".into(),
             View::Welcome => "welcome".into(),
@@ -304,11 +300,9 @@ impl App {
         match view.split_once(':').unwrap_or((view, "")) {
             ("claude", _) if !on(Feature::Claude) => return false,
             ("pulls", _) if !on(Feature::GitHub) => return false,
-            ("debug", _) if !on(Feature::Debugger) => return false,
             ("git", _) if !on(Feature::Git) => return false,
             ("claude", key) => self.claude_restore_tab(key.parse().unwrap_or(0)),
             ("pulls", _) => self.open_pulls(),
-            ("debug", _) => self.open_debug(),
             ("git", _) => self.open_git_view(),
             ("settings", _) => self.open_settings(),
             ("search", _) => self.open_search_tab(),

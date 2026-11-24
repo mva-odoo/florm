@@ -35,9 +35,6 @@ pub struct Session {
     /// Files opened lately, most recent first (go to file shows them first).
     #[serde(default)]
     pub recent: Vec<PathBuf>,
-    /// Breakpoints of the debugger.
-    #[serde(default)]
-    pub breakpoints: Vec<SessionBreakpoint>,
     /// The editor split: "right" or "down" (the tabs say in which pane they are).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub split: Option<String>,
@@ -53,15 +50,6 @@ pub struct Session {
     /// The conversations of the list of the Claude tab (their key in the history of Claude).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub claude_listed: Vec<u64>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct SessionBreakpoint {
-    pub path: PathBuf,
-    /// 0-based.
-    pub line: usize,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub condition: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -290,7 +278,6 @@ mod tests {
                 SessionFile { path: PathBuf::new(), line: 0, col: 0, backup: None, bookmarks: Vec::new(), view: Some("claude:12".into()), pane: 0, shown: false },
             ],
             recent: vec!["/a/b.py".into()],
-            breakpoints: vec![SessionBreakpoint { path: "/a/b.py".into(), line: 4, condition: "x > 1".into() }, SessionBreakpoint { path: "/a/b.py".into(), line: 9, condition: String::new() }],
             ..Default::default()
         };
         let back: Session = toml::from_str(&toml::to_string(&s).unwrap()).unwrap();
@@ -298,7 +285,6 @@ mod tests {
         assert_eq!(back.files[0].backup.as_deref(), Some("doc0.txt"));
         assert_eq!(back.files[0].bookmarks, [2, 7]);
         assert_eq!(back.recent.len(), 1);
-        assert_eq!(back.breakpoints, s.breakpoints);
         assert_eq!((back.files[0].view.as_deref(), back.files[1].view.as_deref()), (None, Some("claude:12")));
         // sessions written before hot exit still load
         let old: Session = toml::from_str("active = 0\n[[files]]\npath = \"/x\"\nline = 1\ncol = 2\n").unwrap();

@@ -1,5 +1,5 @@
-//! Shown by a view instead of its content when the program it drives is missing (gh, claude,
-//! docker): how to install it on this system, each command to copy or to type in a terminal, and
+//! Shown by a view instead of its content when the program it drives is missing (git, gh,
+//! claude): how to install it on this system, each command to copy or to type in a terminal, and
 //! the view comes back by itself once the program is found (looked for again every 2 s). Also
 //! under the switch of a part turned off in the preferences: what it needs, installed or not.
 
@@ -13,8 +13,6 @@ const SYSTEMS: [System; 7] = [System::Arch, System::Debian, System::Fedora, Syst
 enum GuideAct {
     Type(String),
     Copy(String),
-    /// A command run in a terminal of the bottom panel (installing debugpy).
-    Run(Vec<String>),
     Check,
 }
 
@@ -52,15 +50,6 @@ fn need_line(ui: &mut egui::Ui, name: &str, ok: bool) {
         ui.label(RichText::new(name).strong());
         ui.label(RichText::new(state).weak());
     });
-}
-
-/// A Python given by its path (a virtualenv) or by its name in the PATH.
-fn python_found(python: &str) -> bool {
-    if python.contains('/') || python.contains('\\') {
-        std::path::Path::new(python).is_file()
-    } else {
-        crate::tools::locate(python)
-    }
 }
 
 impl App {
@@ -137,29 +126,15 @@ impl App {
         let sys = crate::tools::system();
         let code_bg = ui.visuals().extreme_bg_color;
         let accent = self.hl.colors.accent;
-        let python = Some(self.settings.debug_python.trim()).filter(|p| !p.is_empty()).unwrap_or(Tool::Python.program()).to_string();
-        // debugpy is looked for by running Python: once, then on "Check again" or another Python
-        let py_id = egui::Id::new("feature_needs_python");
-        let mut act = None;
-        let mut py: Option<(String, bool, bool)> = None;
-        if f == Feature::Debugger {
-            py = ui.ctx().data(|d| d.get_temp::<(String, bool, bool)>(py_id)).filter(|(p, ..)| *p == python);
-            if py.is_none() {
-                let found = python_found(&python);
-                let v = (python.clone(), found, found && crate::dap::has_debugpy(&python));
-                ui.ctx().data_mut(|d| d.insert_temp(py_id, v.clone()));
-                py = Some(v);
-            }
-        }
         let tools: &[Tool] = match f {
             Feature::GitHub => &[Tool::Gh],
             Feature::Claude => &[Tool::Claude],
-            Feature::Debugger => &[],
             Feature::Git => &[Tool::Git],
         };
         ui.add_space(12.0);
         ui.label(RichText::new(t!("Ce qu'il faut pour l'activer", "What it needs to be turned on")).strong());
         ui.add_space(6.0);
+        let mut act = None;
         let mut missing = false;
         for &tool in tools {
             let ok = tool.installed();
@@ -171,40 +146,6 @@ impl App {
                     ui.add_space(6.0);
                     guide_steps(ui, tool.steps(sys), code_bg, &mut act);
                     ui.hyperlink_to(t!("Documentation officielle", "Official documentation"), tool.docs_url());
-                });
-            }
-        }
-        if let Some((_, has_python, has_debugpy)) = py {
-            missing |= !(has_python && has_debugpy);
-            need_line(ui, &tf!("Python ({python})", "Python ({python})"), has_python);
-            if !has_python {
-                ui.indent("python", |ui| {
-                    ui.label(RichText::new(Tool::Python.purpose()).weak().size(12.5));
-                    ui.label(
-                        RichText::new(t!(
-                            "Ou indique plus bas le Python à utiliser (un virtualenv…), une fois le débogueur activé.",
-                            "Or set below the Python to use (a virtualenv…), once the debugger is on."
-                        ))
-                        .weak()
-                        .size(12.5),
-                    );
-                    ui.add_space(6.0);
-                    guide_steps(ui, Tool::Python.steps(sys), code_bg, &mut act);
-                    ui.hyperlink_to(t!("Documentation officielle", "Official documentation"), Tool::Python.docs_url());
-                });
-            }
-            need_line(ui, "debugpy", has_debugpy);
-            if has_python && !has_debugpy {
-                ui.indent("debugpy", |ui| {
-                    ui.label(
-                        RichText::new(t!("Le module de Python qui fait le lien entre le programme et le débogueur.", "The Python module that links the program to the debugger.")).weak().size(12.5),
-                    );
-                    ui.add_space(4.0);
-                    let install = crate::dap::local_install(&python);
-                    if ui.button(t!("Installer debugpy", "Install debugpy")).on_hover_text(install.join(" ")).clicked() {
-                        act = Some(GuideAct::Run(install));
-                    }
-                    ui.add_space(8.0);
                 });
             }
         }
@@ -228,7 +169,6 @@ impl App {
                 for &tool in tools {
                     tool.forget();
                 }
-                ui.ctx().data_mut(|d| d.remove::<(String, bool, bool)>(py_id));
             }
             Some(a) => self.guide_act(a, true),
             None => {}
@@ -241,17 +181,6 @@ impl App {
             GuideAct::Copy(cmd) => {
                 self.egui_ctx.copy_text(cmd);
                 self.set_status(t!("Commande copiée", "Command copied"));
-            }
-            GuideAct::Run(argv) => {
-                let ctx = self.egui_ctx.clone();
-                match self.term.open_command_panel(&ctx, &argv, self.root.clone()) {
-                    Ok(id) => {
-                        self.term.set_name(id, t!("Installation de debugpy", "Installing debugpy").to_string());
-                        self.bottom = Some(BottomTab::Terminal);
-                        self.set_status(t!("Une fois debugpy installé : « Vérifier à nouveau »", "Once debugpy is installed: “Check again”"));
-                    }
-                    Err(e) => self.set_error(tf!("Terminal impossible à ouvrir : {e}", "Cannot open a terminal: {e}")),
-                }
             }
             GuideAct::Check => {}
         }

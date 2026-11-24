@@ -28,7 +28,7 @@ terminal…) n'en ont pas : elles gardent toute la hauteur.
 
 Deux fichiers ouverts du même nom : leur dossier s'affiche en gris après le titre (`input.rs …/app`). Un fichier avec des erreurs montre leur nombre en rouge (`9+` au-delà de neuf).
 
-À droite de la barre d'onglets : **+** ouvre un onglet texte vide (Ctrl+N), **▾** une vue dans un onglet, chacune avec son icône : Recherche, Claude, Git, Pull requests (GitHub), Débogage, puis Terminal, Préférences et Accueil. Un titre trop long (une conversation, une pull request) est coupé par « … », entier au survol. Quand les onglets ne tiennent plus dans la barre, ‹ › les font défiler et le même **▾** liste en haut tous les onglets ouverts.
+À droite de la barre d'onglets : **+** ouvre un onglet texte vide (Ctrl+N), **▾** une vue dans un onglet, chacune avec son icône : Recherche, Claude, Git, Pull requests (GitHub), puis Terminal, Préférences et Accueil. Un titre trop long (une conversation, une pull request) est coupé par « … », entier au survol. Quand les onglets ne tiennent plus dans la barre, ‹ › les font défiler et le même **▾** liste en haut tous les onglets ouverts.
 
 Au redémarrage (ou en revenant sur un projet), tout revient comme tu l'as laissé : les onglets et
 les vues, la position du curseur, l'éditeur divisé avec ses onglets de chaque côté, le panneau du
@@ -110,22 +110,21 @@ bas ouvert et la barre latérale affichée ou non.
 
 Une règle simple : **les fichiers et les vues qui demandent de la place (Claude, Git, Pull requests
 (GitHub)) vont dans les onglets ; le panneau du bas garde ce qui accompagne le travail** : terminal,
-problèmes, sortie, et aussi la recherche et le débogage si tu le veux. Pour voir deux onglets côte à
+problèmes, sortie, et aussi la recherche si tu le veux. Pour voir deux onglets côte à
 côte, divise l'éditeur.
 
 - **Le panneau du bas montre une vue à la fois**, sans rangée d'onglets : son nom en haut à gauche,
-  **▾** pour passer à une autre (avec son raccourci, et ce qui attend : nombre de problèmes, ⏸ quand
-  le débogueur est arrêté) ; sous « Terminal » les terminaux ouverts. **Ctrl+Shift+J** l'affiche ou
+  **▾** pour passer à une autre (avec son raccourci, et ce qui attend : nombre de problèmes) ; sous « Terminal » les terminaux ouverts. **Ctrl+Shift+J** l'affiche ou
   le masque.
-- **⇱ / ⇲ dans l'en-tête de la recherche et du débogage** les met dans un onglet ou dans le panneau
-  du bas, et Florm s'en souvient : leur raccourci, la palette, la barre d'état et ▾ les ouvriront
+- **⇱ / ⇲ dans l'en-tête de la recherche** la met dans un onglet ou dans le panneau
+  du bas, et Florm s'en souvient : son raccourci, la palette et ▾ l'ouvriront
   ensuite au même endroit. Une vue qui a déjà son onglet s'y affiche, jamais à deux endroits.
 - **La barre d'état ne montre que ce qui se passe** : à gauche l'icône des **Préférences**, puis celles de **Claude**, **Git**,
   **Pull requests** (un clic ouvre son onglet, un autre revient à l'onglet d'avant ; en couleur quand
   il est affiché) et **Terminal** (le terminal du panneau du bas) ; à droite la branche (**↑** commits à
   pousser, **↓** à récupérer, **●** fichiers modifiés) du dépôt du fichier affiché (il suit les
   onglets ; un dépôt choisi dans la vue Git reste jusqu'au prochain fichier affiché), puis, seulement quand c'est le cas, Claude
-  (**au travail**, ou **✔** quand il a fini : un clic montre la réponse), le débogage (**en cours** / **en pause**), et les problèmes. Au repos, elle est presque vide.
+  (**au travail**, ou **✔** quand il a fini : un clic montre la réponse), et les problèmes. Au repos, elle est presque vide.
 - Les Préférences : **Ctrl+,**, le menu ou la palette.
 
 ## Rechercher dans le dossier (Ctrl+Shift+F)
@@ -307,7 +306,7 @@ Les opérations lancées depuis Florm mettent la version d'origine entre les deu
 
 - **Ctrl+`** : le terminal dans le panneau du bas.
 - **Les raccourcis dans un terminal** (et dans Claude) : Ctrl+lettre (Ctrl+C, Ctrl+R, Ctrl+D…),
-  Alt+lettre et Ctrl+Maj+C / V / F vont au shell ; les touches F (F5, F9…), les Ctrl+Alt+…, les
+  Alt+lettre et Ctrl+Maj+C / V / F vont au shell ; les touches F (F9, F12…), les Ctrl+Alt+…, les
   autres Ctrl+Maj+… (Ctrl+Maj+G, Ctrl+Maj+J…) et Ctrl+Tab, Ctrl+PgUp / PgDn restent à Florm.
 - **Maj+Entrée** (ou Alt / Option+Entrée) va à la ligne sans envoyer, dans Claude comme dans zsh
   et fish.
@@ -344,7 +343,7 @@ Les opérations lancées depuis Florm mettent la version d'origine entre les deu
 - Dans le panneau du bas, **un terminal à la fois** : son dossier en haut, **+** en ouvre un autre,
   **⇱** l'envoie dans un onglet (**en bas** dans l'onglet le ramène). Les autres terminaux sont dans
   **▾**, sous « Terminal » : clic pour y passer, **×** au survol pour le fermer.
-- Toutes les vues (Recherche, Git, Pull requests (GitHub), Claude, Débogage, Terminal) ont à droite de
+- Toutes les vues (Recherche, Git, Pull requests (GitHub), Claude, Terminal) ont à droite de
   leur en-tête les mêmes boutons, dans le même ordre : **⟳** relire, **en onglet / en bas**
   (une petite fenêtre : avec un onglet en haut, ou une bande en bas ; retenu pour la prochaine fois), **⋯** les autres actions et
   options. Les boutons de disposition se ressemblent tous : les quatre coins agrandissent un
@@ -373,9 +372,9 @@ ce dossier et ceux qu'il contient (clé `trusted_folders` de `settings.toml`) ; 
 barre jusqu'à la fermeture de Florm. **Préférences → Lint → Dossiers de confiance** les liste ; × retire
 la confiance d'un dossier, qui repasse en mode restreint.
 
-## Tests (pytest, jest, cargo, go)
+## Tests (Odoo, pytest, jest, cargo, go)
 
-Les tests de n'importe quel projet se lancent sur cet ordinateur, sans rien régler :
+Les tests de n'importe quel projet se lancent dans le terminal du panneau du bas :
 
 - **pytest** pour `test_*.py` et `*_test.py` (le `pytest` du `.venv` du projet s'il y en a un),
   **jest** (ou **vitest**, si `package.json` le demande) pour `*.test.js`, `*.spec.ts`…,
@@ -385,68 +384,38 @@ Les tests de n'importe quel projet se lancent sur cet ordinateur, sans rien rég
   `cargo test app::calc::tests::adds`…) : dans « Tests : lancer des tests… », on peut la modifier avant
   Entrée. Un projet dans un sous-dossier commence par `cd sous-dossier && `.
 - La sortie s'affiche dans le panneau du bas, le résumé (✔ ou ⚠, réussis et en échec) dans la barre d'état.
+- Un `ipdb` dans un test s'arrête dans ce terminal, et l'éditeur suit (voir « Points d'arrêt »).
 
-## Tests Odoo
+**Tests Odoo** (fichiers `tests/test_*.py` d'un module, le dossier qui contient `__manifest__.py`) :
+le ▶ et le curseur donnent les tags du test (`/sale:TestSaleOrder.test_confirm`, `/sale` hors
+d'un test). La première fois, la commande s'affiche pour la compléter (la base `-d`, `-u sale`,
+un `docker compose exec odoo …` devant) : `./odoo-bin --stop-after-init --test-enable --test-tags
+/sale:TestSaleOrder` avec l'`odoo-bin` trouvé dans le projet, sinon `odoo`. Ensuite, chaque ▶ et
+Ctrl+Maj+F6 reprennent **la dernière commande de tests Odoo lancée** en ne changeant que ses tags :
+la base, les options et le conteneur restent. Pour en changer, « Tests : lancer des tests… » et
+modifier la commande. Le résumé lu dans le log (`1 failed, 0 error(s) of 12 tests`) va dans la
+barre d'état ; **Ctrl+clic** sur une ligne `File "…", line N` ouvre le fichier.
 
-Un test Odoo se débogue avec **Alt+F6** (curseur dans le test) : il tourne sous le débogueur, sur cet
-ordinateur avec l'`odoo-bin` du dossier ou dans le conteneur du débogueur. Pour simplement les
-lancer, un terminal suffit (`odoo --test-enable --test-tags …`) ; **Ctrl+clic** sur une ligne
-`File "…", line N` y ouvre le fichier.
+## Points d'arrêt (ipdb)
 
-## Débogueur
+Pas de débogueur à configurer : le point d'arrêt est une ligne `ipdb` dans le code, et le
+programme s'arrête dans le terminal où il tourne, quelle que soit sa commande (`-d`, `-u`, un
+conteneur…).
 
-Comme celui de VS Code, pour Python (et Odoo, aussi dans un conteneur Docker), Node, Rust, C et
-Go. **Débogage** dans la palette, ou **▾ → Débogage** dans le panneau du bas. Pendant une session,
-la barre d'état affiche **en cours** ou **en pause** : un clic montre la vue.
-
-- **Node, Rust, C, Go** : Florm reconnaît le projet (`package.json`, `Cargo.toml`, `go.mod`) et
-  lance sur cet ordinateur `npm start` (ou le `main` de `package.json`), `cargo run`, `go run .` ;
-  **Modifier…** change la commande (`node app.js --port 3000`, `cargo run -- --verbose`,
-  `go run ./cmd/app`). Le débogueur de chacun :
-  - **Node** : js-debug, celui de VS Code, téléchargé une fois (1 Mo) et vérifié ;
-  - **Rust et C** : `lldb-dap`, sinon `gdb` (version 14 ou plus). Florm compile d'abord
-    (`cargo build`) ;
-  - **Go** : delve (`dlv`), cherché aussi dans `~/go/bin`.
-  S'il manque, la vue le dit, avec un bouton **Installer**.
-- **Point d'arrêt** : clic à gauche des numéros de ligne (ou **F9**). Un rond
-  rouge. Dans la liste **Points d'arrêt**, une **condition** (`self.id == 7`) ne s'arrête que
-  quand elle est vraie. Ils suivent les lignes quand le fichier change et sont gardés avec le projet.
-- **F5** démarre. En haut de la vue : **Où** (cet ordinateur ou un conteneur), **Lancer** ou
-  **S'attacher**, et la commande.
-  - **Lancer** ici : la commande (par défaut l'`odoo-bin` du dossier, `--workers 0`) tourne dans
-    le panneau du bas, avec ses logs. Il faut `debugpy` dans ce Python : sinon, **Installer
-    debugpy**.
-  - **Lancer** dans un conteneur : la commande tourne dans le conteneur, à côté de l'Odoo qui y
-    tourne (par défaut `odoo --workers 0 --http-port 8070`). Florm parle au débogueur par
-    `docker exec` : **aucun port à publier**. Les fichiers montés s'ouvrent ici ; ceux de l'image
-    (le code d'Odoo installé dans le conteneur) s'ouvrent en lecture seule.
-  - **S'attacher** : à un Odoo lancé avec debugpy devant la commande habituelle, avec
-    `--workers 0` (sinon les requêtes passent par d'autres processus, que le débogueur ne suit pas) :
-    `python3 -m debugpy --listen 5678 ./odoo-bin --addons-path=… -d ma_base --workers 0`.
-    Dans un conteneur : `python3 -m debugpy --listen 127.0.0.1:5678 /usr/bin/odoo … --workers 0`
-    dans la `command:` du `docker-compose.yml`, debugpy installé dans l'image, et **Où** sur ce
-    conteneur.
-    **Tout est automatique, quel que soit le mode** : dès qu'un point d'arrêt est posé, Florm
-    attend qu'un programme écoute avec debugpy et s'y attache, sans F5 ni rien à choisir ; quand le
-    programme s'arrête, il attend le lancement suivant.
-    Lance Odoo comme tu veux (terminal de Florm, le tien, `docker compose up`) : **Copier la
-    commande** donne la ligne à lancer. **■ Arrêter l'attente** (ou Maj+F5) arrête d'attendre,
-    F5 reprend.
-- **En pause** : la ligne est surlignée en jaune, la fenêtre passe devant et le débogage s'ouvre dans le panneau du bas, sous le fichier (sauf s'il est dans l'autre moitié d'un éditeur divisé). À gauche les
-  **Variables** (clic pour déplier `self`, un recordset… ; ses champs d'abord, les `__x__` et
-  les groupes de debugpy à la fin), l'**Espion** (des expressions
-  réévaluées à chaque arrêt), la **Pile d'appels** (clic sur un appel : sa ligne et ses
-  variables, en vert). Le survol d'un nom montre sa valeur (`self.partner_id.name`).
-- **Console** (à droite) : une expression évaluée dans le cadre en pause (en Python :
-  `self.env['res.partner'].search([])`, `x = 2`). ↑ ↓ reprennent les précédents.
-- **F10** ligne suivante, **F11** entrer dans l'appel, **Maj+F11** finir la fonction, **F5**
-  continuer, **F6** pause, **Maj+F5** arrêter, **Ctrl+Maj+F5** redémarrer.
-- **Tests** : clic droit sur le **▶** d'un test dans la marge (ou **Alt+F6**) le lance sous le
-  débogueur : un test Odoo dans le conteneur choisi pour le débogueur (sinon avec sa commande odoo-bin), un test pytest, jest,
-  `cargo test` ou `go test` sur cet ordinateur.
-- **Exceptions** : s'arrêter sur celles que rien n'intercepte, sur toutes (Odoo en lève beaucoup),
-  ou quand une sort du code du projet. **Mon code seulement** n'entre pas dans le code d'Odoo ni
-  des bibliothèques.
+- **F9** (ou un clic à gauche des numéros de ligne, dans un fichier Python) écrit
+  `import ipdb; ipdb.set_trace()` au-dessus de la ligne, indenté comme elle ; F9 sur cette ligne
+  la retire. Chaque ligne qui arrête le programme (`ipdb`, `pdb.set_trace()`, `breakpoint()`) a un
+  rond rouge dans la marge. En JavaScript et TypeScript, c'est `debugger;`. La ligne écrite est
+  celle du modèle `ipdb` (Préférences → Modèles) : la tienne si tu l'as changée (`breakpoint()`…).
+- **Ctrl+Maj+F9** retire tous ceux des fichiers ouverts (« Point d'arrêt : retirer… » dans la palette).
+- **L'éditeur suit ipdb** : quand pdb ou ipdb attend dans un terminal du panneau du bas
+  (`ipdb>`), le fichier s'ouvre à sa ligne, surlignée en jaune, et le clavier reste dans le
+  terminal ; `n`, `s`, `u`… le font suivre. Un chemin du conteneur (`/opt/odoo/addons/sale/…`) est
+  retrouvé dans le projet par sa fin. Dans un terminal en onglet, le fichier n'est pas ouvert (il
+  prendrait sa place), mais la ligne est surlignée s'il est affiché. **Ctrl+clic** sur
+  `> /chemin/fichier.py(120)methode()` l'ouvre aussi.
+- **Pas d'ipdb dans un commit** : si les changements commités ajoutent une de ces lignes, la vue
+  Git le dit avant (fichier:ligne) et propose **Commiter quand même**.
 
 ## Modèles
 
@@ -719,7 +688,7 @@ le même sur chaque ordinateur : **Préférences → Avancé → Configuration p
 (le dépôt `login/florm-config`), `owner/repo` ou une adresse git. **Créer sur GitHub** fait le
 dépôt (privé) à partir de cet ordinateur ; **Publier** envoie tes changements, **Synchroniser**
 récupère ceux des autres (aussi à chaque démarrage). Ce qui est propre à un ordinateur (les
-commandes du débogueur, des serveurs de langage et du linter, les dossiers de confiance, les
+commandes des tests, des serveurs de langage et du linter, les dossiers de confiance, les
 comptes Claude…) n'est jamais partagé.
 
 ## Apparence
@@ -746,11 +715,11 @@ thème** l'écrit dans le dossier `themes` de la configuration ; **Modifier ce t
 pas installée : plus de vue Git, d'historique, de blame, de marques de changement dans la marge ni
 de pull requests, et `git` n'est plus appelé. Sa section dit alors comment l'installer.
 
-**GitHub, Claude et le débogueur se désactivent** : un interrupteur en haut de leur section des
-préférences (Pull requests, Claude, Débogueur). Désactivés, leurs vues, commandes, menus, icônes,
-raccourcis et boutons disparaissent (✨ de Git, revue IA, colonne ✳ et points d'arrêt de la
+**GitHub et Claude se désactivent** : un interrupteur en haut de leur section des
+préférences (Pull requests, Claude). Désactivés, leurs vues, commandes, menus, icônes,
+raccourcis et boutons disparaissent (✨ de Git, revue IA, colonne ✳ de la
 marge, PR liées dans la vue Git…), et `gh` n'est plus appelé. Le même interrupteur les ramène,
-sans redémarrer. **À l'installation, les trois sont désactivés** : leur section dit alors ce qu'il
-leur faut (`gh` ; `claude` ; Python et debugpy), coché ✔ si c'est installé, sinon avec les commandes
-d'installation pour ton système (« Dans le terminal », « Copier », « Installer debugpy ») et
+sans redémarrer. **À l'installation, les deux sont désactivés** : leur section dit alors ce qu'il
+leur faut (`gh` ; `claude`), coché ✔ si c'est installé, sinon avec les commandes
+d'installation pour ton système (« Dans le terminal », « Copier ») et
 « Vérifier à nouveau ».

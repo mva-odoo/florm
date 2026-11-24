@@ -1,4 +1,4 @@
-//! Programs Florm drives but does not ship (gh, claude, docker, python): whether they are installed, and
+//! Programs Florm drives but does not ship (git, gh, claude): whether they are installed, and
 //! how to install them on this system, shown by the view that needs them instead of an error.
 
 use std::collections::HashMap;
@@ -11,8 +11,6 @@ pub enum Tool {
     Git,
     Gh,
     Claude,
-    Docker,
-    Python,
 }
 
 /// A step of an installation: what it does, and the command to type (None: only a note).
@@ -58,8 +56,6 @@ impl Tool {
             Tool::Git => "git",
             Tool::Gh => "gh",
             Tool::Claude => "claude",
-            Tool::Docker => "docker",
-            Tool::Python => if cfg!(windows) { "python" } else { "python3" },
         }
     }
 
@@ -68,8 +64,6 @@ impl Tool {
             Tool::Git => "Git",
             Tool::Gh => "GitHub CLI (gh)",
             Tool::Claude => "Claude Code (claude)",
-            Tool::Docker => "Docker",
-            Tool::Python => "Python",
         }
     }
 
@@ -88,14 +82,6 @@ impl Tool {
                 "Florm parle à Claude par la commande claude (Claude Code), avec ta propre connexion (pas de clé d'API).",
                 "Florm talks to Claude through the claude command (Claude Code), with your own login (no API key)."
             ),
-            Tool::Docker => t!(
-                "Florm liste les conteneurs, les démarre et suit leurs logs avec la commande docker.",
-                "Florm lists the containers, starts them and follows their logs with the docker command."
-            ),
-            Tool::Python => t!(
-                "Le débogueur lance et suit les programmes Python avec debugpy, un module de Python.",
-                "The debugger runs and follows the Python programs with debugpy, a module of Python."
-            ),
         }
     }
 
@@ -104,8 +90,6 @@ impl Tool {
             Tool::Git => "https://git-scm.com/downloads",
             Tool::Gh => "https://github.com/cli/cli#installation",
             Tool::Claude => "https://docs.claude.com/en/docs/claude-code/setup",
-            Tool::Docker => "https://docs.docker.com/engine/install/",
-            Tool::Python => "https://www.python.org/downloads/",
         }
     }
 
@@ -178,38 +162,6 @@ impl Tool {
             // through powershell: the terminal may be cmd.exe
             (Tool::Claude, System::Windows) => v.push(step(t!("Installer", "Install"), "powershell -NoProfile -Command \"irm https://claude.ai/install.ps1 | iex\"")),
             (Tool::Claude, _) => v.push(step(t!("Installer", "Install"), "curl -fsSL https://claude.ai/install.sh | bash")),
-            (Tool::Docker, System::Arch) => {
-                v.push(step(t!("Installer les paquets", "Install the packages"), "sudo pacman -S --needed docker docker-compose docker-buildx"));
-            }
-            (Tool::Docker, System::Debian | System::Fedora) => {
-                v.push(step(t!("Installer avec le script officiel de Docker", "Install with Docker's official script"), "curl -fsSL https://get.docker.com | sudo sh"));
-            }
-            (Tool::Docker, System::Suse) => v.push(step(t!("Installer les paquets", "Install the packages"), "sudo zypper install -y docker docker-compose")),
-            (Tool::Docker, System::OtherLinux) => v.push(note(t!(
-                "Installe Docker Engine et docker compose pour ta distribution : voir la documentation.",
-                "Install Docker Engine and docker compose for your distribution: see the documentation."
-            ))),
-            (Tool::Docker, System::Mac) => {
-                v.push(step(t!("Installer Docker Desktop avec Homebrew", "Install Docker Desktop with Homebrew"), "brew install --cask docker"));
-                v.push(note(t!("Lance une fois l'application Docker (elle démarre le moteur).", "Start the Docker app once (it starts the engine).")));
-            }
-            (Tool::Python, System::Arch) => v.push(step(t!("Installer le paquet", "Install the package"), "sudo pacman -S --needed python")),
-            (Tool::Python, System::Debian) => v.push(step(t!("Installer le paquet", "Install the package"), "sudo apt update && sudo apt install -y python3")),
-            (Tool::Python, System::Fedora) => v.push(step(t!("Installer le paquet", "Install the package"), "sudo dnf install -y python3")),
-            (Tool::Python, System::Suse) => v.push(step(t!("Installer le paquet", "Install the package"), "sudo zypper install -y python3")),
-            (Tool::Python, System::OtherLinux) => v.push(note(t!(
-                "Installe le paquet « python3 » de ta distribution : voir la documentation.",
-                "Install the “python3” package of your distribution: see the documentation."
-            ))),
-            (Tool::Python, System::Mac) => v.push(step(t!("Installer avec Homebrew", "Install with Homebrew"), "brew install python")),
-            (Tool::Python, System::Windows) => {
-                v.push(step(t!("Installer avec winget", "Install with winget"), "winget install --id Python.Python.3.12 -e"));
-                v.push(note(t!("Relance Florm après l'installation pour que python soit trouvé.", "Restart Florm after the installation so that python is found.")));
-            }
-            (Tool::Docker, System::Windows) => {
-                v.push(step(t!("Installer Docker Desktop avec winget", "Install Docker Desktop with winget"), "winget install --id Docker.DockerDesktop -e"));
-                v.push(note(t!("Lance une fois Docker Desktop (il démarre le moteur).", "Start Docker Desktop once (it starts the engine).")));
-            }
         }
         match self {
             Tool::Git => {
@@ -218,15 +170,6 @@ impl Tool {
             }
             Tool::Gh => v.push(step(t!("Te connecter à GitHub (par le navigateur)", "Log in to GitHub (through the browser)"), "gh auth login")),
             Tool::Claude => v.push(step(t!("Te connecter une fois, puis quitter avec /exit", "Log in once, then quit with /exit"), "claude")),
-            Tool::Docker if !matches!(sys, System::Mac | System::Windows) => {
-                v.push(step(t!("Démarrer Docker, et à chaque démarrage du système", "Start Docker, and at every start of the system"), "sudo systemctl enable --now docker"));
-                v.push(step(t!("T'autoriser à utiliser Docker sans sudo", "Allow yourself to use Docker without sudo"), "sudo usermod -aG docker $USER"));
-                v.push(note(t!(
-                    "Ferme ta session et reconnecte-toi (ou redémarre) pour que le groupe docker compte, puis relance Florm.",
-                    "Log out and back in (or restart) for the docker group to count, then start Florm again."
-                )));
-            }
-            Tool::Docker | Tool::Python => {}
         }
         v
     }
@@ -310,7 +253,7 @@ mod tests {
     #[test]
     fn every_tool_has_steps_everywhere() {
         let all = [System::Arch, System::Debian, System::Fedora, System::Suse, System::OtherLinux, System::Mac, System::Windows];
-        for tool in [Tool::Git, Tool::Gh, Tool::Claude, Tool::Docker, Tool::Python] {
+        for tool in [Tool::Git, Tool::Gh, Tool::Claude] {
             for sys in all {
                 assert!(!tool.steps(sys).is_empty(), "{tool:?} {sys:?}");
             }

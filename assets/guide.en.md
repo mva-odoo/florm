@@ -28,7 +28,7 @@ terminal…) have none: they keep the whole height.
 
 Two open files of the same name: their folder shows in grey after the title (`input.rs …/app`). A file with errors shows how many in red (`9+` beyond nine).
 
-On the right of the tab strip: **+** opens an empty text tab (Ctrl+N), **▾** a view in a tab, each with its icon: Search, Claude, Git, Pull requests (GitHub), Debug, then Terminal, Preferences and Welcome. A title too long (a conversation, a pull request) is cut with “…”, whole on hover. When the tabs no longer fit in the strip, ‹ › scroll them and the same **▾** lists all the open tabs at the top.
+On the right of the tab strip: **+** opens an empty text tab (Ctrl+N), **▾** a view in a tab, each with its icon: Search, Claude, Git, Pull requests (GitHub), then Terminal, Preferences and Welcome. A title too long (a conversation, a pull request) is cut with “…”, whole on hover. When the tabs no longer fit in the strip, ‹ › scroll them and the same **▾** lists all the open tabs at the top.
 
 On restart (or back to a project), everything comes back as you left it: the tabs and the views,
 the cursor position, the split editor with its tabs on each side, the open bottom panel and the
@@ -110,21 +110,19 @@ sidebar shown or not.
 
 One simple rule: **files and the views that need room (Claude, Git, Pull requests (GitHub)) go in
 the tabs; the bottom panel keeps what comes along with the work**: terminal, problems, output, and
-also the search and the debugger if you want. To see two tabs side by side, split the editor.
+also the search if you want. To see two tabs side by side, split the editor.
 
 - **The bottom panel shows one view at a time**, without a row of tabs: its name at the top left,
-  **▾** to switch to another (with its shortcut, and what is waiting: number of problems, ⏸ when
-  the debugger is stopped); under “Terminal” the open terminals. **Ctrl+Shift+J** shows or hides it.
-- **⇱ / ⇲ in the header of the search and the debugger** puts them in a tab or in the bottom
-  panel, and Florm remembers: their shortcut, the palette, the status bar and ▾ then open them in
+  **▾** to switch to another (with its shortcut, and what is waiting: number of problems); under “Terminal” the open terminals. **Ctrl+Shift+J** shows or hides it.
+- **⇱ / ⇲ in the header of the search** puts it in a tab or in the bottom
+  panel, and Florm remembers: its shortcut, the palette and ▾ then open it in
   the same place. A view that already has its tab is shown there, never in two places.
 - **The status bar only shows what is going on**: on the left the icon of the **Preferences**, then those of **Claude**, **Git**,
   **Pull requests** (a click opens its tab, another one goes back to the tab before; coloured when
   it is shown) and **Terminal** (the terminal of the bottom panel); on the right the branch (**↑** commits to
   push, **↓** to pull, **●** changed files) of the repository of the file shown (it follows the
   tabs; a repository chosen in the Git view stays until the next file shown), then, only when it is the case, Claude (**working**,
-  or **✔** when it has finished: a click shows the answer), the
-  debugger (**running** / **paused**), and the problems. At rest, it is almost empty.
+  or **✔** when it has finished: a click shows the answer), and the problems. At rest, it is almost empty.
 - The Preferences: **Ctrl+,**, the menu or the palette.
 
 ## Find in folder (Ctrl+Shift+F)
@@ -300,7 +298,7 @@ The operations started from Florm put the original version between the two sides
 
 - **Ctrl+`**: the terminal in the bottom panel.
 - **Shortcuts in a terminal** (and in Claude): Ctrl+letter (Ctrl+C, Ctrl+R, Ctrl+D…), Alt+letter
-  and Ctrl+Shift+C / V / F go to the shell; the F keys (F5, F9…), Ctrl+Alt+…, the other
+  and Ctrl+Shift+C / V / F go to the shell; the F keys (F9, F12…), Ctrl+Alt+…, the other
   Ctrl+Shift+… (Ctrl+Shift+G, Ctrl+Shift+J…) and Ctrl+Tab, Ctrl+PgUp / PgDn stay with Florm.
 - **Shift+Enter** (or Alt / Option+Enter) goes to a new line without sending, in Claude as in zsh
   and fish.
@@ -335,7 +333,7 @@ The operations started from Florm put the original version between the two sides
 - In the bottom panel, **one terminal at a time**: its folder at the top, **+** opens another,
   **⇱** sends it to a tab (**at the bottom** in the tab brings it back). The other terminals are in
   **▾**, under “Terminal”: click to switch, **×** on hover to close it.
-- All the views (Search, Git, Pull requests (GitHub), Claude, Debug, Terminal) have the same buttons at
+- All the views (Search, Git, Pull requests (GitHub), Claude, Terminal) have the same buttons at
   the right of their header, in the same order: **⟳** read again, **in a tab / at the
   bottom** (a small window: with a tab on top, or a band at the bottom; remembered for next time), **⋯** the other actions
   and options. The layout buttons all look alike: the four corners maximize a panel in its view
@@ -364,9 +362,9 @@ the Git view says so too, with the same button. **Trust “folder”** starts th
 **Preferences → Lint → Trusted folders** lists them; × takes the trust of a folder back, and it
 goes back to restricted mode.
 
-## Tests (pytest, jest, cargo, go)
+## Tests (Odoo, pytest, jest, cargo, go)
 
-The tests of any project run on this computer, with nothing to set:
+The tests of any project run in the terminal of the bottom panel:
 
 - **pytest** for `test_*.py` and `*_test.py` (the `pytest` of the project's `.venv` if there is one),
   **jest** (or **vitest**, if `package.json` asks for it) for `*.test.js`, `*.spec.ts`…,
@@ -376,66 +374,37 @@ The tests of any project run on this computer, with nothing to set:
   `cargo test app::calc::tests::adds`…): in “Tests: run tests…”, it can be changed before Enter.
   A project in a sub-folder starts with `cd sub-folder && `.
 - The output shows in the bottom panel, the summary (✔ or ⚠, passed and failed) in the status bar.
+- An `ipdb` in a test stops in that terminal, and the editor follows it (see “Breakpoints”).
 
-## Odoo tests
+**Odoo tests** (files `tests/test_*.py` of a module, the folder holding `__manifest__.py`): the ▶
+and the cursor give the tags of the test (`/sale:TestSaleOrder.test_confirm`, `/sale` outside a
+test). The first time, the command is shown to be completed (the database `-d`, `-u sale`, a
+`docker compose exec odoo …` in front): `./odoo-bin --stop-after-init --test-enable --test-tags
+/sale:TestSaleOrder` with the `odoo-bin` found in the project, else `odoo`. Then each ▶ and
+Ctrl+Shift+F6 take **the last Odoo test command run** and only change its tags: the database, the
+options and the container stay. To change them, “Tests: run tests…” and edit the command. The
+summary read in the log (`1 failed, 0 error(s) of 12 tests`) goes to the status bar; **Ctrl+click**
+on a `File "…", line N` line opens the file.
 
-An Odoo test is debugged with **Alt+F6** (cursor in the test): it runs under the debugger, on this
-computer with the `odoo-bin` of the folder or in the container of the debugger. To simply run them,
-a terminal is enough (`odoo --test-enable --test-tags …`); **Ctrl+click** on a `File "…", line N`
-line there opens the file.
+## Breakpoints (ipdb)
 
-## Debugger
+No debugger to set up: the breakpoint is an `ipdb` line in the code, and the program stops in the
+terminal where it runs, whatever its command (`-d`, `-u`, a container…).
 
-Like VS Code's, for Python (and Odoo, also in a Docker container), Node, Rust, C and Go. **Debug**
-in the palette, or **▾ → Debug** in the bottom panel. During a session, the status bar shows
-**running** or **paused**: a click shows the view.
-
-- **Node, Rust, C, Go**: Florm recognizes the project (`package.json`, `Cargo.toml`, `go.mod`) and
-  runs on this computer `npm start` (or the `main` of `package.json`), `cargo run`, `go run .`;
-  **Edit…** changes the command (`node app.js --port 3000`, `cargo run -- --verbose`,
-  `go run ./cmd/app`). The debugger of each:
-  - **Node**: js-debug, VS Code's, downloaded once (1 MB) and checked;
-  - **Rust and C**: `lldb-dap`, else `gdb` (version 14 and up). Florm builds first (`cargo build`);
-  - **Go**: delve (`dlv`), also looked for in `~/go/bin`.
-  When it is missing, the view says so, with an **Install** button.
-- **Breakpoint**: click left of the line numbers (or **F9**). A red dot. In the
-  **Breakpoints** list, a **condition** (`self.id == 7`) only stops when it is true. They follow
-  the lines when the file changes and are kept with the project.
-- **F5** starts. At the top of the view: **Where** (this computer or a container), **Launch** or
-  **Attach**, and the command.
-  - **Launch** here: the command (by default the `odoo-bin` of the folder, `--workers 0`) runs in
-    the bottom panel, with its logs. `debugpy` is needed in this Python: otherwise, **Install
-    debugpy**.
-  - **Launch** in a container: the command runs in the container, next to the Odoo running there
-    (by default `odoo --workers 0 --http-port 8070`). Florm talks to the debugger through
-    `docker exec`: **no port to publish**. The mounted files open here; those of the image (the
-    code of Odoo installed in the container) open read only.
-  - **Attach**: to an Odoo started with debugpy in front of the usual command, with
-    `--workers 0` (otherwise the requests go through other processes, which the debugger does not
-    follow): `python3 -m debugpy --listen 5678 ./odoo-bin --addons-path=… -d my_db --workers 0`.
-    In a container: `python3 -m debugpy --listen 127.0.0.1:5678 /usr/bin/odoo … --workers 0` in the
-    `command:` of `docker-compose.yml`, debugpy installed in the image, and **Where** set to that
-    container.
-    **It is all automatic, whatever the mode**: as soon as a breakpoint is set, Florm waits for a
-    program listening with debugpy and attaches to it, without F5 nor anything to choose; when the
-    program ends, it waits for the next run. Start Odoo
-    as you like (Florm's terminal, yours, `docker compose up`): **Copy the command** gives the line
-    to run. **■ Stop waiting** (or Shift+F5) stops waiting, F5 waits again.
-- **Paused**: the line is highlighted in yellow, the window comes to the front and the debugger opens in the bottom panel, under the file (unless it is in the other half of a split editor). On the left the
-  **Variables** (click to unfold `self`, a recordset…; its fields first, the `__x__` and the
-  groups of debugpy at the end), the **Watch** (expressions evaluated again
-  at each stop), the **Call stack** (click on a call: its line and its variables, in green).
-  Hovering a name shows its value (`self.partner_id.name`).
-- **Console** (on the right): an expression evaluated in the paused frame (in Python:
-  `self.env['res.partner'].search([])`, `x = 2`). ↑ ↓ bring back the previous ones.
-- **F10** next line, **F11** step into the call, **Shift+F11** finish the function, **F5**
-  continue, **F6** pause, **Shift+F5** stop, **Ctrl+Shift+F5** restart.
-- **Tests**: right click on the **▶** of a test in the gutter (or **Alt+F6**) runs it under the
-  debugger: an Odoo test in the container chosen for the debugger (else with its odoo-bin command), a pytest, jest,
-  `cargo test` or `go test` one on this computer.
-- **Exceptions**: stop on those nothing catches, on all of them (Odoo raises many), or when one
-  leaves the code of the project. **My code only** does not step into the code of Odoo nor of the
-  libraries.
+- **F9** (or a click left of the line numbers, in a Python file) writes
+  `import ipdb; ipdb.set_trace()` above the line, indented like it; F9 on that line removes it.
+  Each line that stops the program (`ipdb`, `pdb.set_trace()`, `breakpoint()`) has a red dot in the
+  gutter. In JavaScript and TypeScript, it is `debugger;`. The line written is the one of the
+  `ipdb` template (Preferences → Templates): yours if you changed it (`breakpoint()`…).
+- **Ctrl+Shift+F9** removes all those of the open files (“Breakpoint: remove…” in the palette).
+- **The editor follows ipdb**: when pdb or ipdb waits in a terminal of the bottom panel
+  (`ipdb>`), the file opens at its line, highlighted in yellow, and the keyboard stays in the
+  terminal; `n`, `s`, `u`… make it follow. A path of a container (`/opt/odoo/addons/sale/…`) is
+  found in the project by its end. In a terminal in a tab, the file is not opened (it would take
+  its place), but the line is highlighted if it is shown. **Ctrl+click** on
+  `> /path/file.py(120)method()` opens it too.
+- **No ipdb in a commit**: when the changes committed add one of those lines, the Git view says so
+  first (file:line) and offers **Commit anyway**.
 
 ## Templates
 
@@ -699,7 +668,7 @@ repository, the same on every computer: **Preferences → Advanced → Shared co
 your login (the `login/florm-config` repository), `owner/repo` or a git address. **Create on
 GitHub** makes the repository (private) from this computer; **Publish** sends your changes,
 **Synchronize** fetches those of the others (also at each startup). What is specific to a
-computer (the commands of the debugger, the language servers and the linter, the trusted
+computer (the commands of the tests, the language servers and the linter, the trusted
 folders, the Claude accounts…) is never shared.
 
 ## Appearance
@@ -725,8 +694,8 @@ one of yours.
 not installed: no more Git view, history, blame, change marks in the gutter nor pull requests, and
 `git` is no longer called. Its section then tells how to install it.
 
-**GitHub, Claude and the debugger can be turned off**: a switch on top of their section of the
-preferences (Pull requests, Claude, Debugger). Off, their views, commands, menus, icons,
-shortcuts and buttons go away (✨ of Git, AI review, ✳ column and breakpoints of the
+**GitHub and Claude can be turned off**: a switch on top of their section of the
+preferences (Pull requests, Claude). Off, their views, commands, menus, icons,
+shortcuts and buttons go away (✨ of Git, AI review, ✳ column of the
 margin, linked PRs in the Git view…), and `gh` is no longer called. The same switch brings them
 back, without restarting.

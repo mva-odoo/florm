@@ -23,8 +23,8 @@ pub const DEFAULT_REPO: &str = "florm-config";
 /// them: it could run any command on every computer that syncs it. A new setting is put here or
 /// in `tests::SHARED` (a test checks that each one is in one of the two).
 pub const LOCAL_KEYS: &[&str] = &[
-    "shared_config", "skills_dir", "odoo_test_history", "shell", "debug_target", "debug_command", "debug_command_node", "debug_command_native", "debug_command_go", "debug_python",
-    "debug_docker_command", "lsp_servers", "python_linter", "python_lint_args", "trusted_folders", "claude_accounts", "claude_account", "claude_account_folders",
+    "shared_config", "skills_dir", "test_history", "shell",
+    "lsp_servers", "python_linter", "python_lint_args", "trusted_folders", "claude_accounts", "claude_account", "claude_account_folders",
     "claude_sandbox",
 ];
 
@@ -263,10 +263,10 @@ mod tests {
     const SHARED: &[&str] = &[
         "language", "font_size", "tab_size", "translate_tabs_to_spaces", "theme", "accent_color", "text_softness", "editor_font", "ui_font", "ui_style", "show_minimap",
         "spell_check", "rainbow_brackets", "show_whitespace", "word_wrap", "sticky_scroll", "rulers", "breadcrumbs", "show_menu_bar", "search_in_tab", "diff_side_by_side",
-        "git", "github", "debugger", "claude", "claude_review", "claude_done_blink", "claude_done_sound", "markdown_toolbar", "tree_git_info", "inline_diff", "auto_pair",
+        "git", "github", "claude", "claude_review", "claude_done_blink", "claude_done_sound", "markdown_toolbar", "tree_git_info", "inline_diff", "auto_pair",
         "keyboard_hints", "ai_complete", "lint_on_save", "lint_live", "lint_ignore_flake8", "lint_ignore_ruff", "lint_ignore_pylint", "lint_ignore_eslint",
-        "trim_trailing_whitespace_on_save", "format_on_save", "hot_exit", "auto_save", "keys", "lsp", "exclude", "index_max_files", "check_updates", "views_in_tab", "debug_mode",
-        "debug_port", "debug_exceptions", "debug_just_my_code", "pr_default_state", "pr_default_who", "pr_show_resolved", "pr_draft",
+        "trim_trailing_whitespace_on_save", "format_on_save", "hot_exit", "auto_save", "keys", "lsp", "exclude", "index_max_files", "check_updates",
+        "pr_default_state", "pr_default_who", "pr_show_resolved", "pr_draft",
     ];
 
     /// Each setting is either shared or local: a new one cannot be taken from a shared

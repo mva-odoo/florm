@@ -1,8 +1,12 @@
-//! Tests (pytest, jest, `cargo test`, `go test`), run where the project is. Tags or a command are asked with
-//! those of the code under the cursor already filled, the last ones run again from anywhere
-//! (Ctrl+F6), or the ▶ of the gutter of a test file runs one. A run goes to the bottom panel's
-//! terminal (an `ipdb` in a test works there); its summary goes to the status bar, its tracebacks
-//! open their file with Ctrl+clic.
+//! Tests (Odoo, pytest, jest, `cargo test`, `go test`), run where the project is. A command is
+//! asked with the one of the code under the cursor already filled, the last ones run again from
+//! anywhere (Ctrl+F6), or the ▶ of the gutter of a test file runs one. A run goes to the bottom
+//! panel's terminal (an `ipdb` in a test works there, and the editor follows it); its summary goes
+//! to the status bar, its tracebacks open their file with Ctrl+clic.
+//!
+//! Odoo: the ▶ and the cursor give tags (`/sale:TestX.test_y`); they replace those of the last Odoo
+//! test command run, which keeps its database, `-u`, container… The first time, the command is
+//! shown to be completed before it runs.
 
 use super::*;
 use crate::odoo_test;
@@ -23,9 +27,9 @@ pub(super) struct Tests {
 }
 
 impl App {
-    /// The test of the code under the cursor of the last file worked on: its command, or with
-    /// `odoo` the tags of an Odoo test (for the debugger).
-    pub(super) fn test_tags_here(&self, odoo: bool) -> Option<String> {
+    /// The test of the code under the cursor of the last file worked on: its command, or the tags
+    /// of an Odoo test.
+    pub(super) fn test_tags_here(&self) -> Option<String> {
         let text_doc = |d: &&Document| d.view == document::View::Text && d.path.is_some();
         let d = self.docs.get(self.active).filter(text_doc).or_else(|| {
             let recent = self.index.recent.first()?;
@@ -34,8 +38,8 @@ impl App {
         let line = d.rope.char_to_line(d.primary_sel().head.min(d.rope.len_chars()));
         let path = d.path.as_deref()?;
         let text = d.rope.to_string();
-        if odoo_test::module_of(path).is_some() {
-            return if odoo { odoo_test::tags_at(path, &text, line) } else { None };
+        if let Some(module) = odoo_test::module_of(path) {
+            return odoo_test::tags_at(path, &text, line).map(|t| with_module(&module, t));
         }
         crate::test_cmd::command_at(path, &text, &self.test_root(path), line)
     }
@@ -48,30 +52,56 @@ impl App {
         }
     }
 
-    /// Runs the test command `tags`: without one, it is asked (the one of the code under the
-    /// cursor filled).
+    /// The command of the Odoo tests `tags` (the last one run with these tags), and whether one
+    /// was run before (else it is to be completed: the database…).
+    fn odoo_command(&self, tags: &str) -> (String, bool) {
+        let last = self.settings.test_history.iter().find(|c| odoo_test::is_command(c));
+        let bin = self.root.as_deref().and_then(odoo_test::find_odoo_bin);
+        (odoo_test::command(tags, last.map(String::as_str), bin.as_deref()), last.is_some())
+    }
+
+    /// Runs the test command `tags` (or Odoo tags): without one, it is asked (the one of the code
+    /// under the cursor filled).
     pub(super) fn run_tests(&mut self, tags: String) {
-        let tags = tags.trim().to_string();
+        let mut tags = tags.trim().to_string();
+        if odoo_test::is_tags(&tags) {
+            let (cmd, known) = self.odoo_command(&tags);
+            if !known {
+                self.open_prompt(Prompt::TestTags(cmd));
+                self.set_status(t!("Complète la commande des tests Odoo (base -d, -u…) : elle servira ensuite pour ▶ et Ctrl+F6", "Complete the command of the Odoo tests (database -d, -u…): it is then used by ▶ and Ctrl+F6"));
+                return;
+            }
+            tags = cmd;
+        }
+        let odoo = odoo_test::is_command(&tags);
         let local = crate::test_cmd::parse(&tags);
-        if local.is_none() && !tags.is_empty() {
-            self.set_error(tf!("Pas une commande de test : {tags} (pytest, jest, cargo test, go test…)", "Not a test command: {tags} (pytest, jest, cargo test, go test…)"));
+        if local.is_none() && !odoo && !tags.is_empty() {
+            self.set_error(tf!("Pas une commande de test : {tags} (Odoo --test-tags, pytest, jest, cargo test, go test…)", "Not a test command: {tags} (Odoo --test-tags, pytest, jest, cargo test, go test…)"));
             return;
         }
         if tags.is_empty() {
-            let draft = self.test_tags_here(false).or_else(|| self.settings.odoo_test_history.first().cloned()).unwrap_or_default();
+            let draft = match self.test_tags_here() {
+                Some(t) if odoo_test::is_tags(&t) => self.odoo_command(&t).0,
+                Some(t) => t,
+                None => self.settings.test_history.first().cloned().unwrap_or_default(),
+            };
             self.open_prompt(Prompt::TestTags(draft));
             return;
         }
-        let h = &mut self.settings.odoo_test_history;
+        let h = &mut self.settings.test_history;
         h.retain(|t| *t != tags);
         h.insert(0, tags.clone());
         h.truncate(odoo_test::HISTORY);
         let history = config::toml_str_array(h);
-        self.persist("odoo_test_history", history);
+        self.persist("test_history", history);
+        let root = self.root.clone().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
         if let Some((dir, argv)) = local {
-            let root = self.root.clone().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
             let cwd = dir.map_or(root.clone(), |d| root.join(d));
             self.show_run(tags, &argv, Some(cwd));
+        } else {
+            // Odoo: the command as typed, by the shell (`docker compose exec …`, variables, &&)
+            let argv: Vec<String> = if cfg!(windows) { vec!["cmd".into(), "/C".into(), tags.clone()] } else { vec!["sh".into(), "-c".into(), tags.clone()] };
+            self.show_run(tags, &argv, Some(root));
         }
     }
 
@@ -111,7 +141,7 @@ impl App {
             return;
         };
         let tags = run.tags.clone();
-        let msg = match crate::test_cmd::summary(&out) {
+        let msg = match crate::test_cmd::summary(&out).or_else(|| odoo_test::summary(&out)) {
             Some((ok, s)) => format!("{} {tags} : {s}", if ok { "✔" } else { "⚠" }),
             None => tf!("{tags} terminé (pas de résumé : voir l'onglet)", "{tags} finished (no summary: see the tab)"),
         };
@@ -130,14 +160,24 @@ impl App {
                 return m.clone();
             }
         }
-        if crate::test_cmd::runner_of(path).is_none() {
+        let odoo = odoo_test::is_test_file(path).then(|| odoo_test::module_of(path)).flatten();
+        if odoo.is_none() && crate::test_cmd::runner_of(path).is_none() {
             return Vec::new();
         }
-        let m = crate::test_cmd::tests_in(path, &d.rope.to_string(), &self.test_root(path));
+        let m = match odoo {
+            // Odoo: its tags (the ▶ makes the command)
+            Some(module) => odoo_test::tests_in(&d.rope.to_string()).into_iter().map(|(l, t)| (l, with_module(&module, t))).collect(),
+            None => crate::test_cmd::tests_in(path, &d.rope.to_string(), &self.test_root(path)),
+        };
         self.tests.marks.insert(d.uid, (d.version, m.clone()));
         m
     }
 
+}
+
+/// Odoo tags of a test class or method (`:TestX.test_y`) limited to its module (`/sale:TestX.test_y`).
+fn with_module(module: &str, tags: String) -> String {
+    if tags.starts_with(':') { format!("/{module}{tags}") } else { tags }
 }
 
 #[cfg(test)]

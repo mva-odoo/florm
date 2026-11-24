@@ -52,7 +52,7 @@ fn rel(path: &Path, base: &Path) -> String {
     if r.is_empty() { ".".into() } else { r }
 }
 
-/// `'text'` for the command line, read back by `odoo_test::split`.
+/// `'text'` for the command line, read back by `split`.
 fn quote(s: &str) -> String {
     if s.chars().all(|c| c.is_alphanumeric() || "_-./:".contains(c)) { s.to_string() } else { format!("'{}'", s.replace('\'', "")) }
 }
@@ -132,11 +132,37 @@ pub fn command_at(path: &Path, text: &str, root: &Path, line: usize) -> Option<S
     })
 }
 
+/// `s` cut into arguments like a shell (quotes kept together).
+pub fn split(s: &str) -> Vec<String> {
+    let (mut out, mut cur, mut quote, mut any) = (Vec::new(), String::new(), None, false);
+    for c in s.chars() {
+        match (quote, c) {
+            (Some(q), c) if c == q => quote = None,
+            (Some(_), c) => cur.push(c),
+            (None, '"' | '\'') => {
+                quote = Some(c);
+                any = true;
+            }
+            (None, c) if c.is_whitespace() => {
+                if any || !cur.is_empty() {
+                    out.push(std::mem::take(&mut cur));
+                }
+                any = false;
+            }
+            (None, c) => cur.push(c),
+        }
+    }
+    if any || !cur.is_empty() {
+        out.push(cur);
+    }
+    out
+}
+
 /// A command of these runners (and not Odoo tags): its folder (relative to the project) and
 /// its arguments.
 pub fn parse(cmd: &str) -> Option<(Option<String>, Vec<String>)> {
     // cut like a shell first: a `&&` inside quotes (a folder named so) is part of a word
-    let mut argv = crate::odoo_test::split(cmd.trim());
+    let mut argv = split(cmd.trim());
     let dir = if argv.first().map(String::as_str) == Some("cd") && argv.get(2).map(String::as_str) == Some("&&") {
         let d = argv[1].clone();
         argv.drain(..3);

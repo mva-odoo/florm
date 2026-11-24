@@ -107,9 +107,7 @@ impl App {
                 JobResult::VersionsDone { root, key, title, results, repos } => self.versions_done(root, key, title, results, repos),
                 JobResult::Update { manual, result } => self.on_update(manual, result),
                 JobResult::Shared(op, result) => self.shared_done(op, result),
-                JobResult::DebugReady { id, cfg, title, result } => self.debug_ready(id, cfg, title, result),
-                JobResult::DebugSource { remote, line, result } => self.debug_source(remote, line, result),
-                JobResult::DebugContainers(result) => self.debug.containers = Some((Instant::now(), result.unwrap_or_default())),
+                JobResult::CommitChecked { repo, args, traces } => self.commit_ready(repo, args, traces),
                 JobResult::UpdateInstalled { version, result } => self.on_update_installed(version, result),
                 JobResult::Fonts(list) => {
                     self.prefs.font_list = Some(list);

@@ -13,10 +13,7 @@ mod config;
 mod copilot;
 mod conflict;
 mod crash;
-mod dap;
-mod debug_langs;
 mod diff;
-mod docker;
 mod document;
 mod editor_view;
 mod features;
@@ -57,6 +54,7 @@ mod symbols;
 mod templates;
 mod terminal;
 mod tools;
+mod trace;
 mod walk;
 mod wrap;
 

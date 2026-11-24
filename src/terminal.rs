@@ -269,13 +269,12 @@ struct Session {
     embedded: bool,
     /// Program run instead of a shell (started again by Enter once it ended).
     cmd: Option<Vec<String>>,
-    /// Its program cannot be started again (the program of a debugging session).
+    /// Its program cannot be started again (a login).
     once: bool,
     /// Output kept as text (the end of it), for those who read it (the summary of tests).
     capture: Option<Arc<Mutex<Vec<u8>>>>,
-    /// Folders of a container and where they are here: (container folder, folder here), for the
-    /// files of its tracebacks.
-    mounts: Vec<(String, PathBuf)>,
+    /// Counts the output read: a change since the last look at its text.
+    changes: Arc<AtomicU64>,
     name: String,
     parser: Arc<Mutex<Parser>>,
     writer: SharedWriter,
@@ -414,7 +413,8 @@ impl Session {
         let drawn = Arc::new(AtomicU64::new(ctx.cumulative_pass_nr()));
         let typeahead: Typeahead = Arc::new(Mutex::new(Some(Vec::new())));
         let capture = capture.then(|| Arc::new(Mutex::new(Vec::new())));
-        let (p, ex, ctx, w, cap, ta, dr) = (parser.clone(), exited.clone(), ctx.clone(), writer.clone(), capture.clone(), typeahead.clone(), drawn.clone());
+        let changes = Arc::new(AtomicU64::new(0));
+        let (p, ex, ctx, w, cap, ta, dr, ch) = (parser.clone(), exited.clone(), ctx.clone(), writer.clone(), capture.clone(), typeahead.clone(), drawn.clone(), changes.clone());
         std::thread::spawn(move || {
             let mut buf = [0u8; 16384];
             loop {
@@ -430,6 +430,7 @@ impl Session {
                             }
                         }
                         p.lock().unwrap().process(&buf[..n]);
+                        ch.fetch_add(1, Ordering::Relaxed);
                         let answer = replies(&buf[..n], || p.lock().unwrap().screen().cursor_position());
                         if !answer.is_empty() {
                             let mut w = w.lock().unwrap();
@@ -458,7 +459,7 @@ impl Session {
             .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| shell.to_string());
-        Ok(Session { id: 0, docked: false, embedded: false, cmd: None, once: false, capture, mounts: Vec::new(), name, parser, writer, master: pair.master, child, exited, drawn, typeahead, cwd, size, sel: None, link_cache: None, search: None, typed_at: std::time::Instant::now(), pasted_at: None, v_down: false })
+        Ok(Session { id: 0, docked: false, embedded: false, cmd: None, once: false, capture, changes, name, parser, writer, master: pair.master, child, exited, drawn, typeahead, cwd, size, sel: None, link_cache: None, search: None, typed_at: std::time::Instant::now(), pasted_at: None, v_down: false })
     }
 
     fn write(&mut self, bytes: &[u8]) {
@@ -523,6 +524,7 @@ impl Session {
         };
         let at = cells.iter().position(|&c| c == cell)?;
         let (a, b) = word_at(&text, at)?;
+        let b = pdb_line_end(&text, b);
         let word: String = text[a..b].iter().collect();
         let key = (word.clone(), cells[a], cells[b - 1]);
         if let Some((k, link)) = &self.link_cache {
@@ -533,7 +535,7 @@ impl Session {
         let target = match candidate(&word) {
             // a file:// address printed by a program opens the file in Florm, never in the system
             Some(Cand::Url(u)) => osc8_target(&u),
-            Some(Cand::Path(p, line)) => resolve(&p, &cwd, &self.mounts).map(|f| Target::File(f, line)),
+            Some(Cand::Path(p, line)) => resolve(&p, &cwd).map(|f| Target::File(f, line)),
             None => None,
         };
         let mut covered: Vec<(u16, u16)> = cells[a..b].to_vec();
@@ -739,7 +741,7 @@ impl Terminal {
     fn restart(&mut self, i: usize, ctx: &egui::Context, shell: Option<&str>) {
         let old = &self.sessions[i];
         let (cwd, id, docked, embedded) = (old.cwd.clone(), old.id, old.docked, old.embedded);
-        let (cmd, capture, mounts) = (old.cmd.clone(), old.capture.is_some(), old.mounts.clone());
+        let (cmd, capture) = (old.cmd.clone(), old.capture.is_some());
         let new = match &cmd {
             Some(argv) => Session::spawn_argv(&argv.iter().map(String::as_str).collect::<Vec<_>>(), &[], cwd, ctx, capture),
             None => self.spawn(ctx, shell, Some(cwd)),
@@ -750,7 +752,6 @@ impl Terminal {
                 s.docked = docked;
                 s.embedded = embedded;
                 s.cmd = cmd;
-                s.mounts = mounts;
                 self.sessions[i] = s;
                 if docked {
                     self.focus_tab = Some(id);
@@ -894,11 +895,33 @@ impl Terminal {
         }
     }
 
-    /// Folders of the container a session shows, for the files of its tracebacks (Ctrl+clic).
-    pub fn set_mounts(&mut self, id: u64, mounts: Vec<(String, PathBuf)>) {
-        if let Some(s) = self.sessions.iter_mut().find(|s| s.id == id) {
-            s.mounts = mounts;
-        }
+    /// How many times session `id` printed something (it changed when the number did).
+    pub fn changes(&self, id: u64) -> Option<u64> {
+        self.sessions.iter().find(|s| s.id == id).map(|s| s.changes.load(Ordering::Relaxed))
+    }
+
+    /// The terminals of the bottom panel and of the tabs (not those shown inside another view).
+    pub fn plain_ids(&self) -> Vec<u64> {
+        self.sessions.iter().filter(|s| !s.embedded).map(|s| s.id).collect()
+    }
+
+    /// Whether session `id` is in an editor tab (else in the bottom panel).
+    pub fn is_docked(&self, id: u64) -> bool {
+        self.sessions.iter().any(|s| s.id == id && s.docked)
+    }
+
+    /// Where pdb / ipdb waits in session `id` (`trace::stop_in` of its visible lines), the file
+    /// found from its folder; `None` when no debugger waits there.
+    pub fn debugger_stop(&self, id: u64) -> Option<(String, usize, PathBuf)> {
+        let s = self.sessions.iter().find(|s| s.id == id)?;
+        let lines: Vec<String> = {
+            let p = s.parser.lock().unwrap();
+            let sc = p.screen();
+            let cols = sc.size().1.get();
+            sc.rows(0, cols).collect()
+        };
+        let (path, line) = crate::trace::stop_in(&lines)?;
+        Some((path, line, s.cwd.clone()))
     }
 
     /// Types `text` at the prompt of session `id`, without Enter: the user reads it and runs it.
@@ -1290,8 +1313,8 @@ fn traceback_at(s: &Session, r: u16) -> Option<(PathBuf, usize)> {
     while b + 1 < rows && sc.row_wrapped(b) {
         b += 1;
     }
-    let (path, line) = crate::odoo_test::traceback_location(&sc.contents_between(a, 0, b, cols))?;
-    Some((crate::odoo_test::map_path(&path, &s.mounts), line))
+    let (path, line) = crate::trace::traceback_location(&sc.contents_between(a, 0, b, cols))?;
+    Some((resolve(&path, &s.cwd).unwrap_or_else(|| PathBuf::from(&path)), line))
 }
 
 /// The bar of the search in the history, at the top right of the terminal: the field, where it is
@@ -1505,6 +1528,16 @@ fn word_at(text: &[char], at: usize) -> Option<(usize, usize)> {
     (b > a && at < b).then_some((a, b))
 }
 
+/// The end of a word followed by `(12)`, as pdb writes the line of a file (`/a/b.py(12)f()`):
+/// after the parenthesis, else `b`.
+fn pdb_line_end(text: &[char], b: usize) -> usize {
+    if text.get(b) != Some(&'(') {
+        return b;
+    }
+    let digits = text[b + 1..].iter().take_while(|c| c.is_ascii_digit()).count();
+    if digits > 0 && text.get(b + 1 + digits) == Some(&')') { b + 2 + digits } else { b }
+}
+
 /// What the word `w` could open: a URL, or a path that looks like one (a folder in it, or a name
 /// with an extension), with `:line`, `:line:col` or `#Lline` after it.
 fn candidate(w: &str) -> Option<Cand> {
@@ -1516,6 +1549,8 @@ fn candidate(w: &str) -> Option<Cand> {
     }
     let (path, line) = match w.split_once("#L") {
         Some((p, l)) => (p, l.parse().unwrap_or(0)),
+        // where pdb stopped: /a/b.py(12)f()
+        None if crate::trace::pdb_location(w).is_some() => crate::trace::pdb_location(w)?,
         None => {
             let mut parts = w.splitn(3, ':');
             let first = parts.next().unwrap_or("");
@@ -1550,8 +1585,8 @@ fn osc8_target(uri: &str) -> Option<Target> {
 }
 
 /// The file of path `p` printed by a program working in `cwd`, if it is there (`a/` and `b/` of a
-/// git diff tried too, container folders through `mounts`).
-fn resolve(p: &str, cwd: &Path, mounts: &[(String, PathBuf)]) -> Option<PathBuf> {
+/// git diff tried too, and the end of a path of a container under `cwd`).
+fn resolve(p: &str, cwd: &Path) -> Option<PathBuf> {
     let home = |rest: &str| crate::config::home().join(rest);
     let mut tries = vec![match p.strip_prefix("~/") {
         Some(rest) => home(rest),
@@ -1561,11 +1596,10 @@ fn resolve(p: &str, cwd: &Path, mounts: &[(String, PathBuf)]) -> Option<PathBuf>
     if let Some(rest) = p.strip_prefix("a/").or_else(|| p.strip_prefix("b/")) {
         tries.push(cwd.join(rest));
     }
-    // a folder of a container is a Unix path, even on Windows
-    if (Path::new(p).is_absolute() || p.starts_with('/')) && !mounts.is_empty() {
-        tries.push(crate::odoo_test::map_path(p, mounts));
-    }
-    tries.into_iter().find(|t| t.is_file())
+    tries.into_iter().find(|t| t.is_file()).or_else(|| {
+        // a file of a container (a Unix path, even on Windows): its end under the folder
+        (Path::new(p).is_absolute() || p.starts_with('/')).then(|| crate::trace::find_file(p, &[cwd])).flatten()
+    })
 }
 
 /// Text without its escape sequences (colors, cursor moves, titles) and carriage returns.
@@ -1958,6 +1992,10 @@ mod tests {
         assert_eq!(candidate("src/app.rs:12:5"), Some(Cand::Path("src/app.rs".into(), 12)));
         assert_eq!(candidate("src/app.rs#L40"), Some(Cand::Path("src/app.rs".into(), 40)));
         assert_eq!(candidate("README.md"), Some(Cand::Path("README.md".into(), 0)));
+        assert_eq!(candidate("/a/b.py(120)"), Some(Cand::Path("/a/b.py".into(), 120)));
+        let t: Vec<char> = "> /a/b.py(120)f()".chars().collect();
+        let (a, b) = word_at(&t, 4).unwrap();
+        assert_eq!(t[a..pdb_line_end(&t, b)].iter().collect::<String>(), "/a/b.py(120)");
         assert_eq!(candidate("~/notes.txt"), Some(Cand::Path("~/notes.txt".into(), 0)));
         assert_eq!(candidate(r"C:\src\app.rs:3"), Some(Cand::Path(r"C:\src\app.rs".into(), 3)));
         // not paths: versions, numbers, words, an extension of digits only ("e.g" is one, but only
@@ -1973,16 +2011,15 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("src")).unwrap();
         std::fs::write(dir.join("src/app.rs"), "").unwrap();
-        assert_eq!(resolve("src/app.rs", &dir, &[]), Some(dir.join("src/app.rs")));
+        assert_eq!(resolve("src/app.rs", &dir), Some(dir.join("src/app.rs")));
         // the a/ and b/ of a git diff
-        assert_eq!(resolve("b/src/app.rs", &dir, &[]), Some(dir.join("b/src/app.rs")).filter(|p| p.is_file()).or(Some(dir.join("src/app.rs"))));
+        assert_eq!(resolve("b/src/app.rs", &dir), Some(dir.join("b/src/app.rs")).filter(|p| p.is_file()).or(Some(dir.join("src/app.rs"))));
         let abs = dir.join("src/app.rs").to_string_lossy().into_owned();
-        assert_eq!(resolve(&abs, Path::new("/elsewhere"), &[]), Some(PathBuf::from(&abs)));
+        assert_eq!(resolve(&abs, Path::new("/elsewhere")), Some(PathBuf::from(&abs)));
         // a folder of a container, and a file that is not there
-        let mounts = vec![("/mnt/code".to_string(), dir.clone())];
-        assert_eq!(resolve("/mnt/code/src/app.rs", Path::new("/"), &mounts), Some(dir.join("src/app.rs")));
-        assert_eq!(resolve("src/gone.rs", &dir, &[]), None);
-        assert_eq!(resolve("src", &dir, &[]), None);
+        assert_eq!(resolve("/mnt/code/src/app.rs", &dir), Some(dir.join("src/app.rs")));
+        assert_eq!(resolve("src/gone.rs", &dir), None);
+        assert_eq!(resolve("src", &dir), None);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

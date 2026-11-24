@@ -1,5 +1,5 @@
 //! The status bar (the bottom panel's button, position, message; then what is going on: branch,
-//! Claude, containers, debugger, problems; update) and the find bar of the editor.
+//! Claude, problems; update) and the find bar of the editor.
 
 use super::*;
 
@@ -248,21 +248,8 @@ impl App {
                             self.pending.push(Cmd::ShowProblems);
                         }
                     }
-                    // what is going on, only while it is: the debugger, the containers, Claude
+                    // what is going on, only while it is: Claude
                     let weak = ui.visuals().weak_text_color();
-                    match self.debug_activity() {
-                        Some(true) => {
-                            if state_chip(ui, icons::ViewIcon::Debug, t!("en pause", "paused"), warn()).on_hover_text(t!("Débogage : arrêté sur un point d'arrêt", "Debug: stopped on a breakpoint")).clicked() {
-                                self.toggle_tool(BottomTab::Debug);
-                            }
-                        }
-                        Some(false) => {
-                            if state_chip(ui, icons::ViewIcon::Debug, t!("en cours", "running"), self.hl.colors.accent).on_hover_text(t!("Débogage en cours", "Debugging")).clicked() {
-                                self.toggle_tool(BottomTab::Debug);
-                            }
-                        }
-                        None => {}
-                    }
                     // the conversations: finished and not seen yet, waiting for you, working
                     let (busy, waiting, done) = self.claude_states();
                     if let Some((id, lit)) = done {

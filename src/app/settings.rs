@@ -28,7 +28,7 @@ impl App {
             self.hl.set_overrides(highlight::parse_hex(&s.accent_color), s.text_softness);
             self.visuals_dirty = true;
         }
-        let parts = (s.github, s.debugger, s.claude) != (self.settings.github, self.settings.debugger, self.settings.claude);
+        let parts = (s.github, s.claude) != (self.settings.github, self.settings.claude);
         let sandbox = s.claude_sandbox != self.settings.claude_sandbox;
         let trust = s.trusted_folders != self.settings.trusted_folders;
         history::SIDE_BY_SIDE.store(s.diff_side_by_side, Ordering::Relaxed);
@@ -48,17 +48,16 @@ impl App {
         self.set_status(t!("Préférences rechargées", "Preferences reloaded"));
     }
 
-    /// Git, GitHub, the debugger and Claude on or off as the settings say: the views of those turned
-    /// off are closed (tab and bottom panel), a debugging session is stopped.
+    /// Git, GitHub and Claude on or off as the settings say: the views of those turned off are
+    /// closed.
     pub(super) fn apply_features(&mut self) {
         use crate::features::{self, Feature};
         let s = &self.settings;
-        features::set_all(s.github, s.debugger, s.claude, s.git && crate::tools::Tool::Git.installed());
+        features::set_all(s.github, s.claude, s.git && crate::tools::Tool::Git.installed());
         crate::claude_account::set_default(super::claude_ui::default_account_dir(s));
         let off = |v: &document::View| match v {
             document::View::PullRequests => !features::on(Feature::GitHub),
             document::View::Git | document::View::History => !features::on(Feature::Git),
-            document::View::Debug => !features::on(Feature::Debugger),
             document::View::Claude => !features::on(Feature::Claude),
             _ => false,
         };
@@ -66,12 +65,6 @@ impl App {
             if off(&self.docs[i].view) {
                 self.close_tab(i, true);
             }
-        }
-        if self.bottom.is_some_and(|b| !b.feature_on()) {
-            self.bottom = None;
-        }
-        if !features::on(Feature::Debugger) && self.debug_active() {
-            self.debug_stop();
         }
     }
 

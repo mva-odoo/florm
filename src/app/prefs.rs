@@ -260,7 +260,7 @@ impl App {
         let mut note: Option<String> = None;
         match sec {
             // turned off: only the switch to turn it back on
-            PrefSection::PullRequests | PrefSection::Claude | PrefSection::Debug if !feature_enabled(s, sec) => feature_toggle(ui, rc, sec, s),
+            PrefSection::PullRequests | PrefSection::Claude if !feature_enabled(s, sec) => feature_toggle(ui, rc, sec, s),
             PrefSection::Appearance => {
                 pref_row(ui, rc, t!("Langue", "Language"), t!("Langue des menus, des panneaux et des messages (Language).", "Language of the menus, panels and messages (Langue)."), |ui| {
                     let cur = crate::i18n::from_code(&s.language);
@@ -780,48 +780,6 @@ impl App {
                     self.open_path(p);
                 }
             }
-            PrefSection::Debug => {
-                feature_toggle(ui, rc, sec, s);
-                pref_row(ui, rc, t!("Mode", "Mode"), t!("Lancer : Florm lance le programme sous le débogueur. S'attacher : F5 attend le programme lancé avec debugpy --listen. Dans les deux modes, dès qu'un point d'arrêt est posé, Florm attend tout seul un programme lancé avec debugpy et s'y attache.", "Launch: Florm runs the program under the debugger. Attach: F5 waits for the program started with debugpy --listen. In both modes, as soon as a breakpoint is set, Florm waits by itself for a program started with debugpy and attaches to it."), |ui| {
-                    ui.selectable_value(&mut s.debug_mode, "launch".to_string(), t!("Lancer", "Launch"));
-                    ui.selectable_value(&mut s.debug_mode, "attach".to_string(), t!("S'attacher", "Attach"));
-                });
-                pref_row(ui, rc, t!("Port (s'attacher)", "Port (attach)"), t!("Le port sur lequel debugpy écoute (dans le conteneur, pour Docker).", "The port debugpy listens on (in the container, for Docker)."), |ui| {
-                    ui.add(egui::DragValue::new(&mut s.debug_port).range(1..=65535));
-                });
-                pref_row_wide(ui, rc, t!("Commande Python sur cet ordinateur", "Python command on this computer"), t!("Lancée sous le débogueur (lancer), dans le panneau du bas. Vide : l'odoo-bin du dossier s'il y en a un.", "Run under the debugger (launch), in the bottom panel. Empty: the odoo-bin of the folder if there is one."), |ui| {
-                    crate::input::add(ui, egui::TextEdit::singleline(&mut s.debug_command).desired_width(f32::INFINITY).font(egui::TextStyle::Monospace).hint_text("python3 main.py"));
-                });
-                for (label, value, hint, help) in [
-                    ("Node", &mut s.debug_command_node, "node app.js", t!("Sous js-debug, le débogueur de VS Code (téléchargé la première fois). Vide : le main de package.json, sinon npm start.", "Under js-debug, the debugger of VS Code (downloaded the first time). Empty: the main of package.json, else npm start.")),
-                    ("Rust / C", &mut s.debug_command_native, "cargo run", t!("Compilé puis lancé sous lldb-dap ou gdb. Vide : cargo run.", "Built then run under lldb-dap or gdb. Empty: cargo run.")),
-                    ("Go", &mut s.debug_command_go, "go run .", t!("Sous delve (go install github.com/go-delve/delve/cmd/dlv@latest). Vide : go run .", "Under delve (go install github.com/go-delve/delve/cmd/dlv@latest). Empty: go run .")),
-                ] {
-                    pref_row_wide(ui, rc, &tf!("Commande {label}", "{label} command"), help, |ui| {
-                        crate::input::add(ui, egui::TextEdit::singleline(value).desired_width(f32::INFINITY).font(egui::TextStyle::Monospace).hint_text(hint));
-                    });
-                }
-                pref_row_wide(ui, rc, t!("Commande dans le conteneur", "Command in the container"), t!("Lancée dans le conteneur sous le débogueur. Vide : la commande par défaut.", "Run in the container under the debugger. Empty: the default command."), |ui| {
-                    crate::input::add(ui, egui::TextEdit::singleline(&mut s.debug_docker_command).desired_width(f32::INFINITY).font(egui::TextStyle::Monospace).hint_text(super::debugger::DOCKER_COMMAND));
-                });
-                pref_row(ui, rc, t!("Python de cet ordinateur", "Python of this computer"), t!("Avec debugpy installé. Vide : python3 (python sous Windows).", "With debugpy installed. Empty: python3 (python on Windows)."), |ui| {
-                    crate::input::add(ui, egui::TextEdit::singleline(&mut s.debug_python).desired_width(260.0).font(egui::TextStyle::Monospace).hint_text("python3"));
-                });
-                pref_row(ui, rc, t!("Exceptions", "Exceptions"), t!("Où le débogueur s'arrête sur une exception. Aussi réglable dans la vue Débogage.", "Where the debugger stops on an exception. Also set in the Debugging view."), |ui| {
-                    for (key, label) in [("uncaught", t!("non interceptées", "uncaught")), ("raised", t!("toutes", "all raised")), ("userUnhandled", t!("hors de mon code", "leaving my code"))] {
-                        let mut on = s.debug_exceptions.iter().any(|e| e == key);
-                        if ui.checkbox(&mut on, label).changed() {
-                            s.debug_exceptions.retain(|e| e != key);
-                            if on {
-                                s.debug_exceptions.push(key.to_string());
-                            }
-                        }
-                    }
-                });
-                pref_row(ui, rc, t!("Mon code seulement", "My code only"), t!("N'entre pas dans le code des bibliothèques, ni d'Odoo dans un projet Odoo (justMyCode).", "Does not step into the code of the libraries, nor of Odoo in an Odoo project (justMyCode)."), |ui| {
-                    toggle_switch(ui, &mut s.debug_just_my_code);
-                });
-            }
             PrefSection::Terminal => {
                 let shell = &mut self.prefs.shell;
                 pref_row(ui, rc, "Shell", t!("Shell lancé dans le terminal intégré (ex. bash, zsh, fish, powershell). Vide : $SHELL (Linux / macOS) ou cmd (Windows). Pris en compte pour les nouveaux terminaux.", "Shell run in the built-in terminal (e.g. bash, zsh, fish, powershell). Empty: $SHELL (Linux / macOS) or cmd (Windows). Applies to new terminals."), |ui| {
@@ -1041,7 +999,6 @@ impl App {
             PrefSection::Git if !crate::features::on(crate::features::Feature::Git) => Some(crate::features::Feature::Git),
             PrefSection::PullRequests if !self.settings.github => Some(crate::features::Feature::GitHub),
             PrefSection::Claude if !self.settings.claude => Some(crate::features::Feature::Claude),
-            PrefSection::Debug if !self.settings.debugger => Some(crate::features::Feature::Debugger),
             _ => None,
         };
         if sec == PrefSection::Claude && self.settings.claude {
@@ -1230,7 +1187,6 @@ impl App {
             ("claude_done_blink", s.claude_done_blink, before.claude_done_blink),
             ("git", s.git, before.git),
             ("github", s.github, before.github),
-            ("debugger", s.debugger, before.debugger),
             ("claude", s.claude, before.claude),
             ("tree_git_info", s.tree_git_info, before.tree_git_info),
             ("auto_pair", s.auto_pair, before.auto_pair),
@@ -1255,7 +1211,7 @@ impl App {
         if s.claude_sandbox != before.claude_sandbox {
             self.claude_restart_terms();
         }
-        if (s.git, s.github, s.debugger, s.claude) != (before.git, before.github, before.debugger, before.claude) {
+        if (s.git, s.github, s.claude) != (before.git, before.github, before.claude) {
             self.apply_features();
         }
         let mut lint_changed = s.python_linter != before.python_linter || s.python_lint_args != before.python_lint_args || s.lint_live != before.lint_live;
@@ -1264,32 +1220,6 @@ impl App {
         }
         if s.claude_done_sound != before.claude_done_sound {
             self.persist("claude_done_sound", config::toml_str(&s.claude_done_sound));
-        }
-        if s.debug_docker_command != before.debug_docker_command {
-            self.persist("debug_docker_command", config::toml_str(&s.debug_docker_command));
-        }
-        for (key, now, was) in [("debug_command_node", &s.debug_command_node, &before.debug_command_node), ("debug_command_native", &s.debug_command_native, &before.debug_command_native), ("debug_command_go", &s.debug_command_go, &before.debug_command_go)] {
-            if now != was {
-                self.persist(key, config::toml_str(now));
-            }
-        }
-        if s.debug_command != before.debug_command {
-            self.persist("debug_command", config::toml_str(&s.debug_command));
-        }
-        if s.debug_python != before.debug_python {
-            self.persist("debug_python", config::toml_str(&s.debug_python));
-        }
-        if s.debug_mode != before.debug_mode {
-            self.persist("debug_mode", config::toml_str(&s.debug_mode));
-        }
-        if s.debug_port != before.debug_port {
-            self.persist("debug_port", s.debug_port.to_string());
-        }
-        if s.debug_exceptions != before.debug_exceptions {
-            self.persist("debug_exceptions", config::toml_str_array(&s.debug_exceptions));
-        }
-        if s.debug_just_my_code != before.debug_just_my_code {
-            self.persist("debug_just_my_code", s.debug_just_my_code.to_string());
         }
         if s.pr_default_state != before.pr_default_state || s.pr_default_who != before.pr_default_who || s.pr_show_resolved != before.pr_show_resolved {
             self.pr.apply_settings(&s.pr_default_state, &s.pr_default_who, s.pr_show_resolved);
@@ -1366,13 +1296,12 @@ impl App {
     }
 }
 
-/// The switch of GitHub, Claude or the debugger, on top of its section.
+/// The switch of Git, GitHub or Claude, on top of its section.
 fn feature_switch(s: &mut Settings, sec: PrefSection) -> Option<&mut bool> {
     match sec {
         PrefSection::Git => Some(&mut s.git),
         PrefSection::PullRequests => Some(&mut s.github),
         PrefSection::Claude => Some(&mut s.claude),
-        PrefSection::Debug => Some(&mut s.debugger),
         _ => None,
     }
 }
@@ -1391,13 +1320,9 @@ fn feature_toggle(ui: &mut egui::Ui, rc: &mut RowCtx, sec: PrefSection, s: &mut 
             t!("Activer Git", "Enable Git"),
             t!("Désactivé (ou git pas installé) : plus de vue Git, d'historique, de blame, de marques de changement dans la marge ni de pull requests ; git n'est plus appelé.", "Off (or git not installed): no more Git view, history, blame, change marks in the gutter nor pull requests; git is no longer called."),
         ),
-        PrefSection::Claude => (
+        _ => (
             t!("Activer Claude", "Enable Claude"),
             t!("Désactivé : plus de vue Claude, de ✨ dans Git, de revue IA, de « Corriger avec Claude » ni d'entrées Claude dans les menus.", "Off: no more Claude view, ✨ in Git, AI review, “Fix with Claude” nor Claude entries in the menus."),
-        ),
-        _ => (
-            t!("Activer le débogueur", "Enable the debugger"),
-            t!("Désactivé : plus de vue Débogage, de points d'arrêt dans la marge, de F5 / F9 / F10… ni de « déboguer ce test ».", "Off: no more Debug view, breakpoints in the margin, F5 / F9 / F10… nor “debug this test”."),
         ),
     };
     if let Some(on) = feature_switch(s, sec) {

@@ -187,7 +187,7 @@ impl App {
 
     pub(super) fn exec(&mut self, ctx: &egui::Context, cmd: Cmd) {
         use Cmd::*;
-        // a shortcut of a part turned off (GitHub, the debugger, Claude)
+        // a shortcut of a part turned off (GitHub, Claude)
         if let Some(f) = crate::features::of_cmd(cmd).filter(|f| !crate::features::on(*f)) {
             self.set_status(tf!("{} est désactivé (Préférences)", "{} is turned off (Preferences)", crate::features::name(f)));
             return;
@@ -381,29 +381,17 @@ impl App {
             ShowOutput => self.bottom = Some(BottomTab::Output),
             ShowGit => self.open_git_view(),
             PullRequests => self.open_pulls(),
-            TestAgain => match self.settings.odoo_test_history.first().cloned() {
+            TestAgain => match self.settings.test_history.first().cloned() {
                 Some(t) => self.run_tests(t),
                 None => self.run_tests(String::new()),
             },
             TestRun => self.run_tests(String::new()),
-            TestHere => match self.test_tags_here(false) {
+            TestHere => match self.test_tags_here() {
                 Some(t) => self.run_tests(t),
                 None => self.set_status(t!("Pas de test sous le curseur (Odoo, pytest, jest, cargo, go)", "No test under the cursor (Odoo, pytest, jest, cargo, go)")),
             },
-            DebugTestHere => match self.test_tags_here(true) {
-                Some(t) => self.debug_test(t),
-                None => self.set_status(t!("Pas de test sous le curseur (Odoo, pytest, jest, cargo, go)", "No test under the cursor (Odoo, pytest, jest, cargo, go)")),
-            },
-            Debug => self.open_tool(BottomTab::Debug),
-            DebugStart => self.debug_start_or_continue(),
-            DebugStop => self.debug_stop_by_hand(),
-            DebugRestart => self.debug_restart(),
-            DebugPause => self.debug_step("pause"),
-            StepOver => self.debug_step("next"),
-            StepInto => self.debug_step("stepIn"),
-            StepOut => self.debug_step("stepOut"),
-            ToggleBreakpoint => self.debug_toggle_breakpoint(),
-            ClearBreakpoints => self.debug_clear_breakpoints(),
+            ToggleBreakpoint => self.trace_toggle(),
+            ClearBreakpoints => self.trace_clear(),
             CreatePr => self.start_pr_create(),
             Claude => self.open_claude(),
             SuggestCommit => self.suggest_commit_message(),
@@ -878,8 +866,8 @@ mod tests {
         }
         // Florm's global shortcuts
         for s in [
-            "ctrl+shift+g", "ctrl+alt+r", "ctrl+shift+j", "ctrl+tab", "ctrl+pageup", "ctrl+pagedown", "f5", "f9", "f10", "f11",
-            "shift+f11", "ctrl+shift+p", "ctrl+p", "ctrl+b", "ctrl+alt+c",
+            "ctrl+shift+g", "ctrl+alt+r", "ctrl+shift+j", "ctrl+tab", "ctrl+pageup", "ctrl+pagedown", "f9", "ctrl+f6",
+            "ctrl+shift+f6", "ctrl+shift+p", "ctrl+p", "ctrl+b", "ctrl+alt+c",
         ] {
             assert!(through(s), "{s} should reach Florm");
         }

@@ -1,8 +1,9 @@
 # CLAUDE.md
 
 Florm : éditeur de texte en Rust (egui/eframe 0.29), inspiré de Sublime Text, un seul binaire.
-Intègre Git, GitHub (pull requests), Claude Code, terminal, LSP, linters, orthographe, débogueur (DAP :
-Python, Node, Rust/C, Go), tests (pytest, jest, cargo, go ; les tests Odoo passent par le débogueur).
+Intègre Git, GitHub (pull requests), Claude Code, terminal, LSP, linters, orthographe, tests (Odoo, pytest,
+jest, cargo, go, dans le terminal). Pas de débogueur : les points d'arrêt sont des lignes `ipdb` (F9), et
+l'éditeur suit ipdb dans le terminal (`src/trace.rs`, `src/app/breakpoints.rs`).
 
 ## Commandes
 
@@ -23,11 +24,11 @@ scripts/build-windows.sh    # binaire Windows depuis Linux/WSL
 
 - `src/main.rs` : démarrage, options de fenêtre, déclaration des modules.
 - `src/app.rs` + `src/app/*.rs` : l'application egui (`impl App` réparti par thème : `claude_ui.rs`,
-  `git_view.rs`, `pulls.rs`, `debugger.rs`, `panels.rs`, `prefs.rs`, `job_results.rs`…). Les plus
-  gros ont des sous-modules dans un dossier du même nom (`claude_ui/`, `debugger/`, `panels/`) :
+  `git_view.rs`, `pulls.rs`, `panels.rs`, `prefs.rs`, `job_results.rs`…). Les plus
+  gros ont des sous-modules dans un dossier du même nom (`claude_ui/`, `panels/`) :
   un fichier par partie, avec `use super::*;`.
-- `src/*.rs` hors `app/` : la logique sans UI (`git.rs`, `github.rs`, `claude.rs`, `dap.rs`, `lsp.rs`,
-  `docker.rs`, `terminal.rs`, `document.rs` (buffer `ropey`), `highlight.rs` (`syntect`)…).
+- `src/*.rs` hors `app/` : la logique sans UI (`git.rs`, `github.rs`, `claude.rs`, `lsp.rs`,
+  `terminal.rs`, `document.rs` (buffer `ropey`), `highlight.rs` (`syntect`)…).
   La division de l'éditeur est dans `src/app/panes.rs`.
 - Travail en arrière-plan : `src/jobs.rs`. Les tâches tournent sur des threads et renvoient un
   `JobResult` par un channel lu à chaque image ; le traitement est dans `src/app/job_results.rs` (un aiguillage, les traitements longs dans `job_results/`).

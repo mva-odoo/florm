@@ -1,12 +1,9 @@
-//! Odoo tests run in a container: the `--test-tags` of the code under the cursor, the tests of
-//! a file (for the ▶ of the gutter), the summary of a run, and the files of its tracebacks.
+//! Odoo tests: the `--test-tags` of the code under the cursor, the tests of a file (for the ▶ of
+//! the gutter), the command that runs them (the last one, with other tags) and its summary.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-/// Command run in the container (`{tags}`: the tags asked).
-pub const DEFAULT_COMMAND: &str = "odoo --stop-after-init --test-enable --test-tags {tags}";
-
-/// Most tags kept in the history.
+/// Most test commands kept in the history.
 pub const HISTORY: usize = 12;
 
 /// A test file of an Odoo module: `tests/…/test_*.py`.
@@ -74,54 +71,71 @@ pub fn tags_at(path: &Path, text: &str, line: usize) -> Option<String> {
     module_of(path).map(|m| format!("/{m}"))
 }
 
-/// `s` cut into arguments like a shell (quotes kept together).
-pub fn split(s: &str) -> Vec<String> {
-    let (mut out, mut cur, mut quote, mut any) = (Vec::new(), String::new(), None, false);
-    for c in s.chars() {
-        match (quote, c) {
-            (Some(q), c) if c == q => quote = None,
-            (Some(_), c) => cur.push(c),
-            (None, '"' | '\'') => {
-                quote = Some(c);
-                any = true;
-            }
-            (None, c) if c.is_whitespace() => {
-                if any || !cur.is_empty() {
-                    out.push(std::mem::take(&mut cur));
+/// A test command of Odoo: it has `--test-tags`.
+pub fn is_command(cmd: &str) -> bool {
+    cmd.split_whitespace().any(|w| w == "--test-tags" || w.starts_with("--test-tags="))
+}
+
+/// Odoo test tags rather than a command: `/module`, `:Class.test_x`, `/module:Class`…
+pub fn is_tags(s: &str) -> bool {
+    let s = s.trim();
+    !s.is_empty() && !s.contains(char::is_whitespace) && (s.starts_with('/') || s.starts_with(':'))
+}
+
+/// The command that runs the Odoo tests `tags`: the last Odoo test command run with its
+/// `--test-tags` changed (it keeps the database, `-u`, the container…), else `odoo-bin` (found in
+/// the project) with them.
+pub fn command(tags: &str, last: Option<&str>, odoo_bin: Option<&str>) -> String {
+    if let Some(last) = last.filter(|l| is_command(l)) {
+        let mut words: Vec<String> = Vec::new();
+        let mut it = last.split(' ').peekable();
+        while let Some(w) = it.next() {
+            if w == "--test-tags" {
+                words.push(w.to_string());
+                // the value after it (the spaces between them kept as one)
+                while it.peek() == Some(&"") {
+                    it.next();
                 }
-                any = false;
+                it.next();
+                words.push(tags.to_string());
+            } else if w.starts_with("--test-tags=") {
+                words.push(format!("--test-tags={tags}"));
+            } else {
+                words.push(w.to_string());
             }
-            (None, c) => cur.push(c),
         }
+        return words.join(" ");
     }
-    if any || !cur.is_empty() {
-        out.push(cur);
-    }
-    out
+    format!("{} --stop-after-init --test-enable --test-tags {tags}", odoo_bin.unwrap_or("odoo"))
 }
 
-/// A traceback line in a logical line of the terminal: `File "/path/x.py", line 12` → (path, line).
-pub fn traceback_location(text: &str) -> Option<(String, usize)> {
-    let i = text.find("File \"")?;
-    let rest = &text[i + 6..];
-    let end = rest.find('"')?;
-    let path = &rest[..end];
-    let after = rest[end + 1..].trim_start().strip_prefix(',')?.trim_start().strip_prefix("line ")?;
-    let n: usize = after.chars().take_while(|c| c.is_ascii_digit()).collect::<String>().parse().ok()?;
-    Some((path.to_string(), n))
+/// `odoo-bin` in `root` or a folder under it (two levels): how to run it from `root`.
+pub fn find_odoo_bin(root: &Path) -> Option<String> {
+    let mut dirs = vec![root.to_path_buf()];
+    for _ in 0..2 {
+        if let Some(d) = dirs.iter().find(|d| d.join("odoo-bin").is_file()) {
+            let rel = d.strip_prefix(root).ok()?.join("odoo-bin");
+            return Some(format!("./{}", rel.to_string_lossy().replace('\\', "/")));
+        }
+        let mut subs = Vec::new();
+        for d in &dirs {
+            let Ok(rd) = std::fs::read_dir(d) else { continue };
+            let mut v: Vec<_> = rd.flatten().filter(|e| e.file_type().is_ok_and(|t| t.is_dir()) && !e.file_name().to_string_lossy().starts_with('.')).map(|e| e.path()).collect();
+            v.sort();
+            subs.extend(v);
+        }
+        dirs = subs;
+    }
+    dirs.iter().find(|d| d.join("odoo-bin").is_file()).and_then(|d| Some(format!("./{}", d.strip_prefix(root).ok()?.join("odoo-bin").to_string_lossy().replace('\\', "/"))))
 }
 
-/// A path seen in a container, on this machine: through the mounts (container folder → folder
-/// here), the longest one first; else as it is.
-pub fn map_path(path: &str, mounts: &[(String, PathBuf)]) -> PathBuf {
-    let best = mounts
-        .iter()
-        .filter(|(dest, _)| path == dest || path.strip_prefix(dest.as_str()).is_some_and(|r| r.starts_with('/')))
-        .max_by_key(|(dest, _)| dest.len());
-    match best {
-        Some((dest, src)) => src.join(path[dest.len()..].trim_start_matches('/')),
-        None => PathBuf::from(path),
-    }
+/// The summary of an Odoo run, from its log: (all passed, « 0 failed, 0 error(s) of 12 tests »).
+pub fn summary(out: &str) -> Option<(bool, String)> {
+    let line = out.lines().rev().find(|l| l.contains("odoo.tests.result:"))?;
+    let text = line.split("odoo.tests.result:").nth(1)?.trim();
+    let text = text.split(" when ").next().unwrap_or(text).trim();
+    let count = |what: &str| text.split(',').find(|p| p.contains(what)).and_then(|p| p.split_whitespace().next()?.parse::<usize>().ok()).unwrap_or(0);
+    Some((count("failed") == 0 && count("error") == 0, text.to_string()))
 }
 
 #[cfg(test)]
@@ -166,19 +180,35 @@ class Other:
     }
 
     #[test]
-    fn words_of_a_command() {
-        assert_eq!(split("odoo -d 'ma base' --test-tags /m"), ["odoo", "-d", "ma base", "--test-tags", "/m"]);
+    fn commands_of_odoo_tests() {
+        assert!(is_tags("/sale:TestX.test_y") && is_tags(":TestX") && !is_tags("pytest a.py") && !is_tags("/a b"));
+        assert!(is_command("./odoo-bin -d db --test-tags /sale") && is_command("odoo --test-tags=/sale") && !is_command("pytest"));
+        // the last one keeps everything but its tags
+        let last = "docker compose exec odoo odoo -d db -u sale --stop-after-init --test-tags  /sale:TestA --log-level=test";
+        assert_eq!(command("/sale:TestB.test_c", Some(last), None), "docker compose exec odoo odoo -d db -u sale --stop-after-init --test-tags /sale:TestB.test_c --log-level=test");
+        assert_eq!(command("/m", Some("odoo --test-tags=/x -d db"), None), "odoo --test-tags=/m -d db");
+        assert_eq!(command("/m", Some("pytest a.py"), Some("./odoo-bin")), "./odoo-bin --stop-after-init --test-enable --test-tags /m");
+        assert_eq!(command("/m", None, None), "odoo --stop-after-init --test-enable --test-tags /m");
     }
 
     #[test]
-    fn tracebacks() {
-        let l = r#"  File "/home/odoo/src/odoo/addons/sale/models/sale.py", line 120, in action_confirm"#;
-        assert_eq!(traceback_location(l), Some(("/home/odoo/src/odoo/addons/sale/models/sale.py".into(), 120)));
-        assert_eq!(traceback_location("File x"), None);
-        let mounts = vec![("/opt/odoo".to_string(), PathBuf::from("/home/me/odoo")), ("/opt".to_string(), PathBuf::from("/srv"))];
-        assert_eq!(map_path("/opt/odoo/addons/a.py", &mounts), PathBuf::from("/home/me/odoo/addons/a.py"));
-        assert_eq!(map_path("/opt/other.py", &mounts), PathBuf::from("/srv/other.py"));
-        assert_eq!(map_path("/opt/odoox/a.py", &mounts), PathBuf::from("/srv/odoox/a.py"));
-        assert_eq!(map_path("/usr/lib/a.py", &mounts), PathBuf::from("/usr/lib/a.py"));
+    fn summary_of_a_run() {
+        let log = "2026-11-24 10:00:00,000 1 INFO db odoo.modules.loading: done\n2026-11-24 10:00:01,000 1 ERROR db odoo.tests.result: 1 failed, 0 error(s) of 12 tests when loading database 'db'\n";
+        assert_eq!(summary(log), Some((false, "1 failed, 0 error(s) of 12 tests".into())));
+        assert_eq!(summary("INFO db odoo.tests.result: 0 failed, 0 error(s) of 3 tests when loading database 'db'"), Some((true, "0 failed, 0 error(s) of 3 tests".into())));
+        assert_eq!(summary("nothing"), None);
+    }
+
+    #[test]
+    fn odoo_bin_of_the_project() {
+        let dir = std::env::temp_dir().join(format!("florm_odoo_bin_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("src/odoo")).unwrap();
+        assert_eq!(find_odoo_bin(&dir), None);
+        std::fs::write(dir.join("src/odoo/odoo-bin"), "").unwrap();
+        assert_eq!(find_odoo_bin(&dir).as_deref(), Some("./src/odoo/odoo-bin"));
+        std::fs::write(dir.join("odoo-bin"), "").unwrap();
+        assert_eq!(find_odoo_bin(&dir).as_deref(), Some("./odoo-bin"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

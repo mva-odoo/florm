@@ -14,7 +14,6 @@ impl App {
         let in_editor = |v: document::View| move |d: &Document| d.view == v;
         let tab_of = match tab {
             BottomTab::Search => self.docs.iter().position(in_editor(document::View::Search)),
-            BottomTab::Debug => self.docs.iter().position(in_editor(document::View::Debug)),
             _ => None,
         };
         if let Some(i) = tab_of {
@@ -24,7 +23,6 @@ impl App {
         match tab {
             BottomTab::Search => self.search.focus = true,
             BottomTab::Terminal => self.term.want_focus = true,
-            BottomTab::Debug => self.debug.focus_console = true,
             BottomTab::Problems | BottomTab::Output => {}
         }
     }
@@ -34,7 +32,6 @@ impl App {
         match tab {
             BottomTab::Search => self.open_search_tab(),
             BottomTab::Terminal => self.open_terminal_tab(),
-            BottomTab::Debug => self.open_debug(),
             BottomTab::Problems | BottomTab::Output => self.show_bottom(tab, false),
         }
     }
@@ -44,7 +41,6 @@ impl App {
         let tab_of = |v: document::View| self.docs.iter().any(|d| d.view == v);
         match tab {
             BottomTab::Search => tab_of(document::View::Search),
-            BottomTab::Debug => tab_of(document::View::Debug),
             BottomTab::Terminal | BottomTab::Problems | BottomTab::Output => false,
         }
     }
@@ -63,31 +59,9 @@ impl App {
         }
     }
 
-    /// The view goes into an editor tab (`big`) or into the bottom panel, and opens there from now
-    /// on (⇱ / ⇲ of the debugger; search has its own setting).
-    pub(in crate::app) fn move_view(&mut self, tab: BottomTab, big: bool) {
-        let key = tab.key();
-        let list = &mut self.settings.views_in_tab;
-        list.retain(|k| *k != key);
-        if big {
-            list.push(key);
-        }
-        let v = config::toml_str_array(list);
-        self.persist("views_in_tab", v);
-        if big {
-            self.show_big(tab);
-        } else {
-            self.show_bottom(tab, false);
-        }
-    }
-
     /// `tab` opens in an editor tab rather than in the bottom panel (its last ⇱ / ⇲).
     fn prefers_tab(&self, tab: BottomTab) -> bool {
-        match tab {
-            BottomTab::Search => self.settings.search_in_tab,
-            BottomTab::Terminal | BottomTab::Problems | BottomTab::Output => false,
-            _ => self.settings.views_in_tab.contains(&tab.key()),
-        }
+        tab == BottomTab::Search && self.settings.search_in_tab
     }
 
     /// Opens `tab` in its one place: its editor tab when it has one, else where ⇱ / ⇲ put it last.
@@ -96,15 +70,6 @@ impl App {
         match tab {
             _ if self.view_in_tab(tab) || self.prefers_tab(tab) => self.show_big(tab),
             _ => self.show_bottom(tab, false),
-        }
-    }
-
-    /// A click on a state of the status bar: hides `tab` when the bottom panel shows it, else opens it.
-    pub(super) fn toggle_tool(&mut self, tab: BottomTab) {
-        if self.bottom == Some(tab) && !self.view_in_tab(tab) {
-            self.bottom = None;
-        } else {
-            self.open_tool(tab);
         }
     }
 
@@ -118,7 +83,6 @@ impl App {
         for (tab, icon, label) in BottomTab::shown() {
             let note = match tab {
                 BottomTab::Problems if nd > 0 => Some((nd.to_string(), warn())),
-                BottomTab::Debug if self.debug_activity() == Some(true) => Some(("⏸".to_string(), warn())),
                 _ => None,
             };
             if tool_row(ui, icon, label, note, &self.keymap.label(tab.cmd()), current == Some(tab)).clicked() {
@@ -174,8 +138,7 @@ impl App {
         if let Some(t) = self.bottom {
             self.last_bottom = t;
         }
-        // the debugger needs room for its bars and content
-        let min_h = if self.bottom == Some(BottomTab::Debug) { 360.0 } else { 80.0 };
+        let min_h = 80.0;
         // room on the sides and under its content, so that it does not touch the status bar
         let frame = egui::Frame::side_top_panel(&ctx.style()).inner_margin(egui::Margin { left: 8.0, right: 8.0, top: 2.0, bottom: 8.0 });
         egui::TopBottomPanel::bottom("bottom").resizable(true).default_height(230.0).height_range(min_h..=900.0).frame(frame).show(
@@ -222,9 +185,6 @@ impl App {
                         if crate::view_bar::in_tab_notice(ui) {
                             self.bring_back(tab);
                         }
-                    }
-                    Some(BottomTab::Debug) => {
-                        egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.debug_ui(ui));
                     }
                     Some(BottomTab::Search) => self.search_ui(ui, false),
                     Some(BottomTab::Problems) => self.problems_ui(ui),

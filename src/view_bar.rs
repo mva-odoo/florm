@@ -1,4 +1,4 @@
-//! What the views (Recherche, Git, GitHub, Docker, Claude, Débogage, Terminal) share, so that
+//! What the views (Recherche, Git, GitHub, Claude, Terminal) share, so that
 //! they behave the same: their title, the buttons at the right of their header always in the
 //! same order (⟳ read again, ⇱ / ⇲ editor tab or bottom panel for those that can be in both,
 //! ⋯ the other actions and options), and the notice in the bottom panel when the view is in an

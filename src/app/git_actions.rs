@@ -58,19 +58,24 @@ impl App {
     }
 
     /// Commits with the message typed in the Git view (everything tracked when nothing is staged).
-    /// Amending, only the staged changes join the last commit (none: its message changes).
+    /// Amending, only the staged changes join the last commit (none: its message changes). A
+    /// commit that adds an `ipdb` asks first (`commit_checked`); the message goes once it is done.
     pub(super) fn commit(&mut self, n_staged: usize) {
+        let Some(repo) = self.repo.clone() else {
+            self.set_status(t!("Pas de dépôt git", "No git repository"));
+            return;
+        };
         let msg = self.git.commit_msg.trim().to_string();
-        let mut args = vec!["commit"];
+        let mut args = vec!["commit".to_string()];
+        let all = !self.git.amend && n_staged == 0;
         if self.git.amend {
-            args.push("--amend");
-        } else if n_staged == 0 {
-            args.push("-a");
+            args.push("--amend".into());
+        } else if all {
+            args.push("-a".into());
         }
-        args.extend(["-m", &msg]);
-        self.git_job(if self.git.amend { "commit --amend" } else { "commit" }, &args);
-        self.git.commit_msg.clear();
-        self.git.amend = false;
+        args.extend(["-m".to_string(), msg]);
+        self.log(format!("$ git {}", args.join(" ")));
+        self.commit_checked(repo, args, all);
     }
 
     /// "Modifier le dernier commit": its message in the box, to change; the commit button then

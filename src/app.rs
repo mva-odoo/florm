@@ -25,6 +25,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 mod git_view;
+mod breakpoints;
 mod ai_review;
 mod ai_complete;
 mod hints;
@@ -36,7 +37,6 @@ mod screenshot;
 mod md;
 mod quick_fix;
 mod pulls;
-mod debugger;
 mod view_tabs;
 mod install_guide;
 mod odoo_tests;
@@ -261,41 +261,29 @@ enum BottomTab {
     Problems,
     Terminal,
     Output,
-    Debug,
 }
 
 impl BottomTab {
-    /// Its part (the debugger) is on, or it has none.
-    fn feature_on(self) -> bool {
-        use crate::features::{on, Feature};
-        match self {
-            BottomTab::Debug => on(Feature::Debugger),
-            _ => true,
-        }
-    }
-
     /// The view of `key` (settings, session).
     fn from_key(k: &str) -> Option<BottomTab> {
         Self::ALL.iter().map(|a| a.0).find(|b| b.key() == k)
     }
 
     /// The views of the bottom panel, in the order of its ▾ menu.
-    const ALL: [(BottomTab, icons::ViewIcon, &'static str); 5] = [
+    const ALL: [(BottomTab, icons::ViewIcon, &'static str); 4] = [
         (BottomTab::Search, icons::ViewIcon::Search, "Recherche"),
         (BottomTab::Problems, icons::ViewIcon::Problems, "Problèmes"),
         (BottomTab::Terminal, icons::ViewIcon::Terminal, "Terminal"),
         (BottomTab::Output, icons::ViewIcon::Output, "Sortie"),
-        (BottomTab::Debug, icons::ViewIcon::Debug, "Débogage"),
     ];
 
     /// The views offered: those of the parts turned on.
     fn shown() -> impl Iterator<Item = (BottomTab, icons::ViewIcon, &'static str)> {
-        Self::ALL.into_iter().filter(|(t, ..)| t.feature_on()).map(|(t, i, l)| {
+        Self::ALL.into_iter().map(|(t, i, l)| {
             let l = match l {
                 "Recherche" => t!(l, "Search"),
                 "Problèmes" => t!(l, "Problems"),
                 "Sortie" => t!(l, "Output"),
-                "Débogage" => t!(l, "Debug"),
                 _ => l,
             };
             (t, i, l)
@@ -314,7 +302,6 @@ impl BottomTab {
             BottomTab::Problems => Cmd::ShowProblems,
             BottomTab::Terminal => Cmd::ToggleTerminal,
             BottomTab::Output => Cmd::ShowOutput,
-            BottomTab::Debug => Cmd::Debug,
         }
     }
 }
@@ -1029,8 +1016,8 @@ pub struct App {
     /// GitHub pull requests tab.
     pr: pulls::PrUi,
     tests: odoo_tests::Tests,
-    /// The debugger (F5): its session, the breakpoints of the project.
-    debug: debugger::DebugUi,
+    /// Where pdb / ipdb waits in a terminal, followed in the editor.
+    follow: breakpoints::Follow,
     /// Pull requests of branches and commits, creation of one.
     gh: pr_links::GhUi,
     /// Conversation with Claude Code and review of its changes: the one shown last.
@@ -1159,7 +1146,6 @@ enum PrefSection {
     Git,
     PullRequests,
     Claude,
-    Debug,
     Terminal,
     Keys,
     Templates,
@@ -1167,14 +1153,13 @@ enum PrefSection {
 }
 
 /// (section, French name, English name).
-const PREF_SECTIONS: [(PrefSection, &str, &str); 11] = [
+const PREF_SECTIONS: [(PrefSection, &str, &str); 10] = [
     (PrefSection::Appearance, "Apparence", "Appearance"),
     (PrefSection::Editor, "Éditeur", "Editor"),
     (PrefSection::Lint, "Lint", "Lint"),
     (PrefSection::Git, "Git", "Git"),
     (PrefSection::PullRequests, "Pull requests", "Pull requests"),
     (PrefSection::Claude, "Claude", "Claude"),
-    (PrefSection::Debug, "Débogueur", "Debugger"),
     (PrefSection::Terminal, "Terminal", "Terminal"),
     (PrefSection::Keys, "Raccourcis", "Shortcuts"),
     (PrefSection::Templates, "Modèles", "Templates"),
@@ -1243,7 +1228,7 @@ impl App {
     /// `new` with only the egui context (the tests make an app without a window).
     fn with_ctx(egui_ctx: &egui::Context, arg: Option<PathBuf>) -> Self {
         let (settings, settings_err) = config::load();
-        crate::features::set_all(settings.github, settings.debugger, settings.claude, settings.git && crate::tools::Tool::Git.installed());
+        crate::features::set_all(settings.github, settings.claude, settings.git && crate::tools::Tool::Git.installed());
         crate::claude_account::set_default(claude_ui::default_account_dir(&settings));
         // Florm has its own palette: egui must not switch to its light / dark style with the system
         // theme (Windows), and both styles get the same settings
@@ -1349,7 +1334,7 @@ impl App {
                 pr
             },
             tests: Default::default(),
-            debug: Default::default(),
+            follow: Default::default(),
             gh: Default::default(),
             claude: Default::default(),
             claude_others: Vec::new(),
@@ -1700,7 +1685,7 @@ impl eframe::App for App {
             self.last_active_path = cur;
         }
         self.lsp_frame(ctx);
-        self.debug_frame();
+        self.trace_follow();
         self.update_hover(ctx);
         self.completion_keys(ctx);
         self.ai_complete_keys(ctx);
@@ -1814,7 +1799,6 @@ fn doc_tab(d: &Document) -> (TabIcon<'_>, String) {
         View::Help => Some(ViewIcon::Help),
         View::Welcome => Some(ViewIcon::Welcome),
         View::PullRequests => Some(ViewIcon::PullRequests),
-        View::Debug => Some(ViewIcon::Debug),
         View::Git | View::History => Some(ViewIcon::Git),
         View::Settings => Some(ViewIcon::Settings),
         View::Claude => Some(ViewIcon::Claude),
@@ -2382,7 +2366,6 @@ mod font_tests {
         let mut app = App::with_ctx(&ctx, Some(proj.clone()));
         app.open_path(proj.join("a.py"));
         app.claude_restore_tab(0);
-        app.open_debug();
         app.open_view_tab(document::View::Help, "Guide".into());
         app.save_session();
         let views = |app: &App| app.docs.iter().map(|d| d.view.clone()).collect::<Vec<_>>();
@@ -2713,21 +2696,6 @@ mod font_tests {
             all(&mut app);
             assert_eq!(app.bottom, Some(tab));
         }
-        // a view has one place: ⇲ keeps the debugger in the bottom panel, its shortcut opens it
-        // there, ⇱ puts it back in a tab, and the shortcut then shows that tab
-        let debug_tab = |app: &App| app.docs.iter().any(|d| d.view == document::View::Debug);
-        app.move_view(BottomTab::Debug, false);
-        app.bottom = None;
-        app.open_tool(BottomTab::Debug);
-        assert_eq!(app.bottom, Some(BottomTab::Debug));
-        assert!(!debug_tab(&app));
-        app.move_view(BottomTab::Debug, true);
-        assert!(debug_tab(&app));
-        app.bottom = Some(BottomTab::Terminal);
-        app.open_tool(BottomTab::Debug);
-        assert!(app.showing(document::View::Debug));
-        assert_eq!(app.bottom, Some(BottomTab::Terminal));
-        assert!(app.settings.views_in_tab.contains(&"debug".to_string()));
         // Ctrl+K alone opens nothing (Ctrl+Shift+P is the palette); a chord still works
         let press = |app: &mut App, key: Key, modifiers: egui::Modifiers| {
             let ev = egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers };
