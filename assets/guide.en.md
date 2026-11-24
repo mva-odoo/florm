@@ -272,6 +272,9 @@ The operations started from Florm put the original version between the two sides
 ## Terminal
 
 - **Ctrl+`**: the terminal in the bottom panel.
+- **Shortcuts in a terminal** (and in Claude): Ctrl+letter (Ctrl+C, Ctrl+R, Ctrl+D…), Alt+letter
+  and Ctrl+Shift+C / V / F go to the shell; the F keys (F5, F9…), Ctrl+Alt+…, the other
+  Ctrl+Shift+… (Ctrl+Shift+G, Ctrl+Shift+J…) and Ctrl+Tab, Ctrl+PgUp / PgDn stay with Florm.
 - **Shift+Enter** (or Alt / Option+Enter) goes to a new line without sending, in Claude as in zsh
   and fish.
 - **Links**: **Ctrl+click** (⌘+click on a Mac) on a web address opens it in the browser; on a file

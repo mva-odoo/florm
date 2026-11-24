@@ -24,6 +24,10 @@ impl App {
         let mut chord_letter = false;
         for (i, ev) in events.iter().enumerate() {
             let Event::Key { key, pressed: true, modifiers, .. } = ev else { continue };
+            // AltGr (Ctrl+Alt on Windows) typed a character: not a shortcut
+            if altgr_typing(&events, i) {
+                continue;
+            }
             let combo = Combo::from_event(*key, *modifiers);
             if !self.chord && self.keymap.is_chord_start(&combo) {
                 self.chord = true;
@@ -41,12 +45,8 @@ impl App {
                     if cmd.is_editor() && (!editor_focused || self.overlay.is_some()) {
                         continue;
                     }
-                    // in the terminal, keys go to the shell, except a few global shortcuts
-                    // (and Cmd+Q on macOS, where Cmd means nothing to a shell)
-                    if term_focused
-                        && !matches!(cmd, Cmd::ToggleTerminal | Cmd::CommandPalette | Cmd::QuickOpen | Cmd::ToggleSidebar | Cmd::Claude | Cmd::ClaudeNextWaiting | Cmd::ClaudeScreenshot)
-                        && !(cfg!(target_os = "macos") && cmd == Cmd::Quit)
-                    {
+                    // in the terminal (and the Claude tab), keys go to the shell, except global shortcuts
+                    if term_focused && !terminal_lets_through(cmd, combo) {
                         continue;
                     }
                     consumed[i] = true;
@@ -827,4 +827,85 @@ pub(super) enum MacroStep {
     Cmd(Cmd),
     Text(String),
     Paste(String),
+}
+
+/// Whether a shortcut still works while a terminal has the keyboard. The shell keeps plain keys,
+/// Alt+key, Ctrl+key (Ctrl+C, Ctrl+R, Ctrl+D…) and the Ctrl+Shift keys it uses (copy, paste,
+/// search, Ctrl+_); Florm takes the F-keys, Ctrl+Alt, the other Ctrl+Shift combos, and tab switching.
+fn terminal_lets_through(cmd: Cmd, c: Combo) -> bool {
+    use Cmd::*;
+    let fkey = matches!(
+        c.key,
+        Key::F1 | Key::F2 | Key::F3 | Key::F4 | Key::F5 | Key::F6 | Key::F7 | Key::F8 | Key::F9 | Key::F10 | Key::F11 | Key::F12
+    );
+    let shell_ctrl_shift = matches!(c.key, Key::C | Key::V | Key::X | Key::F | Key::Minus);
+    fkey || (c.ctrl && c.alt)
+        || (c.ctrl && c.shift && !shell_ctrl_shift)
+        || matches!(cmd, ToggleTerminal | CommandPalette | QuickOpen | ToggleSidebar | NextTab | PrevTab | Claude | ClaudeNextWaiting | ClaudeScreenshot)
+        // Cmd+Q on macOS, where Cmd means nothing to a shell
+        || (cfg!(target_os = "macos") && cmd == Quit)
+}
+
+/// The key press `i` is AltGr typing a character: Windows reports AltGr as Ctrl+Alt, and the
+/// character comes as text right after the key (egui gives no text for a real Ctrl+Alt).
+fn altgr_typing(events: &[Event], i: usize) -> bool {
+    let Some(Event::Key { modifiers, pressed: true, .. }) = events.get(i) else { return false };
+    if !(modifiers.ctrl && modifiers.alt) || modifiers.mac_cmd {
+        return false;
+    }
+    events[i + 1..]
+        .iter()
+        .find(|e| !matches!(e, Event::Key { pressed: false, .. }))
+        .is_some_and(|e| matches!(e, Event::Text(t) if !t.is_empty()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn combo(s: &str) -> Combo {
+        Combo::parse(s).unwrap()
+    }
+
+    #[test]
+    fn terminal_keeps_shell_keys() {
+        let (km, _) = Keymap::new(&Default::default());
+        let through = |s: &str| km.lookup(combo(s), false).is_some_and(|cmd| terminal_lets_through(cmd, combo(s)));
+        // the shell's keys (Ctrl+R is "go to symbol", Ctrl+D "add the next occurrence")
+        for s in ["ctrl+c", "ctrl+r", "ctrl+d", "ctrl+w", "ctrl+l", "ctrl+shift+f", "ctrl+shift+minus", "alt+l", "home", "ctrl+left"] {
+            assert!(!through(s), "{s} should go to the shell");
+        }
+        // Florm's global shortcuts
+        for s in [
+            "ctrl+shift+g", "ctrl+alt+r", "ctrl+shift+j", "ctrl+tab", "ctrl+pageup", "ctrl+pagedown", "f5", "f9", "f10", "f11",
+            "shift+f11", "ctrl+shift+p", "ctrl+p", "ctrl+b", "ctrl+alt+c",
+        ] {
+            assert!(through(s), "{s} should reach Florm");
+        }
+    }
+
+    fn key(k: Key, modifiers: egui::Modifiers, pressed: bool) -> Event {
+        Event::Key { key: k, physical_key: None, pressed, repeat: false, modifiers }
+    }
+
+    #[test]
+    fn altgr_types_instead_of_shortcut() {
+        let ctrl_alt = egui::Modifiers { ctrl: true, alt: true, command: true, ..Default::default() };
+        // AltGr+Q on a German keyboard: '@'
+        let ev = [key(Key::Q, ctrl_alt, true), Event::Text("@".into()), key(Key::Q, ctrl_alt, false)];
+        assert!(altgr_typing(&ev, 0));
+        // the release of another key may come in between
+        let ev = [key(Key::Q, ctrl_alt, true), key(Key::E, ctrl_alt, false), Event::Text("@".into())];
+        assert!(altgr_typing(&ev, 0));
+        // a real Ctrl+Alt+Q: no text
+        let ev = [key(Key::Q, ctrl_alt, true), key(Key::Q, ctrl_alt, false)];
+        assert!(!altgr_typing(&ev, 0));
+        // the text of the next key press is not this one's
+        let ev = [key(Key::Q, ctrl_alt, true), key(Key::A, Default::default(), true), Event::Text("a".into())];
+        assert!(!altgr_typing(&ev, 0));
+        // Alt alone (Alt+L) is handled elsewhere
+        let alt = egui::Modifiers { alt: true, ..Default::default() };
+        let ev = [key(Key::L, alt, true), Event::Text("l".into())];
+        assert!(!altgr_typing(&ev, 0));
+    }
 }

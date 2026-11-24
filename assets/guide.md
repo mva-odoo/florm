@@ -278,6 +278,9 @@ Les opérations lancées depuis Florm mettent la version d'origine entre les deu
 ## Terminal
 
 - **Ctrl+`** : le terminal dans le panneau du bas.
+- **Les raccourcis dans un terminal** (et dans Claude) : Ctrl+lettre (Ctrl+C, Ctrl+R, Ctrl+D…),
+  Alt+lettre et Ctrl+Maj+C / V / F vont au shell ; les touches F (F5, F9…), les Ctrl+Alt+…, les
+  autres Ctrl+Maj+… (Ctrl+Maj+G, Ctrl+Maj+J…) et Ctrl+Tab, Ctrl+PgUp / PgDn restent à Florm.
 - **Maj+Entrée** (ou Alt / Option+Entrée) va à la ligne sans envoyer, dans Claude comme dans zsh
   et fish.
 - **Liens** : **Ctrl+clic** (⌘+clic sur Mac) sur une adresse web l'ouvre dans le navigateur ; sur un
