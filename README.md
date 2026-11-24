@@ -427,7 +427,7 @@ Dans Préférences → Avancé → **Configuration partagée** (ou `shared_confi
 
 - **Créer sur GitHub** fait le dépôt (privé, avec `gh`) à partir de la configuration de cet ordinateur.
 - `settings.toml` partagé ne change que les clés qu'il contient (`[keys]`, `[lsp_servers]`… sont fusionnés). Une préférence modifiée dans Florm et présente dans ce fichier y est écrite aussi ; les nouveaux modèles et thèmes sont créés dans le dépôt.
-- `shared_config`, `shell`, `odoo_test_container` et `odoo_test_history` restent propres à chaque ordinateur.
+- Ce qui lance une commande ou en choisit les droits reste propre à chaque ordinateur, jamais pris du dépôt partagé : `shared_config`, `skills_dir`, `shell`, `odoo_test_history`, `trusted_folders`, `lsp_servers`, `python_linter`, `python_lint_args`, les commandes du débogueur (`debug_command*`, `debug_docker_command`, `debug_python`, `debug_target`), les comptes Claude (`claude_accounts`, `claude_account`, `claude_account_folders`) et `claude_sandbox`.
 - **Publier** (ou Outils → Publier la configuration partagée) fait le commit et le push ; **Synchroniser** récupère les changements des autres PC.
 
 ## Publier une release

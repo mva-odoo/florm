@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 #[derive(Deserialize, Clone, Debug)]
+#[cfg_attr(test, derive(serde::Serialize))]
 #[serde(default)]
 pub struct Settings {
     /// Language of the interface: "fr", "en"; empty: the system's.

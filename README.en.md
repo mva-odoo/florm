@@ -427,7 +427,7 @@ In Preferences → Advanced → **Shared configuration** (or `shared_config` in 
 
 - **Create on GitHub** makes the repository (private, with `gh`) from the configuration of this computer.
 - The shared `settings.toml` only changes the keys it contains (`[keys]`, `[lsp_servers]`… are merged). A preference changed in Florm and present in this file is written there too; new templates and themes are created in the repository.
-- `shared_config`, `shell`, `odoo_test_container` and `odoo_test_history` stay specific to each computer.
+- What runs a command or sets its rights stays specific to each computer, never taken from the shared repository: `shared_config`, `skills_dir`, `shell`, `odoo_test_history`, `trusted_folders`, `lsp_servers`, `python_linter`, `python_lint_args`, the debugger commands (`debug_command*`, `debug_docker_command`, `debug_python`, `debug_target`), the Claude accounts (`claude_accounts`, `claude_account`, `claude_account_folders`) and `claude_sandbox`.
 - **Publish** (or Tools → Publish the shared configuration) makes the commit and the push; **Synchronize** fetches the changes from the other PCs.
 
 ## Publishing a release

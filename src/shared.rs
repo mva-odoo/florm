@@ -17,12 +17,15 @@ use std::sync::Mutex;
 /// Name of the repository when only a GitHub login is given.
 pub const DEFAULT_REPO: &str = "florm-config";
 
-/// Settings that stay on each computer (never written to the shared settings.toml).
-/// Commands run: they stay on each computer (a shared repository must not
-/// set them: it could run any command on every computer that syncs it).
+/// Settings that stay on each computer (never taken from the shared settings.toml, never written
+/// to it): the commands run, the programs and folders used as configuration (Claude's folder
+/// holds its hooks), what is trusted or let out of the sandbox. A shared repository must not set
+/// them: it could run any command on every computer that syncs it. A new setting is put here or
+/// in `tests::SHARED` (a test checks that each one is in one of the two).
 pub const LOCAL_KEYS: &[&str] = &[
     "shared_config", "skills_dir", "odoo_test_history", "shell", "debug_target", "debug_command", "debug_command_node", "debug_command_native", "debug_command_go", "debug_python",
-    "debug_docker_command", "lsp_servers", "python_linter", "python_lint_args", "trusted_folders",
+    "debug_docker_command", "lsp_servers", "python_linter", "python_lint_args", "trusted_folders", "claude_accounts", "claude_account", "claude_account_folders",
+    "claude_sandbox",
 ];
 
 /// `shared_config` of the local settings (set by `config::load`).
@@ -163,13 +166,19 @@ fn fill_from_local(dir: &Path) -> std::io::Result<()> {
 
 /// settings.toml without the keys that belong to one computer.
 pub fn portable_settings(text: &str) -> String {
-    let mut in_section = false;
+    // the section the line is in ([lsp_servers] is local, [keys] is not)
+    let mut section: Option<String> = None;
     let kept: Vec<&str> = text
         .lines()
         .filter(|l| {
             let t = l.trim_start();
-            in_section |= t.starts_with('[');
-            in_section || !LOCAL_KEYS.iter().any(|k| t.strip_prefix(k).is_some_and(|r| r.trim_start().starts_with('=')))
+            if t.starts_with('[') {
+                section = Some(t.trim_start_matches('[').split(']').next().unwrap_or("").trim().trim_matches('"').to_string());
+            }
+            match &section {
+                Some(name) => !LOCAL_KEYS.contains(&name.as_str()),
+                None => !LOCAL_KEYS.iter().any(|k| t.strip_prefix(k).is_some_and(|r| r.trim_start().starts_with('='))),
+            }
         })
         .collect();
     kept.join("\n") + "\n"
@@ -248,6 +257,38 @@ modèles, thèmes et skills sont créés ici. « Publier » enregistre et pousse
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The settings a shared repository may set: appearance, behaviour, toggles. Nothing that
+    /// names a command, a program, a folder used as configuration or that grants a permission.
+    const SHARED: &[&str] = &[
+        "language", "font_size", "tab_size", "translate_tabs_to_spaces", "theme", "accent_color", "text_softness", "editor_font", "ui_font", "ui_style", "show_minimap",
+        "spell_check", "rainbow_brackets", "show_whitespace", "word_wrap", "sticky_scroll", "rulers", "breadcrumbs", "show_menu_bar", "search_in_tab", "diff_side_by_side",
+        "git", "github", "debugger", "claude", "claude_review", "claude_done_blink", "claude_done_sound", "markdown_toolbar", "tree_git_info", "inline_diff", "auto_pair",
+        "keyboard_hints", "ai_complete", "lint_on_save", "lint_live", "lint_ignore_flake8", "lint_ignore_ruff", "lint_ignore_pylint", "lint_ignore_eslint",
+        "trim_trailing_whitespace_on_save", "format_on_save", "hot_exit", "auto_save", "keys", "lsp", "exclude", "index_max_files", "check_updates", "views_in_tab", "debug_mode",
+        "debug_port", "debug_exceptions", "debug_just_my_code", "pr_default_state", "pr_default_who", "pr_show_resolved", "pr_draft",
+    ];
+
+    /// Each setting is either shared or local: a new one cannot be taken from a shared
+    /// repository without a choice made here.
+    #[test]
+    fn each_setting_is_shared_or_local() {
+        let v = serde_json::to_value(crate::config::Settings::default()).unwrap();
+        let fields: Vec<&String> = v.as_object().unwrap().keys().collect();
+        for f in &fields {
+            let (shared, local) = (SHARED.contains(&f.as_str()), LOCAL_KEYS.contains(&f.as_str()));
+            assert!(shared != local, "{f}: to put in LOCAL_KEYS or in SHARED (not both)");
+        }
+        for k in SHARED.iter().chain(LOCAL_KEYS) {
+            assert!(fields.iter().any(|f| f == k), "{k}: not a setting");
+        }
+    }
+
+    #[test]
+    fn local_settings_are_not_exported() {
+        let text = "theme = \"x\"\nclaude_accounts = [\"a=/tmp\"]\nclaude_sandbox = false\n[lsp_servers]\npython = \"evil\"\n[keys]\n\"ctrl+k\" = \"save\"\n";
+        assert_eq!(portable_settings(text), "theme = \"x\"\n[keys]\n\"ctrl+k\" = \"save\"\n");
+    }
 
     #[test]
     fn resolves_the_repository() {
