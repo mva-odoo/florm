@@ -77,8 +77,9 @@ impl App {
         self.rebuild_keymap();
     }
 
-    /// Session of the project; with hot exit, unsaved contents go in `backups` (file name, text).
-    fn current_session(&self) -> (Session, Vec<(String, String)>) {
+    /// Session of the project (folder `key`); with hot exit, unsaved contents go in `backups`, the
+    /// text of those not written yet (a copy of the rope costs nothing).
+    fn current_session(&self, key: &Path) -> (Session, Vec<project::Backup>) {
         let mut files = Vec::new();
         let mut backups = Vec::new();
         let mut active = 0;
@@ -108,7 +109,8 @@ impl App {
             let (line, col) = d.line_col(d.primary_sel().head);
             let backup = dirty.then(|| format!("doc{}.txt", files.len()));
             if let Some(name) = &backup {
-                backups.push((name.clone(), d.rope.to_string()));
+                let of = (d.uid, d.version);
+                backups.push((name.clone(), of, (!self.session_saver.holds(key, name, of)).then(|| d.rope.clone())));
             }
             files.push(SessionFile { path, line, col, backup, bookmarks: d.bookmark_lines(), view: None, pane: pane_of(d), shown: shown(i, d) });
         }
@@ -134,18 +136,25 @@ impl App {
     }
 
     pub(super) fn save_session(&mut self) {
-        let (session, backups) = self.current_session();
-        match &self.root {
-            Some(r) => {
-                project::save_session(r, &session);
-                project::save_backups(r, &backups);
-            }
-            // without a folder, only the unsaved work is kept (hot exit, crash)
-            None => {
-                let files = session.files.into_iter().filter(|f| f.backup.is_some()).collect();
-                project::save_session(&loose_key(), &Session { files, ..Default::default() });
-                project::save_backups(&loose_key(), &backups);
-            }
+        self.write_session(false);
+    }
+
+    /// Writes the session; on a thread when `later` (the periodic save: a slow disk does not
+    /// freeze the window), else before returning (quitting, switching projects…).
+    pub(super) fn write_session(&mut self, later: bool) {
+        let key = self.root.clone().unwrap_or_else(loose_key);
+        let (mut session, backups) = self.current_session(&key);
+        // without a folder, only the unsaved work is kept (hot exit, crash)
+        if self.root.is_none() {
+            let files = std::mem::take(&mut session.files).into_iter().filter(|f| f.backup.is_some()).collect();
+            session = Session { files, ..Default::default() };
+        }
+        self.session_seq += 1;
+        let (saver, seq) = (self.session_saver.clone(), self.session_seq);
+        if later {
+            std::thread::spawn(move || saver.write(seq, &key, &session, backups));
+        } else {
+            saver.write(seq, &key, &session, backups);
         }
         self.last_session_save = Instant::now();
     }
@@ -176,8 +185,8 @@ impl App {
         }
         if self.root.is_some() {
             self.save_session();
-            project::save_session(&key, &Session::default());
-            project::save_backups(&key, &[]);
+            self.session_seq += 1;
+            self.session_saver.write(self.session_seq, &key, &Session::default(), Vec::new());
         }
         if restored > 0 {
             self.set_status(tf!("{restored} fichier(s) avec des modifications non enregistrées restauré(s)", "{restored} file(s) with unsaved changes restored"));
@@ -432,12 +441,8 @@ impl App {
         if let Some(r) = pick {
             self.select_repo(r);
         }
-        // git marks of the files already open
-        for i in 0..self.docs.len() {
-            if self.docs[i].path.is_some() {
-                self.analyze(i, false);
-            }
-        }
+        // git marks of the files already open (those not shown once shown)
+        self.analyze_all_later();
     }
 
     pub(super) fn refresh_index(&mut self) {

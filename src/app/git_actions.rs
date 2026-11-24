@@ -3,18 +3,56 @@
 use super::*;
 
 impl App {
+    /// `git status` of every repository again (one run at a time: asked while one runs, it runs
+    /// again once that one is done).
     pub(super) fn git_refresh(&mut self) {
+        self.git_scan(None);
+    }
+
+    /// `git status` of the repository of `path` only (a file saved).
+    pub(super) fn git_refresh_file(&mut self, path: &Path) {
+        if let Some(r) = self.repo_for(path) {
+            self.git_scan(Some(HashSet::from([r])));
+        }
+    }
+
+    /// `git status` of `only` (None: every repository).
+    pub(super) fn git_scan(&mut self, only: Option<HashSet<PathBuf>>) {
         // Git off (or not installed): nothing asked, nothing to show
         if !crate::features::on(crate::features::Feature::Git) {
             return;
         }
         let Some(selected) = self.repo.clone() else { return };
-        let repos = self.repos.clone();
+        let scan = &mut self.git.scan;
+        if scan.running.is_some_and(|t| t.elapsed() < Duration::from_secs(60)) {
+            scan.again = Some(match (scan.again.take(), only) {
+                (Some(Some(mut a)), Some(b)) => {
+                    a.extend(b);
+                    Some(a)
+                }
+                (None, Some(b)) => Some(b),
+                _ => None,
+            });
+            return;
+        }
+        scan.running = Some(Instant::now());
+        let repos: Vec<PathBuf> = self.repos.iter().filter(|r| only.as_ref().is_none_or(|o| o.contains(*r))).cloned().collect();
+        let known: HashMap<PathBuf, (Vec<Option<std::time::SystemTime>>, String)> =
+            repos.iter().filter_map(|r| Some((r.clone(), scan.remotes.get(r)?.clone()))).collect();
+        let with_selected = repos.contains(&selected);
         self.jobs.spawn(move || {
             // several repositories at a time: one after the other, 48 of them took 2.6 s (0.7 s so)
             let statuses = crate::jobs::par_map(&repos, 8, |r| (r.clone(), git::status(r)));
-            let remotes = crate::jobs::par_map(&repos, 8, |r| (r.clone(), git::stdout(r, &["remote", "-v"]).unwrap_or_default()));
-            let stashes = git::stashes(&selected);
+            // the remotes asked again only when the git files of the repository changed
+            let remotes = crate::jobs::par_map(&repos, 8, |r| {
+                let st = git::config_stamp(r);
+                let text = match known.get(r) {
+                    Some((old, text)) if *old == st => text.clone(),
+                    _ => git::stdout(r, &["remote", "-v"]).unwrap_or_default(),
+                };
+                (r.clone(), st, text)
+            });
+            let stashes = with_selected.then(|| git::stashes(&selected));
             JobResult::GitStatus { selected, statuses, remotes, stashes }
         });
     }

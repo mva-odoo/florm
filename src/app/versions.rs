@@ -37,7 +37,7 @@ fn suggestions<'a>(branches: &'a [String], typed: &str) -> Vec<&'a String> {
 }
 
 /// The versions inside `root` (not the ones next to it when `root` is one of them).
-fn versions_in(root: &Path) -> Vec<Versions> {
+pub(super) fn versions_in(root: &Path) -> Vec<Versions> {
     git::versions_near(root).into_iter().filter(|v| v.dir.starts_with(root)).collect()
 }
 
@@ -58,6 +58,21 @@ fn version_patterns(root: &Path, versions: &[Versions], current: &str) -> Vec<St
 }
 
 impl App {
+    /// The versions of the opened folder read on a thread (`set_root`): the current one is kept
+    /// if it is still there.
+    pub(super) fn versions_loaded(&mut self, root: PathBuf, versions: Vec<Versions>, reindex: bool) {
+        if self.root.as_ref() != Some(&root) {
+            return;
+        }
+        self.versions = versions;
+        if !self.version_names().contains(&self.version) {
+            self.version.clear();
+        }
+        if reindex {
+            self.refresh_index();
+        }
+    }
+
     /// The versions of the opened folder, and the one of its session (still there) as current.
     pub(super) fn load_versions(&mut self) {
         let Some(root) = self.root.clone() else { return };

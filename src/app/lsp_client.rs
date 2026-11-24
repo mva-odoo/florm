@@ -348,19 +348,19 @@ impl App {
                 });
             }
         };
-        static WORD: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-        let re = WORD.get_or_init(|| regex::Regex::new(r"[A-Za-z_][A-Za-z0-9_]{2,}").unwrap());
         // the current file first, then the other open files
         let order: Vec<usize> = std::iter::once(self.active).chain((0..self.docs.len()).filter(|&k| k != self.active)).collect();
+        let words = &mut self.lsp.words;
+        let docs = &self.docs;
+        words.retain(|uid, _| docs.iter().any(|d| d.uid == *uid));
         for k in order {
             let doc = &self.docs[k];
             if doc.view != document::View::Text || doc.rope.len_bytes() > 2_000_000 {
                 continue;
             }
-            let text = doc.rope.to_string();
             let label = if k == self.active { "" } else { t!("autre fichier", "other file") };
-            for m in re.find_iter(&text) {
-                push(m.as_str(), label, 1);
+            for w in doc_words(words, doc).iter() {
+                push(w, label, 1);
             }
         }
         if let Some(ix) = &self.index.symbols {
@@ -619,11 +619,18 @@ impl App {
         let _ = c.client;
     }
 
+    /// The templates, read from the disk the first time.
+    fn loaded_templates(&mut self) -> &[crate::templates::Template] {
+        if self.templates.is_empty() {
+            self.templates = crate::templates::load_all();
+        }
+        &self.templates
+    }
+
     /// Suggestions for the templates whose trigger starts with `prefix`, in the current file.
-    fn template_completions(&self, prefix: &str) -> Vec<lsp::CompletionItem> {
+    fn template_completions(&mut self, prefix: &str) -> Vec<lsp::CompletionItem> {
         let ext = self.active_ext();
-        let all = crate::templates::load_all();
-        crate::templates::with_trigger(&all, &ext, prefix)
+        crate::templates::with_trigger(self.loaded_templates(), &ext, prefix)
             .map(|t| lsp::CompletionItem {
                 label: t.trigger.clone(),
                 detail: t.name.clone(),
@@ -671,8 +678,8 @@ impl App {
         if word.is_empty() {
             return;
         }
-        let all = crate::templates::load_all();
-        let Some(t) = crate::templates::with_trigger(&all, &self.active_ext(), &word).find(|t| t.trigger == word) else { return };
+        let ext = self.active_ext();
+        let Some(t) = crate::templates::with_trigger(self.loaded_templates(), &ext, &word).find(|t| t.trigger == word) else { return };
         let body = t.body.clone();
         ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Tab));
         self.lsp.completion = None;
@@ -827,4 +834,19 @@ mod tests {
         assert_eq!(text, "int main(void) { return 0; }\n");
         let _ = std::fs::remove_dir_all(&dir);
     }
+}
+
+/// The words of `doc` (3 chars or more, each once, in order), kept for each document: read again
+/// when it changed, at most every 2 s while it is typed in.
+fn doc_words<'a>(cache: &'a mut HashMap<u64, (u64, Instant, Vec<String>)>, doc: &Document) -> &'a [String] {
+    let fresh = cache.get(&doc.uid).is_some_and(|(v, at, _)| *v == doc.version || at.elapsed() < Duration::from_secs(2));
+    if !fresh {
+        static WORD: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+        let re = WORD.get_or_init(|| regex::Regex::new(r"[A-Za-z_][A-Za-z0-9_]{2,}").unwrap());
+        let text = doc.rope.to_string();
+        let mut seen = HashSet::new();
+        let words = re.find_iter(&text).map(|m| m.as_str()).filter(|w| seen.insert(*w)).map(str::to_string).collect();
+        cache.insert(doc.uid, (doc.version, Instant::now(), words));
+    }
+    &cache[&doc.uid].2
 }

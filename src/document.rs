@@ -134,6 +134,8 @@ pub struct Document {
     lint_diagnostics: Vec<Diagnostic>,
     lsp_diagnostics: Vec<Diagnostic>,
     pub lint_version: u64,
+    /// Linted and compared with git since opened (`App::analyze`): a tab is when first shown.
+    pub analyzed: bool,
     /// The words the spell checker does not know, and the version they are of.
     pub spelling: Vec<crate::spell::Misspelled>,
     pub spell_version: u64,
@@ -601,6 +603,7 @@ impl Document {
             lint_diagnostics: Vec::new(),
             lsp_diagnostics: Vec::new(),
             lint_version: 0,
+            analyzed: false,
             spelling: Vec::new(),
             spell_version: u64::MAX,
             git_marks: HashMap::new(),

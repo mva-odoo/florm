@@ -838,9 +838,23 @@ struct HistoryDiff {
     files: Vec<history::DiffFile>,
 }
 
+/// `git status` of the repositories, one run at a time (`git_refresh`).
+#[derive(Default)]
+struct GitScan {
+    /// A run is going on since then (one that would never end is forgotten after a minute).
+    running: Option<Instant>,
+    /// Asked meanwhile: run again once it is done (None: every repository).
+    again: Option<Option<HashSet<PathBuf>>>,
+    /// The last status of each repository.
+    statuses: HashMap<PathBuf, Result<git::Status, String>>,
+    /// `git remote -v` of each repository, and the dates of its git files it was read at.
+    remotes: HashMap<PathBuf, (Vec<Option<std::time::SystemTime>>, String)>,
+}
+
 #[derive(Default)]
 struct GitUi {
     status: Option<git::Status>,
+    scan: GitScan,
     /// Claude is writing the commit message.
     suggesting: bool,
     error: Option<String>,
@@ -913,6 +927,9 @@ struct LspUi {
     /// The diagnostics of the server for each document (uid), as it sent them: given back to it
     /// with a request of code actions (its fixes need their range, code and data).
     raw_diagnostics: HashMap<u64, Vec<serde_json::Value>>,
+    /// The words of each document (uid) for the suggestions without a server: (version, when
+    /// read, words).
+    words: HashMap<u64, (u64, Instant, Vec<String>)>,
 }
 
 pub struct App {
@@ -948,6 +965,9 @@ pub struct App {
     search: SearchUi,
     projects: Vec<Project>,
     last_session_save: Instant,
+    /// Writes the sessions in order (`write_session`), and the number of the last one asked.
+    session_saver: project::Saver,
+    session_seq: u64,
     jobs: Jobs,
     git: GitUi,
     term: Terminal,
@@ -1284,6 +1304,8 @@ impl App {
             search: SearchUi::default(),
             projects: project::load_list(),
             last_session_save: Instant::now(),
+            session_saver: Default::default(),
+            session_seq: 0,
             jobs: Jobs::new(egui_ctx.clone()),
             git: GitUi::default(),
             term: Terminal::new(),
@@ -1513,8 +1535,9 @@ impl App {
                     self.docs.clear();
                 }
                 self.docs.push(d);
+                // linted and compared with git once shown (`analyze_shown`): the tabs of a
+                // session do not each start a linter and git at startup
                 self.activate_tab(self.docs.len() - 1);
-                self.analyze(self.active, false);
                 true
             }
             Err(e) => {
@@ -1537,15 +1560,21 @@ impl App {
         self.repo = None;
         self.git = GitUi::default();
         self.history = HistoryUi::default();
-        let r = path.clone();
+        // the versions first (the index leaves out those other than the current one, the
+        // repository selected is the one of the current version), then the repositories
+        self.versions.clear();
+        self.version = project::load_session(&path).map(|s| s.version).unwrap_or_default();
+        let (r, send, reindex) = (path.clone(), self.jobs.sender(), !self.version.is_empty());
         self.jobs.spawn(move || {
+            send(JobResult::Versions { root: r.clone(), versions: versions::versions_in(&r), reindex });
             let repos = git::find_repos(&r, 3);
             JobResult::Repos(r, repos)
         });
-        // before the index: it leaves out the versions other than the current one
-        self.load_versions();
         self.index.files = Default::default();
-        self.refresh_index();
+        // a version chosen in the session: the index waits for the folders of the others
+        if !reindex {
+            self.refresh_index();
+        }
         // the symbol index starts once the file list is done (they would compete for the disk)
         self.index.symbols = None;
         self.index.symbols_for = None;

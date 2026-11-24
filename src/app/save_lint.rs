@@ -169,23 +169,29 @@ impl App {
         if config::is_settings_file(path) {
             self.reload_settings();
         }
+        // a template written here: read again at its next use
+        if path.starts_with(config::config_dir().join("templates")) || crate::shared::sub("templates").is_some_and(|d| path.starts_with(d)) {
+            self.templates.clear();
+        }
         self.analyze(idx, true);
-        self.git_refresh();
+        self.git_refresh_file(path);
         if let Some(t) = self.tree.as_mut() {
-            t.refresh();
+            t.saved(path);
         }
     }
 
     /// Lints (in-process now, external in background), updates git gutter marks.
     pub(super) fn analyze(&mut self, idx: usize, saving: bool) {
         let Some(doc) = self.docs.get_mut(idx) else { return };
+        doc.analyzed = true;
         let Some(path) = doc.path.clone() else { return };
         if doc.view != document::View::Text {
             return;
         }
         if let Some(lang) = lint::lang_of(&path).filter(|l| lint::is_in_process(l)) {
-            doc.set_lint_diagnostics(lint::lint_in_process(lang, &doc.rope.to_string()));
-            doc.lint_version = doc.version;
+            let (uid, version, rope) = (doc.uid, doc.version, doc.rope.clone());
+            doc.lint_version = version;
+            self.jobs.spawn(move || JobResult::LintedInProcess { uid, version, diags: lint::lint_in_process(lang, &rope.to_string()) });
         }
         let uid = doc.uid;
         let lint_on = self.settings.lint_on_save || !saving;
@@ -196,6 +202,23 @@ impl App {
             let diags = if lint_on { lint::lint_external(&path, &text, root.as_deref(), &cfg) } else { None };
             JobResult::Analyzed { uid, diags, base: git::head_text(&path) }
         });
+    }
+
+    /// The tabs shown not analyzed yet (opened, or their repository changed meanwhile) are now.
+    pub(super) fn analyze_shown(&mut self) {
+        for i in 0..self.docs.len() {
+            let d = &self.docs[i];
+            if !d.analyzed && (i == self.active || self.panes.active.contains(&Some(d.uid))) {
+                self.analyze(i, false);
+            }
+        }
+    }
+
+    /// Every tab analyzed again: those shown now, the others once shown.
+    pub(super) fn analyze_all_later(&mut self) {
+        for d in &mut self.docs {
+            d.analyzed = false;
+        }
     }
 
     /// The linters for `path`: the configuration of its project used only in a trusted folder.

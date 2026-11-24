@@ -326,17 +326,23 @@ impl App {
         if self.quit.when_idle {
             self.quit_when_idle_ui(ctx);
         }
-        if ctx.input(|i| i.viewport().close_requested()) || self.last_session_save.elapsed() > Duration::from_secs(30) {
+        if ctx.input(|i| i.viewport().close_requested()) {
             self.save_session();
+        } else if self.last_session_save.elapsed() > Duration::from_secs(30) {
+            self.write_session(true);
         }
+        self.analyze_shown();
         // Live lint for in-process linters (XML/JSON), debounced.
         if let Some(d) = self.docs.get_mut(self.active) {
             if d.lint_version != d.version {
                 if let Some(lang) = d.path.as_deref().and_then(lint::lang_of).filter(|l| lint::is_in_process(l)) {
                     let el = d.last_change.elapsed();
                     if el >= Duration::from_millis(300) {
-                        d.set_lint_diagnostics(lint::lint_in_process(lang, &d.rope.to_string()));
-                        d.lint_version = d.version;
+                        // on a thread (a copy of the rope costs nothing); the version marked now
+                        // so that it is not asked twice
+                        let (uid, version, rope) = (d.uid, d.version, d.rope.clone());
+                        d.lint_version = version;
+                        self.jobs.spawn(move || JobResult::LintedInProcess { uid, version, diags: lint::lint_in_process(lang, &rope.to_string()) });
                     } else {
                         ctx.request_repaint_after(Duration::from_millis(310) - el);
                     }
@@ -404,16 +410,15 @@ impl App {
         let every = if busy_term { Duration::from_millis(500) } else { Duration::from_secs(2) };
         if self.watch.last_check.elapsed() > every && !self.watch.busy {
             self.watch.last_check = Instant::now();
-            // folders added or removed by another program show up in the tree
-            if self.tree.as_mut().is_some_and(|t| t.refresh_changed()) {
-                self.index.files_at = None;
-            }
-            // the dates of the files open and of the repositories read on a thread: a slow disk
-            // (a network folder) does not freeze the window
+            // the dates of the files open, of the repositories and of the folders shown in the tree
+            // read on a thread: a slow disk (a network folder) does not freeze the window
+            let watched = self.tree.as_ref().map(|t| t.watched()).unwrap_or_default();
             let repos = self.repos.clone();
             let files: Vec<(u64, std::time::SystemTime, PathBuf)> = self.docs.iter().filter_map(|d| Some((d.uid, d.mtime?, d.path.clone()?))).collect();
             self.watch.busy = true;
             self.jobs.spawn(move || JobResult::DiskCheck {
+                // folders added or removed by another program show up in the tree
+                dirs: crate::sidebar::scan(watched),
                 stamps: repos.into_iter().map(|r| {
                     let st = git::stamp(&r);
                     (r, st)

@@ -32,7 +32,7 @@ pub enum JobResult {
     Stashes(PathBuf, Vec<git::Stash>),
     /// The dates read on the disk every 2 s: the files of git of each repository, and each file
     /// open (uid, the date it had when asked).
-    DiskCheck { stamps: Vec<(PathBuf, Vec<Option<std::time::SystemTime>>)>, files: Vec<(u64, std::time::SystemTime, Result<std::time::SystemTime, std::io::ErrorKind>)> },
+    DiskCheck { dirs: Vec<(PathBuf, crate::sidebar::Scanned)>, stamps: Vec<(PathBuf, Vec<Option<std::time::SystemTime>>)>, files: Vec<(u64, std::time::SystemTime, Result<std::time::SystemTime, std::io::ErrorKind>)> },
     /// The diff against HEAD of a document (uid) at a version, for the gutter.
     Diffed { uid: u64, version: u64, hunks: Vec<crate::diff::Hunk> },
     /// A Python document (uid) at a version formatted or fixed by ruff (the lines formatted, if
@@ -102,11 +102,13 @@ pub enum JobResult {
     ToolInstalled(Result<String, String>),
     GitStatus {
         selected: PathBuf,
+        /// Of the repositories looked at (all of them, or those asked).
         statuses: Vec<(PathBuf, Result<git::Status, String>)>,
-        /// `git remote -v` of each repository.
-        remotes: Vec<(PathBuf, String)>,
-        /// Stashes of the selected repository.
-        stashes: Vec<git::Stash>,
+        /// `git remote -v` of the repositories looked at, read again when their git files changed,
+        /// with the dates of these files.
+        remotes: Vec<(PathBuf, Vec<Option<std::time::SystemTime>>, String)>,
+        /// Stashes of the selected repository, when it was looked at.
+        stashes: Option<Vec<git::Stash>>,
     },
     History(PathBuf, u64, Result<history::Graph, String>),
     HistoryDetails(String, Result<history::Details, String>),
@@ -134,6 +136,11 @@ pub enum JobResult {
     Fonts(Vec<crate::fonts::FontInfo>),
     /// Git repositories found in the opened folder.
     Repos(PathBuf, Vec<PathBuf>),
+    /// XML / JSON checked (document uid, version checked).
+    LintedInProcess { uid: u64, version: u64, diags: Vec<Diagnostic> },
+    /// The versions of the opened folder (root), read before its repositories; the index waited
+    /// for them when `reindex`.
+    Versions { root: PathBuf, versions: Vec<git::Versions>, reindex: bool },
     /// `git init` in a folder of the tree: its output, then the repositories of the project again.
     RepoInit { root: PathBuf, dir: PathBuf, result: Result<String, String>, repos: Vec<PathBuf> },
     /// Branches a new version can come from (see `git::Versions`), and why a fetch failed.

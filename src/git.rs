@@ -139,6 +139,13 @@ pub fn stamp(repo: &Path) -> Vec<Option<std::time::SystemTime>> {
         .collect()
 }
 
+/// `stamp`, and the date of the configuration of `repo` (its remotes are written there).
+pub fn config_stamp(repo: &Path) -> Vec<Option<std::time::SystemTime>> {
+    let mut st = stamp(repo);
+    st.push(git_dir(repo).and_then(|d| std::fs::metadata(d.join("config")).and_then(|m| m.modified()).ok()));
+    st
+}
+
 /// Git repositories inside `root` (up to `max_depth` levels), plus the repository
 /// containing `root` when it is a subfolder of one.
 pub fn find_repos(root: &Path, max_depth: usize) -> Vec<PathBuf> {

@@ -92,21 +92,39 @@ impl Node {
     }
 
     fn load(&mut self) {
-        self.mtime = std::fs::metadata(&self.path).and_then(|m| m.modified()).ok();
-        self.read_at = Some(std::time::SystemTime::now());
-        let mut v = Vec::new();
-        if let Ok(rd) = std::fs::read_dir(&self.path) {
-            for e in rd.flatten() {
-                if e.file_name() == ".git" {
-                    continue;
-                }
-                let p = e.path();
-                let is_dir = p.is_dir();
-                v.push(Node::new(p, is_dir));
+        let (mtime, read_at, v) = read_listing(&self.path);
+        (self.mtime, self.read_at, self.children) = (mtime, Some(read_at), Some(v));
+    }
+
+    /// Puts a listing read for this folder in place, keeping the subfolders that were open (they
+    /// are not read again).
+    fn set_listing(&mut self, mtime: Option<std::time::SystemTime>, read_at: std::time::SystemTime, children: Vec<Node>) {
+        let old = self.children.replace(children).unwrap_or_default();
+        let mut old: HashMap<PathBuf, Node> = old.into_iter().map(|n| (n.path.clone(), n)).collect();
+        (self.mtime, self.read_at) = (mtime, Some(read_at));
+        for c in self.children.as_mut().unwrap() {
+            if let Some(o) = old.remove(&c.path).filter(|o| o.expanded && c.is_dir) {
+                c.expanded = true;
+                (c.children, c.mtime, c.read_at) = (o.children, o.mtime, o.read_at);
             }
         }
-        v.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
-        self.children = Some(v);
+    }
+
+    /// A file was written: a new one shows up, by reading again the folder of the tree it is
+    /// missing from (the others are not read).
+    pub fn saved(&mut self, path: &Path) {
+        let mut p = path;
+        while let Some(dir) = p.parent() {
+            if self.find_mut(p).is_some() {
+                return;
+            }
+            if let Some(n) = self.find_mut(dir).filter(|n| n.children.is_some()) {
+                let (mtime, read_at, v) = read_listing(&n.path);
+                n.set_listing(mtime, read_at, v);
+                return;
+            }
+            p = dir;
+        }
     }
 
     pub fn expanded_paths(&self, out: &mut Vec<PathBuf>) {
@@ -183,28 +201,38 @@ impl Node {
         }
     }
 
-    /// Reads again the shown folders whose entries changed on disk (a folder created in a
-    /// terminal, by git…); true when one did.
-    pub fn refresh_changed(&mut self) -> bool {
+    /// The shown folders, to look on a thread for those whose entries changed on disk (a folder
+    /// created in a terminal, by git…).
+    pub fn watched(&self) -> Vec<Watched> {
+        let mut out = Vec::new();
+        self.collect_watched(&mut out);
+        out
+    }
+
+    fn collect_watched(&self, out: &mut Vec<Watched>) {
         if self.children.is_none() {
-            return false;
-        }
-        let now = std::fs::metadata(&self.path).and_then(|m| m.modified()).ok();
-        if now != self.mtime {
-            self.refresh();
-            return true;
+            return;
         }
         // changed just before it was read: its date cannot tell a later change, its names can
-        if self.same_tick() {
-            if self.names_changed() {
-                self.refresh();
-                return true;
-            }
-            self.read_at = Some(std::time::SystemTime::now());
+        let names = self.same_tick().then(|| self.children.iter().flatten().map(|c| c.name.clone()).collect());
+        out.push(Watched { path: self.path.clone(), mtime: self.mtime, names });
+        for c in self.children.iter().flatten().filter(|c| c.is_dir && c.expanded) {
+            c.collect_watched(out);
         }
+    }
+
+    /// What `scan` found put in the tree; true when a folder changed.
+    pub fn apply_scan(&mut self, found: Vec<(PathBuf, Scanned)>) -> bool {
         let mut any = false;
-        for c in self.children.iter_mut().flatten().filter(|c| c.is_dir && c.expanded) {
-            any |= c.refresh_changed();
+        for (path, s) in found {
+            let Some(n) = self.find_mut(&path).filter(|n| n.children.is_some()) else { continue };
+            match s {
+                Scanned::Changed { mtime, read_at, children } => {
+                    n.set_listing(mtime, read_at, children);
+                    any = true;
+                }
+                Scanned::Settled(at) => n.read_at = Some(at),
+            }
         }
         any
     }
@@ -217,31 +245,82 @@ impl Node {
         }
     }
 
-    /// The entries on disk are not those read.
-    fn names_changed(&self) -> bool {
-        let Ok(rd) = std::fs::read_dir(&self.path) else { return false };
-        let mut disk: Vec<String> = rd.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n != ".git").collect();
-        let mut read: Vec<String> = self.children.iter().flatten().map(|c| c.name.clone()).collect();
-        disk.sort();
-        read.sort();
-        disk != read
-    }
-
     /// Re-reads expanded directories while keeping what was open.
     pub fn refresh(&mut self) {
-        let Some(old) = self.children.take() else { return };
-        let mut old: HashMap<PathBuf, Node> = old.into_iter().map(|n| (n.path.clone(), n)).collect();
-        self.load();
-        for c in self.children.as_mut().unwrap() {
-            if let Some(o) = old.remove(&c.path) {
-                if o.expanded && c.is_dir {
-                    c.expanded = true;
-                    c.children = o.children;
-                    c.refresh();
-                }
-            }
+        if self.children.is_none() {
+            return;
+        }
+        let (mtime, read_at, v) = read_listing(&self.path);
+        self.set_listing(mtime, read_at, v);
+        for c in self.children.iter_mut().flatten().filter(|c| c.expanded && c.is_dir) {
+            c.refresh();
         }
     }
+}
+
+/// A shown folder as last read: its date, and its names when that date cannot tell a change.
+pub struct Watched {
+    path: PathBuf,
+    mtime: Option<std::time::SystemTime>,
+    names: Option<Vec<String>>,
+}
+
+/// What `scan` found for a folder.
+pub enum Scanned {
+    /// Its entries changed: read again.
+    Changed { mtime: Option<std::time::SystemTime>, read_at: std::time::SystemTime, children: Vec<Node> },
+    /// Same names as read, long enough ago now for its date to tell the next change.
+    Settled(std::time::SystemTime),
+}
+
+/// The folders of `watched` whose entries changed on disk, read again (on a thread: a slow disk
+/// does not freeze the window).
+pub fn scan(watched: Vec<Watched>) -> Vec<(PathBuf, Scanned)> {
+    let mut out = Vec::new();
+    for w in watched {
+        let now = std::fs::metadata(&w.path).and_then(|m| m.modified()).ok();
+        let changed = now != w.mtime
+            || w.names.as_ref().is_some_and(|read| {
+                let Ok(rd) = std::fs::read_dir(&w.path) else { return false };
+                let mut disk: Vec<String> = rd.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n != ".git").collect();
+                let mut read = read.clone();
+                disk.sort();
+                read.sort();
+                disk != read
+            });
+        if changed {
+            let (mtime, read_at, children) = read_listing(&w.path);
+            out.push((w.path, Scanned::Changed { mtime, read_at, children }));
+        } else if w.names.is_some() {
+            out.push((w.path, Scanned::Settled(std::time::SystemTime::now())));
+        }
+    }
+    out
+}
+
+/// The entries of folder `path` (sorted, folders first, without .git), with its date and when
+/// they were read.
+fn read_listing(path: &Path) -> (Option<std::time::SystemTime>, std::time::SystemTime, Vec<Node>) {
+    let mtime = std::fs::metadata(path).and_then(|m| m.modified()).ok();
+    let read_at = std::time::SystemTime::now();
+    let mut v = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(path) {
+        for e in rd.flatten() {
+            if e.file_name() == ".git" {
+                continue;
+            }
+            let p = e.path();
+            // the type comes with the listing; only a link needs the disk asked
+            let is_dir = match e.file_type() {
+                Ok(t) if t.is_symlink() => p.is_dir(),
+                Ok(t) => t.is_dir(),
+                Err(_) => p.is_dir(),
+            };
+            v.push(Node::new(p, is_dir));
+        }
+    }
+    v.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
+    (mtime, read_at, v)
 }
 
 fn git_color(c: char) -> Option<Color32> {
@@ -974,6 +1053,14 @@ fn menu(ui: &mut Ui, path: &Path, is_dir: bool, excluded: Option<bool>, version:
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    impl Node {
+        /// `watched`, `scan` and `apply_scan` in a row.
+        fn refresh_changed(&mut self) -> bool {
+            let w = self.watched();
+            self.apply_scan(scan(w))
+        }
+    }
 
     #[test]
     fn folders_changed_on_disk_are_read_again() {

@@ -182,13 +182,17 @@ pub fn backup_dir(root: &Path) -> PathBuf {
     config::config_dir().join("backups").join(format!("{:016x}", fnv(&root.to_string_lossy())))
 }
 
+/// A backup of a session: its file name, the document and version it is of, and its text when
+/// it must be written (None: the file already holds it).
+pub type Backup = (String, (u64, u64), Option<ropey::Rope>);
+
 /// Writes the backups of a session and removes the old ones.
-pub fn save_backups(root: &Path, backups: &[(String, String)]) {
+pub fn save_backups(root: &Path, backups: &[Backup]) {
     let dir = backup_dir(root);
     if let Ok(rd) = std::fs::read_dir(&dir) {
         for e in rd.flatten() {
             let name = e.file_name().to_string_lossy().into_owned();
-            if !backups.iter().any(|(n, _)| *n == name) {
+            if !backups.iter().any(|(n, _, _)| *n == name) {
                 let _ = std::fs::remove_file(e.path());
             }
         }
@@ -198,8 +202,53 @@ pub fn save_backups(root: &Path, backups: &[(String, String)]) {
         return;
     }
     let _ = std::fs::create_dir_all(&dir);
-    for (name, text) in backups {
-        let _ = std::fs::write(dir.join(name), text);
+    for (name, _, text) in backups {
+        if let Some(text) = text {
+            let _ = std::fs::write(dir.join(name), text.to_string());
+        }
+    }
+}
+
+/// Writes the sessions, on a thread or not, in order: the last one asked wins, and the backups
+/// already written are not written again.
+#[derive(Clone, Default)]
+pub struct Saver(std::sync::Arc<std::sync::Mutex<Saved>>);
+
+#[derive(Default)]
+struct Saved {
+    /// Number of the last session written.
+    seq: u64,
+    /// Its folder, and its backups: (document, version) each holds.
+    root: PathBuf,
+    backups: std::collections::HashMap<String, (u64, u64)>,
+}
+
+impl Saver {
+    /// The backup `name` of `root` holds version `of` (document, version) already.
+    pub fn holds(&self, root: &Path, name: &str, of: (u64, u64)) -> bool {
+        let s = self.0.lock().unwrap();
+        s.root == root && s.backups.get(name) == Some(&of)
+    }
+
+    /// Writes session number `seq` of `root` and its backups, unless a later one was written.
+    pub fn write(&self, seq: u64, root: &Path, session: &Session, backups: Vec<Backup>) {
+        let mut s = self.0.lock().unwrap();
+        if seq <= s.seq {
+            return;
+        }
+        s.seq = seq;
+        save_session(root, session);
+        save_backups(root, &backups);
+        if s.root != root {
+            s.root = root.to_path_buf();
+            s.backups.clear();
+        }
+        s.backups.retain(|n, _| backups.iter().any(|(b, _, _)| b == n));
+        for (name, of, text) in backups {
+            if text.is_some() {
+                s.backups.insert(name, of);
+            }
+        }
     }
 }
 

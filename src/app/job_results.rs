@@ -16,8 +16,11 @@ impl App {
                         self.git.stashes = list;
                     }
                 }
-                JobResult::DiskCheck { stamps, files } => {
+                JobResult::DiskCheck { dirs, stamps, files } => {
                     self.watch.busy = false;
+                    if self.tree.as_mut().is_some_and(|t| t.apply_scan(dirs)) {
+                        self.index.files_at = None;
+                    }
                     self.check_git_stamps(stamps);
                     self.files_checked(files);
                 }
@@ -30,6 +33,12 @@ impl App {
                 JobResult::Rewritten { uid, version, what, lines, then_save, result } => self.on_rewritten(uid, version, what, lines, then_save, result),
                 JobResult::Analyzed { uid, diags, base, .. } => self.on_analyzed(uid, diags, base),
                 JobResult::Lint { uid, version, diags, linter } => self.on_lint(uid, version, diags, linter),
+                JobResult::LintedInProcess { uid, version, diags } => {
+                    // a newer version is checked in its turn
+                    if let Some(d) = self.docs.iter_mut().find(|d| d.uid == uid && d.version == version) {
+                        d.set_lint_diagnostics(diags);
+                    }
+                }
                 JobResult::ToolInstalled(r) => self.on_tool_installed(r),
                 JobResult::FileMatches { gen, query, matched, top } => self.on_file_matches(gen, query, matched, top),
                 JobResult::FileIndex(root, list) => self.on_file_index(root, list),
@@ -89,6 +98,7 @@ impl App {
                     Err(e) => self.set_error(tf!("{label} : {e}", "{label}: {e}")),
                 },
                 JobResult::Repos(root, repos) => self.apply_repos(root, repos),
+                JobResult::Versions { root, versions, reindex } => self.versions_loaded(root, versions, reindex),
                 JobResult::RepoInit { root, dir, result, repos } => self.on_repo_init(root, dir, result, repos),
                 JobResult::VersionBranches { branches, error } => self.version_branches_loaded(branches, error),
                 JobResult::VersionAdded { root, results, repos } => self.version_added(root, results, repos),

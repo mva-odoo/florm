@@ -4,11 +4,37 @@ use super::*;
 
 impl App {
     /// The status of the repositories: branches, changes, remotes, stashes.
-    pub(super) fn on_git_status(&mut self, selected: PathBuf, statuses: Vec<(PathBuf, Result<git::Status, String>)>, remotes: Vec<(PathBuf, String)>, stashes: Vec<git::Stash>) {
+    pub(super) fn on_git_status(
+        &mut self,
+        selected: PathBuf,
+        statuses: Vec<(PathBuf, Result<git::Status, String>)>,
+        remotes: Vec<(PathBuf, Vec<Option<std::time::SystemTime>>, String)>,
+        stashes: Option<Vec<git::Stash>>,
+    ) {
+        // what was looked at joins what is known of the others
+        let scan = &mut self.git.scan;
+        scan.running = None;
+        scan.statuses.extend(statuses);
+        scan.remotes.extend(remotes.into_iter().map(|(r, st, text)| (r, (st, text))));
+        let repos = &self.repos;
+        scan.statuses.retain(|r, _| repos.contains(r));
+        scan.remotes.retain(|r, _| repos.contains(r));
+        // asked while it ran: once more
+        match scan.again.take() {
+            Some(None) => self.git_refresh(),
+            Some(Some(only)) => self.git_scan(Some(only)),
+            None => {}
+        }
         if self.repo.as_ref() != Some(&selected) {
             return;
         }
-        self.git.stashes = stashes;
+        if let Some(stashes) = stashes {
+            self.git.stashes = stashes;
+        }
+        // in the order of the repositories, as before
+        let statuses: Vec<(PathBuf, Result<git::Status, String>)> =
+            self.repos.iter().filter_map(|r| Some((r.clone(), self.git.scan.statuses.get(r)?.clone()))).collect();
+        let remotes: Vec<(PathBuf, String)> = self.git.scan.remotes.iter().map(|(r, (_, t))| (r.clone(), t.clone())).collect();
         let raw = remotes.iter().find(|(r, _)| *r == selected).map(|(_, t)| t.as_str()).unwrap_or("");
         self.git.remotes = git::parse_remotes(raw);
         // branch / remote of every repository, for the tree
@@ -244,11 +270,8 @@ impl App {
         if let Some(t) = self.tree.as_mut() {
             t.refresh();
         }
-        for i in 0..self.docs.len() {
-            if self.docs[i].path.is_some() {
-                self.analyze(i, false);
-            }
-        }
+        // lint and git marks again: of the tabs shown now, of the others once shown
+        self.analyze_all_later();
     }
 
     /// A git repository created.
