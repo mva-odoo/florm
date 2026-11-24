@@ -279,6 +279,10 @@ Les opérations lancées depuis Florm mettent la version d'origine entre les deu
   chemin de fichier affiché par un programme (`src/app.rs:12`, `~/notes.txt`, un chemin complet,
   le `b/…` d'un diff), il l'ouvre dans Florm, à la ligne. Avec Ctrl enfoncé, le lien sous la souris
   est souligné. Valable dans Claude comme dans le shell.
+- **Défiler** : la molette, l'ascenseur à droite, **Maj+↑ / Maj+↓** (une ligne) et **Maj+PgUp /
+  Maj+PgDn** (une page) parcourent l'historique ; ↑ et ↓ restent au programme (l'historique des
+  commandes, les choix des menus de Claude). Claude y écrit toute sa conversation, qu'on remonte
+  ainsi. Un programme qui gère lui-même la souris (htop…) reçoit la molette.
 - **Double clic** sélectionne un mot entier (un chemin, une adresse), **triple clic** la ligne.
 - **Glisser un fichier** sur un terminal écrit son chemin à l'invite (entre guillemets s'il le
   faut) : Claude lit le fichier, une image comprise.

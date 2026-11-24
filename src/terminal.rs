@@ -459,6 +459,13 @@ impl Session {
         self.typed_at = std::time::Instant::now();
     }
 
+    /// Scrolls the history by `n` lines (up: positive), as far as it goes.
+    fn scroll_by(&mut self, n: isize) {
+        let mut p = self.parser.lock().unwrap();
+        let cur = p.screen().scrollback() as isize;
+        p.screen_mut().set_scrollback((cur + n).max(0) as usize);
+    }
+
     fn resize(&mut self, rows: u16, cols: u16) {
         if self.size != (rows, cols) {
             self.size = (rows, cols);
@@ -1108,13 +1115,25 @@ impl Terminal {
             }
         }
 
-        // mouse wheel: scrollback, or arrow keys for full-screen programs (less, vim…)
+        // mouse wheel: to the program when it asked for the mouse (it scrolls itself), else the
+        // scrollback, or arrow keys for full-screen programs (less, vim…)
         if resp.hovered() {
             let dy = ui.input(|i| i.raw_scroll_delta.y);
             if dy != 0.0 {
                 let lines = ((dy.abs() / rh).ceil() as usize).max(1);
-                let alt = s.parser.lock().unwrap().screen().alternate_screen();
-                if alt {
+                let (alt, wheel) = {
+                    let p = s.parser.lock().unwrap();
+                    let sc = p.screen();
+                    let at = resp.hover_pos().map_or((0, 0), cell_at);
+                    (sc.alternate_screen(), mouse_wheel(sc.mouse_protocol_mode(), sc.mouse_protocol_encoding(), dy > 0.0, at))
+                };
+                if let Some(ev) = wheel {
+                    let mut w = s.writer.lock().unwrap();
+                    for _ in 0..lines {
+                        let _ = w.write_all(&ev);
+                    }
+                    let _ = w.flush();
+                } else if alt {
                     let key: &[u8] = if dy > 0.0 { b"\x1b[A" } else { b"\x1b[B" };
                     let mut w = s.writer.lock().unwrap();
                     for _ in 0..lines {
@@ -1168,6 +1187,9 @@ impl Terminal {
                             if key == Key::Enter && !s.once {
                                 outcome = Some(GridAct::Restart);
                             }
+                        } else if let Some(n) = shift_scroll(key, modifiers, rows).filter(|_| !s.parser.lock().unwrap().screen().alternate_screen()) {
+                            // Maj+↑ ↓ (a line), Maj+PgUp PgDn (a page): the history, as the wheel
+                            s.scroll_by(n);
                         } else if let Some(b) = key_bytes(key, modifiers, app_cursor) {
                             s.write(&b);
                         }
@@ -1227,6 +1249,7 @@ impl Terminal {
         }
         let marks = s.search_marks();
         paint(ui, rect, pad, rh, cw, &font, s, colors, light, focused, shown_link.as_ref(), &marks);
+        scrollbar(ui, rect, gid, s, colors);
         None
     }
 }
@@ -1249,6 +1272,84 @@ fn traceback_at(s: &Session, r: u16) -> Option<(PathBuf, usize)> {
 
 /// The bar of the search in the history, at the top right of the terminal: the field, where it is
 /// (3/12), ↑ ↓ and ×. Enter goes up to the older match, Shift+Enter down, Échap closes it.
+/// The scrollbar of the history, on the right edge (when there is a history, not for a
+/// full-screen program): its thumb is the part shown; dragged, or a click on the track, it moves
+/// there.
+fn scrollbar(ui: &mut egui::Ui, rect: Rect, gid: Id, s: &mut Session, c: Colors) {
+    let (total, back, rows) = {
+        let p = s.parser.lock().unwrap();
+        let sc = p.screen();
+        if sc.alternate_screen() {
+            return;
+        }
+        (sc.scrollback_len(), sc.scrollback(), sc.size().0.get() as usize)
+    };
+    if total == 0 {
+        return;
+    }
+    let track = Rect::from_min_max(egui::pos2(rect.right() - 8.0, rect.top()), rect.right_bottom());
+    let resp = ui.interact(track, gid.with("scrollbar"), Sense::click_and_drag());
+    let h = track.height();
+    let all = (total + rows) as f32;
+    let thumb_h = (h * rows as f32 / all).max(24.0).min(h);
+    // the top of the part shown, in lines from the top of the history
+    let top = (total - back) as f32;
+    let y = track.top() + (h - thumb_h) * top / total as f32;
+    if let Some(p) = resp.interact_pointer_pos() {
+        let f = ((p.y - track.top() - thumb_h / 2.0) / (h - thumb_h).max(1.0)).clamp(0.0, 1.0);
+        let want = total - (f * total as f32).round() as usize;
+        s.parser.lock().unwrap().screen_mut().set_scrollback(want);
+    }
+    let active = resp.hovered() || resp.dragged();
+    if active {
+        ui.ctx().set_cursor_icon(CursorIcon::Default);
+    }
+    let strong = if active { 0.55 } else if back > 0 { 0.35 } else { 0.18 };
+    let w = if active { 6.0 } else { 4.0 };
+    let thumb = Rect::from_min_size(egui::pos2(track.right() - w - 2.0, y), egui::vec2(w, thumb_h));
+    ui.painter().rect_filled(thumb, w / 2.0, crate::icons::mix(c.bg, c.fg, strong));
+}
+
+/// The lines Maj+↑ ↓ and Maj+PgUp PgDn scroll the history by (up: positive).
+fn shift_scroll(key: Key, m: Modifiers, rows: u16) -> Option<isize> {
+    if !m.shift || m.ctrl || m.alt || m.command {
+        return None;
+    }
+    let page = rows.saturating_sub(1).max(1) as isize;
+    match key {
+        Key::ArrowUp => Some(1),
+        Key::ArrowDown => Some(-1),
+        Key::PageUp => Some(page),
+        Key::PageDown => Some(-page),
+        _ => None,
+    }
+}
+
+/// A turn of the wheel for a program that asked for the mouse (`None`: it did not): button 64
+/// (up) or 65 (down) at the cell (row, col), in the encoding it asked for.
+fn mouse_wheel(mode: vt100::MouseProtocolMode, enc: vt100::MouseProtocolEncoding, up: bool, (row, col): (u16, u16)) -> Option<Vec<u8>> {
+    if mode == vt100::MouseProtocolMode::None {
+        return None;
+    }
+    let b = if up { 64u32 } else { 65 };
+    let (x, y) = (col as u32 + 1, row as u32 + 1);
+    Some(match enc {
+        vt100::MouseProtocolEncoding::Sgr => format!("\x1b[<{b};{x};{y}M").into_bytes(),
+        _ => {
+            let mut v = b"\x1b[M".to_vec();
+            for n in [b + 32, x + 32, y + 32] {
+                let n = n.min(255);
+                if enc == vt100::MouseProtocolEncoding::Utf8 {
+                    v.extend(char::from_u32(n).unwrap_or(' ').to_string().as_bytes());
+                } else {
+                    v.push(n as u8);
+                }
+            }
+            v
+        }
+    })
+}
+
 fn search_bar(ui: &mut egui::Ui, s: &mut Session, rect: Rect, gid: Id) {
     let mut close = false;
     let mut step = None;
@@ -2083,6 +2184,30 @@ mod tests {
         let row = marks[0].0;
         assert!(s.parser.lock().unwrap().screen().contents_between(row, 0, row, 20).starts_with("ligne-42"));
         t.close(id);
+    }
+
+    /// The wheel goes to a program that asked for the mouse (Claude Code in full screen, htop…),
+    /// in its encoding; Maj+↑ ↓ PgUp PgDn scroll the history, as far as it goes.
+    #[test]
+    fn wheel_and_shift_arrows() {
+        use vt100::{MouseProtocolEncoding as E, MouseProtocolMode as M};
+        assert_eq!(mouse_wheel(M::None, E::Sgr, true, (0, 0)), None);
+        assert_eq!(mouse_wheel(M::AnyMotion, E::Sgr, true, (4, 9)), Some(b"\x1b[<64;10;5M".to_vec()));
+        assert_eq!(mouse_wheel(M::PressRelease, E::Default, false, (0, 0)), Some(vec![0x1b, b'[', b'M', 65 + 32, 33, 33]));
+        let p = screen_of(3, 10, b"\x1b[?1000h\x1b[?1006h");
+        assert_eq!(p.screen().mouse_protocol_mode(), M::PressRelease);
+        assert_eq!(p.screen().mouse_protocol_encoding(), E::Sgr);
+
+        let shift = Modifiers { shift: true, ..Default::default() };
+        assert_eq!(shift_scroll(Key::ArrowUp, shift, 10), Some(1));
+        assert_eq!(shift_scroll(Key::PageDown, shift, 10), Some(-9));
+        assert_eq!(shift_scroll(Key::ArrowUp, Modifiers::default(), 10), None);
+        assert_eq!(shift_scroll(Key::ArrowUp, Modifiers { ctrl: true, ..shift }, 10), None);
+
+        let mut p = screen_of(3, 10, b"1\r\n2\r\n3\r\n4\r\n5\r\n6");
+        assert_eq!(p.screen().scrollback_len(), 3);
+        p.screen_mut().set_scrollback(99);
+        assert_eq!(p.screen().scrollback(), 3, "as far as it goes");
     }
 
     #[test]

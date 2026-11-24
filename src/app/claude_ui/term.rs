@@ -76,6 +76,9 @@ impl App {
         // Florm started from a terminal where Claude Code runs: its `claude` would think it is a
         // child of that one (and keep no transcript, so no resuming): those variables taken out
         env.extend(std::env::vars().map(|(k, _)| k).filter(|k| child_var(k)).map(|k| (k, String::new())));
+        // the conversation in the terminal's history, not in a full screen of its own: the wheel,
+        // the scrollbar, Maj+↑ and the search (Ctrl+Maj+F) go through all of it
+        env.push(("CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN".to_string(), "1".to_string()));
         let ctx = self.egui_ctx.clone();
         match self.term.open_embedded(&ctx, &argv, dir.clone(), &env) {
             Ok(id) => {

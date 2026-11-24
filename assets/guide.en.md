@@ -275,6 +275,10 @@ The operations started from Florm put the original version between the two sides
   path printed by a program (`src/app.rs:12`, `~/notes.txt`, a full path, the `b/…` of a diff), it
   opens it in Florm, at the line. With Ctrl held, the link under the mouse is underlined. In
   Claude as in the shell.
+- **Scrolling**: the wheel, the scrollbar on the right, **Shift+↑ / Shift+↓** (a line) and
+  **Shift+PgUp / Shift+PgDn** (a page) go through the history; ↑ and ↓ stay with the program (the
+  history of commands, the choices of Claude's menus). Claude writes its whole conversation there,
+  to scroll back through. A program that handles the mouse itself (htop…) gets the wheel.
 - **Double click** selects a whole word (a path, an address), **triple click** the line.
 - **Dragging a file** onto a terminal writes its path at the prompt (quoted when needed): Claude
   reads the file, an image included.
