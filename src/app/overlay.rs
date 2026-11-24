@@ -6,15 +6,14 @@ use crate::os::Pick;
 impl App {
     pub(super) fn open_overlay(&mut self, mode: Mode) {
         let items: Items = match &mode {
-            // Ctrl+K and the palette are one list: the views first (Claude, Git…), then the
-            // commands; Ctrl+K only differs by letting a chord go on (Ctrl+K Ctrl+B…)
-            Mode::Commands | Mode::Views => {
+            // the views first (Claude, Git…), then the commands
+            Mode::Commands => {
                 let mut v = self.view_items("# ");
                 v.extend(
                     commands::ALL
                         .iter()
-                        // the palette itself (or as Ctrl+K): it is already open
-                        .filter(|(_, l, c)| !l.is_empty() && crate::features::cmd_on(*c) && !matches!(*c, Cmd::CommandPalette | Cmd::Views))
+                        // the palette itself: it is already open
+                        .filter(|(_, l, c)| !l.is_empty() && crate::features::cmd_on(*c) && *c != Cmd::CommandPalette)
                         .map(|(id, l, c)| Item { label: commands::label(id, l).to_string(), detail: self.keymap.label(*c), action: Action::Cmd(*c) }),
                 );
                 v.into()
@@ -93,7 +92,7 @@ impl App {
         // the recent files first in go to file, the recent commands first in the palette
         let boost = match mode {
             Mode::Files => Some(self.recent_boost()),
-            Mode::Commands | Mode::Views => Some(self.recent_cmd_boost(&items)),
+            Mode::Commands => Some(self.recent_cmd_boost(&items)),
             _ => None,
         };
         self.open_overlay_with(mode, items, String::new());
@@ -211,7 +210,6 @@ impl App {
         }
         let title = match &ov.mode {
             Mode::Commands => t!("Palette de commandes", "Command palette").to_string(),
-            Mode::Views => t!("Palette de commandes   (après Ctrl+K, Ctrl+B, Ctrl+U… gardent leur rôle)", "Command palette   (after Ctrl+K, Ctrl+B, Ctrl+U… keep their role)").to_string(),
             Mode::Files => t!("Aller au fichier   (fichier:ligne, ou :ligne dans le fichier courant)", "Go to file   (file:line, or :line in the current file)").into(),
             Mode::GotoLine if self.goto_select => {
                 t!("Sélectionner la ligne   (42, ou 10-20 pour plusieurs lignes ; vide + Entrée : la ligne courante)", "Select line   (42, or 10-20 for several lines; empty + Enter: the current line)").into()
@@ -326,7 +324,7 @@ impl App {
                         egui::TextEdit::singleline(&mut ov.query)
                             .desired_width(f32::INFINITY)
                             .frame(false)
-                            .hint_text(if matches!(ov.mode, Mode::Commands | Mode::Views) { t!("Tapez pour filtrer… (# : ouvrir une vue)", "Type to filter… (#: open a view)") } else { t!("Tapez pour filtrer…", "Type to filter…") })
+                            .hint_text(if matches!(ov.mode, Mode::Commands) { t!("Tapez pour filtrer… (# : ouvrir une vue)", "Type to filter… (#: open a view)") } else { t!("Tapez pour filtrer…", "Type to filter…") })
                             .font(egui::FontId::proportional(17.0))
                             // Tab completes the path: it must not also move the focus to the next widget
                             .lock_focus(path_base.is_some()),
@@ -445,7 +443,7 @@ impl App {
                         // the palette: a query starting with # lists the views, the others the
                         // commands, after the views whose name has every word typed (`pull request`
                         // → the pull requests first: going there is what is wanted most often)
-                        if matches!(ov.mode, Mode::Commands | Mode::Views) {
+                        if matches!(ov.mode, Mode::Commands) {
                             let items = &ov.items;
                             let q = ov.query.split(':').next().unwrap_or("");
                             // nothing typed: all the views first
@@ -464,7 +462,7 @@ impl App {
                         ov.selected = (ov.selected + n - 1) % n;
                     }
                     // same height whatever the number of results: the window does not jump while typing
-                    let fixed = matches!(ov.mode, Mode::Files | Mode::Commands | Mode::Views);
+                    let fixed = matches!(ov.mode, Mode::Files | Mode::Commands);
                     // the others as tall as their rows (440 at most): the window keeps the size of
                     // the one shown before (a prompt without a list), the list would get one row
                     let rows = n as f32 * (30.0 + ui.spacing().item_spacing.y);
@@ -568,7 +566,7 @@ impl App {
                 Mode::Files => ov.query.split_once(':').map(|(_, l)| l.to_string()),
                 _ => None,
             };
-            if let (Mode::Commands | Mode::Views, Action::Cmd(c)) = (&ov.mode, &action) {
+            if let (Mode::Commands, Action::Cmd(c)) = (&ov.mode, &action) {
                 self.note_recent_cmd(*c);
             }
             self.choose(ctx, action);

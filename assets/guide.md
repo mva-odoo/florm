@@ -10,7 +10,7 @@ Tous les raccourcis se changent dans **Préférences → Raccourcis** (Ctrl+,).
 | Raccourci | Action |
 |---|---|
 | **Ctrl+P** | Aller à un fichier du projet. `nom:42` ouvre à la ligne 42, `:42` va à la ligne 42 du fichier courant |
-| **Ctrl+K** ou **Ctrl+Shift+P** | Palette de commandes : d'abord les vues (Claude, Git, Pull requests, Recherche, Terminal…, les terminaux et les conversations), puis les commandes. Tape pour filtrer (les accents sont facultatifs : « theme » trouve « Choisir le thème… ») ; une vue dont le nom contient les mots tapés reste en tête (« pull request » → la vue des pull requests, puis les commandes). **`#`** en tête ne liste que les vues : `#git`, `#term`, `#claude`. Après Ctrl+K, **Ctrl+B**, **V**… gardent leur rôle (Ctrl+K Ctrl+B, Ctrl+K V) |
+| **Ctrl+Shift+P** | Palette de commandes : d'abord les vues (Claude, Git, Pull requests, Recherche, Terminal…, les terminaux et les conversations), puis les commandes. Tape pour filtrer (les accents sont facultatifs : « theme » trouve « Choisir le thème… ») ; une vue dont le nom contient les mots tapés reste en tête (« pull request » → la vue des pull requests, puis les commandes). **`#`** en tête ne liste que les vues : `#git`, `#term`, `#claude`. |
 | **Alt** seul | Tout au clavier : une ou deux lettres sur chaque bouton, onglet, case ou champ visible ; les taper le clique (Échap ferme). Dans un menu ouvert, ↓ ↑ passent d'une entrée à l'autre et Entrée choisit. Se désactive dans Préférences → Éditeur |
 | **Ctrl+R** | Aller à une classe, une fonction, un record Odoo du fichier |
 | **Ctrl+O** / **Ctrl+Shift+S** | Ouvrir / enregistrer sous : **Tab complète le chemin** comme dans un terminal |

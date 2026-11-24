@@ -51,8 +51,6 @@ pub enum Cmd {
     // --- application ---
     Escape,
     CommandPalette,
-    /// The views, terminals and conversations, apart from the commands (Ctrl+K).
-    Views,
     QuickOpen,
     GotoLine,
     Find,
@@ -292,7 +290,6 @@ use Motion::*;
 /// (id, label, command). Commands with an empty label are hidden from the palette.
 pub const ALL: &[(&str, &str, Cmd)] = &[
     ("command_palette", "Palette de commandes", CommandPalette),
-    ("views", "Vues : ouvrir une vue, un terminal ou une conversation…", Views),
     ("quick_open", "Aller au fichier…", QuickOpen),
     ("goto_line", "Aller à la ligne…", GotoLine),
     ("find", "Rechercher…", Find),
@@ -527,7 +524,6 @@ pub const ALL: &[(&str, &str, Cmd)] = &[
 /// English labels of the commands (id, label); the French ones are in `ALL`.
 const EN: &[(&str, &str)] = &[
     ("command_palette", "Command palette"),
-    ("views", "Views: open a view, a terminal or a conversation…"),
     ("quick_open", "Go to file…"),
     ("goto_line", "Go to line…"),
     ("find", "Find…"),

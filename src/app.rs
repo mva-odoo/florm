@@ -337,8 +337,6 @@ use git::BranchPick;
 #[derive(Clone)]
 enum Mode {
     Commands,
-    /// The views, terminals and conversations (Ctrl+K), apart from the commands.
-    Views,
     Files,
     GotoLine,
     Syntax,
@@ -2676,15 +2674,18 @@ mod font_tests {
         assert!(app.showing(document::View::Debug));
         assert_eq!(app.bottom, Some(BottomTab::Terminal));
         assert!(app.settings.views_in_tab.contains(&"debug".to_string()));
-        // Ctrl+K opens the palette; a chord still works after it, Échap closes it
+        // Ctrl+K alone opens nothing (Ctrl+Shift+P is the palette); a chord still works
         let press = |app: &mut App, key: Key, modifiers: egui::Modifiers| {
             let ev = egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers };
             let _ = ctx.run(egui::RawInput { screen_rect: screen, events: vec![ev], ..Default::default() }, |ctx| app.handle_keys(ctx));
         };
         let sidebar = app.show_sidebar;
         press(&mut app, Key::K, egui::Modifiers::CTRL);
-        assert!(app.overlay.as_ref().is_some_and(|o| matches!(o.mode, Mode::Views)));
-        // it is the palette: the views first (those in a tab too), then the commands
+        assert!(app.overlay.is_none());
+        press(&mut app, Key::B, egui::Modifiers::CTRL);
+        assert_eq!(app.show_sidebar, !sidebar);
+        // the palette: the views first (those in a tab too), then the commands
+        app.open_overlay(Mode::Commands);
         let frame = |app: &mut App| {
             let _ = ctx.run(egui::RawInput { screen_rect: screen, ..Default::default() }, |ctx| app.overlay_ui(ctx));
         };
@@ -2699,14 +2700,7 @@ mod font_tests {
         }
         let first_cmd = list.iter().position(|l| !l.starts_with("# ")).unwrap();
         assert!(first_cmd >= 4 && list[first_cmd..].iter().all(|l| !l.starts_with("# ")), "{list:?}");
-        press(&mut app, Key::B, egui::Modifiers::CTRL);
-        assert!(app.overlay.is_none());
-        assert_eq!(app.show_sidebar, !sidebar);
-        press(&mut app, Key::K, egui::Modifiers::CTRL);
-        press(&mut app, Key::Escape, egui::Modifiers::NONE);
-        assert!(app.overlay.is_none());
-        // the palette: `pull request` gives the view first, then the commands
-        app.open_overlay(Mode::Commands);
+        // `pull request` gives the view first, then the commands
         app.overlay.as_mut().unwrap().query = "pull request".into();
         frame(&mut app);
         let list = shown(&app);

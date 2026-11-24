@@ -10,7 +10,7 @@ Every shortcut can be changed in **Preferences → Shortcuts** (Ctrl+,).
 | Shortcut | Action |
 |---|---|
 | **Ctrl+P** | Go to a file of the project. `name:42` opens it at line 42, `:42` goes to line 42 of the current file |
-| **Ctrl+K** or **Ctrl+Shift+P** | Command palette: the views first (Claude, Git, Pull requests, Search, Terminal…, the terminals and the conversations), then the commands. Type to filter (accents are optional); a view whose name has the words typed stays first (“pull request” → the pull requests view, then the commands). A leading **`#`** lists only the views: `#git`, `#term`, `#claude`. After Ctrl+K, **Ctrl+B**, **V**… keep their role (Ctrl+K Ctrl+B, Ctrl+K V) |
+| **Ctrl+Shift+P** | Command palette: the views first (Claude, Git, Pull requests, Search, Terminal…, the terminals and the conversations), then the commands. Type to filter (accents are optional); a view whose name has the words typed stays first (“pull request” → the pull requests view, then the commands). A leading **`#`** lists only the views: `#git`, `#term`, `#claude`. |
 | **Alt** alone | Everything from the keyboard: one or two letters on each visible button, tab, box or field; typing them clicks it (Esc closes). In an open menu, ↓ ↑ move between its entries and Enter chooses. Can be turned off in Preferences → Editor |
 | **Ctrl+R** | Go to a class, a function, an Odoo record of the file |
 | **Ctrl+O** / **Ctrl+Shift+S** | Open / save as: **Tab completes the path** like in a terminal |
