@@ -133,6 +133,7 @@ L'édition, la recherche, la coloration, l'index des symboles (F12, complétion)
 | Vue Git, commit, push, diff, rebase | `git` | Tout ce qui touche à Git |
 | Pull requests GitHub | `gh` (GitHub CLI), connecté | Onglet Pull requests, « Créer une PR » |
 | Claude dans l'éditeur | `claude` (Claude Code), connecté | Onglet Claude, ✨ message de commit |
+| Notifications de Claude | Linux : `notify-send` ; macOS : `terminal-notifier` (au choix, sinon la notification ne se clique pas) ; Windows : rien | Prévenir quand Claude a fini ou attend ; un clic ramène Florm sur la conversation |
 | Complétion par GitHub Copilot (au choix) | rien : Florm télécharge `copilot-language-server` (Préférences → Éditeur) ; un abonnement Copilot | Suite proposée en gris pendant la frappe |
 | Tests | `pytest`, `npx jest`, `cargo`, `go` | Tests du projet, lancés par le ▶ de la marge |
 | Orthographe | rien (dictionnaires téléchargés par Florm, ~550 ko) | Mots inconnus du Markdown, des commentaires et des commits, en français et en anglais |

@@ -113,6 +113,25 @@ $app = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell
 $m::CreateToastNotifier($app).Show([Windows.UI.Notifications.ToastNotification]::new($x))
 "#;
 
+/// The same toast, waiting for a click on it (10 minutes at most): prints `default` when clicked
+/// and brings the window of process `FLORM_PID` to the front (the process clicked may do so).
+#[cfg(any(windows, test))]
+const TOAST_WAIT_SCRIPT: &str = r#"$ErrorActionPreference = 'Stop'
+$m = [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime]
+$x = $m::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02)
+$t = $x.GetElementsByTagName('text')
+[void]$t.Item(0).AppendChild($x.CreateTextNode($env:FLORM_NOTIFY_TITLE))
+[void]$t.Item(1).AppendChild($x.CreateTextNode($env:FLORM_NOTIFY_BODY))
+$app = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe'
+$toast = [Windows.UI.Notifications.ToastNotification]::new($x)
+$null = Register-ObjectEvent -InputObject $toast -EventName Activated -SourceIdentifier florm_click
+$m::CreateToastNotifier($app).Show($toast)
+if (Wait-Event -SourceIdentifier florm_click -Timeout 600) {
+  'default'
+  if ($env:FLORM_PID) { $null = (New-Object -ComObject WScript.Shell).AppActivate([int]$env:FLORM_PID) }
+}
+"#;
+
 /// `-EncodedCommand` argument of PowerShell: base64 of the UTF-16LE script.
 #[cfg(any(windows, test))]
 fn powershell_encoded(script: &str) -> String {
@@ -167,6 +186,67 @@ fn notify_command(title: &str, body: &str) -> Option<Command> {
         c.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
         c
     })
+}
+
+/// A notification whose click brings Florm (process `pid`) to the front and leaves the file
+/// `clicked` (Florm then shows what it is about). Waits for the click (call it from a process of
+/// its own). Linux: notify-send with a default action (the click itself for most daemons), the
+/// window raised through Hyprland or Sway; Windows: a toast PowerShell waits on; macOS:
+/// terminal-notifier when installed (`-activate` Florm.app), else a notification without a click.
+pub fn notify_clickable(title: &str, body: &str, open: &str, pid: u32, clicked: &Path) {
+    #[cfg(target_os = "linux")]
+    {
+        let Some(notify) = crate::lsp::in_path("notify-send") else { return };
+        let out = command(notify).args(["--app-name=Florm", &format!("--action=default={open}"), "--", title, body]).stdin(Stdio::null()).output();
+        if !out.is_ok_and(|o| String::from_utf8_lossy(&o.stdout).trim() == "default") {
+            return;
+        }
+        let _ = std::fs::write(clicked, "");
+        if std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some() {
+            // the Lua dispatchers of recent Hyprland, else the former one
+            let lua = format!("hl.dsp.focus({{ window = \"pid:{pid}\" }})");
+            let ok = command("hyprctl").args(["dispatch", &lua]).output().is_ok_and(|o| o.status.success() && !String::from_utf8_lossy(&o.stdout).contains("rror"));
+            if !ok {
+                let _ = command("hyprctl").args(["dispatch", "focuswindow", &format!("pid:{pid}")]).output();
+            }
+        } else if std::env::var_os("SWAYSOCK").is_some() {
+            let _ = command("swaymsg").arg(format!("[pid={pid}] focus")).output();
+        }
+    }
+    #[cfg(windows)]
+    {
+        let _ = open;
+        let out = command("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", &powershell_encoded(TOAST_WAIT_SCRIPT)])
+            .env("FLORM_NOTIFY_TITLE", title)
+            .env("FLORM_NOTIFY_BODY", body)
+            .env("FLORM_PID", pid.to_string())
+            .stdin(Stdio::null())
+            .output();
+        if out.is_ok_and(|o| String::from_utf8_lossy(&o.stdout).trim() == "default") {
+            let _ = std::fs::write(clicked, "");
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = (open, pid);
+        match crate::lsp::in_path("terminal-notifier") {
+            // the click opens Florm.app and runs the command (the file, quoted for sh)
+            Some(tn) => {
+                let file = format!("'{}'", clicked.to_string_lossy().replace('\'', "'\\''"));
+                let _ = command(tn)
+                    .args(["-title", title, "-message", body, "-activate", "com.github.mva-odoo.florm", "-execute", &format!("touch {file}")])
+                    .stdin(Stdio::null())
+                    .output();
+            }
+            None => notify(title, body),
+        }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+    {
+        let _ = (open, pid, clicked);
+        notify(title, body);
+    }
 }
 
 /// Opens the file manager on the folder containing `path`, with `path` selected when possible.
@@ -598,6 +678,9 @@ mod tests {
         assert_eq!(powershell_encoded("ab"), "YQBiAA==");
         assert_eq!(powershell_encoded("é!"), "6QAhAA==");
         assert!(TOAST_SCRIPT.contains("$env:FLORM_NOTIFY_TITLE") && TOAST_SCRIPT.contains("$env:FLORM_NOTIFY_BODY"));
+        // the same toast, waiting for its click, then the window of Florm in front
+        assert!(TOAST_WAIT_SCRIPT.contains("$env:FLORM_NOTIFY_TITLE") && TOAST_WAIT_SCRIPT.contains("Activated") && TOAST_WAIT_SCRIPT.contains("AppActivate([int]$env:FLORM_PID)"));
+        assert!(TOAST_WAIT_SCRIPT.contains(r"\WindowsPowerShell\v1.0\powershell.exe'"));
     }
 
     #[cfg(target_os = "linux")]

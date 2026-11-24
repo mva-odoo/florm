@@ -12,6 +12,9 @@ use std::path::{Path, PathBuf};
 pub const HOOK_FLAG: &str = "--claude-hook";
 /// `florm --claude-status <file>`: the status line of Claude Code (its session on stdin).
 pub const STATUS_FLAG: &str = "--claude-status";
+/// `florm --claude-notify <file> <title> <body> <pid>`: a notification whose click brings Florm
+/// (process `pid`) to the front on the conversation of `file`; it waits for the click.
+const NOTIFY_FLAG: &str = "--claude-notify";
 
 /// What Florm knows of a conversation in a terminal.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -201,7 +204,8 @@ fn on_event(file: &Path, what: &str, event: &Value) {
     }
 }
 
-/// Name of the file where Florm says if it is in front (`0`) or not (`1`), and its language.
+/// Name of the file where Florm says if it is in front (`0`) or not (`1`), its language and its
+/// process (to bring it to the front from a notification).
 const AWAY: &str = "away";
 
 /// Florm in front or not, for the hooks (written when it changes): they tell the system at once
@@ -212,7 +216,7 @@ pub fn set_away(away: bool) {
     let now = u8::from(away) + if crate::i18n::en() { 2 } else { 0 };
     if LAST.swap(now, Ordering::Relaxed) != now {
         let _ = std::fs::create_dir_all(dir());
-        let _ = std::fs::write(dir().join(AWAY), format!("{} {}", u8::from(away), if crate::i18n::en() { "en" } else { "fr" }));
+        let _ = std::fs::write(dir().join(AWAY), format!("{} {} {}", u8::from(away), if crate::i18n::en() { "en" } else { "fr" }, std::process::id()));
     }
 }
 
@@ -225,6 +229,7 @@ fn tell_if_away(file: &Path, what: &str, v: &Value) {
         return;
     }
     let en = words.next() == Some("en");
+    let pid = words.next().unwrap_or("").to_string();
     let title = v["title"].as_str().filter(|t| !t.is_empty()).unwrap_or("Claude");
     let message = v["message"].as_str().unwrap_or("");
     let body = match (what, en) {
@@ -234,7 +239,33 @@ fn tell_if_away(file: &Path, what: &str, v: &Value) {
         (_, false) => "Claude a fini",
         (_, true) => "Claude is done",
     };
-    crate::os::notify(&format!("Florm · {title}"), body);
+    let title = format!("Florm · {title}");
+    // a click brings Florm to the front on this conversation: a process of its own waits for it
+    // (the hook ends at once, Claude goes on)
+    if let Ok(exe) = std::env::current_exe() {
+        let spawned = crate::os::command(exe)
+            .args([NOTIFY_FLAG, &file.to_string_lossy(), &title, body, &pid, if en { "en" } else { "fr" }])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+        if spawned.is_ok() {
+            return;
+        }
+    }
+    crate::os::notify(&title, body);
+}
+
+/// `--claude-notify`: the notification, waiting for a click (`os::notify_clickable`); clicked, the
+/// conversation of `file` is asked to Florm (`open_asked`).
+fn notify_and_wait(file: &Path, title: &str, body: &str, pid: &str, en: bool) {
+    let pid = pid.parse().unwrap_or(0);
+    crate::os::notify_clickable(title, body, if en { "Open" } else { "Ouvrir" }, pid, &file.with_extension("open"));
+}
+
+/// A notification was clicked for the conversation of `file` (once: the request is taken away).
+pub fn open_asked(file: &Path) -> bool {
+    std::fs::remove_file(file.with_extension("open")).is_ok()
 }
 
 /// The tokens read by the last answer of a session: its file of messages (`transcript_path`),
@@ -285,6 +316,11 @@ pub fn run_flag(args: &[String]) -> bool {
         }
         (Some(STATUS_FLAG), Some(file)) => {
             status(Path::new(file));
+            true
+        }
+        (Some(NOTIFY_FLAG), Some(file)) => {
+            let arg = |k: usize| args.get(k).map_or("", String::as_str);
+            notify_and_wait(Path::new(file), arg(3), arg(4), arg(5), arg(6) == "en");
             true
         }
         _ => false,

@@ -502,7 +502,10 @@ new in it work as they are. Claude's changes are reviewed in the **Git** view.
   permission to use Bash”…) shows on hover over the conversation in the list and over **❓ waiting**
   in the status bar. When Florm is not in front, a notification of the system tells you at
   once, and also when Claude is done, even while Florm's window is hidden (macOS; Windows; Linux
-  with `notify-send`).
+  with `notify-send`). **A click on the notification** brings Florm to the front, on that
+  conversation: on Windows and Linux (Hyprland, Sway; elsewhere Florm asks for it itself, which
+  depends on the desktop), and on macOS when `terminal-notifier` is installed
+  (`brew install terminal-notifier`).
 - **Several conversations, one tab**: every conversation is listed on the left of the Claude
   tab, the newest at the top, with its title (its first message), what it does (⟳ working, ❓
   waiting for your answer, ✔ done) and how long it has been working; below, its project in its

@@ -513,7 +513,10 @@ ses nouveautés marchent tels quels. Les changements de Claude se revoient dans 
   (« veut utiliser Bash »…) s'affiche au survol de la conversation dans la liste et de **❓ attend**
   dans la barre d'état. Si Florm n'est pas au premier plan, une notification du système te prévient
   tout de suite, de même quand Claude a fini, même si la fenêtre de Florm est cachée (macOS ;
-  Windows ; Linux avec `notify-send`).
+  Windows ; Linux avec `notify-send`). **Un clic sur la notification** ramène Florm devant, sur
+  cette conversation : sous Windows et Linux (Hyprland, Sway ; ailleurs Florm le demande lui-même,
+  sans garantie selon le bureau), et sous macOS si `terminal-notifier` est installé
+  (`brew install terminal-notifier`).
 - **Plusieurs conversations, un seul onglet** : toutes les conversations sont listées à gauche
   de l'onglet Claude, la plus récente en haut, avec leur titre (leur premier message), ce qu'elles
   font (⟳ travaille, ❓ attend ta réponse, ✔ a fini) et depuis quand elles travaillent ; en

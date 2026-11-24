@@ -173,8 +173,13 @@ impl App {
         let mut limits: Vec<(String, Vec<(String, f32, i64)>)> = Vec::new();
         let accounts = claude_account::accounts(&self.settings.claude_accounts);
         let term = &mut self.term;
+        // a notification clicked: its conversation shown, Florm in front
+        let mut asked: Option<u64> = None;
         for (k, c) in std::iter::once(&mut self.claude).chain(self.claude_others.iter_mut()).enumerate() {
             let (Some(id), Some(file)) = (c.term, c.term_file.clone()) else { continue };
+            if claude_term::open_asked(&file) {
+                asked = Some(c.id);
+            }
             if !c.term_pending.is_empty() && term.ready(id) {
                 let text = std::mem::take(&mut c.term_pending);
                 term.paste(id, &text);
@@ -250,6 +255,10 @@ impl App {
             if st.context > 0 {
                 c.context = (st.context, if st.context > 200_000 { 1_000_000 } else { 200_000 });
             }
+        }
+        if let Some(id) = asked {
+            self.claude_go_to(id);
+            self.egui_ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
         }
         if touched {
             self.watch.last_check = Instant::now() - Duration::from_secs(10);
