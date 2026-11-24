@@ -275,12 +275,6 @@ trusted_folders = ["/home/moi/src/mon-projet"]
 
 Il lance votre shell (`$SHELL` sous Linux et macOS, `cmd.exe` ou `%COMSPEC%` sous Windows ; à changer dans Préférences → Terminal). Pour les icônes des prompts (starship, powerline), installez une [Nerd Font](https://www.nerdfonts.com) : Florm la trouve tout seul.
 
-### Ouvrir un dossier WSL (Windows)
-
-Palette de commandes → **Ouvrir un dossier d'une distribution WSL (Windows)…** (ou menu Fichier → **Ouvrir un dossier WSL…**). La liste propose les distributions WSL installées ; Florm demande ensuite le dossier à ouvrir, en partant de votre dossier personnel là-bas (Tab complète le chemin).
-
-Le dossier s'ouvre comme un projet normal par `\\wsl.localhost\<distribution>\…` : fichiers, recherche, Git et linters marchent dessus, mais ils tournent sous Windows. **Le terminal**, lui, ouvre un shell dans la distribution, dans le dossier du projet (`wsl.exe --cd`). Les fichiers passent par le partage de WSL : sur un gros projet, la première indexation (Aller au fichier, F12) prend plus de temps.
-
 ### Vérifier que tout est en place
 
 ```bash

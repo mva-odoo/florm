@@ -409,7 +409,7 @@ impl App {
                 self.index.files_at = None;
             }
             // the dates of the files open and of the repositories read on a thread: a slow disk
-            // (\\wsl$, a network folder) does not freeze the window
+            // (a network folder) does not freeze the window
             let repos = self.repos.clone();
             let files: Vec<(u64, std::time::SystemTime, PathBuf)> = self.docs.iter().filter_map(|d| Some((d.uid, d.mtime?, d.path.clone()?))).collect();
             self.watch.busy = true;

@@ -537,7 +537,7 @@ ses nouveautés marchent tels quels. Les changements de Claude se revoient dans 
   réponse. La barre d'état dit combien travaillent ou attendent.
 - **Bac à sable** (Préférences → Claude, activé par défaut) : les commandes de Claude tournent
   isolées, elles n'écrivent que dans le projet et le réseau est filtré. Linux : paquets
-  `bubblewrap` et `socat` ; macOS : intégré (Seatbelt) ; Windows : seulement dans WSL. Désactivé,
+  `bubblewrap` et `socat` ; macOS : intégré (Seatbelt) ; Windows : non disponible. Désactivé,
   il n'y a aucun bac à sable, même si tes réglages de Claude Code en activent un. Le changer ne
   demande pas de redémarrer Florm : les conversations ouvertes repartent avec le nouveau réglage
   (celles qui travaillent, quand elles ont fini). Activé, `/sandbox` dans Claude règle le détail.

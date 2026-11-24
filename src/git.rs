@@ -4,15 +4,12 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
-/// git in `dir`; for a WSL folder opened from Windows, trusted although owned by the Linux user.
-fn git(dir: &Path) -> std::process::Command {
+/// The `git` command.
+fn git() -> std::process::Command {
     let mut c = crate::os::command("git");
     // `git status` must not rewrite the index: that would look like a change made outside Florm
     // (see `stamp`), and could collide with a git command run by the user in a terminal
     c.env("GIT_OPTIONAL_LOCKS", "0");
-    if cfg!(windows) && crate::os::is_wsl_unc(dir) {
-        c.args(["-c", "safe.directory=*"]);
-    }
     c
 }
 
@@ -25,7 +22,7 @@ fn exec(dir: &Path, args: &[&str]) -> Result<(String, String), String> {
     if let Some(e) = off() {
         return Err(e);
     }
-    let out = git(dir)
+    let out = git()
         .args(args)
         .current_dir(dir)
         .stdin(Stdio::null())
@@ -51,7 +48,7 @@ pub fn run_with(dir: &Path, args: &[&str], env: &[(&str, &str)], input: Option<&
     if let Some(e) = off() {
         return Err(e);
     }
-    let mut child = git(dir)
+    let mut child = git()
         .args(args)
         .current_dir(dir)
         .envs(env.iter().copied())
@@ -733,7 +730,7 @@ pub fn blame_line(file: &Path, line: usize, contents: &str) -> Result<Blame, Str
     let dir = file.parent().ok_or(t!("chemin invalide", "invalid path"))?;
     let name = file.file_name().and_then(|n| n.to_str()).ok_or(t!("chemin invalide", "invalid path"))?;
     let range = format!("{line},{line}");
-    let mut child = git(dir)
+    let mut child = git()
         .args(["blame", "--porcelain", "-L", &range, "--contents", "-", "--", name])
         .current_dir(dir)
         .stdin(Stdio::piped())

@@ -88,19 +88,9 @@ pub fn inside_repo(repo: &Path, rel: &str) -> Option<PathBuf> {
 }
 
 /// Absolute path with links resolved; on Windows without the `\\?\` prefix that canonicalize
-/// adds (it shows in the UI, and git refuses it as working directory, e.g. for `\\wsl.localhost\…`).
+/// adds (it shows in the UI, and git refuses it as working directory).
 pub fn canon(p: &Path) -> PathBuf {
     dunce::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
-}
-
-/// A WSL folder seen from Windows (`\\wsl$\…`, `\\wsl.localhost\…`).
-pub fn is_wsl_unc(p: &Path) -> bool {
-    let s = p.to_string_lossy().to_lowercase();
-    s.starts_with(r"\\wsl$\") || s.starts_with(r"\\wsl.localhost\")
-}
-
-fn is_wsl() -> bool {
-    std::fs::read_to_string("/proc/version").is_ok_and(|v| v.to_lowercase().contains("microsoft"))
 }
 
 /// Runs the command in the background (the file manager may stay attached to it).
@@ -155,18 +145,6 @@ pub fn reveal(path: &Path) -> Result<(), String> {
     } else if cfg!(target_os = "macos") {
         let mut c = Command::new("open");
         c.arg("-R").arg(&path);
-        spawn(c)
-    } else if is_wsl() {
-        let win = command("wslpath")
-            .arg("-w")
-            .arg(&path)
-            .output()
-            .ok()
-            .filter(|o| o.status.success())
-            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-            .ok_or(t!("wslpath a échoué", "wslpath failed"))?;
-        let mut c = Command::new("explorer.exe");
-        c.arg(format!("/select,{win}"));
         spawn(c)
     } else {
         // FileManager1 selects the file (Nautilus, Dolphin, Nemo, Thunar…); otherwise open the folder.
@@ -494,11 +472,7 @@ mod tests {
     }
 
     #[test]
-    fn wsl_paths_from_windows() {
-        assert!(is_wsl_unc(Path::new(r"\\wsl.localhost\Ubuntu\home\odoo\src")));
-        assert!(is_wsl_unc(Path::new(r"\\WSL$\Ubuntu\home")));
-        assert!(!is_wsl_unc(Path::new(r"C:\Users\me")));
-        assert!(!is_wsl_unc(Path::new("/home/odoo")));
+    fn canon_keeps_missing_paths() {
         // no "\\?\" prefix, and a missing path is kept as is
         assert_eq!(canon(Path::new("/nonexistent/x")), PathBuf::from("/nonexistent/x"));
     }

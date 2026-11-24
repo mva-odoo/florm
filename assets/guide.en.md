@@ -526,7 +526,7 @@ new in it work as they are. Claude's changes are reviewed in the **Git** view.
   waiting for your answer. The status bar says how many are working or waiting.
 - **Sandbox** (Preferences → Claude, on by default): Claude's commands run isolated, they write
   only in the project and the network is filtered. Linux: `bubblewrap` and `socat` packages;
-  macOS: built in (Seatbelt); Windows: only in WSL. Off, there is no sandbox,
+  macOS: built in (Seatbelt); Windows: not available. Off, there is no sandbox,
   even if your settings of Claude Code turn one on. Changing it needs no restart of Florm: the open
   conversations start again with the new setting (those at work, once they are done). On,
   `/sandbox` in Claude sets the details.

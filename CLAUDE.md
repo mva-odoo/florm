@@ -2,7 +2,7 @@
 
 Florm : éditeur de texte en Rust (egui/eframe 0.29), inspiré de Sublime Text, un seul binaire.
 Intègre Git, GitHub (pull requests), Claude Code, terminal, LSP, linters, orthographe, débogueur (DAP :
-Python, Node, Rust/C, Go), tests (pytest, jest, cargo, go, Odoo dans Docker), dossiers WSL.
+Python, Node, Rust/C, Go), tests (pytest, jest, cargo, go ; les tests Odoo passent par le débogueur).
 
 ## Commandes
 
@@ -27,7 +27,8 @@ scripts/build-windows.sh    # binaire Windows depuis Linux/WSL
   gros ont des sous-modules dans un dossier du même nom (`claude_ui/`, `debugger/`, `panels/`) :
   un fichier par partie, avec `use super::*;`.
 - `src/*.rs` hors `app/` : la logique sans UI (`git.rs`, `github.rs`, `claude.rs`, `dap.rs`, `lsp.rs`,
-  `docker.rs`, `terminal.rs`, `document.rs` (buffer `ropey`), `highlight.rs` (`syntect`), `split.rs`…).
+  `docker.rs`, `terminal.rs`, `document.rs` (buffer `ropey`), `highlight.rs` (`syntect`)…).
+  La division de l'éditeur est dans `src/app/panes.rs`.
 - Travail en arrière-plan : `src/jobs.rs`. Les tâches tournent sur des threads et renvoient un
   `JobResult` par un channel lu à chaque image ; le traitement est dans `src/app/job_results.rs` (un aiguillage, les traitements longs dans `job_results/`).
   Pour une nouvelle tâche : une variante de `JobResult`, son lancement, son traitement. Ne jamais
@@ -38,7 +39,7 @@ scripts/build-windows.sh    # binaire Windows depuis Linux/WSL
   page des préférences dans `src/app/prefs.rs`.
 - Les outils externes (git, gh, claude, ruff, docker…) sont appelés comme processus ; aucune
   dépendance système autre qu'OpenGL. Préférer éviter d'ajouter des crates (taille du binaire).
-- Multiplateforme : Linux (X11/Wayland, WSL), Windows, macOS. Le code spécifique passe par `#[cfg(...)]`
+- Multiplateforme : Linux (X11/Wayland), Windows, macOS. Le code spécifique passe par `#[cfg(...)]`
   et `src/os.rs`.
 
 ## Conventions

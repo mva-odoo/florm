@@ -1,5 +1,5 @@
 //! What the UI asks of the disk at each frame (a folder still there, the branch of a repository),
-//! read again every 2 s only: on `\\wsl$` or a network folder each read is slow.
+//! read again every 2 s only: on a network folder each read is slow.
 
 use std::cell::RefCell;
 use std::collections::HashMap;

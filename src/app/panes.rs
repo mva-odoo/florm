@@ -548,7 +548,7 @@ impl App {
                                         ui.close_menu();
                                     }
                                     ui.separator();
-                                    // read again every 2 s, not at every frame (slow on WSL and network folders)
+                                    // read again every 2 s, not at every frame (slow on network folders)
                                     type Entries = std::sync::Arc<Vec<(String, PathBuf, bool)>>;
                                     let id = egui::Id::new(("crumb_entries", dir));
                                     let cached = ui.ctx().data(|d| d.get_temp::<(Instant, Entries)>(id)).filter(|(t, _)| t.elapsed() < Duration::from_secs(2));

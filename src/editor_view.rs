@@ -1271,7 +1271,7 @@ fn minimap_ui(ui: &mut Ui, doc: &mut Document, hl: &Highlighting, rh: f32) {
     let y0 = rect.min.y + top * lh - off;
     let view = Rect::from_min_size(Pos2::new(rect.min.x, y0), egui::vec2(rect.width(), doc.view_h / rh * lh));
     // Opaque, slightly tinted color: translucent fills are blended very differently by
-    // some OpenGL drivers (WSLg's software renderer makes them much brighter).
+    // some OpenGL drivers (software renderers make them much brighter).
     let (a, bg) = (hl.colors.accent, hl.colors.bg);
     let tint = |x: u8, y: u8| (x as f32 * 0.93 + y as f32 * 0.07) as u8;
     painter.rect_filled(view, 3.0, Color32::from_rgb(tint(bg.r(), a.r()), tint(bg.g(), a.g()), tint(bg.b(), a.b())));

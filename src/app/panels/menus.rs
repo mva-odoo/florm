@@ -54,9 +54,6 @@ impl App {
             item(ui, t!("Nouveau fichier", "New file"), Cmd::NewFile);
             item(ui, t!("Ouvrir un fichier…", "Open a file…"), Cmd::OpenFile);
             item(ui, t!("Ouvrir un dossier…", "Open a folder…"), Cmd::OpenFolder);
-            if cfg!(windows) {
-                item(ui, t!("Ouvrir un dossier WSL…", "Open a WSL folder…"), Cmd::RemoteConnect);
-            }
             item(ui, t!("Changer de projet…", "Switch project…"), Cmd::SwitchProject);
             item(ui, t!("Fermer le dossier", "Close the folder"), Cmd::CloseFolder);
             item(ui, t!("Rouvrir l'onglet fermé", "Reopen closed tab"), Cmd::ReopenClosed);

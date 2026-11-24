@@ -161,8 +161,6 @@ pub enum JobResult {
     UpdateInstalled { version: String, result: Result<std::path::PathBuf, String> },
     /// Shared configuration synchronized, published or created: its `shared_config` and the message.
     Shared(crate::shared::Op, Result<(String, String), String>),
-    /// Connected to another machine: the folder to start from there.
-    RemoteConnected(crate::remote::Target, Result<PathBuf, String>),
 }
 
 /// `f` on each item, `threads` at a time, the results in the order of the items: for the same

@@ -296,7 +296,7 @@ github = false
 debugger = false
 claude = false
 # les commandes de Claude tournent dans le bac à sable de Claude Code : écriture dans le projet seulement,
-# réseau filtré (Linux : paquets bubblewrap et socat ; macOS : Seatbelt, intégré ; pas sous Windows hors WSL).
+# réseau filtré (Linux : paquets bubblewrap et socat ; macOS : Seatbelt, intégré ; pas sous Windows).
 # false : aucun bac à sable, même si les réglages de Claude Code en activent un. Pris en compte sans redémarrer Florm
 claude_sandbox = true
 # session de Claude (contexte, coût, quotas) à droite de son terminal
@@ -423,7 +423,7 @@ pub fn make_private() {
     }
 }
 
-/// Data folder (tools installed by Florm, X11 libraries on WSL…).
+/// Data folder (tools installed by Florm, conversations…).
 #[cfg(test)]
 pub fn data_dir() -> PathBuf {
     // the tests never read nor write the user's data (the Claude conversations…): next to their

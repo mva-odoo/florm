@@ -38,7 +38,6 @@ mod quick_fix;
 mod pulls;
 mod debugger;
 mod view_tabs;
-mod remote_ui;
 mod install_guide;
 mod odoo_tests;
 mod conflicts;
@@ -351,8 +350,6 @@ enum Mode {
     /// Where a symbol is used (language server).
     References(String),
     Bookmarks,
-    /// WSL distributions to open a folder of.
-    Remotes,
     Prompt(Prompt),
 }
 
@@ -371,8 +368,6 @@ enum Action {
     Location(PathBuf, usize),
     /// Insert template n (index in `App::templates`).
     Template(usize),
-    /// Connect to another machine, then choose a folder there.
-    Remote(crate::remote::Target),
     /// Open a view where it lives (`#` in the palette).
     View(BottomTab),
     /// Show a terminal of the bottom panel (`#` in the palette).
@@ -1510,8 +1505,8 @@ impl App {
         self.root = Some(path.clone());
         project::touch(&mut self.projects, &path);
         project::save_list(&self.projects);
-        // looking for the repositories reads many folders (slow on a WSL folder seen from
-        // Windows): in the background, the window shows up at once
+        // looking for the repositories reads many folders (slow on a network
+        // folder): in the background, the window shows up at once
         self.repos.clear();
         self.repo = None;
         self.git = GitUi::default();

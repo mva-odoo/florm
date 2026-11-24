@@ -23,13 +23,7 @@ impl App {
                 .projects
                 .iter()
                 .filter(|p| p.path.is_dir())
-                .map(|p| {
-                    let detail = match crate::remote::describe(&p.path) {
-                        Some(r) => format!("{r} · {}", crate::remote::remote_path(&p.path).unwrap_or_default()),
-                        None => p.path.display().to_string(),
-                    };
-                    Item { label: p.name.clone(), detail, action: Action::Project(p.path.clone()) }
-                })
+                .map(|p| Item { label: p.name.clone(), detail: p.path.display().to_string(), action: Action::Project(p.path.clone()) })
                 .collect(),
             Mode::Syntax => self
                 .hl
@@ -80,7 +74,6 @@ impl App {
                     })
                     .collect()
             }
-            Mode::Remotes => self.remote_items().into(),
             Mode::Themes => self
                 .hl
                 .theme_names()
@@ -233,7 +226,6 @@ impl App {
             Mode::Definitions(w) => tf!("Définitions de « {w} »", "Definitions of “{w}”"),
             Mode::References(w) => tf!("Usages de « {w} »", "Usages of “{w}”"),
             Mode::Bookmarks => t!("Signets", "Bookmarks").into(),
-            Mode::Remotes => t!("Ouvrir un dossier WSL   (une distribution)", "Open a WSL folder   (a distribution)").into(),
             Mode::Prompt(p) => match p {
                 Prompt::OpenFolder => t!("Ouvrir le dossier", "Open the folder").into(),
                 Prompt::OpenFile => t!("Ouvrir le fichier", "Open the file").into(),
@@ -643,7 +635,6 @@ impl App {
             Action::Branch(b, pick) => self.branch_act(b, pick),
             Action::Project(p) => self.switch_project(p),
             Action::Template(k) => self.insert_template(k),
-            Action::Remote(t) => self.remote_connect(t),
             Action::View(tab) => self.open_tool(tab),
             Action::Conversation(id) => self.claude_go_to(id),
             Action::Terminal(id) => {
@@ -1137,7 +1128,7 @@ impl App {
             let picked = {
                 let d = rfd::FileDialog::new().set_directory(&dir);
                 Ok(match kind {
-                    Pick::Folder => d.set_title(t!("Ouvrir un dossier (les projets WSL : \\\\wsl.localhost\\…)", "Open a folder (WSL projects: \\\\wsl.localhost\\…)")).pick_folder().into_iter().collect(),
+                    Pick::Folder => d.set_title(t!("Ouvrir un dossier", "Open a folder")).pick_folder().into_iter().collect(),
                     Pick::File => d.set_title(t!("Ouvrir un fichier", "Open a file")).pick_file().into_iter().collect(),
                     Pick::ClaudeDir => d.set_title(t!("Le dossier où Claude travaille", "The folder Claude works in")).pick_folder().into_iter().collect(),
                     Pick::AccountProject => d.set_title(t!("Un dossier dont les conversations utilisent ce compte", "A folder whose conversations use this account")).pick_folder().into_iter().collect(),
