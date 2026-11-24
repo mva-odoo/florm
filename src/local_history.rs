@@ -63,8 +63,9 @@ fn keep_in(dir: &Path, path: &Path, at: u64) {
 /// Unified diff of two files or two folders, the paths shown as `la` and `lb`; empty when they
 /// are the same.
 pub fn diff(a: &Path, b: &Path, la: &str, lb: &str) -> Result<String, String> {
+    // no program named by the configuration of a repository around (see `git::git`)
     let out = crate::os::command("git")
-        .args(["diff", "--no-index", "--no-color", "--no-ext-diff", "--"])
+        .args(["-c", "core.fsmonitor=false", "diff", "--no-index", "--no-color", "--no-ext-diff", "--no-textconv", "--"])
         .arg(a)
         .arg(b)
         .output()

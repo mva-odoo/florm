@@ -171,6 +171,10 @@ Le `.gitignore` est respecté.
 
 Florm passe par la commande `git` (votre configuration, vos identifiants). Sans `git`, la vue
 explique comment l'installer (le système est détecté) et reprend toute seule dès qu'elle est trouvée.
+Un dossier reçu d'ailleurs (un zip) peut avoir dans son `.git/config` des commandes : Florm lance
+git sans `core.fsmonitor` ni les programmes de diff du dépôt (`textconv`, diff externe), ouvrir le
+dossier ou afficher un diff ne les exécute pas. Les hooks des commits et des push tournent comme
+d'habitude.
 
 - **Les changements dans l'éditeur** : une marque colorée dans la marge montre chaque bloc changé
   depuis le dernier commit. **Un clic sur la marque** (ou **Ctrl+K Ctrl+D** sur la ligne) affiche

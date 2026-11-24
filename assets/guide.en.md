@@ -171,6 +171,9 @@ The `.gitignore` is respected.
 
 Florm goes through the `git` command (your configuration, your credentials). Without `git`, the view
 explains how to install it (the system is detected) and comes back by itself as soon as it is found.
+A folder received from elsewhere (a zip) may have commands in its `.git/config`: Florm runs git
+without `core.fsmonitor` nor the diff programs of the repository (`textconv`, external diff), so
+opening the folder or showing a diff does not run them. The hooks of commits and pushes run as usual.
 
 - **The changes in the editor**: a colored mark in the gutter shows each block changed since the
   last commit. **A click on the mark** (or **Ctrl+K Ctrl+D** on the line) shows that change

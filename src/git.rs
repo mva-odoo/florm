@@ -4,13 +4,42 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
-/// The `git` command.
-fn git() -> std::process::Command {
+/// git with `args`.
+///
+/// A repository received from someone else (a zip, a download) brings its `.git/config`, which
+/// can name commands: Florm runs git by itself (status when a folder is opened, diffs, blame),
+/// so those are turned off here: `core.fsmonitor` (run by status and diff), the `textconv` and
+/// external diff programs (run to show a diff). Hooks of commits and pushes still run.
+fn git(args: &[&str]) -> std::process::Command {
     let mut c = crate::os::command("git");
     // `git status` must not rewrite the index: that would look like a change made outside Florm
     // (see `stamp`), and could collide with a git command run by the user in a terminal
     c.env("GIT_OPTIONAL_LOCKS", "0");
+    c.args(["-c", "core.fsmonitor=false"]).args(hardened(args));
     c
+}
+
+/// Commands that show diffs: they take `--no-textconv --no-ext-diff`.
+const DIFF_COMMANDS: &[&str] = &["diff", "log", "show", "blame", "reflog", "format-patch"];
+
+/// `args` with `--no-textconv --no-ext-diff` right after the command when it shows a diff (after
+/// `stash show` for a stash).
+fn hardened<'a>(args: &[&'a str]) -> Vec<&'a str> {
+    let mut out = args.to_vec();
+    // the command: the first word that is not a global option (`-c x=y` and `-C dir` take a value)
+    let mut i = 0;
+    while i < args.len() && args[i].starts_with('-') {
+        i += if matches!(args[i], "-c" | "-C") { 2 } else { 1 };
+    }
+    let at = match args.get(i) {
+        Some(sub) if DIFF_COMMANDS.contains(sub) => Some(i + 1),
+        Some(&"stash") if args.get(i + 1) == Some(&"show") => Some(i + 2),
+        _ => None,
+    };
+    if let Some(at) = at {
+        out.splice(at..at, ["--no-textconv", "--no-ext-diff"]);
+    }
+    out
 }
 
 /// Git turned off (Préférences → Git, or `git` not installed): nothing is run.
@@ -22,8 +51,7 @@ fn exec(dir: &Path, args: &[&str]) -> Result<(String, String), String> {
     if let Some(e) = off() {
         return Err(e);
     }
-    let out = git()
-        .args(args)
+    let out = git(args)
         .current_dir(dir)
         .stdin(Stdio::null())
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -48,8 +76,7 @@ pub fn run_with(dir: &Path, args: &[&str], env: &[(&str, &str)], input: Option<&
     if let Some(e) = off() {
         return Err(e);
     }
-    let mut child = git()
-        .args(args)
+    let mut child = git(args)
         .current_dir(dir)
         .envs(env.iter().copied())
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -730,8 +757,7 @@ pub fn blame_line(file: &Path, line: usize, contents: &str) -> Result<Blame, Str
     let dir = file.parent().ok_or(t!("chemin invalide", "invalid path"))?;
     let name = file.file_name().and_then(|n| n.to_str()).ok_or(t!("chemin invalide", "invalid path"))?;
     let range = format!("{line},{line}");
-    let mut child = git()
-        .args(["blame", "--porcelain", "-L", &range, "--contents", "-", "--", name])
+    let mut child = git(&["blame", "--porcelain", "-L", &range, "--contents", "-", "--", name])
         .current_dir(dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -873,6 +899,45 @@ pub fn parse_github(url: &str) -> Option<(String, String)> {
 #[cfg(test)]
 mod status_tests {
     use super::*;
+
+    #[test]
+    fn diffs_never_run_the_programs_of_the_repository() {
+        let h = |a: &[&str]| hardened(a).join(" ");
+        assert_eq!(h(&["diff", "--cached"]), "diff --no-textconv --no-ext-diff --cached");
+        assert_eq!(h(&["-c", "color.ui=false", "log", "-p"]), "-c color.ui=false log --no-textconv --no-ext-diff -p");
+        assert_eq!(h(&["stash", "show", "-p", "stash@{0}"]), "stash show --no-textconv --no-ext-diff -p stash@{0}");
+        // the others do not take them
+        for a in [&["status", "--porcelain=v2"][..], &["stash", "list"], &["rev-parse", "HEAD"], &["cat-file", "-p", "HEAD:f"], &["grep", "diff"]] {
+            assert_eq!(hardened(a), a.to_vec());
+        }
+    }
+
+    /// A repository whose configuration names programs (received in a zip): opening it and
+    /// showing its diffs runs none of them.
+    #[test]
+    #[cfg(unix)]
+    fn the_configuration_of_a_repository_runs_nothing() {
+        let dir = std::env::temp_dir().join(format!("florm_git_trust_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mark = dir.join("ran");
+        run(&dir, &["init", "-q"]).unwrap();
+        std::fs::write(dir.join("a.txt"), "a\n").unwrap();
+        run(&dir, &["add", "a.txt"]).unwrap();
+        run(&dir, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "a"]).unwrap();
+        let cmd = format!("sh -c 'touch {}; echo x' --", mark.display());
+        for (k, v) in [("core.fsmonitor", cmd.as_str()), ("diff.external", cmd.as_str()), ("diff.evil.textconv", cmd.as_str())] {
+            run(&dir, &["config", k, v]).unwrap();
+        }
+        std::fs::write(dir.join(".gitattributes"), "*.txt diff=evil\n").unwrap();
+        std::fs::write(dir.join("a.txt"), "b\n").unwrap();
+        status(&dir).unwrap();
+        for a in [&["diff"][..], &["log", "-p"], &["show"], &["diff", "HEAD", "--", "a.txt"]] {
+            stdout(&dir, a).unwrap();
+        }
+        assert!(!mark.exists(), "a program of the repository ran");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn line_history_keeps_whole_hunks() {
