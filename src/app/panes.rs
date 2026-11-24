@@ -116,6 +116,7 @@ impl App {
                         self.run_tests(t);
                     }
                 }
+                self.conflict_picked(i);
                 Some(r)
             }
             document::View::Image => {
@@ -170,10 +171,6 @@ impl App {
             }
             document::View::History => {
                 egui::CentralPanel::default().show_inside(ui, |ui| self.line_history_ui(ui));
-                None
-            }
-            document::View::Conflicts => {
-                egui::CentralPanel::default().show_inside(ui, |ui| self.conflicts_ui(ui));
                 None
             }
             document::View::Tour => {
@@ -445,76 +442,6 @@ impl App {
             self.active = src_idx;
         } else {
             self.active = self.docs.len() - 1;
-        }
-    }
-
-    /// Bar above a file with merge conflicts: navigation and "keep mine / theirs / both".
-    pub(super) fn conflict_bar(&mut self, ui: &mut egui::Ui, i: usize, pane: u8) {
-        let path = self.docs.get(i).and_then(|d| d.path.clone());
-        let in_repo = path.as_deref().and_then(|p| self.repo_for(p)).is_some();
-        let Some(d) = self.docs.get_mut(i) else { return };
-        let conflicts = d.conflicts();
-        if conflicts.is_empty() && !d.had_conflicts {
-            return;
-        }
-        let line = d.rope.char_to_line(d.primary_sel().head);
-        let k = conflicts.iter().position(|c| line <= c.end).unwrap_or(0);
-        let (mut act, mut goto, mut resolved) = (None, None, false);
-        let bg = icons::mix(ui.visuals().panel_fill, if conflicts.is_empty() { ok() } else { warn() }, 0.15);
-        egui::TopBottomPanel::top(egui::Id::new("conflicts").with(pane))
-            .frame(egui::Frame::none().fill(bg).inner_margin(egui::Margin::symmetric(10.0, 4.0)))
-            .show_inside(ui, |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    if conflicts.is_empty() {
-                        ui.label(RichText::new(t!("✔ Tous les conflits de ce fichier sont résolus", "✔ All the conflicts of this file are resolved")).color(ok()).strong());
-                        if in_repo && ui.button(t!("Enregistrer et marquer comme résolu (git add)", "Save and mark as resolved (git add)")).clicked() {
-                            resolved = true;
-                        }
-                        return;
-                    }
-                    let c = &conflicts[k];
-                    ui.label(RichText::new(tf!("⚠ Conflit de merge {}/{}", "⚠ Merge conflict {}/{}", k + 1, conflicts.len())).color(warn()).strong());
-                    if ui.small_button("◀").on_hover_text(t!("Conflit précédent", "Previous conflict")).clicked() {
-                        goto = Some(conflicts[(k + conflicts.len() - 1) % conflicts.len()].start);
-                    }
-                    if ui.small_button("▶").on_hover_text(t!("Conflit suivant", "Next conflict")).clicked() {
-                        goto = Some(conflicts[(k + 1) % conflicts.len()].start);
-                    }
-                    ui.add_space(8.0);
-                    let mine = if c.ours.is_empty() { t!("Garder le mien", "Keep mine").to_string() } else { tf!("Garder le mien ({})", "Keep mine ({})", c.ours) };
-                    let theirs = if c.theirs.is_empty() { t!("Garder le leur", "Keep theirs").to_string() } else { tf!("Garder le leur ({})", "Keep theirs ({})", c.theirs) };
-                    if ui.button(RichText::new(mine).color(highlight::green())).on_hover_text(t!("Ta version (en vert)", "Your version (in green)")).clicked() {
-                        act = Some((c.clone(), document::Resolution::Ours));
-                    }
-                    if ui.button(RichText::new(theirs).color(highlight::blue())).on_hover_text(t!("La version qui arrive (en bleu)", "The incoming version (in blue)")).clicked() {
-                        act = Some((c.clone(), document::Resolution::Theirs));
-                    }
-                    if ui.button(t!("Garder les deux", "Keep both")).on_hover_text(t!("La tienne puis l'autre", "Yours then the other")).clicked() {
-                        act = Some((c.clone(), document::Resolution::Both));
-                    }
-                    ui.label(RichText::new(t!("(Ctrl+Z pour revenir)", "(Ctrl+Z to go back)")).weak().small());
-                });
-            });
-        let d = &mut self.docs[i];
-        if let Some((c, how)) = act {
-            d.resolve_conflict(&c, how);
-            self.active = i;
-            self.pending_focus = true;
-        }
-        if let Some(l) = goto {
-            d.goto_line(l, 0);
-            self.active = i;
-        }
-        if resolved {
-            d.had_conflicts = false;
-            if self.save(i) {
-                if let Some(p) = self.docs[i].path.clone() {
-                    if let Some(repo) = self.repo_for(&p) {
-                        let rel = p.strip_prefix(&repo).unwrap_or(&p).to_string_lossy().into_owned();
-                        self.git_job_at(repo, "add", &["add", "--", &rel]);
-                    }
-                }
-            }
         }
     }
 

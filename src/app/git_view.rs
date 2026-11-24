@@ -2,6 +2,7 @@
 
 use super::*;
 use history::DiffAct;
+use crate::conflict;
 
 impl App {
     pub(super) fn load_history(&mut self) {
@@ -516,6 +517,9 @@ impl App {
             .and_then(|st| st.operation.map(|o| (o, st.entries.iter().filter(|e| e.conflicted()).count())));
         let mut op_cmd: Option<Vec<String>> = None;
         let mut open_conflicts = false;
+        // the files a side removed (the other one changed): no block to choose, kept or removed here
+        let removed: Vec<(String, conflict::Kind)> = if op_banner.is_some() { self.conflict_files().into_iter().filter(|(_, k)| *k != conflict::Kind::Both).collect() } else { Vec::new() };
+        let mut removed_op: Option<Vec<String>> = None;
         let (mut menu_act, mut clear_notice, mut abort_rebase) = (None, false, false);
         let (mut wip_pick, mut wip_ops): (Option<bool>, Vec<Vec<String>>) = (None, Vec::new());
         // a file staged / unstaged from its row, and a file clicked (its diff shown)
@@ -588,13 +592,39 @@ impl App {
                         a.extend(op.continue_args().iter().map(|s| s.to_string()));
                         op_cmd = Some(a);
                     }
+                    if matches!(op, git::Operation::Rebase | git::Operation::CherryPick | git::Operation::Revert)
+                        && ui.button(t!("Passer ce commit", "Skip this commit")).on_hover_text(t!("Laisse tomber ce commit et passe au suivant", "Leaves this commit out and goes to the next one")).clicked()
+                    {
+                        let verb = match op {
+                            git::Operation::Rebase => "rebase",
+                            git::Operation::Revert => "revert",
+                            _ => "cherry-pick",
+                        };
+                        op_cmd = Some(vec![verb.to_string(), "--skip".to_string()]);
+                    }
                     if ui.button(t!("Abandonner", "Abort")).on_hover_text(t!("Remet la branche comme avant l'opération", "Puts the branch back as before the operation")).clicked() {
                         op_cmd = Some(op.abort_args().iter().map(|s| s.to_string()).collect());
                     }
-                    if n > 0 && ui.add(filled_button(t!("⇄ Assistant de conflits", "⇄ Conflicts assistant"), accent)).on_hover_text(t!("Les fichiers en conflit et leurs blocs côte à côte, avec le vrai nom de chaque côté ; résoudre bloc par bloc ou avec Claude", "The conflicting files and their blocks side by side, with the real name of each side; resolve block by block or with Claude")).clicked() {
+                    if n > removed.len() && ui.add(filled_button(t!("⇄ Aller au premier conflit", "⇄ Go to the first conflict"), accent)).on_hover_text(t!("Ouvre le premier fichier en conflit : chaque bloc se résout dans l'éditeur", "Opens the first conflicting file: each block is resolved in the editor")).clicked() {
                         open_conflicts = true;
                     }
                 });
+                for (path, kind) in &removed {
+                    ui.horizontal_wrapped(|ui| {
+                        let why = match kind {
+                            conflict::Kind::DeletedFirst | conflict::Kind::DeletedSecond => t!("supprimé d'un côté, changé de l'autre", "removed on one side, changed on the other"),
+                            _ => t!("ajouté ou supprimé d'un seul côté", "added or removed on one side only"),
+                        };
+                        ui.label(RichText::new(path.as_str()).monospace());
+                        ui.label(RichText::new(why).weak().small());
+                        if ui.small_button(t!("Garder", "Keep")).on_hover_text(t!("git add : le fichier reste, tel qu'il est sur le disque", "git add: the file stays, as it is on the disk")).clicked() {
+                            removed_op = Some(vec!["add".into(), "--".into(), path.clone()]);
+                        }
+                        if ui.small_button(t!("Supprimer", "Remove")).on_hover_text("git rm").clicked() {
+                            removed_op = Some(vec!["rm".into(), "--".into(), path.clone()]);
+                        }
+                    });
+                }
             } else if h.graph.as_ref().is_some_and(|g| g.rebasing) {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(t!("⚠ Un rebase est en cours dans ce dépôt", "⚠ A rebase is in progress in this repository")).color(warn()));
@@ -1250,8 +1280,12 @@ impl App {
                 _ => {}
             }
         }
-        if open_conflicts {
-            self.show_tab(document::View::Conflicts);
+        if let (true, Some(repo)) = (open_conflicts, self.history.repo.clone()) {
+            self.open_next_conflict(&repo, None);
+        }
+        if let (Some(args), Some(repo)) = (removed_op, self.history.repo.clone()) {
+            let a: Vec<&str> = args.iter().map(String::as_str).collect();
+            self.git_job_at(repo, a[0], &a);
         }
         if let Some(args) = op_cmd {
             if let Some(repo) = self.history.repo.clone() {

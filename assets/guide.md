@@ -249,23 +249,24 @@ explique comment l'installer (le système est détecté) et reprend toute seule 
 
 ### Résoudre des conflits (rebase, merge, cherry-pick)
 
-Quand un rebase, une fusion, un cherry-pick ou un revert s'arrête sur des conflits, l'onglet
-**⇄ Conflits** s'ouvre (ou **⇄ Assistant de conflits** dans le bandeau de la vue Git).
+Comme dans VS Code, les conflits se résolvent **dans le fichier**. Quand un rebase, une fusion, un
+cherry-pick ou un revert s'arrête sur des conflits, le premier fichier en conflit s'ouvre sur son
+premier bloc (aussi avec **⇄ Aller au premier conflit** dans le bandeau de la vue Git).
 
-- En haut : ce qui se passe (« Rebase de feature sur master — commit 3 sur 7 »), le commit
-  appliqué, et **le vrai nom de chaque côté**. Dans un rebase, le côté 1 est la base sur
-  laquelle tes commits sont rejoués (ce que git appelle « ours »), le côté 2 ton commit.
-- À gauche, les fichiers en conflit : nombre de blocs restants, ou « prêt à marquer ».
-- À droite, chaque bloc avec ses deux côtés l'un à côté de l'autre, et la version d'origine
-  (d'avant les deux) dépliable : **Garder le côté 1**, **Garder le côté 2**, **Garder les deux**,
-  ou **Éditer à la main…**. **Tout du côté 1 / 2** prend tout le fichier d'un côté. Un fichier
-  supprimé d'un côté se garde ou se supprime.
-- **✔ Marquer résolu** (git add) quand il n'y a plus de marqueurs.
-- **✳ Résoudre avec Claude** : une conversation reçoit les fichiers, les deux côtés et ce que
-  le commit y change ; Claude combine les deux et retire les marqueurs, sans toucher à git. Tu
-  relis dans sa revue, puis tu marques résolu.
-- **Continuer le rebase ▶** passe au commit suivant (l'assistant revient s'il y a d'autres
-  conflits), **Passer ce commit** ou **Abandonner**.
+- Chaque bloc a un côté **vert** et un côté **bleu**. Après sa ligne `<<<<<<<`, des liens :
+  **Garder le vert · Garder le bleu · Garder les deux · Comparer** (les deux côtés en diff, dans
+  un onglet). Ctrl+Z revient en arrière.
+- **La barre au-dessus du fichier** dit ce qui se passe (« Rebase de feature sur master — commit 3
+  sur 7 ») et **le vrai nom de chaque couleur** : dans un rebase, le vert est la base sur laquelle
+  tes commits sont rejoués, le bleu ton commit. ◀ ▶ passent d'un bloc à l'autre ; les mêmes choix
+  s'y trouvent pour le bloc sous le curseur, avec **✳ Résoudre avec Claude** (Claude reçoit le
+  fichier, les deux côtés et ce que le commit y change, et retire les marqueurs sans toucher à git)
+  et **Abandonner**.
+- Quand le fichier n'a plus de marqueur : **✔ Marquer résolu, fichier suivant ›** (enregistre, git
+  add, ouvre le fichier en conflit suivant), ou pour le dernier **✔ Marquer résolu et continuer le
+  rebase ▶**. Si le commit suivant a des conflits, son premier fichier s'ouvre à son tour.
+- Un fichier supprimé d'un côté et changé de l'autre se **garde** ou se **supprime** dans le
+  bandeau de la vue Git, qui a aussi **Continuer**, **Passer ce commit** et **Abandonner**.
 
 Les opérations lancées depuis Florm mettent la version d'origine entre les deux côtés
 (`merge.conflictStyle=diff3`).
@@ -547,7 +548,7 @@ ses nouveautés marchent tels quels. Les changements de Claude se revoient dans 
   non commités, les problèmes du fichier, une image ou un PDF, **Un commit** (aussi : clic droit
   sur un commit dans la vue Git → **Donner ce commit à Claude**). **Reprendre la conversation de ce
   fichier** (palette) rouvre la dernière conversation à qui ce fichier a été donné.
-- **✳ Envoyer à Claude** depuis une pull request (ses commentaires) ou l'assistant des conflits :
+- **✳ Envoyer à Claude** depuis une pull request (ses commentaires) ou la barre d'un fichier en conflit :
   une conversation dans le dépôt, qui démarre avec la demande.
 - **Capture de Florm** : **Ctrl+Alt+I**, depuis n'importe quelle vue (une pull request, un
   fichier, les préférences…), prend une image de la fenêtre de Florm telle qu'elle est et écrit son

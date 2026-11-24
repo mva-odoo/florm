@@ -18,7 +18,7 @@ impl App {
         self.compare_labeled(a, b, la, lb);
     }
 
-    fn compare_labeled(&mut self, a: PathBuf, b: PathBuf, la: String, lb: String) {
+    pub(super) fn compare_labeled(&mut self, a: PathBuf, b: PathBuf, la: String, lb: String) {
         let title = format!("⇄ {} ↔ {}", short(&la), short(&lb));
         self.set_status(tf!("Comparaison de {la} et {lb}…", "Comparing {la} and {lb}…"));
         self.jobs.spawn(move || JobResult::Compare(title, local_history::diff(&a, &b, &la, &lb)));

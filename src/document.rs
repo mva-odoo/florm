@@ -151,6 +151,9 @@ pub struct Document {
     pub test_pick: Option<String>,
     /// The ▶ was right clicked: the test is to be debugged.
     pub test_debug: bool,
+    /// A link above a conflict block was clicked: (its first line, the side kept; `None`:
+    /// compare the two sides).
+    pub conflict_pick: Option<(usize, Option<Resolution>)>,
     /// Line whose breakpoint was clicked in the gutter (added or removed by the app).
     pub bp_pick: Option<usize>,
     /// The value of the hovered expression while the debugger is paused (its range, the text).
@@ -250,8 +253,6 @@ pub enum View {
     Settings,
     /// The history of lines, of a file, a search in the commits or the reflog.
     History,
-    /// The assistant of a merge, rebase or cherry-pick stopped on conflicts.
-    Conflicts,
     /// The guided tour of changes, idea by idea (🗺).
     Tour,
 }
@@ -607,6 +608,7 @@ impl Document {
             claude_pick: None,
             test_pick: None,
             test_debug: false,
+            conflict_pick: None,
             bp_pick: None,
             debug_value: None,
             hover_info: None,

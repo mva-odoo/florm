@@ -245,23 +245,23 @@ explains how to install it (the system is detected) and comes back by itself as 
 
 ### Resolve conflicts (rebase, merge, cherry-pick)
 
-When a rebase, a merge, a cherry-pick or a revert stops on conflicts, the **⇄ Conflicts** tab
-opens (or **⇄ Conflicts assistant** in the banner of the Git view).
+As in VS Code, conflicts are resolved **in the file**. When a rebase, a merge, a cherry-pick or a
+revert stops on conflicts, the first conflicting file opens on its first block (also with **⇄ Go
+to the first conflict** in the banner of the Git view).
 
-- At the top: what is going on (“Rebase of feature onto master — commit 3 of 7”), the commit
-  being applied, and **the real name of each side**. In a rebase, side 1 is the base your
-  commits are replayed onto (what git calls “ours”), side 2 your commit.
-- On the left, the conflicting files: blocks left, or “ready to mark”.
-- On the right, each block with its two sides next to each other, and the original version
-  (from before both) to unfold: **Keep side 1**, **Keep side 2**, **Keep both**, or **Edit by
-  hand…**. **All from side 1 / 2** takes the whole file from one side. A file removed on one
-  side is kept or removed.
-- **✔ Mark resolved** (git add) once no marker is left.
-- **✳ Resolve with Claude**: a conversation gets the files, both sides and what the commit
-  changes in them; Claude combines them and removes the markers, without touching git. You
-  check in its review, then mark resolved.
-- **Continue the rebase ▶** goes to the next commit (the assistant comes back if there are
-  other conflicts), **Skip this commit** or **Abort**.
+- Each block has a **green** side and a **blue** side. After its `<<<<<<<` line, links: **Keep the
+  green · Keep the blue · Keep both · Compare** (the two sides as a diff, in a tab). Ctrl+Z goes
+  back.
+- **The bar above the file** says what is going on (“Rebase of feature onto master — commit 3 of
+  7”) and **the real name of each color**: in a rebase, green is the base your commits are
+  replayed onto, blue your commit. ◀ ▶ go from block to block; the same choices are there for the
+  block under the cursor, with **✳ Resolve with Claude** (Claude gets the file, both sides and
+  what the commit changes in it, and removes the markers without touching git) and **Abort**.
+- Once the file has no marker left: **✔ Mark resolved, next file ›** (saves, git add, opens the
+  next conflicting file), or for the last one **✔ Mark resolved and continue the rebase ▶**. If
+  the next commit has conflicts, its first file opens in turn.
+- A file removed on one side and changed on the other is **kept** or **removed** in the banner of
+  the Git view, which also has **Continue**, **Skip this commit** and **Abort**.
 
 The operations started from Florm put the original version between the two sides
 (`merge.conflictStyle=diff3`).
@@ -537,7 +537,7 @@ new in it work as they are. Claude's changes are reviewed in the **Git** view.
   **A commit** (also: right click on a commit in the Git view → **Give this commit to Claude**).
   **Resume the conversation about this file** (palette) reopens the last conversation this file
   was given to.
-- **✳ Send to Claude** from a pull request (its comments) or the conflicts assistant: a
+- **✳ Send to Claude** from a pull request (its comments) or the bar of a conflicting file: a
   conversation in the repository, which starts with the request.
 - **Picture of Florm**: **Ctrl+Alt+I**, from any view (a pull request, a file, the
   preferences…), takes a picture of Florm's window as it is and writes its path in Claude's field:

@@ -2,7 +2,7 @@
 //! per frame does not depend on the file size.
 
 use crate::diff::RowMap;
-use crate::document::{Document, Drag, GitMark, Sel};
+use crate::document::{Document, Drag, GitMark, Resolution, Sel};
 use crate::highlight::{self, Highlighting};
 use crate::icons::mix;
 use crate::lint::Severity;
@@ -599,8 +599,7 @@ fn text_area(
                 let bg = mix(c.bg, col, if marker { 0.32 } else { 0.12 });
                 painter.rect_filled(Rect::from_min_size(Pos2::new(gx, line_y(l)), egui::vec2(vp.width(), line_h(l))), 0.0, bg);
             }
-            conflict_labels.push((cf.start, t!("  ← ta version (actuelle)", "  ← your version (current)")));
-            conflict_labels.push((cf.end, t!("  ← version entrante", "  ← incoming version")));
+            conflict_labels.push(cf.start);
         }
 
         // Diff views: full-line backgrounds for +/- lines.
@@ -781,9 +780,35 @@ fn text_area(
             }
         }
 
-        for &(l, label) in conflict_labels.iter().filter(|(l, _)| (first..=last).contains(l) && !rm.is_hidden(*l)) {
+        // after the <<<<<<< of each block, as in VS Code: keep the green side, the blue one, both,
+        // or compare them (the side names are in the bar above the file)
+        for &l in conflict_labels.iter().filter(|l| (first..=last).contains(*l) && !rm.is_hidden(**l)) {
             let end = at(l, doc.vcol(l, doc.line_len(l)));
-            painter.text(Pos2::new(end.x + cw, end.y + rh / 2.0), Align2::LEFT_CENTER, label, FontId::proportional(font.size * 0.85), c.gutter_fg);
+            let small = FontId::proportional(font.size * 0.85);
+            let mut x = end.x + cw * 2.0;
+            let y = end.y + rh / 2.0;
+            let links = [
+                (t!("Garder le vert", "Keep the green"), Some(Resolution::Ours), highlight::green()),
+                (t!("Garder le bleu", "Keep the blue"), Some(Resolution::Theirs), highlight::blue()),
+                (t!("Garder les deux", "Keep both"), Some(Resolution::Both), c.fg),
+                (t!("Comparer", "Compare"), None, c.fg),
+            ];
+            for (k, (label, how, col)) in links.into_iter().enumerate() {
+                if k > 0 {
+                    let r = painter.text(Pos2::new(x, y), Align2::LEFT_CENTER, "·", small.clone(), c.gutter_fg);
+                    x = r.right() + cw * 0.6;
+                }
+                let r = painter.text(Pos2::new(x, y), Align2::LEFT_CENTER, label, small.clone(), mix(c.bg, col, 0.85));
+                let hit = r.expand2(egui::vec2(3.0, 2.0));
+                if resp.hover_pos().is_some_and(|p| hit.contains(p)) {
+                    ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+                    painter.line_segment([r.left_bottom(), r.right_bottom()], Stroke::new(1.0_f32, mix(c.bg, col, 0.85)));
+                    if resp.clicked() {
+                        doc.conflict_pick = Some((l, how));
+                    }
+                }
+                x = r.right() + cw * 0.6;
+            }
         }
 
         // spaces and tabs shown: a dot in the middle of a space, an arrow over a tab

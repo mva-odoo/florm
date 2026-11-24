@@ -1062,7 +1062,7 @@ pub struct App {
     /// Python linter actually used for the last lint ("flake8", "ruff"… or "syntaxe").
     python_linter: Option<String>,
     prefs: PrefsUi,
-    /// The conflicts assistant.
+    /// The conflicts: the operation stopped, the stops already shown.
     conflicts: conflicts::ConflictsUi,
     /// Templates (snippets) offered by "insérer un modèle", loaded when the list opens.
     templates: Vec<crate::templates::Template>,
@@ -1744,7 +1744,7 @@ fn doc_tab(d: &Document) -> (TabIcon<'_>, String) {
         View::Welcome => Some(ViewIcon::Welcome),
         View::PullRequests => Some(ViewIcon::PullRequests),
         View::Debug => Some(ViewIcon::Debug),
-        View::Git | View::History | View::Conflicts => Some(ViewIcon::Git),
+        View::Git | View::History => Some(ViewIcon::Git),
         View::Settings => Some(ViewIcon::Settings),
         View::Claude | View::Tour => Some(ViewIcon::Claude),
         View::Text | View::Image | View::Preview(_) => None,
@@ -2452,10 +2452,11 @@ mod font_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// A rebase stopped on a conflict: the assistant shows it, a block is resolved from a side,
-    /// the file marked, the rebase goes on to its end. `FLORM_TEST_APP=1`.
+    /// A rebase stopped on a conflict: its file opens by itself (once), the bar above it reads
+    /// the rebase, a link of the block keeps a side, the rebase goes on to its end.
+    /// `FLORM_TEST_APP=1`.
     #[test]
-    fn conflicts_assistant() {
+    fn conflicts_in_the_editor() {
         if std::env::var_os("FLORM_TEST_APP").is_none() {
             return;
         }
@@ -2486,22 +2487,31 @@ mod font_tests {
         let ctx = egui::Context::default();
         let mut app = App::with_ctx(&ctx, Some(proj.clone()));
         app.repo = Some(proj.clone());
-        app.git.status = git::status(&proj).ok();
-        app.show_tab(document::View::Conflicts);
+        app.repos = vec![proj.clone()];
+        let st = git::status(&proj).unwrap();
+        app.conflicts_found(&proj, &st);
+        app.git.status = Some(st.clone());
+        let repo = app.conflicts.open_pending.take().expect("the first file opens");
+        assert!(app.open_next_conflict(&repo, None));
+        let i = app.active;
+        assert_eq!(app.docs[i].path.as_deref(), Some(proj.join("f.py").as_path()));
+        // the same stop seen again (a refresh): nothing opens a second time
+        app.conflicts_found(&proj, &st);
+        assert!(app.conflicts.open_pending.is_none());
         let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 800.0))), ..Default::default() };
         for _ in 0..3 {
             let _ = ctx.run(input.clone(), |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| app.conflicts_ui(ui));
+                egui::CentralPanel::default().show(ctx, |ui| app.pane_ui(ui, 0));
             });
         }
-        let info = app.conflicts.info.clone().expect("the rebase is read").1;
+        let info = app.conflicts.info.clone().expect("the rebase is read").2;
         assert_eq!((info.branch.as_str(), info.onto.as_str(), info.step), ("feature", "master", Some((1, 1))));
-        // your commit's side (2) kept
-        let blocks = app.conflict_blocks(&proj, "f.py");
-        assert_eq!(blocks.len(), 1);
-        app.conflict_resolve(&proj, "f.py", &blocks[0], document::Resolution::Theirs);
-        assert_eq!(std::fs::read_to_string(proj.join("f.py")).unwrap(), "a = 2\nb = 1\n");
-        assert!(app.conflict_blocks(&proj, "f.py").is_empty());
+        // « Garder le bleu » (your commit, in a rebase) after the <<<<<<<
+        let start = app.docs[i].conflicts()[0].start;
+        app.docs[i].conflict_pick = Some((start, Some(document::Resolution::Theirs)));
+        app.conflict_picked(i);
+        assert_eq!(app.docs[i].rope.to_string(), "a = 2\nb = 1\n");
+        assert!(app.save(i));
         g(&["add", "f.py"]).unwrap();
         g(&["-c", "core.editor=true", "rebase", "--continue"]).unwrap();
         assert_eq!(git::operation(&proj), None);

@@ -284,7 +284,7 @@ impl App {
             View::Welcome => "welcome".into(),
             View::Git => "git".into(),
             View::Settings => "settings".into(),
-            View::History | View::Conflicts | View::Tour => return None,
+            View::History | View::Tour => return None,
             View::Text | View::Image | View::Preview(_) | View::Terminal(_) => return None,
         })
     }

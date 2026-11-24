@@ -298,6 +298,10 @@ impl App {
 
     pub(super) fn periodic(&mut self, ctx: &egui::Context) {
         self.tests_check();
+        // git found stopped on new conflicts: their first file
+        if let Some(repo) = self.conflicts.open_pending.take() {
+            self.open_next_conflict(&repo, None);
+        }
         // with hot exit, unsaved changes are kept in the session: no question
         let keeps = self.settings.hot_exit;
         let working = self.claude_working();

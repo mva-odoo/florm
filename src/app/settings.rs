@@ -52,7 +52,7 @@ impl App {
         crate::claude_account::set_default(super::claude_ui::default_account_dir(s));
         let off = |v: &document::View| match v {
             document::View::PullRequests => !features::on(Feature::GitHub),
-            document::View::Git | document::View::History | document::View::Conflicts => !features::on(Feature::Git),
+            document::View::Git | document::View::History => !features::on(Feature::Git),
             document::View::Debug => !features::on(Feature::Debugger),
             document::View::Claude | document::View::Tour => !features::on(Feature::Claude),
             _ => false,

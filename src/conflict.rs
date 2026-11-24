@@ -1,8 +1,7 @@
 //! The merge, rebase or cherry-pick stopped on conflicts: what is going on (step, commit being
-//! applied, the two sides by their real names), the files in conflict and their blocks, for the
-//! conflicts assistant.
+//! applied, the two sides by their real names), the files in conflict and their blocks.
 
-use crate::document::{find_conflicts, Conflict, Resolution};
+use crate::document::{find_conflicts, Conflict};
 use crate::git::{self, Operation};
 use std::path::Path;
 
@@ -129,20 +128,6 @@ pub fn blocks(text: &str) -> Vec<Block> {
         .collect()
 }
 
-/// `text` with block `c` replaced by the side(s) chosen; `Both` puts the first one then the
-/// second.
-pub fn resolve(text: &str, c: &Conflict, how: Resolution) -> String {
-    let lines: Vec<&str> = text.split_inclusive('\n').collect();
-    let part = |a: usize, b: usize| lines.get(a..b).map(|l| l.concat()).unwrap_or_default();
-    let (first, second) = (part(c.start + 1, c.base.unwrap_or(c.mid)), part(c.mid + 1, c.end));
-    let new = match how {
-        Resolution::Ours => first,
-        Resolution::Theirs => second,
-        Resolution::Both => first + &second,
-    };
-    part(0, c.start) + &new + &part(c.end + 1, lines.len())
-}
-
 /// Arguments of git that put the conflict markers with the common ancestor between the sides.
 pub const STYLE: [&str; 2] = ["-c", "merge.conflictStyle=diff3"];
 
@@ -162,12 +147,6 @@ mod tests {
         let b = blocks(TEXT);
         assert_eq!(b.len(), 1);
         assert_eq!((b[0].first.as_str(), b[0].base.as_deref(), b[0].second.as_str()), ("mine\n", Some("old\n"), "theirs\n"));
-        assert_eq!(resolve(TEXT, &b[0].at, Resolution::Ours), "a\nmine\nz\n");
-        assert_eq!(resolve(TEXT, &b[0].at, Resolution::Theirs), "a\ntheirs\nz\n");
-        assert_eq!(resolve(TEXT, &b[0].at, Resolution::Both), "a\nmine\ntheirs\nz\n");
-        // without a newline at the end
-        let t = "<<<<<<< HEAD\nx\n=======\ny\n>>>>>>> b";
-        assert_eq!(resolve(t, &blocks(t)[0].at, Resolution::Theirs), "y\n");
     }
 
     #[test]
