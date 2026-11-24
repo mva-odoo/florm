@@ -465,6 +465,114 @@ fn pair_of(c: char) -> Option<char> {
     }
 }
 
+/// HTML elements that never have a closing tag.
+const VOID_HTML: &[&str] =
+    &["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"];
+
+fn is_tag_char(c: char) -> bool {
+    c.is_alphanumeric() || matches!(c, '_' | ':' | '.' | '-')
+}
+
+/// Name of the tag at the start of `s` (after its '<'), if it is one.
+fn tag_name(s: &str) -> Option<&str> {
+    let first = s.chars().next()?;
+    if !(first.is_alphabetic() || first == '_') {
+        return None;
+    }
+    let end = s.find(|c: char| !is_tag_char(c)).unwrap_or(s.len());
+    Some(&s[..end])
+}
+
+/// End (byte index after '>') of the tag starting at `s[0] == '<'`, quotes respected,
+/// and whether it ends with "/>". None: the tag is not finished.
+fn tag_end(s: &str) -> Option<(usize, bool)> {
+    let mut quote = None;
+    let mut prev = '<';
+    for (i, c) in s.char_indices().skip(1) {
+        match quote {
+            Some(q) if c == q => quote = None,
+            Some(_) => {}
+            None if c == '"' || c == '\'' => quote = Some(c),
+            None if c == '>' => return Some((i + 1, prev == '/')),
+            None => {}
+        }
+        prev = c;
+    }
+    None
+}
+
+/// The opening tag `text` ends inside (`<field name="x"`), if any: its name.
+fn open_tag_before(text: &str) -> Option<&str> {
+    // a few candidates: a '<' may sit inside an attribute value
+    for (i, _) in text.rmatch_indices('<').take(20) {
+        let rest = &text[i..];
+        let Some(name) = tag_name(&rest[1..]) else { continue };
+        if tag_end(rest).is_some() {
+            return None;
+        }
+        // a quote left open: this '<' is in an attribute value (or the cursor is)
+        let mut quote = None;
+        for c in rest.chars() {
+            match quote {
+                Some(q) if c == q => quote = None,
+                Some(_) => {}
+                None if c == '"' || c == '\'' => quote = Some(c),
+                None => {}
+            }
+        }
+        if quote.is_some() {
+            continue;
+        }
+        // `<br/` then '>': self-closing
+        return (!rest.ends_with('/')).then_some(name);
+    }
+    None
+}
+
+/// The innermost element still open at the end of `text`.
+fn unclosed_tag(text: &str, html: bool) -> Option<String> {
+    let mut stack: Vec<&str> = Vec::new();
+    let mut i = 0;
+    while let Some(off) = text[i..].find('<') {
+        let at = i + off;
+        let rest = &text[at..];
+        let skip_to = |end: &str| rest.find(end).map(|e| at + e + end.len());
+        let next = if rest.starts_with("<!--") {
+            skip_to("-->")
+        } else if rest.starts_with("<![CDATA[") {
+            skip_to("]]>")
+        } else if rest.starts_with("<?") {
+            skip_to("?>")
+        } else if rest.starts_with("<!") {
+            skip_to(">")
+        } else if let Some(close) = rest.strip_prefix("</") {
+            if let Some(name) = tag_name(close) {
+                if let Some(k) = stack.iter().rposition(|n| *n == name) {
+                    stack.truncate(k);
+                }
+            }
+            skip_to(">")
+        } else if let Some(name) = tag_name(&rest[1..]) {
+            match tag_end(rest) {
+                Some((e, self_closing)) => {
+                    if !self_closing && !(html && VOID_HTML.contains(&name.to_ascii_lowercase().as_str())) {
+                        stack.push(name);
+                    }
+                    Some(at + e)
+                }
+                None => None,
+            }
+        } else {
+            Some(at + 1)
+        };
+        match next {
+            Some(n) => i = n,
+            None => break,
+        }
+    }
+    stack.last().map(|s| s.to_string())
+}
+
 fn map_pos(pos: usize, spans: &[(usize, usize, usize)]) -> usize {
     let mut d: isize = 0;
     for &(s, e, n) in spans {
@@ -1413,6 +1521,9 @@ impl Document {
             .iter()
             .map(|s| {
                 if let (Some(c), true) = (single, auto_pair) {
+                    if let Some(e) = self.close_tag_edit(c, s) {
+                        return e;
+                    }
                     let next = self.char_at(s.head);
                     let prev = if s.start() > 0 { self.char_at(s.start() - 1) } else { None };
                     if s.is_empty() && matches!(c, ')' | ']' | '}' | '"' | '\'' | '`') && next == Some(c) {
@@ -1442,6 +1553,37 @@ impl Document {
             })
             .collect();
         self.edit(EditKind::Insert, items);
+    }
+
+    /// XML / HTML: `>` ending an opening tag adds its closing tag after the cursor, `</` completes
+    /// the closing tag of the innermost open element.
+    fn close_tag_edit(&self, c: char, s: &Sel) -> Option<Edit> {
+        let html = self.syntax.starts_with("HTML");
+        if !s.is_empty() || !(html || self.syntax == "XML") {
+            return None;
+        }
+        let h = s.head;
+        match c {
+            '>' => {
+                let before = self.slice(h.saturating_sub(4000), h);
+                let name = open_tag_before(&before)?;
+                if html && VOID_HTML.contains(&name.to_ascii_lowercase().as_str()) {
+                    return None;
+                }
+                let close = format!("</{name}>");
+                let n = close.chars().count();
+                if self.slice(h, (h + n).min(self.len())) == close {
+                    return None;
+                }
+                Some(Edit { start: h, end: h, text: format!(">{close}"), anchor: 1, head: 1 })
+            }
+            '/' if h > 0 && self.char_at(h - 1) == Some('<') => {
+                let before = self.slice(h.saturating_sub(200_000), h - 1);
+                let name = unclosed_tag(&before, html)?;
+                Some(Edit::insert(h, h, format!("/{name}>")))
+            }
+            _ => None,
+        }
     }
 
     fn newline(&mut self) {
@@ -2996,6 +3138,69 @@ mod tests {
     }
 
     #[test]
+    fn delete_to_line_start() {
+        let mut d = doc("ab\ncd ef");
+        cursors(&mut d, &[6]);
+        d.exec(Cmd::DeleteToLineStart, true);
+        assert_eq!(d.rope.to_string(), "ab\nef");
+        d.exec(Cmd::DeleteToLineStart, true);
+        assert_eq!(d.rope.to_string(), "abef");
+    }
+
+    #[test]
+    fn xml_tags_close_themselves() {
+        let typed = |syntax: &str, text: &str, keys: &str| {
+            let mut d = doc(text);
+            d.syntax = syntax.into();
+            cursors(&mut d, &[text.chars().count()]);
+            for k in keys.chars() {
+                d.insert_text(&k.to_string(), true);
+            }
+            let mut s = d.rope.to_string();
+            s.insert(s.char_indices().nth(d.sels[0].head).map_or(s.len(), |(i, _)| i), '|');
+            s
+        };
+        assert_eq!(typed("XML", "<field name=\"x\"", ">"), "<field name=\"x\">|</field>");
+        assert_eq!(typed("XML", "<t t-if=\"a > b\"", ">"), "<t t-if=\"a > b\">|</t>");
+        assert_eq!(typed("XML", "<t t-if=\"a <b\"", ">"), "<t t-if=\"a <b\">|</t>");
+        // not a tag to close
+        assert_eq!(typed("XML", "<field name=\"x\"/", ">"), "<field name=\"x\"/>|");
+        assert_eq!(typed("XML", "<?xml version=\"1.0\"?", ">"), "<?xml version=\"1.0\"?>|");
+        assert_eq!(typed("XML", "<!-- a --", ">"), "<!-- a -->|");
+        assert_eq!(typed("XML", "<!DOCTYPE html", ">"), "<!DOCTYPE html>|");
+        assert_eq!(typed("XML", "a ", ">"), "a >|");
+        assert_eq!(typed("XML", "<a href=\"x", ">"), "<a href=\"x>|");
+        assert_eq!(typed("HTML", "<br", ">"), "<br>|");
+        assert_eq!(typed("HTML", "<div", ">"), "<div>|</div>");
+        assert_eq!(typed("Python", "<div", ">"), "<div>|");
+        // </ completes the innermost open element
+        let view = "<?xml version=\"1.0\"?>\n<odoo>\n<record id=\"a\">\n<field name=\"x\"/>\n<!-- <b> -->\n<p><br></p>\n";
+        assert_eq!(typed("XML", view, "</"), format!("{view}</record>|"));
+        assert_eq!(typed("HTML", "<div><br>", "</"), "<div><br></div>|");
+        assert_eq!(typed("XML", "<a></a>", "</"), "<a></a></|");
+        // one step to undo
+        let mut d = doc("<a");
+        d.syntax = "XML".into();
+        cursors(&mut d, &[2]);
+        d.insert_text(">", true);
+        d.undo();
+        assert_eq!(d.rope.to_string(), "<a");
+        // with several cursors, and not without auto-pairs
+        let mut d = doc("<a\n<b");
+        d.syntax = "XML".into();
+        cursors(&mut d, &[2, 5]);
+        d.insert_text(">", true);
+        assert_eq!(d.rope.to_string(), "<a></a>\n<b></b>");
+        d.insert_text("x", true);
+        assert_eq!(d.rope.to_string(), "<a>x</a>\n<b>x</b>");
+        let mut d = doc("<a");
+        d.syntax = "XML".into();
+        cursors(&mut d, &[2]);
+        d.insert_text(">", false);
+        assert_eq!(d.rope.to_string(), "<a>");
+    }
+
+    #[test]
     fn select_next_occurrence() {
         let mut d = doc("foo bar foo baz foo");
         cursors(&mut d, &[1]);
@@ -3136,15 +3341,6 @@ mod tests {
         assert_eq!(d.matching_bracket(12), Some((11, 1)));
     }
 
-    #[test]
-    fn delete_to_line_start() {
-        let mut d = doc("ab\ncd ef");
-        cursors(&mut d, &[6]);
-        d.exec(Cmd::DeleteToLineStart, true);
-        assert_eq!(d.rope.to_string(), "ab\nef");
-        d.exec(Cmd::DeleteToLineStart, true);
-        assert_eq!(d.rope.to_string(), "abef");
-    }
     #[test]
     fn folding_follows_edits_and_moves() {
         let mut d = doc("class A:\n    def f(self):\n        x = 1\n        y = 2\n\n    def g(self):\n        pass\nz = 3\n");
