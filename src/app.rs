@@ -89,6 +89,25 @@ fn square_shapes(ctx: &egui::Context) {
     });
 }
 
+/// Where the opener of links leaves its refusal, for the status bar.
+const LINK_ERROR: &str = "florm_link_error";
+
+/// The links clicked anywhere (pull requests, READMEs, the terminal…) opened by Florm itself at
+/// the end of each pass, before eframe would give them to the system as they are: only http(s)
+/// addresses go to the browser (`os::open_url`).
+fn install_link_opener(ctx: &egui::Context) {
+    ctx.on_end_pass(
+        "florm_links",
+        std::sync::Arc::new(|ctx: &egui::Context| {
+            let Some(open) = ctx.output_mut(|o| o.open_url.take()) else { return };
+            if let Err(e) = crate::os::open_url(&open.url) {
+                ctx.data_mut(|d| d.insert_temp(egui::Id::new(LINK_ERROR), e));
+                ctx.request_repaint();
+            }
+        }),
+    );
+}
+
 /// The same colors whatever egui thinks the system theme is.
 fn apply_visuals(ctx: &egui::Context, v: egui::Visuals) {
     ctx.set_visuals_of(egui::Theme::Dark, v.clone());
@@ -1234,6 +1253,8 @@ impl App {
         apply_visuals(egui_ctx, hl.visuals());
         egui_ctx.set_fonts(crate::fonts::definitions(&settings.editor_font, &settings.ui_font, settings.ui_style == "square"));
         egui_extras::install_image_loaders(egui_ctx);
+        crate::images::install(egui_ctx);
+        install_link_opener(egui_ctx);
         let (keymap, _) = Keymap::new(&settings.keys);
         let mut app = App {
             hl,
@@ -1603,6 +1624,9 @@ impl eframe::App for App {
             apply_visuals(ctx, self.hl.visuals());
         }
         self.process_jobs();
+        if let Some(e) = ctx.data_mut(|d| d.remove_temp::<String>(egui::Id::new(LINK_ERROR))) {
+            self.set_error(e);
+        }
         // the update is installed and nothing is unsaved: Florm restarts by itself, without asking
         // (not while Claude works: it would be cut in the middle of its task)
         if self.upd.ready.is_some() && self.upd.restart.is_none() && !self.docs.iter().any(|d| d.is_dirty()) && self.claude_working() == 0 {

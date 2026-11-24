@@ -292,7 +292,9 @@ Les opérations lancées depuis Florm mettent la version d'origine entre les deu
 - **Glisser un fichier** sur un terminal écrit son chemin à l'invite (entre guillemets s'il le
   faut) : Claude lit le fichier, une image comprise.
 - Les liens qu'un programme place lui-même sur son texte (« PR #12 » qui mène à la page de la
-  PR…) s'ouvrent de la même façon.
+  PR…) s'ouvrent de la même façon. Seules les adresses `http` et `https` vont au navigateur ; une
+  adresse `file://` ouvre le fichier dans Florm, les autres (`javascript:`, `mailto:`…) ne sont pas
+  ouvertes : la barre d'état le dit.
 - **Ctrl+Maj+F** (⌘F sur Mac, ou clic droit → Rechercher…) cherche dans tout l'historique du
   terminal : **Entrée** remonte au résultat plus ancien, **Maj+Entrée** redescend, **Échap**
   ferme. Les majuscules ne comptent que si tu en tapes une.
@@ -632,6 +634,13 @@ Dans l'aperçu (et dans les réponses de Claude), les **diagrammes de séquence 
 notes, `loop` / `alt` / `opt`, `autonumber`. Les autres types de diagrammes restent affichés en code.
 Le **HTML** courant s'affiche aussi : `<br>`, `<b>`, `<i>`, `<kbd>`, `<img>`, `<a href>`,
 `<details>` / `<summary>`, `<h1>`…, `<p align>` ; les commentaires `<!-- -->` sont masqués.
+
+Les images de l'aperçu sont des adresses `http(s)` ou des fichiers du projet (un chemin relatif,
+20 Mo au plus) ; un lien symbolique, un fichier hors du projet ou un chemin absolu n'est pas lu,
+son texte s'affiche à la place. Dans une pull request ou un commentaire, seules les images `http(s)`
+sont gardées. Une image SVG ne lit jamais d'autre fichier du disque (ses `<image>` intégrées en
+`data:` s'affichent). Les liens (Markdown, pull requests, Claude, terminal) ne s'ouvrent dans le
+navigateur que s'ils sont en `http` ou `https`.
 
 ## Écrire
 

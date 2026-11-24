@@ -174,6 +174,65 @@ pub fn reveal(path: &Path) -> Result<(), String> {
     r.map_err(|e| tf!("Impossible d'ouvrir le gestionnaire de fichiers : {e}", "Cannot open the file manager: {e}"))
 }
 
+/// `url` if it is a web address that can be given to the system opener: `http://` or `https://`
+/// with a host, no space, control or shell character; letters outside ASCII percent-encoded.
+/// Anything else (file:, javascript:, a custom scheme, `"`, `|`, `^`…) is refused: links come from
+/// pull requests, READMEs or programs in the terminal.
+pub fn web_url(url: &str) -> Option<String> {
+    let scheme_len = if url.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("http://")) {
+        7
+    } else if url.get(..8).is_some_and(|s| s.eq_ignore_ascii_case("https://")) {
+        8
+    } else {
+        return None;
+    };
+    let rest = &url[scheme_len..];
+    let host = &rest[..rest.find(['/', '?', '#']).unwrap_or(rest.len())];
+    let host = host.rsplit('@').next().unwrap_or("");
+    if host.is_empty() || host.starts_with(':') || host.starts_with('.') {
+        return None;
+    }
+    let mut out = String::with_capacity(url.len());
+    for c in url.chars() {
+        if c.is_control() || c.is_whitespace() || "|<>^\"`\\".contains(c) {
+            return None;
+        }
+        if c.is_ascii() {
+            out.push(c);
+        } else {
+            // bidirectional marks and other invisible letters cannot slip through either
+            let mut buf = [0u8; 4];
+            for b in c.encode_utf8(&mut buf).bytes() {
+                out.push_str(&format!("%{b:02X}"));
+            }
+        }
+    }
+    Some(out)
+}
+
+/// Opens a web address in the browser of the system, without a shell in between. Refused when it
+/// is not an `http(s)` address (see `web_url`).
+pub fn open_url(url: &str) -> Result<(), String> {
+    let Some(url) = web_url(url) else {
+        let shown: String = url.chars().take(80).collect();
+        return Err(tf!("Lien non ouvert (seules les adresses http et https le sont) : {shown}", "Link not opened (only http and https addresses are): {shown}"));
+    };
+    let c = if cfg!(target_os = "windows") {
+        let mut c = command("explorer.exe");
+        c.arg(&url);
+        c
+    } else if cfg!(target_os = "macos") {
+        let mut c = Command::new("open");
+        c.arg(&url);
+        c
+    } else {
+        let mut c = command("xdg-open");
+        c.arg(&url);
+        c
+    };
+    spawn(c).map_err(|e| tf!("Impossible d'ouvrir le navigateur : {e}", "Cannot open the browser: {e}"))
+}
+
 /// `a` and `b` are the same entry of the disk (`readme` and `README` on a disk that ignores case).
 pub fn same_file(a: &Path, b: &Path) -> bool {
     #[cfg(unix)]
@@ -463,6 +522,39 @@ fn merge_path(shell: Option<&str>, current: &std::ffi::OsStr, usual: &[PathBuf])
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_web_addresses_are_opened() {
+        assert_eq!(web_url("https://github.com/o/r/pull/1#x").as_deref(), Some("https://github.com/o/r/pull/1#x"));
+        assert_eq!(web_url("HTTP://x.io/a?b=1&c=2").as_deref(), Some("HTTP://x.io/a?b=1&c=2"));
+        assert_eq!(web_url("https://fr.wikipedia.org/wiki/Été").as_deref(), Some("https://fr.wikipedia.org/wiki/%C3%89t%C3%A9"));
+        // an invisible letter cannot hide what the address is
+        assert_eq!(web_url("https://x.io/\u{202e}a").as_deref(), Some("https://x.io/%E2%80%AEa"));
+        for bad in [
+            "file:///etc/passwd",
+            "javascript:alert(1)",
+            "vscode://x",
+            "ms-msdt:/id",
+            "mailto:a@b.c",
+            "\\\\evil\\share",
+            "https://",
+            "https:///path",
+            "https://@/x",
+            "https://x.io/a b",
+            "https://x.io/a\tb",
+            "https://x.io/\na",
+            "https://x.io/a\"&calc",
+            "https://x.io/a|b",
+            "https://x.io/a^b",
+            "https://x.io/<a>",
+            "https://x.io/`a`",
+            "https://x.io\\a",
+            " https://x.io",
+        ] {
+            assert_eq!(web_url(bad), None, "{bad}");
+        }
+        assert!(open_url("file:///dev/zero").is_err());
+    }
 
     #[cfg(target_os = "linux")]
     #[test]

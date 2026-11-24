@@ -286,7 +286,8 @@ The operations started from Florm put the original version between the two sides
 - **Dragging a file** onto a terminal writes its path at the prompt (quoted when needed): Claude
   reads the file, an image included.
 - The links a program puts on its own text (“PR #12” leading to the page of the PR…) open the
-  same way.
+  same way. Only `http` and `https` addresses go to the browser; a `file://` address opens the
+  file in Florm, the others (`javascript:`, `mailto:`…) are not opened: the status bar says so.
 - **Ctrl+Shift+F** (⌘F on a Mac, or right click → Find…) searches the whole history of the
   terminal: **Enter** goes up to the older match, **Shift+Enter** down, **Esc** closes. Capitals
   only count if you type one.
@@ -617,6 +618,12 @@ In the preview (and in Claude's answers), **Mermaid sequence diagrams** (` ```me
 `opt`, `autonumber`. The other kinds of diagrams stay shown as code. Common **HTML** shows too:
 `<br>`, `<b>`, `<i>`, `<kbd>`, `<img>`, `<a href>`, `<details>` / `<summary>`, `<h1>`…, `<p align>`;
 `<!-- -->` comments are hidden.
+
+The images of the preview are `http(s)` addresses or files of the project (a relative path, 20 MB
+at most); a symbolic link, a file outside the project or an absolute path is not read, its text
+shows instead. In a pull request or a comment, only `http(s)` images are kept. An SVG image never
+reads another file of the disk (its `<image>` embedded as `data:` show). Links (Markdown, pull
+requests, Claude, terminal) only open in the browser when they are `http` or `https`.
 
 ## Writing
 

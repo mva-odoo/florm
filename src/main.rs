@@ -28,6 +28,7 @@ mod github;
 mod highlight;
 mod history;
 mod icons;
+mod images;
 mod index;
 mod input;
 mod jobs;

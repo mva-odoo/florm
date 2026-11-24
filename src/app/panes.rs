@@ -325,12 +325,30 @@ impl App {
         };
         // the text cut into pieces once per version, not at each frame
         if self.md_preview.as_ref().is_none_or(|p| p.key != (src, d.version)) {
-            let base = d.path.as_deref().and_then(Path::parent).map(|p| format!("file://{}/", p.display())).unwrap_or_else(|| "file://".into());
+            // its images: files of the project (of its folder when it is outside), or web addresses
+            let dir = d.path.as_deref().and_then(Path::parent).map(Path::to_path_buf);
+            let root = match (&self.root, &dir) {
+                (Some(r), Some(dir)) if dir.starts_with(r) => Some(r.clone()),
+                _ => dir.clone(),
+            };
             let old = self.md_preview.take().filter(|p| p.key.0 == src);
             let chunks = md_chunks(&d.rope.to_string());
             // the heights measured before kept while the pieces are the same: no jump while typing
-            let heights = chunks.iter().enumerate().map(|(k, c)| old.as_ref().and_then(|o| (o.chunks.get(k) == Some(c)).then(|| o.heights[k])).unwrap_or(0.0)).collect();
-            self.md_preview = Some(MdPreview { key: (src, d.version), base, chunks, heights, width: old.map_or(0.0, |o| o.width) });
+            let same = |k: usize, c: &MdChunk| old.as_ref().is_some_and(|o| o.chunks.get(k) == Some(c));
+            let heights = chunks.iter().enumerate().map(|(k, c)| if same(k, c) { old.as_ref().map_or(0.0, |o| o.heights[k]) } else { 0.0 }).collect();
+            let shown = chunks
+                .iter()
+                .enumerate()
+                .map(|(k, c)| match c {
+                    _ if same(k, c) => old.as_ref().map_or(String::new(), |o| o.shown[k].clone()),
+                    MdChunk::Mermaid(_) => String::new(),
+                    MdChunk::Md(md) => md::rewrite_images(md, |dest| match (&dir, &root) {
+                        (Some(dir), Some(root)) => md::preview_image(dir, root, dest),
+                        _ => crate::os::web_url(dest).map(|_| dest.to_string()),
+                    }),
+                })
+                .collect();
+            self.md_preview = Some(MdPreview { key: (src, d.version), chunks, shown, heights, width: old.map_or(0.0, |o| o.width) });
         }
         let bg = self.hl.colors.bg;
         let cache = &mut self.md_cache;
@@ -360,8 +378,9 @@ impl App {
                                 super::mermaid::show(ui, code);
                                 ui.add_space(10.0);
                             }
-                            MdChunk::Md(md) => {
-                                egui_commonmark::CommonMarkViewer::new().default_implicit_uri_scheme(p.base.clone()).max_image_width(Some(w as usize)).show(ui, cache, md);
+                            MdChunk::Md(_) => {
+                                let viewer = egui_commonmark::CommonMarkViewer::new().explicit_image_uri_scheme(true);
+                                viewer.max_image_width(Some(w as usize)).show(ui, cache, &p.shown[k]);
                             }
                         }
                         p.heights[k] = ui.cursor().top() - top;
@@ -767,8 +786,9 @@ pub(super) enum MdChunk {
 pub(super) struct MdPreview {
     /// (uid of the document, its version).
     key: (u64, u64),
-    base: String,
     chunks: Vec<MdChunk>,
+    /// The Markdown pieces as shown: their images checked (`md::preview_image`).
+    shown: Vec<String>,
     /// Height of each piece at the last frame it was shown (0: not measured yet).
     heights: Vec<f32>,
     width: f32,

@@ -521,7 +521,8 @@ impl Session {
             }
         }
         let target = match candidate(&word) {
-            Some(Cand::Url(u)) => Some(Target::Url(u)),
+            // a file:// address printed by a program opens the file in Florm, never in the system
+            Some(Cand::Url(u)) => osc8_target(&u),
             Some(Cand::Path(p, line)) => resolve(&p, &cwd, &self.mounts).map(|f| Target::File(f, line)),
             None => None,
         };
@@ -1525,7 +1526,7 @@ fn candidate(w: &str) -> Option<Cand> {
 }
 
 /// What the address of an OSC 8 link opens: a page, or a file here (`file://host/path`, with
-/// `#Lline` or `:line` after it). Other schemes are left alone.
+/// `#Lline` or `:line` after it). Other schemes are left alone (only http(s) goes to the browser).
 fn osc8_target(uri: &str) -> Option<Target> {
     if let Some(rest) = uri.strip_prefix("file://") {
         let path = percent_decode(&rest[rest.find('/')?..]);
@@ -1534,7 +1535,7 @@ fn osc8_target(uri: &str) -> Option<Target> {
             _ => Path::new(&path).is_file().then(|| Target::File(PathBuf::from(&path), 0)),
         };
     }
-    ["https://", "http://", "mailto:"].iter().any(|p| uri.starts_with(p)).then(|| Target::Url(uri.to_string()))
+    crate::os::web_url(uri).map(Target::Url)
 }
 
 /// The file of path `p` printed by a program working in `cwd`, if it is there (`a/` and `b/` of a
@@ -2122,6 +2123,8 @@ mod tests {
         // what their addresses open
         assert_eq!(osc8_target("https://x.io/a"), Some(Target::Url("https://x.io/a".into())));
         assert_eq!(osc8_target("javascript:alert(1)"), None);
+        assert_eq!(osc8_target("mailto:a@b.c"), None);
+        assert_eq!(osc8_target("https://x.io/a\"&calc"), None);
         let f = std::env::temp_dir().join(format!("florm_osc8_{}.txt", std::process::id()));
         std::fs::write(&f, "").unwrap();
         let uri = format!("file://host{}", f.display());

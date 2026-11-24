@@ -359,9 +359,113 @@ pub(super) fn remote_viewer() -> egui_commonmark::CommonMarkViewer {
 }
 
 /// A text from elsewhere ready for `remote_viewer`: its addresses made links (`autolink`), and
-/// `file://` broken (an image `![](file:///dev/zero)` would be read from the disk without end).
+/// only its http(s) images kept (an image `![](file:///dev/zero)` would be read from the disk
+/// without end; on Windows `\\host\share\a.png` would connect to that machine).
 pub(super) fn remote(text: &str) -> String {
-    autolink(text).replace("file://", "file:/\u{2060}/")
+    rewrite_images(&autolink(text), |dest| crate::os::web_url(dest).map(|_| dest.to_string()))
+}
+
+/// The options egui_commonmark parses with (its `parser_options`, not exported).
+fn viewer_options() -> pulldown_cmark::Options {
+    use pulldown_cmark::Options;
+    Options::ENABLE_TABLES | Options::ENABLE_TASKLISTS | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_FOOTNOTES | Options::ENABLE_DEFINITION_LIST
+}
+
+/// The images of `text` given to `keep` as the viewer will see them: kept when it gives back the
+/// same address, pointed at the address it gives, or written as their text when it gives None.
+/// Parsed like the viewer does (`file\:///` or `file&#58;///` are only a `file:` address once
+/// parsed: a search in the text would miss them).
+pub(super) fn rewrite_images(text: &str, keep: impl Fn(&str) -> Option<String>) -> String {
+    use pulldown_cmark::{Event, Parser, Tag, TagEnd};
+    let escape = |alt: &str| {
+        let mut out = String::with_capacity(alt.len());
+        for c in alt.chars() {
+            match c {
+                '\n' | '\r' => out.push(' '),
+                c if c.is_ascii_punctuation() => {
+                    out.push('\\');
+                    out.push(c);
+                }
+                c => out.push(c),
+            }
+        }
+        out
+    };
+    let mut text = text.to_string();
+    // the addresses given by `keep`: kept as they are when the text is parsed again
+    let mut given = std::collections::HashSet::new();
+    // a rewrite can change how the text around is read: parsed again until nothing changes
+    for _ in 0..4 {
+        let mut edits = Vec::new();
+        let mut events = Parser::new_ext(&text, viewer_options()).into_offset_iter();
+        while let Some((ev, range)) = events.next() {
+            let Event::Start(Tag::Image { dest_url, .. }) = ev else { continue };
+            // its text up to its end; an image inside it (the viewer would load that one) left out
+            let (mut alt, mut depth, mut nested) = (String::new(), 1, false);
+            for (ev, _) in events.by_ref() {
+                match ev {
+                    Event::Start(Tag::Image { .. }) => {
+                        depth += 1;
+                        nested = true;
+                    }
+                    Event::End(TagEnd::Image) => {
+                        depth -= 1;
+                        if depth == 0 {
+                            break;
+                        }
+                    }
+                    Event::Text(t) | Event::Code(t) => alt.push_str(&t),
+                    _ => {}
+                }
+            }
+            if given.contains(&*dest_url) && !nested {
+                continue;
+            }
+            match keep(&dest_url) {
+                Some(d) if d == *dest_url && !nested => {}
+                Some(d) if !d.contains(['<', '>', '\n', '\r']) => {
+                    edits.push((range, format!("![{}](<{d}>)", escape(&alt))));
+                    given.insert(d);
+                }
+                _ => edits.push((range, escape(&alt))),
+            }
+        }
+        if edits.is_empty() {
+            return text;
+        }
+        for (range, with) in edits.into_iter().rev() {
+            text.replace_range(range, &with);
+        }
+    }
+    // still not settled: no image at all
+    text.replace('!', "!\u{2060}")
+}
+
+/// Largest image file shown in a Markdown preview.
+const PREVIEW_IMAGE_MAX: u64 = 20 * 1024 * 1024;
+
+/// What an image `dest` of a Markdown file of folder `dir` shows in its preview: an http(s)
+/// address as it is; a relative path when it is a regular file (not a link, not a device) of at
+/// most 20 MB inside `root` (the project), as a `file://` address; nothing otherwise (another
+/// scheme, an absolute or `\\host\share` path, a way out of the project).
+pub(super) fn preview_image(dir: &Path, root: &Path, dest: &str) -> Option<String> {
+    if crate::os::web_url(dest).is_some() {
+        return Some(dest.to_string());
+    }
+    // `a.png?raw=true` (written for GitHub): the file is `a.png`
+    let dest = dest.split(['?', '#']).next().unwrap_or("");
+    let scheme = dest.split_once(':').is_some_and(|(s, _)| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || "+-.".contains(c)));
+    let rel = Path::new(dest);
+    if dest.is_empty() || scheme || rel.has_root() || rel.is_absolute() || dest.starts_with(['/', '\\']) || dest.contains('\0') {
+        return None;
+    }
+    let path = dir.join(rel);
+    let meta = std::fs::symlink_metadata(&path).ok()?;
+    if !meta.file_type().is_file() || meta.len() > PREVIEW_IMAGE_MAX {
+        return None;
+    }
+    let real = crate::os::canon(&path);
+    real.starts_with(crate::os::canon(root)).then(|| format!("file://{}", real.display()))
 }
 
 pub(super) fn autolink(text: &str) -> String {
@@ -551,6 +655,66 @@ mod tests {
             opened = opened.or(out.platform_output.open_url.map(|u| u.url));
         }
         assert_eq!(opened.as_deref(), Some("https://github.com/o/r/releases/tag/v1"));
+    }
+
+    /// The images of a text from elsewhere: only http(s) ones, however the address is written
+    /// (the parser decodes escapes and entities before the viewer sees the address).
+    #[test]
+    fn remote_images_are_only_web_ones() {
+        let images = |md: &str| {
+            let mut out = Vec::new();
+            for ev in pulldown_cmark::Parser::new_ext(md, viewer_options()) {
+                if let pulldown_cmark::Event::Start(pulldown_cmark::Tag::Image { dest_url, .. }) = ev {
+                    out.push(dest_url.to_string());
+                }
+            }
+            out
+        };
+        for bad in [
+            "![a](file:///dev/zero)",
+            "![a](file\\:///dev/zero)",
+            "![a](file&#58;///dev/zero)",
+            "![a](fil&#x65;:///dev/zero)",
+            "![a](<file:///dev/zero>)",
+            "![a](\\\\evil\\s\\a.png)",
+            "![a](//evil/s/a.png)",
+            "![a](/dev/zero)",
+            "![a][r]\n\n[r]: file&#58;///dev/zero",
+            "[![a](file:///dev/zero)](https://x.io)",
+            "![![in](file:///dev/zero)](https://x.io/a.png)",
+            "| a |\n|---|\n| ![x](file\\:///dev/zero) |",
+            "<img src=\"file:///dev/zero\">",
+        ] {
+            let md = remote(&html_to_md(bad));
+            assert!(images(&md).iter().all(|d| d.starts_with("https://")), "{bad} → {md}");
+        }
+        assert_eq!(images(&remote("![logo](https://x.io/a.png) et ![b](file:///dev/zero)")), ["https://x.io/a.png"]);
+        // the text of a refused image stays
+        assert_eq!(remote("voir ![le schéma](file:///x.png)"), "voir le schéma");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn preview_images_are_files_of_the_project() {
+        let root = std::env::temp_dir().join(format!("florm_md_img_{}", std::process::id()));
+        let docs = root.join("docs");
+        std::fs::create_dir_all(&docs).unwrap();
+        std::fs::write(root.join("a.png"), b"png").unwrap();
+        std::fs::write(docs.join("b.png"), b"png").unwrap();
+        let _ = std::fs::remove_file(docs.join("zero.png"));
+        std::os::unix::fs::symlink("/dev/zero", docs.join("zero.png")).unwrap();
+        let at = |dest: &str| preview_image(&docs, &root, dest);
+        let canon = crate::os::canon(&root);
+        assert_eq!(at("b.png"), Some(format!("file://{}", canon.join("docs/b.png").display())));
+        assert_eq!(at("../a.png?raw=true"), Some(format!("file://{}", canon.join("a.png").display())));
+        assert_eq!(at("https://x.io/a.png").as_deref(), Some("https://x.io/a.png"));
+        for bad in ["zero.png", "../../../../../../dev/zero", "/dev/zero", "/etc/hostname", "file:///dev/zero", "data:image/png;base64,AA", "../", "\\\\evil\\s\\a.png", "missing.png"] {
+            assert_eq!(at(bad), None, "{bad}");
+        }
+        // what the preview shows: the refused image as its text
+        let md = rewrite_images("![z](zero.png) ![b](b.png)", |d| preview_image(&docs, &root, d));
+        assert_eq!(md, format!("z ![b](<file://{}>)", canon.join("docs/b.png").display()));
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
