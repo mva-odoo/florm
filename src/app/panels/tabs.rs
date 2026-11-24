@@ -169,6 +169,9 @@ impl App {
                             body.context_menu(|ui| tab_menu(ui, i, d, is_split, alone, &mut menu_act));
                             if let Some(p) = &d.path {
                                 body.on_hover_text(p.display().to_string());
+                            } else if title.len() > 24 {
+                                // its title may be cut: whole on hover
+                                body.on_hover_text(title);
                             }
                         }
                     });

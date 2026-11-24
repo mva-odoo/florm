@@ -10,8 +10,7 @@ Every shortcut can be changed in **Preferences → Shortcuts** (Ctrl+,).
 | Shortcut | Action |
 |---|---|
 | **Ctrl+P** | Go to a file of the project. `name:42` opens it at line 42, `:42` goes to line 42 of the current file |
-| **Ctrl+K** | The views apart from the commands: Search, Terminal, Claude, Git…, the terminals and the conversations, then the Ctrl+K… chords with their name. Type to filter; **Ctrl+K Ctrl+B**, **Ctrl+K V**… keep their role |
-| **Ctrl+Shift+P** | Command palette. A leading **`#`** lists the views, the terminals and the conversations: `#git`, `#dock`, `#term`, `#claude` |
+| **Ctrl+K** or **Ctrl+Shift+P** | Command palette: the views first (Claude, Git, Pull requests, Search, Terminal…, the terminals and the conversations), then the commands. Type to filter (accents are optional); a view whose name has the words typed stays first (“pull request” → the pull requests view, then the commands). A leading **`#`** lists only the views: `#git`, `#term`, `#claude`. After Ctrl+K, **Ctrl+B**, **V**… keep their role (Ctrl+K Ctrl+B, Ctrl+K V) |
 | **Alt** alone | Everything from the keyboard: one or two letters on each visible button, tab, box or field; typing them clicks it (Esc closes). In an open menu, ↓ ↑ move between its entries and Enter chooses. Can be turned off in Preferences → Editor |
 | **Ctrl+R** | Go to a class, a function, an Odoo record of the file |
 | **Ctrl+O** / **Ctrl+Shift+S** | Open / save as: **Tab completes the path** like in a terminal |
@@ -25,7 +24,7 @@ terminal…) have none: they keep the whole height.
 
 Two open files of the same name: their folder shows in grey after the title (`input.rs …/app`). A file with errors shows how many in red (`9+` beyond nine).
 
-On the right of the tab strip: **+** opens an empty text tab (Ctrl+N), **▾** a view in a tab, each with its icon: Search, Claude, Git, Pull requests (GitHub), Debug, then Terminal, Preferences and Welcome. When the tabs no longer fit in the strip, ‹ › scroll them and the same **▾** lists all the open tabs at the top.
+On the right of the tab strip: **+** opens an empty text tab (Ctrl+N), **▾** a view in a tab, each with its icon: Search, Claude, Git, Pull requests (GitHub), Debug, then Terminal, Preferences and Welcome. A title too long (a conversation, a pull request) is cut with “…”, whole on hover. When the tabs no longer fit in the strip, ‹ › scroll them and the same **▾** lists all the open tabs at the top.
 
 On restart (or back to a project), everything comes back as you left it: the tabs and the views,
 the cursor position, the split editor with its tabs on each side, the open bottom panel and the

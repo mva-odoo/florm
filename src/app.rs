@@ -1773,6 +1773,9 @@ fn doc_tab(d: &Document) -> (TabIcon<'_>, String) {
 /// the title: the parent folder when another tab has the same name (`hint`), the number of errors
 /// in red. The close button shows on hover and on the active tab (else the "modified" dot, in the
 /// accent). Positions are rounded to whole pixels so the text stays sharp.
+/// Widest title of a tab, in points (the full one shows on hover).
+const TAB_TITLE_MAX_W: f32 = 200.0;
+
 fn tab_widget(
     ui: &mut egui::Ui,
     title: &str,
@@ -1792,7 +1795,10 @@ fn tab_widget(
     let small = egui::FontId::proportional(12.0);
     let text_color = tint.unwrap_or(if active { tc.text_active } else { tc.text_inactive });
     let dim = tc.text_inactive.gamma_multiply(0.75);
-    let galley = ui.painter().layout_no_wrap(title.to_string(), font, text_color);
+    // a long title (a conversation, a pull request) is cut: every tab stays a reasonable width
+    let mut job = egui::text::LayoutJob::simple_singleline(title.to_string(), font, text_color);
+    job.wrap = egui::text::TextWrapping { max_width: TAB_TITLE_MAX_W, max_rows: 1, break_anywhere: true, overflow_character: Some('…') };
+    let galley = ui.painter().layout_job(job);
     let hint_g = hint.map(|h| ui.painter().layout_no_wrap(h.to_string(), small.clone(), dim));
     let count = (errors > 0).then(|| if errors > 9 { "9+".to_string() } else { errors.to_string() });
     let count_g = count.map(|c| ui.painter().layout_no_wrap(c, small, err()));
@@ -2641,7 +2647,7 @@ mod font_tests {
         assert!(app.showing(document::View::Debug));
         assert_eq!(app.bottom, Some(BottomTab::Terminal));
         assert!(app.settings.views_in_tab.contains(&"debug".to_string()));
-        // Ctrl+K opens the list of the views; a chord still works after it, Échap closes it
+        // Ctrl+K opens the palette; a chord still works after it, Échap closes it
         let press = |app: &mut App, key: Key, modifiers: egui::Modifiers| {
             let ev = egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers };
             let _ = ctx.run(egui::RawInput { screen_rect: screen, events: vec![ev], ..Default::default() }, |ctx| app.handle_keys(ctx));
@@ -2649,12 +2655,34 @@ mod font_tests {
         let sidebar = app.show_sidebar;
         press(&mut app, Key::K, egui::Modifiers::CTRL);
         assert!(app.overlay.as_ref().is_some_and(|o| matches!(o.mode, Mode::Views)));
+        // it is the palette: the views first (those in a tab too), then the commands
+        let frame = |app: &mut App| {
+            let _ = ctx.run(egui::RawInput { screen_rect: screen, ..Default::default() }, |ctx| app.overlay_ui(ctx));
+        };
+        let shown = |app: &App| {
+            let o = app.overlay.as_ref().unwrap();
+            o.filtered.iter().map(|&i| o.items.label(i).to_string()).collect::<Vec<_>>()
+        };
+        frame(&mut app);
+        let list = shown(&app);
+        for v in ["# Claude", "# Git", "# Pull requests (GitHub)", "# Terminal"] {
+            assert!(list.iter().any(|l| l == v), "{v} in {list:?}");
+        }
+        let first_cmd = list.iter().position(|l| !l.starts_with("# ")).unwrap();
+        assert!(first_cmd >= 4 && list[first_cmd..].iter().all(|l| !l.starts_with("# ")), "{list:?}");
         press(&mut app, Key::B, egui::Modifiers::CTRL);
         assert!(app.overlay.is_none());
         assert_eq!(app.show_sidebar, !sidebar);
         press(&mut app, Key::K, egui::Modifiers::CTRL);
         press(&mut app, Key::Escape, egui::Modifiers::NONE);
         assert!(app.overlay.is_none());
+        // the palette: `pull request` gives the view first, then the commands
+        app.open_overlay(Mode::Commands);
+        app.overlay.as_mut().unwrap().query = "pull request".into();
+        frame(&mut app);
+        let list = shown(&app);
+        assert_eq!(list.first().map(String::as_str), Some("# Pull requests (GitHub)"), "{list:?}");
+        assert!(list.len() > 1 && !list[1].starts_with('#'), "{list:?}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

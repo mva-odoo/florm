@@ -6,25 +6,17 @@ use crate::os::Pick;
 impl App {
     pub(super) fn open_overlay(&mut self, mode: Mode) {
         let items: Items = match &mode {
-            Mode::Commands => {
-                let mut v: Vec<Item> = commands::ALL
-                    .iter()
-                    // the palette itself: it is already open
-                    .filter(|(_, l, c)| !l.is_empty() && crate::features::cmd_on(*c) && *c != Cmd::CommandPalette)
-                    .map(|(id, l, c)| Item { label: commands::label(id, l).to_string(), detail: self.keymap.label(*c), action: Action::Cmd(*c) })
-                    .collect();
-                // `#`: the views, terminals and conversations (only listed after a #)
-                v.extend(self.view_items("# "));
-                v.into()
-            }
-            Mode::Views => {
-                // the views, then the commands of the Ctrl+K chords (Ctrl+K Ctrl+B…), named
-                let mut v = self.view_items("");
-                for c in self.keymap.chord_cmds().into_iter().filter(|c| crate::features::cmd_on(*c)) {
-                    if let Some((id, l, _)) = commands::ALL.iter().find(|(_, l, x)| *x == c && !l.is_empty()) {
-                        v.push(Item { label: commands::label(id, l).to_string(), detail: self.keymap.label(c), action: Action::Cmd(c) });
-                    }
-                }
+            // Ctrl+K and the palette are one list: the views first (Claude, Git…), then the
+            // commands; Ctrl+K only differs by letting a chord go on (Ctrl+K Ctrl+B…)
+            Mode::Commands | Mode::Views => {
+                let mut v = self.view_items("# ");
+                v.extend(
+                    commands::ALL
+                        .iter()
+                        // the palette itself (or as Ctrl+K): it is already open
+                        .filter(|(_, l, c)| !l.is_empty() && crate::features::cmd_on(*c) && !matches!(*c, Cmd::CommandPalette | Cmd::Views))
+                        .map(|(id, l, c)| Item { label: commands::label(id, l).to_string(), detail: self.keymap.label(*c), action: Action::Cmd(*c) }),
+                );
                 v.into()
             }
             Mode::Files => self.file_items(),
@@ -101,7 +93,7 @@ impl App {
         // the recent files first in go to file, the recent commands first in the palette
         let boost = match mode {
             Mode::Files => Some(self.recent_boost()),
-            Mode::Commands => Some(self.recent_cmd_boost(&items)),
+            Mode::Commands | Mode::Views => Some(self.recent_cmd_boost(&items)),
             _ => None,
         };
         self.open_overlay_with(mode, items, String::new());
@@ -114,6 +106,17 @@ impl App {
     /// several), each label after `prefix`: Ctrl+K, and the palette after a #.
     fn view_items(&self, prefix: &str) -> Vec<Item> {
         let mut v = Vec::new();
+        // the views in a tab of every day: Claude, Git, the pull requests
+        use crate::features::{on, Feature};
+        for (on, label, cmd) in [
+            (on(Feature::Claude), "Claude", Cmd::Claude),
+            (on(Feature::Git), "Git", Cmd::ShowGit),
+            (on(Feature::GitHub), t!("Pull requests (GitHub)", "Pull requests (GitHub)"), Cmd::PullRequests),
+        ] {
+            if on {
+                v.push(Item { label: format!("{prefix}{label}"), detail: self.keymap.label(cmd), action: Action::Cmd(cmd) });
+            }
+        }
         for (tab, _, label) in BottomTab::shown() {
             v.push(Item { label: format!("{prefix}{label}"), detail: self.keymap.label(tab.cmd()), action: Action::View(tab) });
         }
@@ -208,7 +211,7 @@ impl App {
         }
         let title = match &ov.mode {
             Mode::Commands => t!("Palette de commandes", "Command palette").to_string(),
-            Mode::Views => t!("Vues   (après Ctrl+K, Ctrl+B, Ctrl+U… gardent leur rôle)", "Views   (after Ctrl+K, Ctrl+B, Ctrl+U… keep their role)").to_string(),
+            Mode::Views => t!("Palette de commandes   (après Ctrl+K, Ctrl+B, Ctrl+U… gardent leur rôle)", "Command palette   (after Ctrl+K, Ctrl+B, Ctrl+U… keep their role)").to_string(),
             Mode::Files => t!("Aller au fichier   (fichier:ligne, ou :ligne dans le fichier courant)", "Go to file   (file:line, or :line in the current file)").into(),
             Mode::GotoLine if self.goto_select => {
                 t!("Sélectionner la ligne   (42, ou 10-20 pour plusieurs lignes ; vide + Entrée : la ligne courante)", "Select line   (42, or 10-20 for several lines; empty + Enter: the current line)").into()
@@ -323,7 +326,7 @@ impl App {
                         egui::TextEdit::singleline(&mut ov.query)
                             .desired_width(f32::INFINITY)
                             .frame(false)
-                            .hint_text(if matches!(ov.mode, Mode::Commands) { t!("Tapez pour filtrer… (# : ouvrir une vue)", "Type to filter… (#: open a view)") } else { t!("Tapez pour filtrer…", "Type to filter…") })
+                            .hint_text(if matches!(ov.mode, Mode::Commands | Mode::Views) { t!("Tapez pour filtrer… (# : ouvrir une vue)", "Type to filter… (#: open a view)") } else { t!("Tapez pour filtrer…", "Type to filter…") })
                             .font(egui::FontId::proportional(17.0))
                             // Tab completes the path: it must not also move the focus to the next widget
                             .lock_focus(path_base.is_some()),
@@ -439,10 +442,18 @@ impl App {
                             ov.matched = Some((q.clone(), Arc::new(scored.iter().map(|(_, i)| *i).collect())));
                             ov.filtered = best(scored);
                         }
-                        // the palette: a query starting with # lists the views, the others the commands
-                        if matches!(ov.mode, Mode::Commands) {
+                        // the palette: a query starting with # lists the views, the others the
+                        // commands, after the views whose name has every word typed (`pull request`
+                        // → the pull requests first: going there is what is wanted most often)
+                        if matches!(ov.mode, Mode::Commands | Mode::Views) {
                             let items = &ov.items;
-                            ov.filtered.retain(|&i| items.label(i).starts_with('#') == views);
+                            let q = ov.query.split(':').next().unwrap_or("");
+                            // nothing typed: all the views first
+                            let named = |i: usize| !views && (q.is_empty() && items.label(i).starts_with("# ") || view_named(q, items.label(i)));
+                            let (mut first, rest): (Vec<usize>, Vec<usize>) =
+                                ov.filtered.iter().filter(|&&i| items.label(i).starts_with('#') == views || named(i)).partition(|&&i| named(i));
+                            first.extend(rest);
+                            ov.filtered = first;
                         }
                     }
                     let n = ov.filtered.len();
@@ -557,7 +568,7 @@ impl App {
                 Mode::Files => ov.query.split_once(':').map(|(_, l)| l.to_string()),
                 _ => None,
             };
-            if let (Mode::Commands, Action::Cmd(c)) = (&ov.mode, &action) {
+            if let (Mode::Commands | Mode::Views, Action::Cmd(c)) = (&ov.mode, &action) {
                 self.note_recent_cmd(*c);
             }
             self.choose(ctx, action);
@@ -1179,6 +1190,16 @@ fn score_items(q: &str, items: &Items, pool: Vec<usize>, boost: &HashMap<usize, 
         }
         Some(all)
     })
+}
+
+/// Every word of `q` starts a word of the view `label` ("# Pull requests (GitHub)"), accents
+/// and case aside.
+fn view_named(q: &str, label: &str) -> bool {
+    let Some(name) = label.strip_prefix("# ") else { return false };
+    let fold = |s: &str| s.chars().map(fuzzy::fold).collect::<String>();
+    let words: Vec<String> = fold(name).split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).map(str::to_string).collect();
+    let typed: Vec<String> = q.split_whitespace().map(fold).collect();
+    !typed.is_empty() && typed.iter().all(|t| words.iter().any(|w| w.starts_with(t.as_str())))
 }
 
 /// The 300 best of `scored` (score, index), best first: only those are shown.

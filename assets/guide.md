@@ -10,8 +10,7 @@ Tous les raccourcis se changent dans **Préférences → Raccourcis** (Ctrl+,).
 | Raccourci | Action |
 |---|---|
 | **Ctrl+P** | Aller à un fichier du projet. `nom:42` ouvre à la ligne 42, `:42` va à la ligne 42 du fichier courant |
-| **Ctrl+K** | Les vues à part des commandes : Recherche, Terminal, Claude, Git…, les terminaux et les conversations, puis les combinaisons Ctrl+K… avec leur nom. Tape pour filtrer ; **Ctrl+K Ctrl+B**, **Ctrl+K V**… gardent leur rôle |
-| **Ctrl+Shift+P** | Palette de commandes (les accents sont facultatifs : « theme » trouve « Choisir le thème… »). **`#`** en tête liste les vues, les terminaux et les conversations : `#git`, `#dock`, `#term`, `#claude` |
+| **Ctrl+K** ou **Ctrl+Shift+P** | Palette de commandes : d'abord les vues (Claude, Git, Pull requests, Recherche, Terminal…, les terminaux et les conversations), puis les commandes. Tape pour filtrer (les accents sont facultatifs : « theme » trouve « Choisir le thème… ») ; une vue dont le nom contient les mots tapés reste en tête (« pull request » → la vue des pull requests, puis les commandes). **`#`** en tête ne liste que les vues : `#git`, `#term`, `#claude`. Après Ctrl+K, **Ctrl+B**, **V**… gardent leur rôle (Ctrl+K Ctrl+B, Ctrl+K V) |
 | **Alt** seul | Tout au clavier : une ou deux lettres sur chaque bouton, onglet, case ou champ visible ; les taper le clique (Échap ferme). Dans un menu ouvert, ↓ ↑ passent d'une entrée à l'autre et Entrée choisit. Se désactive dans Préférences → Éditeur |
 | **Ctrl+R** | Aller à une classe, une fonction, un record Odoo du fichier |
 | **Ctrl+O** / **Ctrl+Shift+S** | Ouvrir / enregistrer sous : **Tab complète le chemin** comme dans un terminal |
@@ -25,7 +24,7 @@ terminal…) n'en ont pas : elles gardent toute la hauteur.
 
 Deux fichiers ouverts du même nom : leur dossier s'affiche en gris après le titre (`input.rs …/app`). Un fichier avec des erreurs montre leur nombre en rouge (`9+` au-delà de neuf).
 
-À droite de la barre d'onglets : **+** ouvre un onglet texte vide (Ctrl+N), **▾** une vue dans un onglet, chacune avec son icône : Recherche, Claude, Git, Pull requests (GitHub), Débogage, puis Terminal, Préférences et Accueil. Quand les onglets ne tiennent plus dans la barre, ‹ › les font défiler et le même **▾** liste en haut tous les onglets ouverts.
+À droite de la barre d'onglets : **+** ouvre un onglet texte vide (Ctrl+N), **▾** une vue dans un onglet, chacune avec son icône : Recherche, Claude, Git, Pull requests (GitHub), Débogage, puis Terminal, Préférences et Accueil. Un titre trop long (une conversation, une pull request) est coupé par « … », entier au survol. Quand les onglets ne tiennent plus dans la barre, ‹ › les font défiler et le même **▾** liste en haut tous les onglets ouverts.
 
 Au redémarrage (ou en revenant sur un projet), tout revient comme tu l'as laissé : les onglets et
 les vues, la position du curseur, l'éditeur divisé avec ses onglets de chaque côté, le panneau du

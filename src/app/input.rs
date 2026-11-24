@@ -28,7 +28,7 @@ impl App {
             if !self.chord && self.keymap.is_chord_start(&combo) {
                 self.chord = true;
                 consumed[i] = true;
-                // Ctrl+K alone: the list of the views, until the next key says otherwise
+                // Ctrl+K alone: the palette (the views first), until the next key says otherwise
                 if self.overlay.is_none() && self.confirm.is_none() {
                     self.open_overlay(Mode::Views);
                 }
@@ -38,7 +38,7 @@ impl App {
             let launcher = in_chord && self.overlay.as_ref().is_some_and(|o| matches!(o.mode, Mode::Views));
             match self.keymap.lookup(combo, in_chord) {
                 Some(cmd) => {
-                    // a chord (Ctrl+K Ctrl+B…): the list of the views gives way to it
+                    // a chord (Ctrl+K Ctrl+B…): the palette gives way to it
                     if launcher {
                         self.overlay = None;
                     }
@@ -62,7 +62,7 @@ impl App {
                     chord_letter |= in_chord && !modifiers.ctrl && !modifiers.command && !modifiers.alt;
                     cmds.push(cmd);
                 }
-                // the list of the views is open: Échap closes it, the other keys go to its filter
+                // the palette of Ctrl+K is open: Échap closes it, the other keys go to its filter
                 None if launcher && *key == Key::Escape => {
                     self.overlay = None;
                     consumed[i] = true;
