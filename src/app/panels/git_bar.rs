@@ -130,6 +130,7 @@ impl App {
                     for (label, cmd) in [
                         (tf!("Fusionner une branche dans « {b} »…", "Merge a branch into “{b}”…"), Cmd::GitMerge),
                         (tf!("Rebaser « {b} » sur une branche…", "Rebase “{b}” onto a branch…"), Cmd::GitRebaseOnto),
+                        (t!("Rebase interactif…", "Interactive rebase…").to_string(), Cmd::GitRebaseInteractive),
                         (t!("Renommer une branche…", "Rename a branch…").to_string(), Cmd::GitRenameBranch),
                         (t!("Supprimer une branche…", "Delete a branch…").to_string(), Cmd::GitDeleteBranch),
                         (t!("Modifier le dernier commit…", "Amend the last commit…").to_string(), Cmd::GitAmend),

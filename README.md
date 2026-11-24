@@ -339,6 +339,7 @@ flake8 --version || ruff --version
 | Ctrl+F2 / F8 / Maj+F8 | Signet sur la ligne / suivant / précédent (Ctrl+Maj+F2 : tout retirer ; « Signet : liste » dans la palette) |
 | Ctrl+Shift+[ / Ctrl+Shift+] | Replier / déplier le bloc |
 | Ctrl+\\ | Diviser l'éditeur à droite |
+| Ctrl+1 | Passer à l'autre panneau de l'éditeur divisé |
 | Ctrl+Shift+V / Ctrl+K V | Aperçu Markdown / à côté |
 | Ctrl+F / Ctrl+H | Rechercher / Remplacer (Entrée, Maj+Entrée, Alt+Entrée = tout sélectionner) |
 | F3 / Maj+F3 | Résultat suivant / précédent |

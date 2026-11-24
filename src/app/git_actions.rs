@@ -187,6 +187,20 @@ impl App {
             }
             BranchPick::Merge => self.git_job_at(repo, "merge", &["-c", "core.editor=true", "merge", "--no-edit", &name]),
             BranchPick::Rebase => self.git_job_at(repo, "rebase", &["-c", "core.editor=true", "rebase", &name]),
+            BranchPick::RebaseInteractive => {
+                self.jobs.spawn(move || {
+                    // the first commit of HEAD that `name` does not have
+                    let first = git::stdout(&repo, &["merge-base", &name, "HEAD"]).and_then(|base| {
+                        let range = format!("{}..HEAD", base.trim());
+                        let list = git::stdout(&repo, &["rev-list", "--reverse", "--first-parent", &range])?;
+                        list.lines().next().map(str::to_string).ok_or_else(|| {
+                            tf!("La branche courante n'a aucun commit absent de « {name} »", "The current branch has no commit missing from “{name}”")
+                        })
+                    });
+                    let r = first.and_then(|f| Ok((f.clone(), crate::rebase::load(&repo, &f)?)));
+                    JobResult::RebasePlan(repo, r)
+                });
+            }
             BranchPick::Rename => self.open_overlay_with(Mode::Prompt(Prompt::RenameBranch { old: name.clone(), upstream: b.upstream }), Vec::new(), name),
             BranchPick::Delete if b.remote => self.ask_delete_remote_branch(&name),
             BranchPick::Delete => {
@@ -206,6 +220,26 @@ impl App {
                     alt,
                 );
             }
+        }
+    }
+
+    /// The interactive rebase prepared from the palette: shown in the Git view.
+    pub(super) fn rebase_plan_ready(&mut self, repo: PathBuf, r: Result<(String, Vec<crate::rebase::Step>), String>) {
+        match r {
+            Ok((from, steps)) => {
+                if !self.showing(document::View::Git) {
+                    self.show_tab(document::View::Git);
+                }
+                if self.history.repo.as_ref() != Some(&repo) || self.history.graph.is_none() {
+                    self.load_history();
+                }
+                let h = &mut self.history;
+                h.rebase = Some(RebaseUi { from, steps });
+                h.compare = None;
+                h.wip_sel = None;
+                h.diff = None;
+            }
+            Err(e) => self.set_error(e),
         }
     }
 

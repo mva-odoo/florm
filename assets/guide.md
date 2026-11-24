@@ -210,6 +210,13 @@ d'habitude.
   courante sur une autre, **renommer** une branche (sa branche distante du même nom suit),
   **supprimer** une branche locale (et sa branche distante si tu le choisis) ou distante, et
   **modifier le dernier commit**.
+- **Rebase interactif** : **🔀 branche ▾ → Rebase interactif…** (ou « Git : rebase interactif »
+  dans la palette) demande la branche de départ (`master`, `origin/17.0`…) et liste les commits de
+  la branche courante qui n'y sont pas ; ou clic droit sur un commit du graphe → **Rebase
+  interactif à partir d'ici…**. Pour chaque commit : le garder, changer son message, le fusionner
+  avec le précédent (avec ou sans son message) ou le supprimer, et ↑ ↓ pour changer l'ordre.
+- **Blame** (**Ctrl+Maj+B**) : l'auteur, la date et le message du dernier commit de la ligne, en
+  gris au bout de celle-ci ; à nouveau pour le masquer.
 - **Modifier le dernier commit** (case sous le message, ou menu de la branche) : le message du
   dernier commit revient dans la zone ; le bouton le remplace (avec les fichiers indexés en plus).
   S'il était déjà poussé, il faudra un push --force-with-lease.

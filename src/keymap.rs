@@ -116,6 +116,7 @@ const DEFAULTS: &[(&str, &str)] = &[
     ("ctrl+alt+n", "insert_template"),
     ("ctrl+shift+`", "new_terminal_tab"),
     ("ctrl+\\", "split_right"),
+    ("ctrl+1", "focus_other_pane"),
     ("ctrl+r", "goto_symbol"),
     ("alt+l", "reveal_in_tree"),
     ("alt+g", "goto_line_select"),

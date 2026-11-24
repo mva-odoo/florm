@@ -339,6 +339,7 @@ flake8 --version || ruff --version
 | Ctrl+F2 / F8 / Shift+F8 | Bookmark on the line / next / previous (Ctrl+Shift+F2: remove all; “Bookmark: list” in the palette) |
 | Ctrl+Shift+[ / Ctrl+Shift+] | Fold / unfold the block |
 | Ctrl+\\ | Split the editor to the right |
+| Ctrl+1 | Go to the other pane of the split editor |
 | Ctrl+Shift+V / Ctrl+K V | Markdown preview / beside |
 | Ctrl+F / Ctrl+H | Find / Replace (Enter, Shift+Enter, Alt+Enter = select all) |
 | F3 / Shift+F3 | Next / previous result |

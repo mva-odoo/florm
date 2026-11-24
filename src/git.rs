@@ -528,6 +528,8 @@ pub enum BranchPick {
     Merge,
     /// The current branch rebased on it.
     Rebase,
+    /// The commits of the current branch that it lacks, in the interactive rebase.
+    RebaseInteractive,
     Rename,
     Delete,
 }

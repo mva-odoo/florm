@@ -78,6 +78,7 @@ impl App {
                 JobResult::HistoryDiff { hash, path, result } => self.on_history_diff(hash, path, result),
                 JobResult::HistoryDetails(hash, r) => self.on_history_details(hash, r),
                 JobResult::GitBranches(list, pick, target) => self.branches_ready(list, pick, target),
+                JobResult::RebasePlan(repo, r) => self.rebase_plan_ready(repo, r),
                 JobResult::CleanPreview(r) => self.clean_preview_ready(r),
                 JobResult::LastCommitMessage(r) => match r {
                     // what was typed meanwhile stays

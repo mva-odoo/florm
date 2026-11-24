@@ -123,6 +123,8 @@ pub enum JobResult {
     HistoryDiff { hash: String, path: Option<String>, result: Result<String, String> },
     /// The branches, what to do with the one chosen, and the one already chosen if any.
     GitBranches(Vec<git::Branch>, git::BranchPick, Option<String>),
+    /// The interactive rebase prepared: its first commit and the commits up to HEAD.
+    RebasePlan(PathBuf, Result<(String, Vec<crate::rebase::Step>), String>),
     /// `status`: the repository read again right after, in the same job (shown at once).
     GitOp { label: String, result: Result<String, String>, status: Option<(PathBuf, Result<git::Status, String>)> },
     NewTab { title: String, text: String, syntax: String },

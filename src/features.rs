@@ -32,7 +32,7 @@ pub fn of_cmd(cmd: Cmd) -> Option<Feature> {
     use Cmd::*;
     Some(match cmd {
         PullRequests | CreatePr | CopyGithubLink => Feature::GitHub,
-        ShowGit | GitAddVersion | GitAmend | GitBlame | GitCheckout | GitClean | GitCommit | GitDeleteBranch | GitDiffFile | GitFetch | GitFileHistory | GitForcePush | GitHistory | GitLineHistory | GitMerge | GitNewBranch | GitNextChange | GitPrevChange | GitPull | GitPullRebase | GitPush | GitPushTags | GitRebaseOnto | GitReflog | GitRefresh | GitRenameBranch | GitRevertChange | GitRevertFile | GitSearchHistory | GitStageAll | GitStash | GitStashPop | GitVersions => Feature::Git,
+        ShowGit | GitAddVersion | GitAmend | GitBlame | GitCheckout | GitClean | GitCommit | GitDeleteBranch | GitDiffFile | GitFetch | GitFileHistory | GitForcePush | GitHistory | GitLineHistory | GitMerge | GitNewBranch | GitNextChange | GitPrevChange | GitPull | GitPullRebase | GitPush | GitPushTags | GitRebaseOnto | GitRebaseInteractive | GitReflog | GitRefresh | GitRenameBranch | GitRevertChange | GitRevertFile | GitSearchHistory | GitStageAll | GitStash | GitStashPop | GitVersions => Feature::Git,
         Debug | DebugStart | DebugStop | DebugRestart | DebugPause | StepOver | StepInto | StepOut | ToggleBreakpoint | ClearBreakpoints | DebugTestHere => Feature::Debugger,
         Claude | SuggestCommit | ClaudeAddSelection | ClaudeAddFile | ClaudeResumeFile | ClaudeAsk | ClaudeScreenshot | ClaudeNextWaiting | GitAiReview | GitExplain | GitCommitRules | GitMyCommitRules => Feature::Claude,
         _ => return None,

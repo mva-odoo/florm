@@ -217,6 +217,10 @@ impl App {
                     BranchPick::Checkout => t!("Changer de branche", "Switch branch").into(),
                     BranchPick::Merge => tf!("Fusionner une branche dans « {cur} »", "Merge a branch into “{cur}”"),
                     BranchPick::Rebase => tf!("Rebaser « {cur} » sur la branche…", "Rebase “{cur}” onto the branch…"),
+                    BranchPick::RebaseInteractive => tf!(
+                        "Rebase interactif : les commits de « {cur} » qui ne sont pas dans la branche…",
+                        "Interactive rebase: the commits of “{cur}” that are not in the branch…"
+                    ),
                     BranchPick::Rename => t!("Renommer la branche", "Rename the branch").into(),
                     BranchPick::Delete => t!("Supprimer la branche (demande confirmation)", "Delete the branch (asks for confirmation)").into(),
                 }

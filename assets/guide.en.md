@@ -205,6 +205,13 @@ opening the folder or showing a diff does not run them. The hooks of commits and
 - **🔀 branch ▾**: also **merge a branch** into the current one, **rebase** the current branch onto
   another, **rename** a branch (its remote branch of the same name follows), **delete** a local
   branch (and its remote branch if you choose so) or a remote one, and **amend the last commit**.
+- **Interactive rebase**: **🔀 branch ▾ → Interactive rebase…** (or “Git: interactive rebase” in
+  the palette) asks for the starting branch (`master`, `origin/17.0`…) and lists the commits of the
+  current branch that are not in it; or right click on a commit of the graph → **Interactive
+  rebase from here…**. For each commit: keep it, change its message, merge it with the previous
+  one (with or without its message) or drop it, and ↑ ↓ to change the order.
+- **Blame** (**Ctrl+Shift+B**): the author, date and message of the last commit of the line, in
+  grey at its end; again to hide it.
 - **Amend the last commit** (box under the message, or branch menu): the message of the last
   commit comes back in the field; the button replaces it (with the staged files added). If it
   was already pushed, a push --force-with-lease will be needed.
