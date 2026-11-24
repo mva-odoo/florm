@@ -14,6 +14,10 @@ impl App {
         }
         let path = d.path.clone()?;
         let (family, lang) = lsp::language_of(&path)?;
+        // a language server may run the code of the project (build.rs, macros, its own tsserver)
+        if !self.trusted(&path) {
+            return None;
+        }
         let root = self.repo_for(&path).or_else(|| self.root.clone()).or_else(|| path.parent().map(Path::to_path_buf))?;
         let ci = match self.lsp.manager.ensure(family, &root, &self.settings.lsp_servers, ctx) {
             Ok(ci) => ci,
@@ -791,7 +795,7 @@ mod tests {
         let (conf, proj) = (dir.join("conf"), dir.join("proj"));
         std::fs::create_dir_all(&conf).unwrap();
         std::fs::create_dir_all(&proj).unwrap();
-        std::fs::write(conf.join("settings.toml"), "check_updates = false\nlsp = true\n").unwrap();
+        std::fs::write(conf.join("settings.toml"), format!("check_updates = false\nlsp = true\ntrusted_folders = {:?}\n", [proj.to_string_lossy()])).unwrap();
         let file = proj.join("a.c");
         std::fs::write(&file, "int main(void) {\n  return undefined_name;\n}\n").unwrap();
         let _lock = config::TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());

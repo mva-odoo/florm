@@ -472,7 +472,7 @@ mod lsp_tests {
         let (conf, proj) = (dir.join("conf"), dir.join("proj"));
         std::fs::create_dir_all(&conf).unwrap();
         std::fs::create_dir_all(&proj).unwrap();
-        std::fs::write(conf.join("settings.toml"), "check_updates = false\nlsp = true\n").unwrap();
+        std::fs::write(conf.join("settings.toml"), format!("check_updates = false\nlsp = true\ntrusted_folders = {:?}\n", [proj.to_string_lossy()])).unwrap();
         std::fs::write(proj.join("go.mod"), "module t\n\ngo 1.21\n").unwrap();
         let file = proj.join("main.go");
         std::fs::write(&file, "package main\n\nfunc main() { println(strings.ToUpper(\"a\")) }\n").unwrap();

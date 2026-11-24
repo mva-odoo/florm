@@ -22,7 +22,7 @@ pub const DEFAULT_REPO: &str = "florm-config";
 /// set them: it could run any command on every computer that syncs it).
 pub const LOCAL_KEYS: &[&str] = &[
     "shared_config", "skills_dir", "odoo_test_history", "shell", "debug_target", "debug_command", "debug_command_node", "debug_command_native", "debug_command_go", "debug_python",
-    "debug_docker_command", "lsp_servers", "python_linter", "python_lint_args",
+    "debug_docker_command", "lsp_servers", "python_linter", "python_lint_args", "trusted_folders",
 ];
 
 /// `shared_config` of the local settings (set by `config::load`).

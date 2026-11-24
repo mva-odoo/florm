@@ -263,6 +263,14 @@ To choose another command, in `settings.toml`:
 python = "pyright-langserver --stdio"
 ```
 
+A language server, eslint or the flake8 plugins of a project may run its code: they only run in a
+**trusted folder**. Elsewhere, a “🔒 Restricted mode” bar above the file offers to trust the folder;
+the list is in `settings.toml`:
+
+```toml
+trusted_folders = ["/home/me/src/my-project"]
+```
+
 ### Built-in terminal
 
 It runs your shell (`$SHELL` on Linux and macOS, `cmd.exe` or `%COMSPEC%` on Windows; to change in Preferences → Terminal). For the prompt icons (starship, powerline), install a [Nerd Font](https://www.nerdfonts.com): Florm finds it by itself.

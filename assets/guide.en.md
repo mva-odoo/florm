@@ -321,6 +321,12 @@ Problems are underlined in the code and listed in **Problems** (bottom panel):
   Preferences → Editor.
 - **XML and JSON**: a badly formed file (unclosed or badly nested tag, missing quote), live.
 
+**🔒 Restricted mode.** A language server, eslint or the flake8 plugins declared by a project may
+run its code. In a folder not trusted yet, a bar above the file says so: the language servers and
+eslint do not run, and flake8 ignores the configuration of the project (`node --check` and the
+Python lint stay). **Trust “folder”** starts them, for that folder and those inside it
+(`trusted_folders` key of `settings.toml`); **Later** hides the bar until Florm is closed.
+
 ## Tests (pytest, jest, cargo, go)
 
 The tests of any project run on this computer, with nothing to set:

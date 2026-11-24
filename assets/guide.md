@@ -327,6 +327,13 @@ Les problèmes sont soulignés dans le code et listés dans **Problèmes** (pann
   fichier Python à l'enregistrement : Préférences → Éditeur.
 - **XML et JSON** : un fichier mal formé (balise non fermée, mal imbriquée, guillemet oublié), en direct.
 
+**🔒 Mode restreint.** Un serveur de langage, eslint ou les plugins flake8 déclarés par un projet
+peuvent exécuter son code. Dans un dossier qui n'est pas encore de confiance, une barre au-dessus du
+fichier le dit : les serveurs de langage et eslint ne tournent pas, et flake8 ignore la configuration
+du projet (`node --check` et le lint Python restent). **Faire confiance à « dossier »** les lance, pour
+ce dossier et ceux qu'il contient (clé `trusted_folders` de `settings.toml`) ; **Plus tard** cache la
+barre jusqu'à la fermeture de Florm.
+
 ## Tests (pytest, jest, cargo, go)
 
 Les tests de n'importe quel projet se lancent sur cet ordinateur, sans rien régler :

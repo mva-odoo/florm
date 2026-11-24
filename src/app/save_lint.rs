@@ -190,7 +190,7 @@ impl App {
         let uid = doc.uid;
         let lint_on = self.settings.lint_on_save || !saving;
         let root = self.repo_for(&path).or_else(|| self.root.clone());
-        let cfg = self.lint_config();
+        let cfg = self.lint_config(&path);
         let text = self.docs[idx].rope.to_string();
         self.jobs.spawn(move || {
             let diags = if lint_on { lint::lint_external(&path, &text, root.as_deref(), &cfg) } else { None };
@@ -198,13 +198,15 @@ impl App {
         });
     }
 
-    pub(super) fn lint_config(&self) -> lint::LintConfig {
+    /// The linters for `path`: the configuration of its project used only in a trusted folder.
+    pub(super) fn lint_config(&self, path: &Path) -> lint::LintConfig {
         let s = &self.settings;
         let ignore = [("flake8", &s.lint_ignore_flake8), ("ruff", &s.lint_ignore_ruff), ("pylint", &s.lint_ignore_pylint), ("eslint", &s.lint_ignore_eslint)];
         lint::LintConfig {
             python_linter: s.python_linter.clone(),
             python_args: s.python_lint_args.clone(),
             ignore: ignore.into_iter().filter(|(_, c)| !c.is_empty()).map(|(n, c)| (n.to_string(), c.clone())).collect(),
+            trusted: self.trusted(path),
         }
     }
 
@@ -226,7 +228,7 @@ impl App {
         }
         let (uid, version, text) = (d.uid, d.version, d.rope.to_string());
         let root = self.repo_for(&path).or_else(|| self.root.clone());
-        let cfg = self.lint_config();
+        let cfg = self.lint_config(&path);
         self.lint_inflight.insert(uid);
         self.jobs.spawn(move || {
             let (diags, linter) = lint::lint_python(&path, &text, root.as_deref(), &cfg);

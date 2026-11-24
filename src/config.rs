@@ -107,6 +107,9 @@ pub struct Settings {
     pub lsp: bool,
     /// Server command per language family ("python", "typescript", "rust", "go", "c"); else detected.
     pub lsp_servers: HashMap<String, String>,
+    /// Folders trusted (with those inside): their language servers and the linters set up by the
+    /// project run there (they may run its code). Elsewhere Florm is in restricted mode.
+    pub trusted_folders: Vec<String>,
     /// Left out of go to file, the symbol index and find in files (gitignore syntax).
     pub exclude: Vec<String>,
     /// Most source files in the symbol index (the repositories of the open files come first).
@@ -224,6 +227,7 @@ impl Default for Settings {
             keys: HashMap::new(),
             lsp: true,
             lsp_servers: HashMap::new(),
+            trusted_folders: Vec::new(),
             exclude: ["__pycache__/", "*.pyc", "node_modules/", ".venv/", "*.egg-info/"].map(String::from).to_vec(),
             index_max_files: 150_000,
             check_updates: true,
@@ -350,6 +354,9 @@ auto_save = "off"
 # shell = "/bin/bash"
 # Serveurs de langage (complétion Ctrl+Espace, définition F12, renommer F2)
 lsp = true
+# dossiers de confiance (et ceux qu'ils contiennent) : les serveurs de langage et les linters configurés
+# par le projet (flake8, eslint) n'y tournent qu'une fois le dossier approuvé, car ils peuvent exécuter son code
+trusted_folders = []
 # Exclus de « aller au fichier » (Ctrl+P), de l'index des symboles et de la recherche (syntaxe .gitignore)
 exclude = ["__pycache__/", "*.pyc", "node_modules/", ".venv/", "*.egg-info/"]
 # Fichiers source au plus dans l'index des symboles (les dépôts des fichiers ouverts d'abord)

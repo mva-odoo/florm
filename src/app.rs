@@ -50,6 +50,7 @@ mod md_toolbar;
 mod theme_edit;
 mod template_edit;
 mod explain;
+mod trust;
 mod panes;
 mod compare;
 mod lsp_client;
@@ -967,6 +968,8 @@ pub struct App {
     last_disk_check: Instant,
     /// A `DiskCheck` is running: not another one meanwhile.
     disk_check_busy: bool,
+    /// Folders not trusted for which « Plus tard » was clicked (until Florm is closed).
+    trust_later: HashSet<PathBuf>,
     /// Last command run in a terminal: git and the files are checked more often for a while.
     term_enter: Option<Instant>,
     last_line_copy: Option<String>,
@@ -1252,6 +1255,7 @@ impl App {
             pending: Vec::new(),
             last_disk_check: Instant::now(),
             disk_check_busy: false,
+            trust_later: HashSet::new(),
             term_enter: None,
             last_line_copy: None,
             quit_confirmed: false,

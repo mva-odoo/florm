@@ -55,6 +55,9 @@ pub struct LintConfig {
     pub python_args: Vec<String>,
     /// Codes not shown, per linter: (linter, codes).
     pub ignore: Vec<(String, Vec<String>)>,
+    /// The folder is trusted: the configuration of the project may load code (flake8 plugins,
+    /// eslint.config.js, the eslint of node_modules). Else flake8 ignores it and eslint does not run.
+    pub trusted: bool,
 }
 
 /// The linters whose problems have a code that can be ignored: (name, example of codes).
@@ -88,7 +91,7 @@ impl LintConfig {
 pub fn lint_external(path: &Path, text: &str, root: Option<&Path>, cfg: &LintConfig) -> Option<(Vec<Diagnostic>, String)> {
     match lang_of(path)? {
         "python" => Some(lint_python(path, text, root, cfg)),
-        "javascript" => Some((cfg.filter(lint_js(path, root)), "eslint".into())),
+        "javascript" => Some((cfg.filter(lint_js(path, root, cfg.trusted)), "eslint".into())),
         _ => None,
     }
 }
@@ -551,7 +554,13 @@ pub fn lint_python(path: &Path, text: &str, root: Option<&Path>, cfg: &LintConfi
                 .chain(extra.clone())
                 .chain(["-".to_string()])
                 .collect(),
-            "flake8" => ["--stdin-display-name".to_string(), display.clone()].into_iter().chain(extra.clone()).chain(["-".to_string()]).collect(),
+            "flake8" => ["--stdin-display-name".to_string(), display.clone()]
+                .into_iter()
+                // the configuration of an untrusted project could load its plugins (local-plugins)
+                .chain((!cfg.trusted).then(|| "--isolated".to_string()))
+                .chain(extra.clone())
+                .chain(["-".to_string()])
+                .collect(),
             "pyflakes" => vec!["-".to_string()],
             "pylint" => [
                 "--from-stdin".to_string(),
@@ -618,17 +627,21 @@ pub fn install_python_tool(name: &str) -> Result<String, String> {
     }
 }
 
-fn lint_js(path: &Path, root: Option<&Path>) -> Vec<Diagnostic> {
+/// eslint runs the code of the project (its configuration, its own eslint): only in a trusted
+/// folder; elsewhere, and without eslint, `node --check` (syntax only).
+fn lint_js(path: &Path, root: Option<&Path>, trusted: bool) -> Vec<Diagnostic> {
     let p = path.to_string_lossy();
     let dir = root.or(path.parent());
     let mut candidates = Vec::new();
-    if let Some(r) = root {
+    if let Some(r) = root.filter(|_| trusted) {
         let local = r.join("node_modules").join(".bin").join("eslint");
         if local.exists() {
             candidates.push(local.to_string_lossy().into_owned());
         }
     }
-    candidates.push("eslint".into());
+    if trusted {
+        candidates.push("eslint".to_string());
+    }
     for eslint in candidates {
         let Some(out) = run_tool(&eslint, &["--format", "json", &p], dir) else { continue };
         if let Some(d) = parse_eslint_json(&out) {
