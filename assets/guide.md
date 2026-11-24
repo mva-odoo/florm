@@ -534,8 +534,8 @@ ses nouveautés marchent tels quels. Les changements de Claude se revoient dans 
 - **Ce que Claude attend** : quand il demande une permission ou pose une question, son message
   (« veut utiliser Bash »…) s'affiche au survol de la conversation dans la liste et de **❓ attend**
   dans la barre d'état. Si Florm n'est pas au premier plan, une notification du système te prévient
-  tout de suite, de même quand Claude a fini, même si la fenêtre de Florm est cachée (macOS ; Linux
-  avec `notify-send`).
+  tout de suite, de même quand Claude a fini, même si la fenêtre de Florm est cachée (macOS ;
+  Windows ; Linux avec `notify-send`).
 - **Plusieurs conversations, un seul onglet** : toutes les conversations sont listées à gauche
   de l'onglet Claude, la plus récente en haut, avec leur titre (leur premier message), ce qu'elles
   font (⟳ travaille, ❓ attend ta réponse, ✔ a fini) et depuis quand elles travaillent ; en

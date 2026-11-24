@@ -100,9 +100,37 @@ fn spawn(mut c: Command) -> std::io::Result<()> {
     Ok(())
 }
 
-/// A notification of the system (macOS, Linux with notify-send), from a process about to end (a
-/// hook of Claude Code): the command is started, not waited for. Nothing when there is none
-/// (Windows: not yet).
+/// Windows toast shown by PowerShell; the title and body come from the environment, never from
+/// the script text (nothing to escape, and `CreateTextNode` escapes the XML).
+#[cfg(any(windows, test))]
+const TOAST_SCRIPT: &str = r#"$ErrorActionPreference = 'Stop'
+$m = [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime]
+$x = $m::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02)
+$t = $x.GetElementsByTagName('text')
+[void]$t.Item(0).AppendChild($x.CreateTextNode($env:FLORM_NOTIFY_TITLE))
+[void]$t.Item(1).AppendChild($x.CreateTextNode($env:FLORM_NOTIFY_BODY))
+$app = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe'
+$m::CreateToastNotifier($app).Show([Windows.UI.Notifications.ToastNotification]::new($x))
+"#;
+
+/// `-EncodedCommand` argument of PowerShell: base64 of the UTF-16LE script.
+#[cfg(any(windows, test))]
+fn powershell_encoded(script: &str) -> String {
+    const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let bytes: Vec<u8> = script.encode_utf16().flat_map(u16::to_le_bytes).collect();
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for c in bytes.chunks(3) {
+        let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
+        for k in 0..4 {
+            out.push(if k <= c.len() { A[(n >> (18 - 6 * k) & 63) as usize] as char } else { '=' });
+        }
+    }
+    out
+}
+
+/// A notification of the system (macOS, Linux with notify-send, Windows with a PowerShell toast),
+/// from a process about to end (a hook of Claude Code): the command is started, not waited for.
+/// Nothing when there is none.
 pub fn notify(title: &str, body: &str) {
     if let Some(mut c) = notify_command(title, body) {
         let _ = c.spawn();
@@ -123,7 +151,14 @@ fn notify_command(title: &str, body: &str) -> Option<Command> {
         c.args(["--app-name=Florm", "--", title, body]);
         c
     });
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(windows)]
+    let cmd = {
+        let mut c = command("powershell");
+        c.args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", &powershell_encoded(TOAST_SCRIPT)]);
+        c.env("FLORM_NOTIFY_TITLE", title).env("FLORM_NOTIFY_BODY", body);
+        Some(c)
+    };
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
     let cmd: Option<Command> = {
         let _ = (title, body);
         None
@@ -554,6 +589,15 @@ mod tests {
             assert_eq!(web_url(bad), None, "{bad}");
         }
         assert!(open_url("file:///dev/zero").is_err());
+    }
+
+    #[test]
+    fn powershell_encoded_command() {
+        // UTF-16LE then base64, as `powershell -EncodedCommand` reads it
+        assert_eq!(powershell_encoded("a"), "YQA=");
+        assert_eq!(powershell_encoded("ab"), "YQBiAA==");
+        assert_eq!(powershell_encoded("é!"), "6QAhAA==");
+        assert!(TOAST_SCRIPT.contains("$env:FLORM_NOTIFY_TITLE") && TOAST_SCRIPT.contains("$env:FLORM_NOTIFY_BODY"));
     }
 
     #[cfg(target_os = "linux")]
