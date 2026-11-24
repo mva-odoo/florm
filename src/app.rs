@@ -965,6 +965,8 @@ pub struct App {
     paced_frame: Option<Instant>,
     pending: Vec<Cmd>,
     last_disk_check: Instant,
+    /// A `DiskCheck` is running: not another one meanwhile.
+    disk_check_busy: bool,
     /// Last command run in a terminal: git and the files are checked more often for a while.
     term_enter: Option<Instant>,
     last_line_copy: Option<String>,
@@ -990,6 +992,8 @@ pub struct App {
     /// Give the keyboard focus to the editor at the next frame (after a tab change).
     pending_focus: bool,
     md_cache: egui_commonmark::CommonMarkCache,
+    /// The Markdown preview shown, cut into pieces for the version of its text.
+    md_preview: Option<panes::MdPreview>,
     /// Claude on the selection, in a small window over the editor (Ctrl+I).
     inline: Option<inline_ai::InlineAsk>,
     /// AI completion while typing (see ai_complete.rs).
@@ -1049,6 +1053,8 @@ pub struct App {
     /// Ctrl+Shift+B: blame annotation following the cursor line.
     blame_mode: bool,
     blame_req: Option<(u64, usize, u64)>,
+    /// The line of the cursor (as `blame_req`) and since when it is there.
+    blame_seen: Option<((u64, usize, u64), Instant)>,
     line_history: Option<LineHistoryUi>,
     /// The window of the versions of a file (local history).
     local_history: Option<compare::LocalHistory>,
@@ -1245,6 +1251,7 @@ impl App {
             paced_frame: std::env::var_os("WAYLAND_DISPLAY").is_some().then(Instant::now),
             pending: Vec::new(),
             last_disk_check: Instant::now(),
+            disk_check_busy: false,
             term_enter: None,
             last_line_copy: None,
             quit_confirmed: false,
@@ -1262,6 +1269,7 @@ impl App {
             drop_zones: DropZones::default(),
             pending_focus: false,
             md_cache: egui_commonmark::CommonMarkCache::default(),
+            md_preview: None,
             inline: None,
             ai: Default::default(),
             hints: Default::default(),
@@ -1296,6 +1304,7 @@ impl App {
             dialog_open: false,
             blame_mode: false,
             blame_req: None,
+            blame_seen: None,
             line_history: None,
             local_history: None,
             state: project::load_state(),
@@ -1632,7 +1641,7 @@ impl eframe::App for App {
         self.editor_input(ctx);
         self.auto_save(ctx);
         self.ai_complete_frame(ctx);
-        self.update_blame();
+        self.update_blame(ctx);
         self.update_live_lint(ctx);
         self.update_find();
         self.periodic(ctx);

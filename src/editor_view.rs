@@ -79,9 +79,6 @@ pub struct ViewOpts<'a> {
 
 pub fn show(ui: &mut Ui, doc: &mut Document, hl: &Highlighting, opts: &ViewOpts, matches: &[(usize, usize)], id: Id) -> egui::Response {
     let font = FontId::monospace(opts.font_size);
-    if opts.rainbow {
-        doc.ensure_bracket_depths();
-    }
     let (rh, cw) = ui.fonts(|f| (f.row_height(&font), char_width(f, &font)));
     let bg = hl.colors.bg;
     if opts.minimap {
@@ -291,6 +288,9 @@ fn text_area(
         let last_row = (vp.max.y / rh).ceil().max(0.0) as usize;
         let first = rm.line_at_row(first_row, nlines);
         let last = rm.line_at_row(last_row, nlines).min(nlines - 1);
+        if opts.rainbow {
+            doc.ensure_bracket_depths(last);
+        }
         let vstart = ((vp.min.x - gutter_w).max(0.0) / cw).floor() as usize;
         let vend = vstart + (vp.width() / cw).ceil() as usize + 2;
         let line_y = |l: usize| origin.y + rm.row(l) as f32 * rh;
@@ -557,7 +557,7 @@ fn text_area(
         definitions_popup(ui, doc, id, defs_popup);
 
         // ---------------------------------------------------------------- highlighting
-        if !doc.highlight.ensure(hl, &doc.syntax, &doc.rope, last, 20_000) {
+        if !doc.highlight.ensure(hl, &doc.syntax, &doc.rope, last, crate::highlight::FRAME_BUDGET) {
             ui.ctx().request_repaint();
         }
 
@@ -1263,7 +1263,7 @@ fn minimap_ui(ui: &mut Ui, doc: &mut Document, hl: &Highlighting, rh: f32) {
     let off = (total - rect.height()).max(0.0) * frac;
     let first = (off / lh) as usize;
     let last = (first + (rect.height() / lh) as usize + 1).min(nlines);
-    if last > 0 && !doc.highlight.ensure(hl, &doc.syntax, &doc.rope, last - 1, 20_000) {
+    if last > 0 && !doc.highlight.ensure(hl, &doc.syntax, &doc.rope, last - 1, crate::highlight::FRAME_BUDGET) {
         ui.ctx().request_repaint();
     }
     let painter = ui.painter_at(rect);

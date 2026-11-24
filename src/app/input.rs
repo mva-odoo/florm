@@ -319,9 +319,7 @@ impl App {
             FindNext => self.find_step(true, false),
             FindPrev => self.find_step(false, false),
             FindAll => self.find_select_all(ctx),
-            Save => {
-                self.save(self.active);
-            }
+            Save => self.save_formatted(self.active),
             SaveAs => {
                 if !self.native_dialog(crate::os::Pick::SaveAs) {
                     self.open_prompt(Prompt::SaveAs);
@@ -330,7 +328,7 @@ impl App {
             SaveAll => {
                 for i in 0..self.docs.len() {
                     if self.docs[i].is_dirty() && self.docs[i].path.is_some() {
-                        self.save(i);
+                        self.save_formatted(i);
                     }
                 }
             }
@@ -785,8 +783,8 @@ impl App {
                 self.git.focus_commit = true;
             }
             GitStash => self.stash_act(super::git_actions::StashAct::Push),
+            // the stashes read with the last state of the repository
             GitStashPop => {
-                self.stash_reload();
                 match self.git.stashes.first() {
                     Some(s) => {
                         let hash = s.hash.clone();

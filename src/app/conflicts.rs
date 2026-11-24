@@ -278,24 +278,33 @@ impl App {
             Operation::CherryPick => Some("CHERRY_PICK_HEAD"),
             _ => None,
         };
-        for f in files {
-            text += &format!("\n\n- `{f}`");
-            // what the commit itself changes in that file: the change to keep
-            if let Some(rev) = rev {
-                let diff = git::stdout(repo, &["show", "--format=", rev, "--", f]).unwrap_or_default();
-                if !diff.trim().is_empty() {
-                    let lines: Vec<&str> = diff.lines().collect();
-                    let cut = if lines.len() > CLAUDE_DIFF_LINES { t!("\n… (coupé)", "\n… (cut)") } else { "" };
-                    text += &format!("\n  {}\n```diff\n{}{cut}\n```", t!("Ce que le commit y change :", "What the commit changes in it:"), lines[..lines.len().min(CLAUDE_DIFF_LINES)].join("\n"));
+        // what each commit changes read on a thread
+        let (repo, files) = (repo.to_path_buf(), files.to_vec());
+        self.jobs.spawn(move || {
+            for f in &files {
+                text += &format!("\n\n- `{f}`");
+                // what the commit itself changes in that file: the change to keep
+                if let Some(rev) = rev {
+                    let diff = git::stdout(&repo, &["show", "--format=", rev, "--", f]).unwrap_or_default();
+                    if !diff.trim().is_empty() {
+                        let lines: Vec<&str> = diff.lines().collect();
+                        let cut = if lines.len() > CLAUDE_DIFF_LINES { t!("\n… (coupé)", "\n… (cut)") } else { "" };
+                        text += &format!("\n  {}\n```diff\n{}{cut}\n```", t!("Ce que le commit y change :", "What the commit changes in it:"), lines[..lines.len().min(CLAUDE_DIFF_LINES)].join("\n"));
+                    }
                 }
             }
-        }
-        if !(self.claude.is_empty() && self.claude.dir.as_deref() == Some(repo)) {
-            self.claude_new_in(repo.to_path_buf());
+            JobResult::ConflictsForClaude(repo, files.len(), text)
+        });
+    }
+
+    /// The request « Résoudre avec Claude » written: sent to a conversation in the repository.
+    pub(super) fn conflicts_sent(&mut self, repo: PathBuf, n: usize, text: String) {
+        if !(self.claude.is_empty() && self.claude.dir.as_deref() == Some(repo.as_path())) {
+            self.claude_new_in(repo);
         }
         self.open_claude();
         if self.claude_send_text(text) {
-            self.set_status(tf!("{} fichier(s) donné(s) à Claude : relis puis « Marquer résolu »", "{} file(s) given to Claude: check then “Mark resolved”", files.len()));
+            self.set_status(tf!("{n} fichier(s) donné(s) à Claude : relis puis « Marquer résolu »", "{n} file(s) given to Claude: check then “Mark resolved”"));
         }
     }
 }

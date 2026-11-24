@@ -9,6 +9,25 @@ impl App {
     pub(super) fn process_jobs(&mut self) {
         while let Ok(r) = self.jobs.rx.try_recv() {
             match r {
+                JobResult::ClaudeCommit(repo, r) => self.claude_commit_read(repo, r),
+                JobResult::ConflictsForClaude(repo, n, text) => self.conflicts_sent(repo, n, text),
+                JobResult::Stashes(repo, list) => {
+                    if self.repo.as_ref() == Some(&repo) {
+                        self.git.stashes = list;
+                    }
+                }
+                JobResult::DiskCheck { stamps, files } => {
+                    self.disk_check_busy = false;
+                    self.check_git_stamps(stamps);
+                    self.files_checked(files);
+                }
+                JobResult::Diffed { uid, version, hunks } => {
+                    // a newer version is diffed in its turn
+                    if let Some(d) = self.docs.iter_mut().find(|d| d.uid == uid && d.version == version) {
+                        d.set_hunks(hunks, version);
+                    }
+                }
+                JobResult::Rewritten { uid, version, what, lines, then_save, result } => self.on_rewritten(uid, version, what, lines, then_save, result),
                 JobResult::Analyzed { uid, diags, base, .. } => self.on_analyzed(uid, diags, base),
                 JobResult::Lint { uid, version, diags, linter } => self.on_lint(uid, version, diags, linter),
                 JobResult::ToolInstalled(r) => self.on_tool_installed(r),

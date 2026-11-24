@@ -486,6 +486,7 @@ pub enum FileJump {
     PageUp,
 }
 
+#[derive(Clone, Copy)]
 enum StackRow {
     Gap,
     Header(usize),
@@ -524,49 +525,66 @@ pub fn stacked_diff_view(
     let row_h = row_h.max(24.0);
     let place = ui.available_rect_before_wrap();
     let side = side_by_side();
-    // rows: lines before the first file (messages), then each file
-    let mut rows: Vec<StackRow> = Vec::new();
-    let first = files.first().map_or(lines.len(), |f| f.start);
-    rows.extend((0..first).filter(|&i| !lines[i].text.trim().is_empty()).map(StackRow::Line));
-    for (k, f) in files.iter().enumerate() {
-        if k > 0 || first > 0 {
-            rows.push(StackRow::Gap);
-        }
-        rows.push(StackRow::Header(k));
-        if collapsed.contains(&f.start) {
-            continue;
-        }
-        let end = files.get(k + 1).map_or(lines.len(), |n| n.start);
-        let mut in_hunk = false;
-        let shown: Vec<usize> = (f.start + 1..end)
-            .filter(|&i| {
-                in_hunk |= lines[i].kind == DiffKind::Hunk;
-                in_hunk || !is_file_header(&lines[i].text)
-            })
-            .collect();
-        let has_note = |i: usize| notes.as_ref().is_some_and(|n| n.at.contains(&i));
-        if side {
-            for row in side_rows(lines, shown) {
-                match row {
-                    SideRow::Full(i) => rows.push(StackRow::Line(i)),
-                    SideRow::Pair(l, r) => rows.push(StackRow::Pair(l, r)),
+    // rows: lines before the first file (messages), then each file; built again only when the
+    // diff, the files folded, the notes or the layout change (not at each frame)
+    let mut folded: Vec<usize> = collapsed.iter().copied().collect();
+    folded.sort_unstable();
+    let mut noted: Vec<usize> = notes.as_ref().map(|n| n.at.iter().copied().collect()).unwrap_or_default();
+    noted.sort_unstable();
+    let key = diff_key(lines, (files.len(), side, folded, noted));
+    let cache_id = egui::Id::new(id).with("stack_rows");
+    let cached = ui.ctx().data(|d| d.get_temp::<(u64, std::sync::Arc<Vec<StackRow>>, usize, usize)>(cache_id)).filter(|c| c.0 == key);
+    let (rows, max_len, side_len) = match cached {
+        Some((_, rows, m, s)) => (rows, m, s),
+        None => {
+            let mut rows: Vec<StackRow> = Vec::new();
+            let first = files.first().map_or(lines.len(), |f| f.start);
+            rows.extend((0..first).filter(|&i| !lines[i].text.trim().is_empty()).map(StackRow::Line));
+            for (k, f) in files.iter().enumerate() {
+                if k > 0 || first > 0 {
+                    rows.push(StackRow::Gap);
                 }
-                // the notes of both sides under the pair (once for a context line)
-                let (l, r) = match row {
-                    SideRow::Full(i) => (Some(i), None),
-                    SideRow::Pair(l, r) => (l, r.filter(|r| Some(*r) != l)),
-                };
-                rows.extend([l, r].into_iter().flatten().filter(|&i| has_note(i)).map(StackRow::Note));
-            }
-        } else {
-            for i in shown {
-                rows.push(StackRow::Line(i));
-                if has_note(i) {
-                    rows.push(StackRow::Note(i));
+                rows.push(StackRow::Header(k));
+                if collapsed.contains(&f.start) {
+                    continue;
+                }
+                let end = files.get(k + 1).map_or(lines.len(), |n| n.start);
+                let mut in_hunk = false;
+                let shown: Vec<usize> = (f.start + 1..end)
+                    .filter(|&i| {
+                        in_hunk |= lines[i].kind == DiffKind::Hunk;
+                        in_hunk || !is_file_header(&lines[i].text)
+                    })
+                    .collect();
+                let has_note = |i: usize| notes.as_ref().is_some_and(|n| n.at.contains(&i));
+                if side {
+                    for row in side_rows(lines, shown) {
+                        match row {
+                            SideRow::Full(i) => rows.push(StackRow::Line(i)),
+                            SideRow::Pair(l, r) => rows.push(StackRow::Pair(l, r)),
+                        }
+                        // the notes of both sides under the pair (once for a context line)
+                        let (l, r) = match row {
+                            SideRow::Full(i) => (Some(i), None),
+                            SideRow::Pair(l, r) => (l, r.filter(|r| Some(*r) != l)),
+                        };
+                        rows.extend([l, r].into_iter().flatten().filter(|&i| has_note(i)).map(StackRow::Note));
+                    }
+                } else {
+                    for i in shown {
+                        rows.push(StackRow::Line(i));
+                        if has_note(i) {
+                            rows.push(StackRow::Note(i));
+                        }
+                    }
                 }
             }
+            let rows = std::sync::Arc::new(rows);
+            let (m, s) = (max_len_of(lines), side_len_of(lines));
+            ui.ctx().data_mut(|d| d.insert_temp(cache_id, (key, rows.clone(), m, s)));
+            (rows, m, s)
         }
-    }
+    };
     // the height of a block is the one it took at the last frame
     let note_id = |i: usize| egui::Id::new(id).with(("note", i));
     let heights: Vec<f32> = rows
@@ -583,9 +601,8 @@ pub fn stacked_diff_view(
         y += h;
     }
     let total = y;
-    let max_len = lines.iter().map(|l| l.text.chars().count()).max().unwrap_or(0);
     let nums_w = cw * 12.0;
-    let half = side_width(lines, cw, place.width());
+    let half = side_width(side_len, cw, place.width());
     let width = if side { 2.0 * half } else { nums_w + (max_len as f32 + 4.0) * cw };
     let v = ui.visuals().clone();
     let (weak, fg, light) = (v.weak_text_color(), v.text_color(), !v.dark_mode);
@@ -811,9 +828,31 @@ fn changed_chars(a: &str, b: &str) -> Option<((usize, usize), (usize, usize))> {
 
 /// Width of one side of a side-by-side diff: half the view, or more for long lines (then the
 /// view scrolls sideways).
-fn side_width(lines: &[DiffLine], cw: f32, avail: f32) -> f32 {
-    let max_len = lines.iter().filter(|l| matches!(l.kind, DiffKind::Context | DiffKind::Added | DiffKind::Removed)).map(|l| l.text.chars().count()).max().unwrap_or(0);
+/// Width of each side of a side-by-side diff whose longest code line has `max_len` characters.
+fn side_width(max_len: usize, cw: f32, avail: f32) -> f32 {
     (avail / 2.0).max(cw * (max_len as f32 + 9.0))
+}
+
+/// The longest line of a diff (characters).
+fn max_len_of(lines: &[DiffLine]) -> usize {
+    lines.iter().map(|l| l.text.chars().count()).max().unwrap_or(0)
+}
+
+/// The longest line of code of a diff (characters), for `side_width`.
+fn side_len_of(lines: &[DiffLine]) -> usize {
+    lines.iter().filter(|l| matches!(l.kind, DiffKind::Context | DiffKind::Added | DiffKind::Removed)).map(|l| l.text.chars().count()).max().unwrap_or(0)
+}
+
+/// Key of a diff for the caches of its views (where its lines are, how many, the first and last
+/// ones), with what else the cache depends on.
+fn diff_key(lines: &[DiffLine], extra: impl std::hash::Hash) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    (lines.as_ptr() as usize, lines.len()).hash(&mut h);
+    lines.first().map(|l| &l.text).hash(&mut h);
+    lines.last().map(|l| &l.text).hash(&mut h);
+    extra.hash(&mut h);
+    h.finish()
 }
 
 /// Draws a pair of a side-by-side diff in `rect` (both sides, `half` wide each).
@@ -918,10 +957,21 @@ pub fn diff_view(ui: &mut Ui, lines: &[DiffLine], id: &str, hunk_buttons: &[Diff
     let row_h = if hunk_buttons.is_empty() { row_h } else { row_h.max(22.0) };
     let area = ui.available_rect_before_wrap();
     let side = side_by_side();
-    let rows: Vec<SideRow> = if side { side_rows(lines, 0..lines.len()) } else { (0..lines.len()).map(SideRow::Full).collect() };
-    let max_len = lines.iter().map(|l| l.text.chars().count()).max().unwrap_or(0);
+    // built again only when the diff or the layout change (not at each frame)
+    let key = diff_key(lines, side);
+    let cache_id = egui::Id::new(id).with("diff_rows");
+    let cached = ui.ctx().data(|d| d.get_temp::<(u64, std::sync::Arc<Vec<SideRow>>, usize, usize)>(cache_id)).filter(|c| c.0 == key);
+    let (rows, max_len, side_len) = match cached {
+        Some((_, rows, m, s)) => (rows, m, s),
+        None => {
+            let rows = std::sync::Arc::new(if side { side_rows(lines, 0..lines.len()) } else { (0..lines.len()).map(SideRow::Full).collect() });
+            let (m, s) = (max_len_of(lines), side_len_of(lines));
+            ui.ctx().data_mut(|d| d.insert_temp(cache_id, (key, rows.clone(), m, s)));
+            (rows, m, s)
+        }
+    };
     let nums_w = cw * 12.0;
-    let half = side_width(lines, cw, area.width());
+    let half = side_width(side_len, cw, area.width());
     let width = if side { 2.0 * half } else { nums_w + (max_len as f32 + 4.0) * cw };
     let weak = ui.visuals().weak_text_color();
     let fg = ui.visuals().text_color();

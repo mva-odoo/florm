@@ -31,7 +31,7 @@ impl App {
             let (uid, version) = (d.uid, d.version);
             let rope = &self.docs[i].rope;
             if let Some(c) = self.lsp.manager.client(ci) {
-                c.sync(uid, &path, lang, version, || rope.to_string());
+                c.sync(uid, &path, lang, version, rope);
             }
         }
         Some((ci, lang))

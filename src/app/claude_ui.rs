@@ -422,7 +422,7 @@ impl App {
         let dir_name = self.claude.dir.as_deref().map(|d| self.repo_label(d)).unwrap_or_default();
         // the repositories of the opened folder, then the recent projects: any of them, not only a repository
         let mut dirs: Vec<(PathBuf, String)> = self.repos.iter().map(|r| (r.clone(), self.repo_label(r))).collect();
-        for p in self.projects.iter().filter(|p| p.path.is_dir()) {
+        for p in self.projects.iter().filter(|p| crate::stat_cache::is_dir(&p.path)) {
             if !dirs.iter().any(|(d, _)| *d == p.path) {
                 dirs.push((p.path.clone(), format!("{}  ·  {}", p.name, p.path.display())));
             }
@@ -445,7 +445,7 @@ impl App {
         let account_name = claude_account::find(&accounts, &self.claude.account).name.clone();
         let no_limits = Vec::new();
         let limits = self.claude_limits.get(&self.claude_limits_key(&self.claude.account)).unwrap_or(&no_limits);
-        let branch = self.claude.dir.as_deref().and_then(git::head_branch);
+        let branch = self.claude.dir.as_deref().and_then(crate::stat_cache::head_branch);
         let accent = self.hl.colors.accent;
         let shot_keys = self.keymap.label(Cmd::ClaudeScreenshot);
         let (term, colors, light) = (&mut self.term, self.hl.colors, self.hl.is_light());

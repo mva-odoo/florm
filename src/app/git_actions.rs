@@ -395,10 +395,11 @@ impl App {
 
     /// Repositories changed outside Florm (commit, checkout, add… in a terminal): refresh the git
     /// panel, the graph and the gutter marks of their open files.
-    pub(super) fn check_git_stamps(&mut self) {
+    /// The dates of the files of git read (`DiskCheck`): a repository changed by another program
+    /// (a commit, a checkout in a terminal) is shown again.
+    pub(super) fn check_git_stamps(&mut self, stamps: Vec<(PathBuf, Vec<Option<std::time::SystemTime>>)>) {
         let mut changed = Vec::new();
-        for r in &self.repos {
-            let st = git::stamp(r);
+        for (r, st) in stamps.into_iter().filter(|(r, _)| self.repos.contains(r)) {
             match self.git_stamps.insert(r.clone(), st.clone()) {
                 Some(old) if old != st => changed.push(r.clone()),
                 _ => {}
@@ -419,6 +420,41 @@ impl App {
             if in_repo {
                 self.refresh_git_base(i);
             }
+        }
+    }
+
+    /// The dates of the files open read (`DiskCheck`): one changed by another program is read
+    /// again, or a bar asks what to keep when it has changes; one deleted is said so.
+    pub(super) fn files_checked(&mut self, files: Vec<(u64, std::time::SystemTime, Result<std::time::SystemTime, std::io::ErrorKind>)>) {
+        let mut msgs = Vec::new();
+        for (uid, seen, r) in files {
+            // saved or read again meanwhile: what was read is already old
+            let Some(d) = self.docs.iter_mut().find(|d| d.uid == uid && d.mtime == Some(seen)) else { continue };
+            match r {
+                Ok(m) if d.mtime != Some(m) => {
+                    if d.is_dirty() {
+                        // a bar above the text asks what to keep; Ctrl+S asks too
+                        d.mtime = Some(m);
+                        d.disk_change = Some(document::DiskChange::Changed);
+                    } else if d.reload_from_disk().is_ok() {
+                        msgs.push(tf!("{} rechargé depuis le disque", "{} reloaded from disk", d.title()));
+                    }
+                }
+                Ok(_) => {
+                    // back on disk (a checkout that removed then restored it)
+                    if d.disk_change == Some(document::DiskChange::Deleted) {
+                        d.disk_change = None;
+                    }
+                }
+                Err(std::io::ErrorKind::NotFound) if d.disk_change.is_none() => {
+                    d.disk_change = Some(document::DiskChange::Deleted);
+                }
+                Err(_) => {}
+            }
+        }
+        // several files at once (a checkout): one message for all, none hidden by the next
+        if !msgs.is_empty() {
+            self.set_status(msgs.join(" · "));
         }
     }
 
@@ -444,8 +480,16 @@ pub(super) enum StashAct {
 
 impl App {
     /// The stashes of the repository, read again.
+    /// The stashes read again, off the UI thread.
     pub(super) fn stash_reload(&mut self) {
-        self.git.stashes = self.repo.as_deref().map(git::stashes).unwrap_or_default();
+        let Some(repo) = self.repo.clone() else {
+            self.git.stashes.clear();
+            return;
+        };
+        self.jobs.spawn(move || {
+            let list = git::stashes(&repo);
+            JobResult::Stashes(repo, list)
+        });
     }
 
     pub(super) fn stash_act(&mut self, act: StashAct) {

@@ -24,6 +24,20 @@ mod par_tests {
 }
 
 pub enum JobResult {
+    /// A commit read for Claude (repository): its label and its text.
+    ClaudeCommit(PathBuf, Result<(String, String), String>),
+    /// The request « Résoudre avec Claude » written (repository, number of files, text).
+    ConflictsForClaude(PathBuf, usize, String),
+    /// The stashes of a repository.
+    Stashes(PathBuf, Vec<git::Stash>),
+    /// The dates read on the disk every 2 s: the files of git of each repository, and each file
+    /// open (uid, the date it had when asked).
+    DiskCheck { stamps: Vec<(PathBuf, Vec<Option<std::time::SystemTime>>)>, files: Vec<(u64, std::time::SystemTime, Result<std::time::SystemTime, std::io::ErrorKind>)> },
+    /// The diff against HEAD of a document (uid) at a version, for the gutter.
+    Diffed { uid: u64, version: u64, hunks: Vec<crate::diff::Hunk> },
+    /// A Python document (uid) at a version formatted or fixed by ruff (the lines formatted, if
+    /// only some), and saved after when it was Ctrl+S.
+    Rewritten { uid: u64, version: u64, what: crate::lint::Rewrite, lines: Option<(usize, usize)>, then_save: bool, result: Result<String, String> },
     /// The last commits of the folder of a Claude conversation (`git log` lines).
     ClaudeCommits(u64, String),
     /// What `claude auth status` says of the Claude account named so.

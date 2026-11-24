@@ -277,7 +277,7 @@ impl App {
             }
             ui.add_space(20.0);
             welcome_section(ui, t!("Projets récents", "Recent projects"));
-            for p in self.projects.iter().filter(|p| p.path.is_dir()).take(6) {
+            for p in self.projects.iter().filter(|p| crate::stat_cache::is_dir(&p.path)).take(6) {
                 let parent = p.path.parent().map(|d| d.display().to_string()).unwrap_or_default();
                 let r = welcome_row(ui, &p.name, &parent, false).on_hover_text(p.path.display().to_string());
                 if r.clicked() {
@@ -373,7 +373,14 @@ impl App {
             if d.diff_version != d.version {
                 let el = d.last_change.elapsed();
                 if el >= Duration::from_millis(150) || d.diff_version == u64::MAX {
-                    d.refresh_diff();
+                    // on a thread (a copy of the rope costs nothing); the version marked now so
+                    // that it is not asked twice
+                    let (uid, version, rope, base) = (d.uid, d.version, d.rope.clone(), d.git_base.clone());
+                    d.diff_version = version;
+                    match base {
+                        Some(base) => self.jobs.spawn(move || JobResult::Diffed { uid, version, hunks: crate::diff::compute(&base, &rope.to_string()) }),
+                        None => d.set_hunks(Vec::new(), version),
+                    }
                 } else {
                     ctx.request_repaint_after(Duration::from_millis(160) - el);
                 }
@@ -395,45 +402,24 @@ impl App {
         }
         let busy_term = self.term_enter.is_some_and(|t| t.elapsed() < Duration::from_secs(30));
         let every = if busy_term { Duration::from_millis(500) } else { Duration::from_secs(2) };
-        if self.last_disk_check.elapsed() > every {
+        if self.last_disk_check.elapsed() > every && !self.disk_check_busy {
             self.last_disk_check = Instant::now();
-            self.check_git_stamps();
             // folders added or removed by another program show up in the tree
             if self.tree.as_mut().is_some_and(|t| t.refresh_changed()) {
                 self.index.files_at = None;
             }
-            let mut msgs = Vec::new();
-            for d in self.docs.iter_mut() {
-                let Some(p) = d.path.clone() else { continue };
-                if d.mtime.is_none() {
-                    continue;
-                }
-                match std::fs::metadata(&p).and_then(|m| m.modified()) {
-                    Ok(m) if d.mtime != Some(m) => {
-                        if d.is_dirty() {
-                            // a bar above the text asks what to keep; Ctrl+S asks too
-                            d.mtime = Some(m);
-                            d.disk_change = Some(document::DiskChange::Changed);
-                        } else if d.reload_from_disk().is_ok() {
-                            msgs.push(tf!("{} rechargé depuis le disque", "{} reloaded from disk", d.title()));
-                        }
-                    }
-                    Ok(_) => {
-                        // back on disk (a checkout that removed then restored it)
-                        if d.disk_change == Some(document::DiskChange::Deleted) {
-                            d.disk_change = None;
-                        }
-                    }
-                    Err(e) if e.kind() == std::io::ErrorKind::NotFound && d.disk_change.is_none() => {
-                        d.disk_change = Some(document::DiskChange::Deleted);
-                    }
-                    Err(_) => {}
-                }
-            }
-            // several files at once (a checkout): one message for all, none hidden by the next
-            if !msgs.is_empty() {
-                self.set_status(msgs.join(" · "));
-            }
+            // the dates of the files open and of the repositories read on a thread: a slow disk
+            // (\\wsl$, a network folder) does not freeze the window
+            let repos = self.repos.clone();
+            let files: Vec<(u64, std::time::SystemTime, PathBuf)> = self.docs.iter().filter_map(|d| Some((d.uid, d.mtime?, d.path.clone()?))).collect();
+            self.disk_check_busy = true;
+            self.jobs.spawn(move || JobResult::DiskCheck {
+                stamps: repos.into_iter().map(|r| {
+                    let st = git::stamp(&r);
+                    (r, st)
+                }).collect(),
+                files: files.into_iter().map(|(uid, seen, p)| (uid, seen, std::fs::metadata(&p).and_then(|m| m.modified()).map_err(|e| e.kind()))).collect(),
+            });
         }
         ctx.request_repaint_after(every);
         let mut title = String::from("Florm");

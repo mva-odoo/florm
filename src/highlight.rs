@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::ops::Range;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 use syntect::highlighting::{Color, HighlightIterator, HighlightState, Highlighter, Theme, ThemeSet};
 use syntect::parsing::{ParseState, ScopeStack, SyntaxSet};
 
@@ -467,6 +468,9 @@ impl Highlighting {
 /// of 7000 lines.
 const CHECKPOINT: usize = 16;
 
+/// Time given to highlighting in a frame: the rest comes in the next frames.
+pub const FRAME_BUDGET: Duration = Duration::from_millis(6);
+
 /// Incremental highlighting cache: parser state at the start of every `CHECKPOINT`-th line plus
 /// colored byte spans for every line already highlighted.
 #[derive(Default)]
@@ -516,9 +520,9 @@ impl HlCache {
         self.spans.get(line).map(|v| v.as_slice())
     }
 
-    /// Highlights up to `upto` (inclusive), parsing at most `budget` lines.
-    /// Returns false when the budget ran out (caller should repaint).
-    pub fn ensure(&mut self, hl: &Highlighting, syntax: &str, rope: &Rope, upto: usize, budget: usize) -> bool {
+    /// Highlights up to `upto` (inclusive), for at most `budget` of time (the UI thread: a frame
+    /// must not freeze on a long file). Returns false when the budget ran out (caller should repaint).
+    pub fn ensure(&mut self, hl: &Highlighting, syntax: &str, rope: &Rope, upto: usize, budget: Duration) -> bool {
         if self.syntax != syntax || self.generation != hl.generation {
             self.states.clear();
             self.spans.clear();
@@ -543,9 +547,11 @@ impl HlCache {
             Some(st) => st,
             None => self.states[self.spans.len() / CHECKPOINT].clone(),
         };
-        let mut done = 0;
+        let deadline = Instant::now().checked_add(budget);
+        let mut done = 0usize;
         while self.spans.len() <= upto {
-            if done >= budget {
+            // the clock read every few lines only
+            if done.is_multiple_of(32) && done > 0 && deadline.is_some_and(|d| Instant::now() >= d) {
                 break;
             }
             let i = self.spans.len();
@@ -633,7 +639,7 @@ mod tests {
         // colors of a Python line, like in VS Code
         let rope = Rope::from_str("def f(x):  # note\n    return 'a'\n");
         let mut cache = HlCache::default();
-        assert!(cache.ensure(&hl, "Python", &rope, 1, 100));
+        assert!(cache.ensure(&hl, "Python", &rope, 1, Duration::MAX));
         let color_of = |line: usize, word: &str| {
             let text = rope.line(line).to_string();
             let at = text.find(word).unwrap();
@@ -668,7 +674,7 @@ mod tests {
         let text: String = (0..200).map(|i| format!("def f{i}(x):\n    '''doc {i}'''\n    return x + {i}  # c\n")).collect();
         let mut rope = Rope::from_str(&text);
         let mut cache = HlCache::default();
-        assert!(cache.ensure(&hl, "Python", &rope, usize::MAX, usize::MAX));
+        assert!(cache.ensure(&hl, "Python", &rope, usize::MAX, Duration::MAX));
         // (line, text inserted at its start, lines removed after it): typing on one line, a quote
         // that changes all the lines after it, lines added and removed
         let edits = [(100, "a", 0), (100, "b", 0), (100, "\"", 0), (100, "\"\"", 0), (37, "\n\n", 0), (38, "", 3), (5, "'''", 0), (5, "x", 0), (590, "z", 0)];
@@ -680,9 +686,9 @@ mod tests {
                 rope.remove(a..b);
             }
             cache.invalidate(line);
-            assert!(cache.ensure(&hl, "Python", &rope, usize::MAX, usize::MAX));
+            assert!(cache.ensure(&hl, "Python", &rope, usize::MAX, Duration::MAX));
             let mut fresh = HlCache::default();
-            assert!(fresh.ensure(&hl, "Python", &rope, usize::MAX, usize::MAX));
+            assert!(fresh.ensure(&hl, "Python", &rope, usize::MAX, Duration::MAX));
             for l in 0..rope.len_lines() {
                 assert_eq!(cache.spans(l), fresh.spans(l), "line {l} after editing line {line}");
             }
@@ -700,13 +706,13 @@ mod tests {
         let before = rss();
         let mut cache = HlCache::default();
         let t = std::time::Instant::now();
-        cache.ensure(&hl, syntax, &rope, usize::MAX, usize::MAX);
+        cache.ensure(&hl, syntax, &rope, usize::MAX, Duration::MAX);
         eprintln!("{} lignes {syntax} : {:?}, cache {} Mo", rope.len_lines(), t.elapsed(), rss() - before);
         // typing at the end of the file, then highlighting the screen again
         let t = std::time::Instant::now();
         for _ in 0..100 {
             cache.invalidate(rope.len_lines() - 50);
-            cache.ensure(&hl, syntax, &rope, usize::MAX, usize::MAX);
+            cache.ensure(&hl, syntax, &rope, usize::MAX, Duration::MAX);
         }
         eprintln!("100 frappes en fin de fichier : {:?}", t.elapsed());
     }

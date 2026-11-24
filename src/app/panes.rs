@@ -322,46 +322,49 @@ impl App {
             ui.label(RichText::new(t!("Le fichier Markdown de cet aperçu a été fermé.", "The Markdown file of this preview was closed.")).weak());
             return;
         };
-        let text = d.rope.to_string();
-        let base = d.path.as_deref().and_then(Path::parent).map(|p| format!("file://{}/", p.display())).unwrap_or_else(|| "file://".into());
-        self.render_markdown(ui, ("md_preview", src), &text, base);
-    }
-
-    fn render_markdown(&mut self, ui: &mut egui::Ui, id: impl std::hash::Hash, text: &str, base: String) {
+        // the text cut into pieces once per version, not at each frame
+        if self.md_preview.as_ref().is_none_or(|p| p.key != (src, d.version)) {
+            let base = d.path.as_deref().and_then(Path::parent).map(|p| format!("file://{}/", p.display())).unwrap_or_else(|| "file://".into());
+            let old = self.md_preview.take().filter(|p| p.key.0 == src);
+            let chunks = md_chunks(&d.rope.to_string());
+            // the heights measured before kept while the pieces are the same: no jump while typing
+            let heights = chunks.iter().enumerate().map(|(k, c)| old.as_ref().and_then(|o| (o.chunks.get(k) == Some(c)).then(|| o.heights[k])).unwrap_or(0.0)).collect();
+            self.md_preview = Some(MdPreview { key: (src, d.version), base, chunks, heights, width: old.map_or(0.0, |o| o.width) });
+        }
         let bg = self.hl.colors.bg;
         let cache = &mut self.md_cache;
+        let Some(p) = self.md_preview.as_mut() else { return };
         egui::CentralPanel::default().frame(egui::Frame::none().fill(bg)).show_inside(ui, |ui| {
-            egui::ScrollArea::vertical().id_salt(id).auto_shrink([false, false]).show(ui, |ui| {
+            egui::ScrollArea::vertical().id_salt(("md_preview", src)).auto_shrink([false, false]).show(ui, |ui| {
                 let w = ui.available_width().min(880.0);
                 let pad = ((ui.available_width() - w) / 2.0).max(16.0);
+                if (p.width - w).abs() > 0.5 {
+                    p.width = w;
+                    p.heights.iter_mut().for_each(|h| *h = 0.0);
+                }
                 egui::Frame::none().inner_margin(egui::Margin { left: pad, right: pad, top: 16.0, bottom: 40.0 }).show(ui, |ui| {
                     ui.set_max_width(w);
-                    // the Mermaid diagrams drawn apart, the rest (HTML written in Markdown) in pieces between
-                    let mut pending = String::new();
-                    let flush = |ui: &mut egui::Ui, cache: &mut egui_commonmark::CommonMarkCache, md: &mut String| {
-                        if !md.trim().is_empty() {
-                            egui_commonmark::CommonMarkViewer::new().default_implicit_uri_scheme(base.clone()).max_image_width(Some(w as usize)).show(ui, cache, &md::html_to_md(md));
+                    let clip = ui.clip_rect();
+                    for (k, chunk) in p.chunks.iter().enumerate() {
+                        let top = ui.cursor().top();
+                        // a piece measured and out of sight: only its place is kept
+                        let h = p.heights[k];
+                        if h > 0.0 && (top > clip.bottom() || top + h < clip.top()) {
+                            ui.allocate_space(egui::vec2(w, h));
+                            continue;
                         }
-                        md.clear();
-                    };
-                    for part in md::parts(text) {
-                        match part {
-                            md::MdPart::Code { lang, code } if lang.eq_ignore_ascii_case("mermaid") && super::mermaid::parse_sequence(&code).is_some() => {
-                                flush(ui, cache, &mut pending);
+                        match chunk {
+                            MdChunk::Mermaid(code) => {
                                 ui.add_space(6.0);
-                                super::mermaid::show(ui, &code);
+                                super::mermaid::show(ui, code);
                                 ui.add_space(10.0);
                             }
-                            md::MdPart::Code { lang, code } => {
-                                let fence = if code.contains("```") { "~~~~" } else { "```" };
-                                pending.push_str(&format!("{fence}{lang}\n{code}\n{fence}\n"));
+                            MdChunk::Md(md) => {
+                                egui_commonmark::CommonMarkViewer::new().default_implicit_uri_scheme(p.base.clone()).max_image_width(Some(w as usize)).show(ui, cache, md);
                             }
-                            md::MdPart::Text(t) => pending.push_str(&t),
-                            // not made by `parts`
-                            md::MdPart::Table { .. } => {}
                         }
+                        p.heights[k] = ui.cursor().top() - top;
                     }
-                    flush(ui, cache, &mut pending);
                 });
             });
         });
@@ -747,4 +750,61 @@ impl App {
     pub(super) fn term_shell(&self) -> Option<String> {
         self.settings.shell.clone().filter(|s| !s.trim().is_empty())
     }
+}
+
+/// A piece of a Markdown preview, ready to show.
+#[derive(PartialEq)]
+pub(super) enum MdChunk {
+    /// A Mermaid diagram drawn apart.
+    Mermaid(String),
+    /// Markdown (HTML written in it already turned into Markdown).
+    Md(String),
+}
+
+/// The preview of a Markdown file, cut into pieces (at the headings) for one version of its text:
+/// only the pieces in sight are laid out at each frame.
+pub(super) struct MdPreview {
+    /// (uid of the document, its version).
+    key: (u64, u64),
+    base: String,
+    chunks: Vec<MdChunk>,
+    /// Height of each piece at the last frame it was shown (0: not measured yet).
+    heights: Vec<f32>,
+    width: f32,
+}
+
+/// `text` cut into pieces: Mermaid diagrams apart, the rest cut before each heading (outside code).
+fn md_chunks(text: &str) -> Vec<MdChunk> {
+    let mut out = Vec::new();
+    let mut pending = String::new();
+    let flush = |out: &mut Vec<MdChunk>, md: &mut String| {
+        if !md.trim().is_empty() {
+            out.push(MdChunk::Md(md::html_to_md(md)));
+        }
+        md.clear();
+    };
+    for part in md::parts(text) {
+        match part {
+            md::MdPart::Code { lang, code } if lang.eq_ignore_ascii_case("mermaid") && super::mermaid::parse_sequence(&code).is_some() => {
+                flush(&mut out, &mut pending);
+                out.push(MdChunk::Mermaid(code));
+            }
+            md::MdPart::Code { lang, code } => {
+                let fence = if code.contains("```") { "~~~~" } else { "```" };
+                pending.push_str(&format!("{fence}{lang}\n{code}\n{fence}\n"));
+            }
+            md::MdPart::Text(t) => {
+                for line in t.split_inclusive('\n') {
+                    if line.starts_with('#') && !pending.trim().is_empty() {
+                        flush(&mut out, &mut pending);
+                    }
+                    pending.push_str(line);
+                }
+            }
+            // not made by `parts`
+            md::MdPart::Table { .. } => {}
+        }
+    }
+    flush(&mut out, &mut pending);
+    out
 }

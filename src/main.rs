@@ -50,6 +50,7 @@ mod skills;
 mod sidebar;
 mod sound;
 mod spell;
+mod stat_cache;
 mod update;
 mod view_bar;
 mod symbols;

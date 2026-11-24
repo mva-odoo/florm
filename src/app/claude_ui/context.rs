@@ -156,17 +156,29 @@ impl App {
 
     /// A commit given to Claude: its message, the files it touched and its
     /// diff (cut when very large), to start from or to compare with.
+    /// git is read on a thread (`claude_commit_read`).
     pub(in crate::app) fn claude_attach_commit(&mut self, repo: &Path, hash: &str) {
-        match git::run(repo, &["show", "--stat", "--patch", "--format=commit %H%nAuteur : %an, %ad%n%n%B", "--date=short", hash]) {
-            Ok(text) => {
-                let subject = git::stdout(repo, &["log", "-1", "--format=%s", hash]).unwrap_or_default();
+        let (repo, hash) = (repo.to_path_buf(), hash.to_string());
+        self.jobs.spawn(move || {
+            let r = git::run(&repo, &["show", "--stat", "--patch", "--format=commit %H%nAuteur : %an, %ad%n%n%B", "--date=short", &hash]).map(|text| {
+                let subject = git::stdout(&repo, &["log", "-1", "--format=%s", &hash]).unwrap_or_default();
                 let mut text: String = text.chars().take(MAX_DIFF_CHARS).collect();
                 if text.chars().count() >= MAX_DIFF_CHARS {
                     text.push_str(t!("\n[… diff coupé, trop long]", "\n[… diff cut, too long]"));
                 }
-                self.claude.dir.get_or_insert_with(|| repo.to_path_buf());
                 let short = &hash[..hash.len().min(8)];
-                self.claude_attach_note(tf!("Commit {short} : {}", "Commit {short}: {}", subject.trim()), text);
+                (tf!("Commit {short} : {}", "Commit {short}: {}", subject.trim()), text)
+            });
+            JobResult::ClaudeCommit(repo, r)
+        });
+    }
+
+    /// The commit read for Claude (`claude_attach_commit`).
+    pub(in crate::app) fn claude_commit_read(&mut self, repo: PathBuf, r: Result<(String, String), String>) {
+        match r {
+            Ok((label, text)) => {
+                self.claude.dir.get_or_insert(repo);
+                self.claude_attach_note(label, text);
             }
             Err(e) => self.set_error(format!("git show : {}", e.lines().next().unwrap_or(""))),
         }

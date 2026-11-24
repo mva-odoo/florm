@@ -187,7 +187,7 @@ impl App {
             .map(|c| {
                 let project = c.dir.as_deref().map(|d| self.repo_label(d)).unwrap_or_default();
                 // the branch checked out in its folder
-                let mut place = c.dir.as_deref().and_then(git::head_branch).map(|b| format!("🔀 {b}")).unwrap_or_default();
+                let mut place = c.dir.as_deref().and_then(crate::stat_cache::head_branch).map(|b| format!("🔀 {b}")).unwrap_or_default();
                 if accounts.len() > 1 {
                     let who = format!("👤 {}", crate::claude_account::find(&accounts, &c.account).name);
                     place = if place.is_empty() { who } else { format!("{who} · {place}") };

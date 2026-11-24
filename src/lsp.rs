@@ -194,12 +194,25 @@ pub enum Incoming {
     Exited(String),
 }
 
+/// A message for the server: ready, or written on the writer thread (a whole text turned into
+/// JSON there rather than on the UI thread).
+enum Out {
+    Ready(String),
+    Lazy(Box<dyn FnOnce() -> String + Send>),
+}
+
+impl From<String> for Out {
+    fn from(s: String) -> Self {
+        Out::Ready(s)
+    }
+}
+
 pub struct Client {
     pub family: String,
     pub root: PathBuf,
     pub name: String,
     pub ready: bool,
-    out: Sender<String>,
+    out: Sender<Out>,
     next_id: i64,
     /// Messages waiting for the end of `initialize`.
     queue: Vec<String>,
@@ -213,7 +226,7 @@ pub struct Client {
 
 impl Drop for Client {
     fn drop(&mut self) {
-        let _ = self.out.send(json!({"jsonrpc": "2.0", "method": "exit"}).to_string());
+        let _ = self.out.send(json!({"jsonrpc": "2.0", "method": "exit"}).to_string().into());
         let _ = self.child.kill();
     }
 }
@@ -230,9 +243,13 @@ impl Client {
         let mut child = cmd.spawn().map_err(|e| format!("{} : {e}", spec.name))?;
         let mut stdin = child.stdin.take().ok_or("stdin")?;
         let stdout = child.stdout.take().ok_or("stdout")?;
-        let (out, out_rx) = channel::<String>();
+        let (out, out_rx) = channel::<Out>();
         std::thread::spawn(move || {
             for msg in out_rx {
+                let msg = match msg {
+                    Out::Ready(s) => s,
+                    Out::Lazy(f) => f(),
+                };
                 let frame = format!("Content-Length: {}\r\n\r\n{msg}", msg.len());
                 if stdin.write_all(frame.as_bytes()).and_then(|_| stdin.flush()).is_err() {
                     break;
@@ -262,7 +279,7 @@ impl Client {
                             }
                             _ => Value::Null,
                         };
-                        let _ = reply.send(json!({"jsonrpc": "2.0", "id": id, "result": result}).to_string());
+                        let _ = reply.send(json!({"jsonrpc": "2.0", "id": id, "result": result}).to_string().into());
                     }
                     (Some(id), None) => {
                         let id = id.as_i64().unwrap_or(-1);
@@ -335,7 +352,7 @@ impl Client {
     fn send_now(&mut self, method: &str, params: Value) -> i64 {
         let id = self.next_id;
         self.next_id += 1;
-        let _ = self.out.send(json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}).to_string());
+        let _ = self.out.send(json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}).to_string().into());
         id
     }
 
@@ -345,7 +362,7 @@ impl Client {
         self.next_id += 1;
         let msg = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}).to_string();
         if self.ready {
-            let _ = self.out.send(msg);
+            let _ = self.out.send(msg.into());
         } else {
             self.queue.push(msg);
         }
@@ -355,31 +372,36 @@ impl Client {
     pub fn notify(&mut self, method: &str, params: Value) {
         let msg = json!({"jsonrpc": "2.0", "method": method, "params": params}).to_string();
         if self.ready {
-            let _ = self.out.send(msg);
+            let _ = self.out.send(msg.into());
         } else {
             self.queue.push(msg);
         }
     }
 
-    /// Opens or updates a document on the server (whole text).
-    pub fn sync(&mut self, uid: u64, path: &Path, language: &str, version: u64, text: impl FnOnce() -> String) {
-        match self.opened.get(&uid).map(|o| o.0) {
-            Some(v) if v == version => {}
-            Some(_) => {
-                self.notify(
-                    "textDocument/didChange",
-                    json!({ "textDocument": { "uri": path_to_uri(path), "version": version }, "contentChanges": [{ "text": text() }] }),
-                );
-                self.opened.insert(uid, (version, path.to_path_buf()));
-            }
-            None => {
-                self.notify(
-                    "textDocument/didOpen",
-                    json!({ "textDocument": { "uri": path_to_uri(path), "languageId": language, "version": version, "text": text() } }),
-                );
-                self.opened.insert(uid, (version, path.to_path_buf()));
-            }
+    /// Opens or updates a document on the server (whole text, turned into JSON on the writer
+    /// thread: a copy of the rope costs nothing).
+    pub fn sync(&mut self, uid: u64, path: &Path, language: &str, version: u64, rope: &Rope) {
+        let open = match self.opened.get(&uid).map(|o| o.0) {
+            Some(v) if v == version => return,
+            Some(_) => false,
+            None => true,
+        };
+        let (uri, language, rope) = (path_to_uri(path), language.to_string(), rope.clone());
+        let build = move || {
+            let text = rope.to_string();
+            let msg = if open {
+                json!({"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": { "textDocument": { "uri": uri, "languageId": language, "version": version, "text": text } }})
+            } else {
+                json!({"jsonrpc": "2.0", "method": "textDocument/didChange", "params": { "textDocument": { "uri": uri, "version": version }, "contentChanges": [{ "text": text }] }})
+            };
+            msg.to_string()
+        };
+        if self.ready {
+            let _ = self.out.send(Out::Lazy(Box::new(build)));
+        } else {
+            self.queue.push(build());
         }
+        self.opened.insert(uid, (version, path.to_path_buf()));
     }
 
     /// Tells the server that the documents not in `alive` were closed.
@@ -489,11 +511,11 @@ impl Manager {
                     if let Some(c) = self.clients.get_mut(i).and_then(|c| c.as_mut()) {
                         if *id == c.init_id {
                             c.ready = true;
-                            let _ = c.out.send(json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}).to_string());
+                            let _ = c.out.send(json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}).to_string().into());
                             let settings = json!({"jsonrpc": "2.0", "method": "workspace/didChangeConfiguration", "params": {"settings": light_settings()}});
-                            let _ = c.out.send(settings.to_string());
+                            let _ = c.out.send(settings.to_string().into());
                             for m in std::mem::take(&mut c.queue) {
-                                let _ = c.out.send(m);
+                                let _ = c.out.send(m.into());
                             }
                             continue;
                         }
@@ -782,7 +804,7 @@ mod tests {
         wait(&rx, c.init_id);
         c.ready = true;
         c.notify("initialized", json!({}));
-        c.sync(1, &file, "python", 1, || src.to_string());
+        c.sync(1, &file, "python", 1, &rope);
         let doc = json!({ "uri": path_to_uri(&file) });
         // completion after "t.me"
         let end = rope.line_to_char(11) + 4;

@@ -90,7 +90,7 @@ pub(super) fn session_ui(ui: &mut egui::Ui, c: &ClaudeUi, project: &str, branch:
                 for p in c.changed.iter().rev() {
                     let rel = c.dir.as_deref().and_then(|d| p.strip_prefix(d).ok()).unwrap_or(p);
                     let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                    let gone = !p.exists();
+                    let gone = !crate::stat_cache::exists(p);
                     let text = if gone { RichText::new(format!("{name} ×")).color(weak) } else { RichText::new(name) };
                     let tip = if gone { tf!("{} (supprimé depuis)", "{} (deleted since)", rel.display()) } else { rel.display().to_string() };
                     if ui.add(egui::Label::new(text).truncate().sense(Sense::click())).on_hover_text(tip).clicked() && !gone {

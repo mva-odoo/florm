@@ -6,7 +6,7 @@ use ropey::Rope;
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Instant, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 static CONTENT_IDS: AtomicU64 = AtomicU64::new(1);
 
@@ -198,6 +198,8 @@ pub struct Document {
     symbols_cache: Option<(u64, String, Vec<crate::symbols::Symbol>)>,
     /// Folded blocks: start of their first line (char position, follows the edits).
     pub folds: Vec<usize>,
+    /// `hidden_ranges` for (version, folds, tab size): measured once, not at each frame.
+    hidden_cache: std::cell::RefCell<Option<(u64, Vec<usize>, usize, Vec<(usize, usize)>)>>,
     /// Bookmarked lines, as the char position of their start (moved by the edits, like folds).
     pub bookmarks: Vec<usize>,
     /// Lines with a breakpoint, as the char position of their start (moved by the edits); `None`
@@ -219,7 +221,9 @@ pub struct Document {
     /// Alt+Shift+→: the selections before each widening and after it, so that Alt+Shift+← goes back.
     expand_stack: Vec<(Vec<Sel>, Vec<Sel>)>,
     /// Depth of the brackets at the start of each line (for their colors): (version, depths).
-    bracket_depths: Option<(u64, Vec<u32>)>,
+    /// Depth of the brackets at the start of the first lines (those shown up to now), for the
+    /// syntax named: cut at the first line changed.
+    bracket_depths: (String, Vec<u32>),
 }
 
 pub const NO_PANE: u8 = u8::MAX;
@@ -634,6 +638,7 @@ impl Document {
             pane: NO_PANE,
             symbols_cache: None,
             folds: Vec::new(),
+            hidden_cache: Default::default(),
             bookmarks: Vec::new(),
             breakpoints: None,
             find_scope: None,
@@ -644,7 +649,7 @@ impl Document {
             caret_screen: None,
             ghost: None,
             expand_stack: Vec::new(),
-            bracket_depths: None,
+            bracket_depths: (String::new(), Vec::new()),
         }
     }
 
@@ -855,11 +860,23 @@ impl Document {
         len
     }
 
+    /// The length of the longest line (the width to scroll to). While typing in a long file only
+    /// the lines of the cursors are measured (only they can have grown): all of them once typing
+    /// stops.
     pub fn update_max_cols(&mut self) {
-        if self.max_cols_version != self.version {
-            self.max_cols = self.rope.lines().map(|l| l.len_chars()).max().unwrap_or(0);
-            self.max_cols_version = self.version;
+        if self.max_cols_version == self.version {
+            return;
         }
+        let typing = self.last_change.elapsed() < Duration::from_millis(500);
+        if typing && self.max_cols_version != u64::MAX && self.rope.len_lines() > 5_000 {
+            for s in &self.sels {
+                let l = self.rope.char_to_line(s.head.min(self.rope.len_chars()));
+                self.max_cols = self.max_cols.max(self.rope.line(l).len_chars());
+            }
+            return;
+        }
+        self.max_cols = self.rope.lines().map(|l| l.len_chars()).max().unwrap_or(0);
+        self.max_cols_version = self.version;
     }
 
     pub fn primary_sel(&self) -> Sel {
@@ -1028,6 +1045,7 @@ impl Document {
         self.hover_defs = None;
         self.content_id = next_content_id();
         self.highlight.invalidate(from_line);
+        self.bracket_depths.1.truncate(from_line + 1);
         self.scroll_to_cursor = true;
         self.last_change = Instant::now();
     }
@@ -1938,30 +1956,36 @@ impl Document {
         self.replace_keep(EditKind::Other, edits);
     }
 
-    /// Computes the depth of the brackets at the start of each line, once per version (not for
-    /// very large files: no colors there).
-    pub fn ensure_bracket_depths(&mut self) {
-        if self.bracket_depths.as_ref().is_some_and(|(v, _)| *v == self.version) {
-            return;
+    /// Computes the depth of the brackets at the start of each line up to `upto` (the last one
+    /// shown), from the first line changed since (not for very large files: no colors there).
+    pub fn ensure_bracket_depths(&mut self, upto: usize) {
+        if self.bracket_depths.0 != self.syntax {
+            self.bracket_depths = (self.syntax.clone(), Vec::new());
         }
         if self.len() > 2_000_000 {
-            self.bracket_depths = Some((self.version, Vec::new()));
+            self.bracket_depths.1.clear();
+            return;
+        }
+        let upto = upto.min(self.rope.len_lines().saturating_sub(1));
+        let depths = &mut self.bracket_depths.1;
+        if depths.len() > upto {
             return;
         }
         let rules = BracketRules::of(&self.syntax);
-        let mut depths = Vec::with_capacity(self.rope.len_lines());
-        let mut d = 0u32;
-        for line in self.rope.lines() {
-            depths.push(d);
-            d = scan_brackets(line.chars(), d, &rules, None);
+        if depths.is_empty() {
+            depths.push(0);
         }
-        self.bracket_depths = Some((self.version, depths));
+        while depths.len() <= upto {
+            let i = depths.len() - 1;
+            let d = scan_brackets(self.rope.line(i).chars(), depths[i], &rules, None);
+            depths.push(d);
+        }
     }
 
     /// The brackets of line `l` and their level (0, 1, 2…): (char index in the line, level).
     /// Empty before `ensure_bracket_depths`, or for a very large file.
     pub fn bracket_levels(&self, l: usize) -> Vec<(usize, u32)> {
-        let Some(d0) = self.bracket_depths.as_ref().and_then(|(_, d)| d.get(l).copied()) else { return Vec::new() };
+        let Some(d0) = self.bracket_depths.1.get(l).copied() else { return Vec::new() };
         let mut out = Vec::new();
         scan_brackets(self.rope.line(l).chars(), d0, &BracketRules::of(&self.syntax), Some(&mut out));
         out
@@ -2142,12 +2166,18 @@ impl Document {
     // ------------------------------------------------------------------ git diff
 
     pub fn refresh_diff(&mut self) {
-        self.hunks = match &self.git_base {
+        let hunks = match &self.git_base {
             Some(base) => diff::compute(base, &self.rope.to_string()),
             None => Vec::new(),
         };
+        self.set_hunks(hunks, self.version);
+    }
+
+    /// The diff against HEAD computed (off the UI thread too) for `version` of the text.
+    pub fn set_hunks(&mut self, hunks: Vec<diff::Hunk>, version: u64) {
+        self.hunks = hunks;
         self.git_marks = diff::marks(&self.hunks);
-        self.diff_version = self.version;
+        self.diff_version = version;
         if let Some(l) = self.peek {
             if !self.hunks.iter().any(|h| h.contains(l)) {
                 self.peek = None;
@@ -2361,6 +2391,20 @@ impl Document {
 
     /// Hidden line ranges (inclusive), sorted and merged.
     pub fn hidden_ranges(&self) -> Vec<(usize, usize)> {
+        if self.folds.is_empty() {
+            return Vec::new();
+        }
+        if let Some((v, f, t, r)) = &*self.hidden_cache.borrow() {
+            if *v == self.version && *f == self.folds && *t == self.tab_size {
+                return r.clone();
+            }
+        }
+        let out = self.hidden_ranges_now();
+        *self.hidden_cache.borrow_mut() = Some((self.version, self.folds.clone(), self.tab_size, out.clone()));
+        out
+    }
+
+    fn hidden_ranges_now(&self) -> Vec<(usize, usize)> {
         let mut v: Vec<(usize, usize)> = self.fold_lines().into_iter().filter_map(|l| self.fold_range(l)).collect();
         v.sort();
         let mut out: Vec<(usize, usize)> = Vec::new();
@@ -2470,6 +2514,10 @@ impl Document {
             return;
         }
         let heads: Vec<usize> = self.sels.iter().map(|s| self.rope.char_to_line(s.head)).collect();
+        // the usual case, at each frame: no cursor hidden
+        if !self.hidden_ranges().iter().any(|&(s, e)| heads.iter().any(|h| (s..=e).contains(h))) {
+            return;
+        }
         let lines = self.fold_lines();
         let open: Vec<usize> = lines
             .into_iter()
@@ -2838,7 +2886,7 @@ mod tests {
     fn brackets_get_their_level() {
         let mut d = doc("f(a[0], \"(\") {\n    g()\n}\n");
         d.syntax = "Rust".into();
-        d.ensure_bracket_depths();
+        d.ensure_bracket_depths(usize::MAX);
         // the ( in the string is skipped
         assert_eq!(d.bracket_levels(0), [(1, 0), (3, 1), (5, 1), (11, 0), (13, 0)]);
         assert_eq!(d.bracket_levels(1), [(5, 1), (6, 1)]);

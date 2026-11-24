@@ -67,7 +67,7 @@ impl App {
                     let active = self.docs.get(self.active).and_then(|d| d.path.clone());
                     let empty = HashMap::new();
                     let info = if self.settings.tree_git_info { &self.repo_info } else { &empty };
-                    let projects: Vec<(String, PathBuf)> = self.projects.iter().filter(|p| p.path.is_dir()).map(|p| (p.name.clone(), p.path.clone())).collect();
+                    let projects: Vec<(String, PathBuf)> = self.projects.iter().filter(|p| crate::stat_cache::is_dir(&p.path)).map(|p| (p.name.clone(), p.path.clone())).collect();
                     if !self.tree_ex.as_ref().is_some_and(|(r, p, _)| *r == tree.path && *p == pats) {
                         let ex = crate::walk::Exclusions::new(&tree.path, &pats);
                         self.tree_ex = Some((tree.path.clone(), pats, ex));

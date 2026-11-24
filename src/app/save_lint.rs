@@ -87,14 +87,66 @@ impl App {
         }
     }
 
+    /// Ctrl+S: saved, formatted first with ruff off the UI thread when `format_on_save` asks for
+    /// it (saved when ruff answers). Closing and quitting go through `save`, which waits.
+    pub(super) fn save_formatted(&mut self, idx: usize) {
+        let Some(d) = self.docs.get(idx) else { return };
+        let python = d.path.as_deref().and_then(lint::lang_of) == Some("python");
+        if !(self.settings.format_on_save && python && !d.read_only && d.disk_change != Some(document::DiskChange::Changed)) {
+            self.save(idx);
+            return;
+        }
+        self.ruff_job(idx, lint::Rewrite::Format, None, true);
+    }
+
+    /// ruff run on document `idx` in a job: `on_rewritten` applies its text.
+    fn ruff_job(&mut self, idx: usize, what: lint::Rewrite, lines: Option<(usize, usize)>, then_save: bool) {
+        let Some(d) = self.docs.get(idx) else { return };
+        let Some(path) = d.path.clone() else { return };
+        let root = self.repo_for(&path).or_else(|| self.root.clone());
+        let (uid, version, text) = (d.uid, d.version, d.rope.to_string());
+        self.jobs.spawn(move || JobResult::Rewritten { uid, version, what, lines, then_save, result: lint::ruff_rewrite(&path, &text, root.as_deref(), what, lines) });
+    }
+
+    /// ruff answered: its text put in the document if nothing was typed meanwhile, then saved
+    /// (Ctrl+S), formatted or not.
+    pub(super) fn on_rewritten(&mut self, uid: u64, version: u64, what: lint::Rewrite, lines: Option<(usize, usize)>, then_save: bool, result: Result<String, String>) {
+        let Some(idx) = self.docs.iter().position(|d| d.uid == uid) else { return };
+        let fresh = self.docs[idx].version == version;
+        let changed = match result {
+            Ok(text) if fresh => self.docs[idx].replace_all(&text),
+            Ok(_) => false,
+            Err(e) => {
+                self.set_error(if then_save { tf!("Pas formaté : {e}", "Not formatted: {e}") } else { tf!("ruff : {e}", "ruff: {e}") });
+                false
+            }
+        };
+        if then_save {
+            let format = std::mem::replace(&mut self.settings.format_on_save, false);
+            self.save(idx);
+            self.settings.format_on_save = format;
+            return;
+        }
+        if !fresh {
+            self.set_status(t!("Pas formaté : le fichier a changé entre-temps", "Not formatted: the file changed meanwhile"));
+            return;
+        }
+        self.set_status(match (changed, what, lines) {
+            (false, _, _) => t!("Rien à changer", "Nothing to change").to_string(),
+            (true, lint::Rewrite::Fix, _) => t!("Corrigé (ruff --fix)", "Fixed (ruff --fix)").to_string(),
+            (true, _, Some((a, b))) => tf!("Lignes {a} à {b} formatées (ruff format)", "Lines {a} to {b} formatted (ruff format)"),
+            (true, _, None) => t!("Fichier formaté (ruff format)", "File formatted (ruff format)").to_string(),
+        });
+    }
+
     /// Formats (or fixes) the active Python file with ruff; with a selection, `Format` only
     /// formats its lines (useful where the project is not formatted with ruff, like Odoo).
     pub(super) fn python_rewrite(&mut self, what: lint::Rewrite) {
         let Some(d) = self.docs.get(self.active) else { return };
-        let Some(path) = d.path.clone().filter(|p| lint::lang_of(p) == Some("python")) else {
+        if d.path.as_deref().and_then(lint::lang_of) != Some("python") {
             self.set_status(t!("Formatage : fichiers Python seulement", "Formatting: Python files only"));
             return;
-        };
+        }
         if d.read_only {
             return;
         }
@@ -107,20 +159,7 @@ impl App {
             }
             (a + 1, b + 1)
         });
-        let root = self.repo_for(&path).or_else(|| self.root.clone());
-        let text = d.rope.to_string();
-        match lint::ruff_rewrite(&path, &text, root.as_deref(), what, lines) {
-            Ok(new) => {
-                let changed = self.docs[self.active].replace_all(&new);
-                self.set_status(match (changed, what, lines) {
-                    (false, _, _) => t!("Rien à changer", "Nothing to change").to_string(),
-                    (true, lint::Rewrite::Fix, _) => t!("Corrigé (ruff --fix)", "Fixed (ruff --fix)").to_string(),
-                    (true, _, Some((a, b))) => tf!("Lignes {a} à {b} formatées (ruff format)", "Lines {a} to {b} formatted (ruff format)"),
-                    (true, _, None) => t!("Fichier formaté (ruff format)", "File formatted (ruff format)").to_string(),
-                });
-            }
-            Err(e) => self.set_error(tf!("ruff : {e}", "ruff: {e}")),
-        }
+        self.ruff_job(self.active, what, lines, false);
     }
 
     fn after_save(&mut self, idx: usize, path: &Path) {
