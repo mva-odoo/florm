@@ -1250,6 +1250,7 @@ impl Document {
             Delete => self.delete_forward(),
             DeleteWordBack => self.delete_word(false),
             DeleteWordForward => self.delete_word(true),
+            DeleteToLineStart => self.delete_to_line_start(),
             Newline => self.newline(),
             Tab => self.tab(),
             Indent => self.indent(),
@@ -1520,6 +1521,22 @@ impl Document {
             })
             .collect();
         self.edit(EditKind::Delete, items);
+    }
+
+    /// Cmd+⌫ on macOS: deletes back to the start of the line (the line break at its start).
+    fn delete_to_line_start(&mut self) {
+        let items: Vec<Edit> = self
+            .sels
+            .iter()
+            .map(|s| {
+                if !s.is_empty() {
+                    return Edit::delete(s.start(), s.end());
+                }
+                let ls = self.rope.line_to_char(self.rope.char_to_line(s.head));
+                Edit::delete(if ls == s.head { ls.saturating_sub(1) } else { ls }, s.head)
+            })
+            .collect();
+        self.edit(EditKind::Other, items);
     }
 
     fn delete_word(&mut self, forward: bool) {
@@ -3119,6 +3136,15 @@ mod tests {
         assert_eq!(d.matching_bracket(12), Some((11, 1)));
     }
 
+    #[test]
+    fn delete_to_line_start() {
+        let mut d = doc("ab\ncd ef");
+        cursors(&mut d, &[6]);
+        d.exec(Cmd::DeleteToLineStart, true);
+        assert_eq!(d.rope.to_string(), "ab\nef");
+        d.exec(Cmd::DeleteToLineStart, true);
+        assert_eq!(d.rope.to_string(), "abef");
+    }
     #[test]
     fn folding_follows_edits_and_moves() {
         let mut d = doc("class A:\n    def f(self):\n        x = 1\n        y = 2\n\n    def g(self):\n        pass\nz = 3\n");

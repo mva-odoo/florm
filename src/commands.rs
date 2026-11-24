@@ -8,6 +8,7 @@ pub enum Cmd {
     Delete,
     DeleteWordBack,
     DeleteWordForward,
+    DeleteToLineStart,
     Newline,
     Tab,
     Indent,
@@ -222,6 +223,7 @@ impl Cmd {
                 | Delete
                 | DeleteWordBack
                 | DeleteWordForward
+                | DeleteToLineStart
                 | Newline
                 | Tab
                 | Indent
@@ -491,6 +493,7 @@ pub const ALL: &[(&str, &str, Cmd)] = &[
     ("delete", "", Delete),
     ("delete_word_back", "", DeleteWordBack),
     ("delete_word_forward", "", DeleteWordForward),
+    ("delete_to_line_start", "", DeleteToLineStart),
     ("newline", "", Newline),
     ("tab", "", Tab),
     ("move_left", "", Move(Left, false)),

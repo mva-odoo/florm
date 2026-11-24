@@ -386,7 +386,7 @@ flake8 --version || ruff --version
 | Ctrl+Shift+B | Blame of the line (follows the cursor; Ctrl+Shift+B again to hide) |
 | Ctrl+Alt+B | Full history of the line (all the commits that modified it, with their diff) |
 
-On macOS, Ctrl = Cmd. **All shortcuts can be changed** in Preferences → Shortcuts: click on a shortcut, then the new combination (Esc cancels); conflicts are reported, “↺” restores the default shortcut and “×” removes it. They are saved in the `[keys]` section of `settings.toml` (`"none"` disables a combination).
+On macOS, Ctrl = Cmd, with the usual Mac keys: Cmd+← / → line start / end, Cmd+↑ / ↓ file start / end, Option+← / → word by word, Cmd+⌫ deletes to the line start, Option+⌫ the word; Cmd+H, Cmd+M and Cmd+` stay with the system (replace: Cmd+Alt+F, format: Alt+Shift+F, matching bracket: Cmd+Shift+\, move the line: Cmd+Alt+Shift+↑ / ↓, expand / shrink the selection: Cmd+Alt+Shift+→ / ←, terminal: Cmd+Alt+T, new terminal: Cmd+Alt+Shift+T). **All shortcuts can be changed** in Preferences → Shortcuts: click on a shortcut, then the new combination (Esc cancels); conflicts are reported, “↺” restores the default shortcut and “×” removes it. They are saved in the `[keys]` section of `settings.toml` (`"none"` disables a combination).
 
 ## Configuration
 

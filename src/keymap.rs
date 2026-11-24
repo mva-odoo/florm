@@ -236,6 +236,50 @@ const DEFAULTS: &[(&str, &str)] = &[
     ("ctrl+shift+end", "select_doc_end"),
 ];
 
+/// macOS: replaces the defaults of the same keys ("ctrl" is Cmd there). Cmd+arrows go to the line
+/// or file ends, Option+arrows by word; Cmd+H, Cmd+M and Cmd+` belong to the system.
+const MACOS: &[(&str, &str)] = &[
+    ("ctrl+left", "move_home"),
+    ("ctrl+right", "move_end"),
+    ("ctrl+shift+left", "select_home"),
+    ("ctrl+shift+right", "select_end"),
+    ("ctrl+up", "move_doc_start"),
+    ("ctrl+down", "move_doc_end"),
+    ("ctrl+shift+up", "select_doc_start"),
+    ("ctrl+shift+down", "select_doc_end"),
+    ("alt+shift+left", "select_word_left"),
+    ("alt+shift+right", "select_word_right"),
+    ("ctrl+alt+shift+up", "move_line_up"),
+    ("ctrl+alt+shift+down", "move_line_down"),
+    ("ctrl+alt+shift+right", "expand_selection"),
+    ("ctrl+alt+shift+left", "shrink_selection"),
+    ("ctrl+backspace", "delete_to_line_start"),
+    ("alt+backspace", "delete_word_back"),
+    ("alt+delete", "delete_word_forward"),
+    ("ctrl+h", UNBOUND),
+    ("ctrl+alt+f", "replace"),
+    ("alt+shift+f", "format_document"),
+    ("ctrl+m", UNBOUND),
+    ("ctrl+shift+\\", "goto_bracket"),
+    ("ctrl+`", UNBOUND),
+    ("ctrl+shift+`", UNBOUND),
+    ("ctrl+alt+shift+t", "new_terminal_tab"),
+];
+
+/// The built-in shortcuts, with those of macOS when `macos`.
+fn defaults(macos: bool) -> Vec<(&'static str, &'static str)> {
+    if !macos {
+        return DEFAULTS.to_vec();
+    }
+    let same = |a: &str, b: &str| parse_seq(a).is_some() && parse_seq(a) == parse_seq(b);
+    DEFAULTS
+        .iter()
+        .filter(|(k, _)| !MACOS.iter().any(|(m, _)| same(k, m)))
+        .chain(MACOS.iter().filter(|(_, id)| *id != UNBOUND))
+        .copied()
+        .collect()
+}
+
 /// Second key of `ctrl+k` chords.
 const CHORDS: &[(&str, &str)] = &[
     ("ctrl+b", "toggle_sidebar"),
@@ -321,10 +365,14 @@ pub struct Keymap {
 
 impl Keymap {
     pub fn new(user: &HashMap<String, String>) -> (Self, Vec<String>) {
+        Self::for_platform(user, cfg!(target_os = "macos"))
+    }
+
+    fn for_platform(user: &HashMap<String, String>, macos: bool) -> (Self, Vec<String>) {
         let chord_start = Combo::parse("ctrl+k").unwrap();
         let mut km = Keymap { map: HashMap::new(), chords: HashMap::new(), chord_start, labels: HashMap::new() };
         let mut errors = Vec::new();
-        for (k, id) in DEFAULTS {
+        for (k, id) in defaults(macos) {
             km.bind(k, Some(commands::by_id(id).expect(id)), &mut errors);
         }
         for (k, id) in CHORDS {
@@ -410,7 +458,7 @@ impl Keymap {
 
     /// Built-in shortcuts of `cmd`.
     pub fn default_seqs(cmd: Cmd) -> Vec<Seq> {
-        let defaults = DEFAULTS.iter().map(|(k, id)| (k.to_string(), *id));
+        let defaults = defaults(cfg!(target_os = "macos")).into_iter().map(|(k, id)| (k.to_string(), id));
         let chords = CHORDS.iter().map(|(k, id)| (format!("ctrl+k {k}"), *id));
         defaults
             .chain(chords)
@@ -471,6 +519,37 @@ mod tests {
             let seq = parse_seq(s).unwrap();
             assert_eq!(parse_seq(&seq_config(&seq)), Some(seq), "{s}");
         }
+    }
+
+    #[test]
+    fn macos_defaults() {
+        use crate::document::Motion;
+        let (mac, errs) = Keymap::for_platform(&HashMap::new(), true);
+        assert!(errs.is_empty(), "{errs:?}");
+        let k = |s: &str| mac.lookup_seq(&parse_seq(s).unwrap());
+        // Cmd+arrows: line and file ends; Option+arrows: words
+        assert_eq!(k("ctrl+left"), Some(Cmd::Move(Motion::Home, false)));
+        assert_eq!(k("ctrl+shift+right"), Some(Cmd::Move(Motion::End, true)));
+        assert_eq!(k("ctrl+down"), Some(Cmd::Move(Motion::DocEnd, false)));
+        assert_eq!(k("alt+left"), Some(Cmd::Move(Motion::WordLeft, false)));
+        assert_eq!(k("alt+shift+right"), Some(Cmd::Move(Motion::WordRight, true)));
+        assert_eq!(k("ctrl+backspace"), Some(Cmd::DeleteToLineStart));
+        assert_eq!(k("alt+backspace"), Some(Cmd::DeleteWordBack));
+        // the system's Cmd+H, Cmd+M, Cmd+`
+        assert_eq!(k("ctrl+h"), None);
+        assert_eq!(k("ctrl+m"), None);
+        assert_eq!(k("ctrl+`"), None);
+        assert_eq!(k("ctrl+alt+f"), Some(Cmd::Replace));
+        assert_eq!(k("ctrl+alt+t"), Some(Cmd::ToggleTerminal));
+        for cmd in [Cmd::Replace, Cmd::GotoBracket, Cmd::FormatDocument, Cmd::MoveLineUp, Cmd::ExpandSelection, Cmd::NewTerminalTab] {
+            assert!(!mac.label(cmd).is_empty(), "{cmd:?} has no shortcut on macOS");
+        }
+        // Linux and Windows keep theirs
+        let (pc, _) = Keymap::for_platform(&HashMap::new(), false);
+        let k = |s: &str| pc.lookup_seq(&parse_seq(s).unwrap());
+        assert_eq!(k("ctrl+left"), Some(Cmd::Move(Motion::WordLeft, false)));
+        assert_eq!(k("ctrl+h"), Some(Cmd::Replace));
+        assert_eq!(k("ctrl+alt+f"), Some(Cmd::FormatDocument));
     }
 
     #[test]

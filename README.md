@@ -386,7 +386,7 @@ flake8 --version || ruff --version
 | Ctrl+Shift+B | Blame de la ligne (suit le curseur ; Ctrl+Shift+B à nouveau pour masquer) |
 | Ctrl+Alt+B | Historique complet de la ligne (tous les commits qui l'ont modifiée, avec leur diff) |
 
-Sous macOS, Ctrl = Cmd. **Tous les raccourcis se modifient** dans Préférences → Raccourcis : clic sur un raccourci, puis la nouvelle combinaison (Échap annule) ; les conflits sont signalés, « ↺ » rétablit le raccourci par défaut et « × » le supprime. Ils sont enregistrés dans la section `[keys]` de `settings.toml` (`"none"` désactive une combinaison).
+Sous macOS, Ctrl = Cmd, avec les touches habituelles du Mac : Cmd+← / → début / fin de ligne, Cmd+↑ / ↓ début / fin du fichier, Option+← / → mot par mot, Cmd+⌫ efface jusqu'au début de la ligne, Option+⌫ le mot ; Cmd+H, Cmd+M et Cmd+` restent au système (remplacer : Cmd+Alt+F, formater : Alt+Maj+F, crochet correspondant : Cmd+Maj+\, déplacer la ligne : Cmd+Alt+Maj+↑ / ↓, élargir / réduire la sélection : Cmd+Alt+Maj+→ / ←, terminal : Cmd+Alt+T, nouveau terminal : Cmd+Alt+Maj+T). **Tous les raccourcis se modifient** dans Préférences → Raccourcis : clic sur un raccourci, puis la nouvelle combinaison (Échap annule) ; les conflits sont signalés, « ↺ » rétablit le raccourci par défaut et « × » le supprime. Ils sont enregistrés dans la section `[keys]` de `settings.toml` (`"none"` désactive une combinaison).
 
 ## Configuration
 
