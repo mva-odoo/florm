@@ -265,7 +265,8 @@ python = "pyright-langserver --stdio"
 
 Un serveur de langage, eslint ou les plugins flake8 d'un projet peuvent exécuter son code : ils ne
 tournent que dans un **dossier de confiance**. Ailleurs, une barre « 🔒 Mode restreint » au-dessus du
-fichier propose de faire confiance au dossier ; la liste est dans `settings.toml` :
+fichier propose de faire confiance au dossier. **Préférences → Lint → Dossiers de confiance** les liste, × retire la
+confiance (le dossier repasse en mode restreint) ; la liste est dans `settings.toml` :
 
 ```toml
 trusted_folders = ["/home/moi/src/mon-projet"]

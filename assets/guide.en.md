@@ -333,6 +333,8 @@ run its code. In a folder not trusted yet, a bar above the file says so: the lan
 eslint do not run, and flake8 ignores the configuration of the project (`node --check` and the
 Python lint stay). **Trust “folder”** starts them, for that folder and those inside it
 (`trusted_folders` key of `settings.toml`); **Later** hides the bar until Florm is closed.
+**Preferences → Lint → Trusted folders** lists them; × takes the trust of a folder back, and it
+goes back to restricted mode.
 
 ## Tests (pytest, jest, cargo, go)
 

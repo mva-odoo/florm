@@ -341,7 +341,8 @@ peuvent exécuter son code. Dans un dossier qui n'est pas encore de confiance, u
 fichier le dit : les serveurs de langage et eslint ne tournent pas, et flake8 ignore la configuration
 du projet (`node --check` et le lint Python restent). **Faire confiance à « dossier »** les lance, pour
 ce dossier et ceux qu'il contient (clé `trusted_folders` de `settings.toml`) ; **Plus tard** cache la
-barre jusqu'à la fermeture de Florm.
+barre jusqu'à la fermeture de Florm. **Préférences → Lint → Dossiers de confiance** les liste ; × retire
+la confiance d'un dossier, qui repasse en mode restreint.
 
 ## Tests (pytest, jest, cargo, go)
 

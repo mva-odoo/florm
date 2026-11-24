@@ -3,6 +3,7 @@
 use super::*;
 
 mod accounts;
+mod trusted;
 pub(super) use accounts::AccountsUi;
 
 /// A theme in the preferences: its background with a few lines of "code" in its colors.
@@ -1045,6 +1046,9 @@ impl App {
         };
         if sec == PrefSection::Claude && self.settings.claude {
             self.claude_accounts_prefs(ui, rc);
+        }
+        if sec == PrefSection::Lint {
+            self.trusted_folders_prefs(ui, rc);
         }
         if let Some(f) = needs.filter(|_| rc.filter.is_empty()) {
             self.feature_needs(ui, f);

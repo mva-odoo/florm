@@ -23,15 +23,36 @@ impl App {
         if !self.settings.trusted_folders.contains(&s) {
             self.settings.trusted_folders.push(s);
         }
-        // a JSON list of strings is a TOML list too
-        let list = serde_json::to_string(&self.settings.trusted_folders).unwrap_or_else(|_| "[]".into());
-        self.persist("trusted_folders", list);
+        self.persist_trusted();
         for i in 0..self.docs.len() {
             if self.docs[i].path.as_deref().is_some_and(|p| p.starts_with(&dir)) {
                 self.analyze(i, false);
             }
         }
         self.set_status(tf!("🔓 {} : dossier de confiance", "🔓 {}: trusted folder", dir.display()));
+    }
+
+    /// The trust of `dir` taken back (Préférences): its open files go back to restricted mode, the
+    /// language servers stop (those of the folders still trusted start again when needed).
+    pub(super) fn untrust_folder(&mut self, dir: &str) {
+        self.settings.trusted_folders.retain(|t| t != dir);
+        self.persist_trusted();
+        let now_restricted: Vec<usize> =
+            (0..self.docs.len()).filter(|&i| self.docs[i].path.as_deref().is_some_and(|p| !self.trusted(p))).collect();
+        self.lsp.manager.reset();
+        self.lsp.requests.clear();
+        self.lsp.completion = None;
+        for i in now_restricted {
+            self.docs[i].set_lsp_diagnostics(Vec::new());
+            self.analyze(i, false);
+        }
+        self.set_status(tf!("🔒 {dir} : plus de confiance (mode restreint)", "🔒 {dir}: no longer trusted (restricted mode)"));
+    }
+
+    fn persist_trusted(&mut self) {
+        // a JSON list of strings is a TOML list too
+        let list = serde_json::to_string(&self.settings.trusted_folders).unwrap_or_else(|_| "[]".into());
+        self.persist("trusted_folders", list);
     }
 
     /// Bar above a file of a folder not trusted, when something waits for that (a language
