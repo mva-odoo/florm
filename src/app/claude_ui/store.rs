@@ -217,7 +217,7 @@ impl App {
                     spinner(ui);
                     ui.label(RichText::new(tf!("Florm se fermera quand Claude aura fini ({})", "Florm will close when Claude is done ({})", self.claude_working())).color(accent));
                     if ui.button(t!("Ne pas fermer", "Don't close")).clicked() {
-                        self.quit_when_idle = false;
+                        self.quit.when_idle = false;
                     }
                 });
             });

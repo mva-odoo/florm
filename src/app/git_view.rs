@@ -63,30 +63,30 @@ impl App {
     /// Requests the blame of the cursor line when it changed (blame mode).
     /// The cursor stays 150 ms on the line first: holding ↓ does not start a `git blame` per line.
     pub(super) fn update_blame(&mut self, ctx: &egui::Context) {
-        if !self.blame_mode {
+        if !self.blame.on {
             return;
         }
         let Some(d) = self.docs.get(self.active) else { return };
         let Some(path) = d.path.clone() else { return };
         let line = d.rope.char_to_line(d.primary_sel().head);
         let key = (d.uid, line, d.version);
-        if self.blame_req == Some(key) || d.last_change.elapsed() < Duration::from_millis(250) {
+        if self.blame.req == Some(key) || d.last_change.elapsed() < Duration::from_millis(250) {
             return;
         }
         let still = Duration::from_millis(150);
-        match self.blame_seen {
+        match self.blame.seen {
             Some((k, t)) if k == key && t.elapsed() >= still => {}
             Some((k, t)) if k == key => {
                 ctx.request_repaint_after(still - t.elapsed());
                 return;
             }
             _ => {
-                self.blame_seen = Some((key, Instant::now()));
+                self.blame.seen = Some((key, Instant::now()));
                 ctx.request_repaint_after(still);
                 return;
             }
         }
-        self.blame_req = Some(key);
+        self.blame.req = Some(key);
         // the text written on the thread (a copy of the rope costs nothing)
         let (uid, version, rope) = (d.uid, d.version, d.rope.clone());
         self.jobs.spawn(move || JobResult::Blame { uid, line, version, result: git::blame_line(&path, line + 1, &rope.to_string()) });

@@ -17,7 +17,7 @@ impl App {
                     }
                 }
                 JobResult::DiskCheck { stamps, files } => {
-                    self.disk_check_busy = false;
+                    self.watch.busy = false;
                     self.check_git_stamps(stamps);
                     self.files_checked(files);
                 }
@@ -140,7 +140,7 @@ impl App {
             if manual {
                 self.set_status(tf!("Florm {} est disponible (en bas à droite)", "Florm {} is available (bottom right)", u.version));
             }
-            self.update = Some(u);
+            self.upd.found = Some(u);
         }
         Ok(None) if manual => self.set_status(tf!("Florm est à jour ({})", "Florm is up to date ({})", crate::update::current())),
         Ok(None) => {}
@@ -155,7 +155,7 @@ impl App {
 
     /// A new version of Florm installed.
     pub(super) fn on_update_installed(&mut self, version: String, result: Result<std::path::PathBuf, String>) {
-        self.update_installing = false;
+        self.upd.installing = false;
         match result {
             Ok(exe) => {
                 self.log(tf!("Florm {version} est installé : redémarrez pour l'utiliser", "Florm {version} is installed: restart to use it"));
@@ -165,7 +165,7 @@ impl App {
                 } else {
                     self.set_status(tf!("Florm {version} est installé : Florm redémarre", "Florm {version} is installed: Florm restarts"));
                 }
-                self.update_ready = Some(exe);
+                self.upd.ready = Some(exe);
             }
             Err(e) => {
                 self.log(tf!("Mise à jour vers Florm {version} impossible : {e}", "Cannot update to Florm {version}: {e}"));

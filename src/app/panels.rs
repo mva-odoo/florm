@@ -12,7 +12,7 @@ mod tabs;
 impl App {
     pub(super) fn central(&mut self, ctx: &egui::Context) {
         self.normalize_panes();
-        self.drop_zones = DropZones::default();
+        self.panes.drop_zones = DropZones::default();
         if std::mem::take(&mut self.pending_focus) {
             ctx.memory_mut(|m| m.request_focus(editor_id()));
         }
@@ -48,11 +48,11 @@ impl App {
             if two {
                 let frame = egui::Frame::none();
                 // a gap between the two cards
-                let beside = match self.split_dir {
+                let beside = match self.panes.split_dir {
                     SplitDir::Right => egui::Margin { left: 6.0, ..Default::default() },
                     SplitDir::Down => egui::Margin { top: 6.0, ..Default::default() },
                 };
-                match self.split_dir {
+                match self.panes.split_dir {
                     SplitDir::Right => {
                         let w = ui.available_width() / 2.0;
                         egui::SidePanel::right("pane_1").resizable(true).default_width(w).min_width(180.0).show_separator_line(false).frame(frame.inner_margin(beside)).show_inside(ui, |ui| {
@@ -76,7 +76,7 @@ impl App {
             }
             let gap = self.tabs_strip(ui, None);
             let card = ui.available_rect_before_wrap();
-            self.drop_zones.panes.push((0, card));
+            self.panes.drop_zones.panes.push((0, card));
             if self.active < self.docs.len() {
                 self.breadcrumbs_ui(ui, self.active, 0);
                 self.conflict_bar(ui, self.active, 0);
@@ -95,7 +95,7 @@ impl App {
         }
         // a click in the other panel's editor makes it the active panel
         if ctx.memory(|m| m.has_focus(editor_view::other_editor_id())) {
-            if let Some(i) = self.pane_doc(1 - self.focused_pane) {
+            if let Some(i) = self.pane_doc(1 - self.panes.focused) {
                 self.active = i;
                 ctx.memory_mut(|m| m.request_focus(editor_id()));
             }
@@ -140,7 +140,7 @@ impl App {
         let is_python = d.path.as_deref().and_then(lint::lang_of) == Some("python");
         let has_selection = !d.primary_sel().is_empty();
         let in_repo = d.path.as_deref().and_then(|p| self.repo_for(p)).is_some();
-        let (km, blame_on, has_root) = (&self.keymap, self.blame_mode, self.root.is_some());
+        let (km, blame_on, has_root) = (&self.keymap, self.blame.on, self.root.is_some());
         let mut chosen = None;
         let mut item = |ui: &mut egui::Ui, label: &str, cmd: Cmd, enabled: bool| {
             if !crate::features::cmd_on(cmd) {
@@ -306,11 +306,11 @@ impl App {
         let keeps = self.settings.hot_exit;
         let working = self.claude_working();
         // Claude at work: closing would cut it; asked first (closing once it is done is offered)
-        if ctx.input(|i| i.viewport().close_requested()) && !self.claude_quit_ok && working > 0 {
+        if ctx.input(|i| i.viewport().close_requested()) && !self.quit.claude_ok && working > 0 {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.confirm = Some(Confirm::QuitClaude(working));
         } else if ctx.input(|i| i.viewport().close_requested())
-            && !self.quit_confirmed
+            && !self.quit.confirmed
             && !keeps
             && self.docs.iter().any(|d| d.is_dirty())
         {
@@ -318,12 +318,12 @@ impl App {
             self.confirm = Some(Confirm::Quit);
         }
         // « Fermer quand il aura fini »: the last Claude at work is done
-        if self.quit_when_idle && working == 0 {
-            self.quit_when_idle = false;
-            self.claude_quit_ok = true;
+        if self.quit.when_idle && working == 0 {
+            self.quit.when_idle = false;
+            self.quit.claude_ok = true;
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
-        if self.quit_when_idle {
+        if self.quit.when_idle {
             self.quit_when_idle_ui(ctx);
         }
         if ctx.input(|i| i.viewport().close_requested()) || self.last_session_save.elapsed() > Duration::from_secs(30) {
@@ -388,22 +388,22 @@ impl App {
         }
         // Files changed outside the editor (checked at once when coming back to the window).
         let focused = ctx.input(|i| i.focused);
-        if focused && !self.was_focused {
-            self.last_disk_check = Instant::now() - Duration::from_secs(10);
+        if focused && !self.watch.was_focused {
+            self.watch.last_check = Instant::now() - Duration::from_secs(10);
             // files may have been changed by another program: the Git view shows them at once
             if self.has_tab(document::View::Git) {
                 self.git_refresh();
             }
         }
-        self.was_focused = focused;
+        self.watch.was_focused = focused;
         // a command run in a terminal (git commit, checkout…): its effect is shown within half a second
         if self.term.has_focus(ctx) && ctx.input(|i| i.key_pressed(Key::Enter)) {
-            self.term_enter = Some(Instant::now());
+            self.watch.term_enter = Some(Instant::now());
         }
-        let busy_term = self.term_enter.is_some_and(|t| t.elapsed() < Duration::from_secs(30));
+        let busy_term = self.watch.term_enter.is_some_and(|t| t.elapsed() < Duration::from_secs(30));
         let every = if busy_term { Duration::from_millis(500) } else { Duration::from_secs(2) };
-        if self.last_disk_check.elapsed() > every && !self.disk_check_busy {
-            self.last_disk_check = Instant::now();
+        if self.watch.last_check.elapsed() > every && !self.watch.busy {
+            self.watch.last_check = Instant::now();
             // folders added or removed by another program show up in the tree
             if self.tree.as_mut().is_some_and(|t| t.refresh_changed()) {
                 self.index.files_at = None;
@@ -412,7 +412,7 @@ impl App {
             // (\\wsl$, a network folder) does not freeze the window
             let repos = self.repos.clone();
             let files: Vec<(u64, std::time::SystemTime, PathBuf)> = self.docs.iter().filter_map(|d| Some((d.uid, d.mtime?, d.path.clone()?))).collect();
-            self.disk_check_busy = true;
+            self.watch.busy = true;
             self.jobs.spawn(move || JobResult::DiskCheck {
                 stamps: repos.into_iter().map(|r| {
                     let st = git::stamp(&r);

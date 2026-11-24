@@ -918,9 +918,8 @@ pub struct App {
     show_sidebar: bool,
     /// Distraction-free mode: full screen, only the text, centered (Ctrl+K Z).
     zen: bool,
-    /// The macro being recorded (Ctrl+Alt+Q), and the last one recorded (Ctrl+Shift+Q plays it).
-    macro_rec: Option<Vec<input::MacroStep>>,
-    macro_last: Vec<input::MacroStep>,
+    /// Keyboard macros: the one being recorded, the last one.
+    macros: MacroState,
     /// Auto-save: Florm had the focus at the last frame, and the document shown then.
     auto_save_seen: (bool, u64),
     /// The document whose repository was last followed (`follow_file_repo`).
@@ -949,48 +948,23 @@ pub struct App {
     status: Option<StatusMsg>,
     /// The last messages of the status bar, newest last: a message gone too fast can be read again.
     status_log: std::collections::VecDeque<StatusMsg>,
-    /// Newer release of Florm, shown in the status bar until dismissed.
-    update: Option<crate::update::Update>,
-    /// The update is being downloaded and installed.
-    update_installing: bool,
-    /// The shared configuration is being synchronized / published.
-    shared_busy: bool,
-    /// Asked from the preferences, done once the setting is saved.
-    shared_op: Option<crate::shared::Op>,
-    /// Installed update: the program to start for the restart.
-    update_ready: Option<PathBuf>,
-    /// Program started when Florm quits ("Redémarrer" after an update).
-    restart: Option<PathBuf>,
+    /// Updates of Florm and the shared configuration.
+    upd: UpdateState,
     /// Start of the last frame, when there is no vsync to pace the frames (Wayland).
     paced_frame: Option<Instant>,
     pending: Vec<Cmd>,
-    last_disk_check: Instant,
-    /// A `DiskCheck` is running: not another one meanwhile.
-    disk_check_busy: bool,
+    /// What changes on the disk without Florm: files open, repositories (checked every 2 s).
+    watch: WatchState,
     /// Folders not trusted for which « Plus tard » was clicked (until Florm is closed).
     trust_later: HashSet<PathBuf>,
-    /// Last command run in a terminal: git and the files are checked more often for a while.
-    term_enter: Option<Instant>,
     last_line_copy: Option<String>,
-    quit_confirmed: bool,
-    /// Closing while Claude works was accepted (the unsaved files may still be asked about), or
-    /// Florm closes once no Claude works any more.
-    claude_quit_ok: bool,
-    quit_when_idle: bool,
+    /// Closing Florm: what was confirmed, and « Fermer quand il aura fini ».
+    quit: QuitState,
     closed: Vec<PathBuf>,
     last_title: String,
     visuals_dirty: bool,
-    /// Tab last scrolled into view (to follow the active tab once).
-    tab_scrolled: Option<usize>,
-    /// Tab being dragged to another position.
-    tab_drag: Option<usize>,
-    /// The tab shown before the current one (Échap on Git or the preferences goes back to it).
-    prev_tab: Option<u64>,
-    /// Split editor: orientation, panel with the keyboard focus, document shown by each panel.
-    split_dir: SplitDir,
-    focused_pane: u8,
-    pane_active: [Option<u64>; 2],
-    drop_zones: DropZones,
+    /// The tabs and the two panes of the editor (split view).
+    panes: PaneState,
     /// Give the keyboard focus to the editor at the next frame (after a tab change).
     pending_focus: bool,
     md_cache: egui_commonmark::CommonMarkCache,
@@ -1050,11 +1024,8 @@ pub struct App {
     drop_alt_text: Option<Instant>,
     /// A native file dialog is open (do not open a second one).
     dialog_open: bool,
-    /// Ctrl+Shift+B: blame annotation following the cursor line.
-    blame_mode: bool,
-    blame_req: Option<(u64, usize, u64)>,
-    /// The line of the cursor (as `blame_req`) and since when it is there.
-    blame_seen: Option<((u64, usize, u64), Instant)>,
+    /// Blame mode: the author of the cursor line, asked as the cursor moves.
+    blame: BlameState,
     line_history: Option<LineHistoryUi>,
     /// The window of the versions of a file (local history).
     local_history: Option<compare::LocalHistory>,
@@ -1069,14 +1040,79 @@ pub struct App {
     conflicts: conflicts::ConflictsUi,
     /// Templates (snippets) offered by "insérer un modèle", loaded when the list opens.
     templates: Vec<crate::templates::Template>,
-    /// Last `git::stamp` of each repository: a change made outside Florm (commit in a terminal…)
-    /// refreshes the git panel and the gutter marks.
-    git_stamps: HashMap<PathBuf, Vec<Option<std::time::SystemTime>>>,
-    /// The window had the focus at the last frame (coming back to Florm checks the files at once).
-    was_focused: bool,
     nav: NavState,
     index: Indexes,
     lsp: LspUi,
+}
+
+/// Blame mode: the author of the cursor line, asked as the cursor moves.
+struct BlameState {
+    /// Ctrl+Shift+B: blame annotation following the cursor line.
+    on: bool,
+    req: Option<(u64, usize, u64)>,
+    /// The line of the cursor (as `req`) and since when it is there.
+    seen: Option<((u64, usize, u64), Instant)>,
+}
+
+/// Closing Florm: what was confirmed, and « Fermer quand il aura fini ».
+struct QuitState {
+    confirmed: bool,
+    /// Closing while Claude works was accepted (the unsaved files may still be asked about), or
+    /// Florm closes once no Claude works any more.
+    claude_ok: bool,
+    when_idle: bool,
+}
+
+/// Updates of Florm and the shared configuration.
+struct UpdateState {
+    /// Newer release of Florm, shown in the status bar until dismissed.
+    found: Option<crate::update::Update>,
+    /// The update is being downloaded and installed.
+    installing: bool,
+    /// Installed update: the program to start for the restart.
+    ready: Option<PathBuf>,
+    /// Program started when Florm quits ("Redémarrer" after an update).
+    restart: Option<PathBuf>,
+    /// The shared configuration is being synchronized / published.
+    shared_busy: bool,
+    /// Asked from the preferences, done once the setting is saved.
+    shared_op: Option<crate::shared::Op>,
+}
+
+/// What changes on the disk without Florm: files open, repositories (checked every 2 s).
+struct WatchState {
+    last_check: Instant,
+    /// A `DiskCheck` is running: not another one meanwhile.
+    busy: bool,
+    /// Last `git::stamp` of each repository: a change made outside Florm (commit in a terminal…)
+    /// refreshes the git panel and the gutter marks.
+    git_stamps: HashMap<PathBuf, Vec<Option<std::time::SystemTime>>>,
+    /// Last command run in a terminal: git and the files are checked more often for a while.
+    term_enter: Option<Instant>,
+    /// The window had the focus at the last frame (coming back to Florm checks the files at once).
+    was_focused: bool,
+}
+
+/// The tabs and the two panes of the editor (split view).
+struct PaneState {
+    /// Tab last scrolled into view (to follow the active tab once).
+    tab_scrolled: Option<usize>,
+    /// Tab being dragged to another position.
+    tab_drag: Option<usize>,
+    /// The tab shown before the current one (Échap on Git or the preferences goes back to it).
+    prev_tab: Option<u64>,
+    /// Split editor: orientation, panel with the keyboard focus, document shown by each panel.
+    split_dir: SplitDir,
+    focused: u8,
+    active: [Option<u64>; 2],
+    drop_zones: DropZones,
+}
+
+/// Keyboard macros: the one being recorded, the last one.
+struct MacroState {
+    /// The macro being recorded (Ctrl+Alt+Q), and the last one recorded (Ctrl+Shift+Q plays it).
+    rec: Option<Vec<input::MacroStep>>,
+    last: Vec<input::MacroStep>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1219,8 +1255,7 @@ impl App {
             tree: None,
             show_sidebar: true,
             zen: false,
-            macro_rec: None,
-            macro_last: Vec::new(),
+            macros: MacroState { rec: None, last: Vec::new() },
             auto_save_seen: (true, 0),
             repo_followed: 0,
             bottom: None,
@@ -1242,32 +1277,17 @@ impl App {
             output: Vec::new(),
             status: None,
             status_log: Default::default(),
-            update: None,
-            update_installing: false,
-            shared_busy: false,
-            shared_op: None,
-            update_ready: None,
-            restart: None,
+            upd: UpdateState { found: None, installing: false, ready: None, restart: None, shared_busy: false, shared_op: None },
             paced_frame: std::env::var_os("WAYLAND_DISPLAY").is_some().then(Instant::now),
             pending: Vec::new(),
-            last_disk_check: Instant::now(),
-            disk_check_busy: false,
+            watch: WatchState { last_check: Instant::now(), busy: false, git_stamps: HashMap::new(), term_enter: None, was_focused: true },
             trust_later: HashSet::new(),
-            term_enter: None,
             last_line_copy: None,
-            quit_confirmed: false,
-            claude_quit_ok: false,
-            quit_when_idle: false,
+            quit: QuitState { confirmed: false, claude_ok: false, when_idle: false },
             closed: Vec::new(),
             last_title: String::new(),
             visuals_dirty: false,
-            tab_scrolled: None,
-            tab_drag: None,
-            prev_tab: None,
-            split_dir: SplitDir::Right,
-            focused_pane: 0,
-            pane_active: [None; 2],
-            drop_zones: DropZones::default(),
+            panes: PaneState { tab_scrolled: None, tab_drag: None, prev_tab: None, split_dir: SplitDir::Right, focused: 0, active: [None; 2], drop_zones: DropZones::default() },
             pending_focus: false,
             md_cache: egui_commonmark::CommonMarkCache::default(),
             md_preview: None,
@@ -1302,9 +1322,7 @@ impl App {
             goto_select: false,
             drop_alt_text: None,
             dialog_open: false,
-            blame_mode: false,
-            blame_req: None,
-            blame_seen: None,
+            blame: BlameState { on: false, req: None, seen: None },
             line_history: None,
             local_history: None,
             state: project::load_state(),
@@ -1316,8 +1334,6 @@ impl App {
             index: Indexes::default(),
             lsp: LspUi::default(),
             templates: Vec::new(),
-            git_stamps: HashMap::new(),
-            was_focused: true,
             settings,
         };
         if let Some(e) = settings_err {
@@ -1410,19 +1426,19 @@ impl App {
 
     /// Downloads and installs the update in the background; "Redémarrer" is offered when done.
     fn install_update(&mut self) {
-        let Some(u) = self.update.clone() else { return };
-        if self.update_installing || self.update_ready.is_some() {
+        let Some(u) = self.upd.found.clone() else { return };
+        if self.upd.installing || self.upd.ready.is_some() {
             return;
         }
-        self.update_installing = true;
+        self.upd.installing = true;
         self.set_status(tf!("Téléchargement de Florm {}…", "Downloading Florm {}…", u.version));
         self.jobs.spawn(move || JobResult::UpdateInstalled { version: u.version.clone(), result: crate::update::install(&u) });
     }
 
     /// Quits (with the usual questions for unsaved files) and starts the installed version.
     fn restart_for_update(&mut self, ctx: &egui::Context) {
-        if let Some(exe) = self.update_ready.clone() {
-            self.restart = Some(exe);
+        if let Some(exe) = self.upd.ready.clone() {
+            self.upd.restart = Some(exe);
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
     }
@@ -1571,7 +1587,7 @@ impl eframe::App for App {
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         // the Claude conversations being written are written before Florm stops
         claude_ui::wait_saved();
-        if let Some(exe) = self.restart.take() {
+        if let Some(exe) = self.upd.restart.take() {
             if let Err(e) = crate::os::command(&exe).stdin(std::process::Stdio::null()).spawn() {
                 eprintln!("{}", tf!("Redémarrage de Florm impossible ({}) : {e}", "Cannot restart Florm ({}): {e}", exe.display()));
             }
@@ -1596,7 +1612,7 @@ impl eframe::App for App {
         self.process_jobs();
         // the update is installed and nothing is unsaved: Florm restarts by itself, without asking
         // (not while Claude works: it would be cut in the middle of its task)
-        if self.update_ready.is_some() && self.restart.is_none() && !self.docs.iter().any(|d| d.is_dirty()) && self.claude_working() == 0 {
+        if self.upd.ready.is_some() && self.upd.restart.is_none() && !self.docs.iter().any(|d| d.is_dirty()) && self.claude_working() == 0 {
             self.restart_for_update(ctx);
         }
         self.sync_decorations(ctx);

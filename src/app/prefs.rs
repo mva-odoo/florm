@@ -647,7 +647,7 @@ impl App {
                 pref_row(ui, rc, t!("Diff dans l'éditeur", "Diff in the editor"), t!("Tous les changements en permanence : lignes ajoutées en vert, anciennes en rouge, dans le code (Ctrl+Alt+D). Sans elle, un clic sur la marque de la marge (ou Ctrl+K Ctrl+D) en montre un seul.", "All the changes all the time: added lines in green, old ones in red, in the code (Ctrl+Alt+D). Without it, a click on the mark in the gutter (or Ctrl+K Ctrl+D) shows one."), |ui| {
                     toggle_switch(ui, &mut s.inline_diff);
                 });
-                let mut blame = self.blame_mode;
+                let mut blame = self.blame.on;
                 pref_row(ui, rc, t!("Blame de la ligne", "Line blame"), t!("Auteur et commit de la ligne courante en fin de ligne (Ctrl+Maj+B). Non mémorisé entre les sessions.", "Author and commit of the current line at the end of the line (Ctrl+Shift+B). Not kept between sessions."), |ui| {
                     if toggle_switch(ui, &mut blame).changed() {
                         actions.push(Cmd::GitBlame);
@@ -983,7 +983,7 @@ impl App {
                 });
                 let shared = &mut self.prefs.shared;
                 let shared_dir = crate::shared::dir();
-                let busy = self.shared_busy;
+                let busy = self.upd.shared_busy;
                 let mut shared_op = None;
                 let mut open_shared = false;
                 let help = match &shared_dir {
@@ -1016,7 +1016,7 @@ impl App {
                     }
                 });
                 if let Some(op) = shared_op {
-                    self.shared_op = Some(op);
+                    self.upd.shared_op = Some(op);
                 }
                 if open_shared {
                     if let Some(d) = crate::shared::dir() {
@@ -1352,11 +1352,11 @@ impl App {
             self.persist("shared_config", config::toml_str(&s.shared_config));
             if s.shared_config.is_empty() {
                 self.reload_shared();
-            } else if self.shared_op.is_none() {
-                self.shared_op = Some(crate::shared::Op::Sync);
+            } else if self.upd.shared_op.is_none() {
+                self.upd.shared_op = Some(crate::shared::Op::Sync);
             }
         }
-        if let Some(op) = self.shared_op.take() {
+        if let Some(op) = self.upd.shared_op.take() {
             self.shared_job(op);
         }
     }

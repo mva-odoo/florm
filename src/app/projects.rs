@@ -83,7 +83,7 @@ impl App {
         let mut backups = Vec::new();
         let mut active = 0;
         let pane_of = |d: &Document| if d.pane == document::NO_PANE { 0 } else { d.pane };
-        let shown = |i: usize, d: &Document| i == self.active || self.pane_active[pane_of(d) as usize & 1] == Some(d.uid);
+        let shown = |i: usize, d: &Document| i == self.active || self.panes.active[pane_of(d) as usize & 1] == Some(d.uid);
         for (i, d) in self.docs.iter().enumerate() {
             // the views come back in their tab (not the terminals: their programs are gone)
             if let Some(view) = self.session_view(d) {
@@ -124,7 +124,7 @@ impl App {
             search_exclude: self.search.q.exclude.clone(),
             recent: self.index.recent.clone(),
             breakpoints: self.debug_session_breakpoints(),
-            split: self.is_split().then(|| if self.split_dir == SplitDir::Down { "down" } else { "right" }.to_string()),
+            split: self.is_split().then(|| if self.panes.split_dir == SplitDir::Down { "down" } else { "right" }.to_string()),
             bottom: self.bottom.map(|b| b.key()),
             sidebar_hidden: !self.show_sidebar,
             version: self.version.clone(),
@@ -246,10 +246,10 @@ impl App {
         }
         // the split, the tab shown in each pane, the panels
         if s.split.is_some() && self.is_split() {
-            self.split_dir = if s.split.as_deref() == Some("down") { SplitDir::Down } else { SplitDir::Right };
+            self.panes.split_dir = if s.split.as_deref() == Some("down") { SplitDir::Down } else { SplitDir::Right };
             for (f, i) in s.files.iter().zip(&opened) {
                 if let (true, Some(d)) = (f.shown, i.and_then(|i| self.docs.get(i))) {
-                    self.pane_active[d.pane as usize & 1] = Some(d.uid);
+                    self.panes.active[d.pane as usize & 1] = Some(d.uid);
                 }
             }
         } else {
@@ -257,7 +257,7 @@ impl App {
         }
         if let Some(Some(i)) = opened.get(s.active) {
             self.active = *i;
-            self.focused_pane = self.docs.get(*i).map_or(0, |d| d.pane);
+            self.panes.focused = self.docs.get(*i).map_or(0, |d| d.pane);
         }
         self.show_sidebar = !s.sidebar_hidden;
         self.claude_restore_listed(&s.claude_listed);

@@ -400,7 +400,7 @@ impl App {
     pub(super) fn check_git_stamps(&mut self, stamps: Vec<(PathBuf, Vec<Option<std::time::SystemTime>>)>) {
         let mut changed = Vec::new();
         for (r, st) in stamps.into_iter().filter(|(r, _)| self.repos.contains(r)) {
-            match self.git_stamps.insert(r.clone(), st.clone()) {
+            match self.watch.git_stamps.insert(r.clone(), st.clone()) {
                 Some(old) if old != st => changed.push(r.clone()),
                 _ => {}
             }

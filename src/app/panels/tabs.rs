@@ -132,7 +132,7 @@ impl App {
                                 continue;
                             }
                             let shown = match pane {
-                                Some(p) if p != self.focused_pane => self.pane_active[p as usize] == Some(d.uid),
+                                Some(p) if p != self.panes.focused => self.panes.active[p as usize] == Some(d.uid),
                                 _ => i == self.active,
                             };
                             let active = shown;
@@ -161,7 +161,7 @@ impl App {
                             } else if body.clicked() {
                                 activate = Some(i);
                             }
-                            if i == self.active && self.tab_scrolled != Some(i) {
+                            if i == self.active && self.panes.tab_scrolled != Some(i) {
                                 body.scroll_to_me(None);
                                 scrolled = Some(i);
                             }
@@ -191,12 +191,12 @@ impl App {
                 crate::app::title_bar::strip_buttons(ui, bar, c, maximized);
             }
         });
-        self.drop_zones.strips.push((pane.unwrap_or(0), strip.0, strip.1));
+        self.panes.drop_zones.strips.push((pane.unwrap_or(0), strip.0, strip.1));
         if scrolled.is_some() {
-            self.tab_scrolled = scrolled;
+            self.panes.tab_scrolled = scrolled;
         }
         if let Some(i) = drag_start {
-            self.tab_drag = Some(i);
+            self.panes.tab_drag = Some(i);
         }
         if let Some(i) = activate {
             self.activate_tab(i);
@@ -217,7 +217,7 @@ impl App {
             Some(TabAct::MoveOther(i)) => self.split_tab(i, None),
             Some(TabAct::Unsplit) => self.unsplit(),
             Some(TabAct::Flip) => {
-                self.split_dir = if self.split_dir == SplitDir::Right { SplitDir::Down } else { SplitDir::Right };
+                self.panes.split_dir = if self.panes.split_dir == SplitDir::Right { SplitDir::Down } else { SplitDir::Right };
             }
             Some(TabAct::Close(i)) => self.close_tab(i, false),
             Some(TabAct::CloseOthers(i)) => {
@@ -230,7 +230,7 @@ impl App {
                     }
                 }
                 self.active = self.docs.iter().position(|d| d.uid == uid).unwrap_or(0);
-                self.tab_scrolled = None;
+                self.panes.tab_scrolled = None;
                 let kept = self.docs.iter().filter(|d| d.pane == p && d.uid != uid).count();
                 let closed = before - self.docs.len();
                 self.set_status(if kept > 0 {

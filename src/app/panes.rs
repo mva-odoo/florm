@@ -10,30 +10,30 @@ impl App {
     /// Places new documents in the active panel, closes a panel left empty, and makes the
     /// active panel follow the active document (however it was activated).
     pub(super) fn normalize_panes(&mut self) {
-        let focused = self.focused_pane;
+        let focused = self.panes.focused;
         for d in self.docs.iter_mut().filter(|d| d.pane == document::NO_PANE) {
             d.pane = focused;
         }
         if !self.docs.iter().any(|d| d.pane == 0) {
             self.docs.iter_mut().for_each(|d| d.pane = 0);
         }
-        self.focused_pane = self.docs.get(self.active).map_or(0, |d| d.pane);
+        self.panes.focused = self.docs.get(self.active).map_or(0, |d| d.pane);
         if let Some(d) = self.docs.get(self.active) {
-            self.pane_active[self.focused_pane as usize] = Some(d.uid);
+            self.panes.active[self.panes.focused as usize] = Some(d.uid);
         }
-        let other = 1 - self.focused_pane as usize;
-        let ok = self.pane_active[other].is_some_and(|u| self.docs.iter().any(|d| d.uid == u && d.pane as usize == other));
+        let other = 1 - self.panes.focused as usize;
+        let ok = self.panes.active[other].is_some_and(|u| self.docs.iter().any(|d| d.uid == u && d.pane as usize == other));
         if !ok {
-            self.pane_active[other] = self.docs.iter().rev().find(|d| d.pane as usize == other).map(|d| d.uid);
+            self.panes.active[other] = self.docs.iter().rev().find(|d| d.pane as usize == other).map(|d| d.uid);
         }
     }
 
     /// Document shown in `pane`.
     pub(super) fn pane_doc(&self, pane: u8) -> Option<usize> {
-        if pane == self.focused_pane {
+        if pane == self.panes.focused {
             return (self.active < self.docs.len()).then_some(self.active);
         }
-        let uid = self.pane_active[pane as usize]?;
+        let uid = self.panes.active[pane as usize]?;
         self.docs.iter().position(|d| d.uid == uid)
     }
 
@@ -47,7 +47,7 @@ impl App {
             return;
         }
         if let Some(dir) = dir {
-            self.split_dir = dir;
+            self.panes.split_dir = dir;
         }
         self.docs[i].pane = 1 - pane;
         self.activate_tab(i);
@@ -55,13 +55,13 @@ impl App {
 
     pub(super) fn unsplit(&mut self) {
         self.docs.iter_mut().for_each(|d| d.pane = 0);
-        self.focused_pane = 0;
+        self.panes.focused = 0;
     }
 
     pub(super) fn activate_tab(&mut self, i: usize) {
         let (old, new) = (self.docs.get(self.active).map(|d| d.uid), self.docs.get(i).map(|d| d.uid));
         if old != new && old.is_some() {
-            self.prev_tab = old;
+            self.panes.prev_tab = old;
         }
         self.active = i;
         self.pending_focus = true;
@@ -71,14 +71,14 @@ impl App {
     pub(super) fn pane_ui(&mut self, ui: &mut egui::Ui, pane: u8) -> Option<egui::Response> {
         let gap = self.tabs_strip(ui, Some(pane));
         let rect = ui.available_rect_before_wrap();
-        self.drop_zones.panes.push((pane, rect));
+        self.panes.drop_zones.panes.push((pane, rect));
         let i = self.pane_doc(pane)?;
         self.breadcrumbs_ui(ui, i, pane);
         self.conflict_bar(ui, i, pane);
         self.disk_bar(ui, i, pane);
         self.trust_bar(ui, i, pane);
         self.md_toolbar_ui(ui, i, pane);
-        let focused = pane == self.focused_pane;
+        let focused = pane == self.panes.focused;
         let id = if focused { editor_id() } else { editor_view::other_editor_id() };
         let r = self.doc_body(ui, i, id, focused);
         self.editor_card(ui, rect, gap);
@@ -438,7 +438,7 @@ impl App {
         self.docs.push(p);
         if side {
             // keep typing in the source, the preview follows beside it
-            self.split_dir = SplitDir::Right;
+            self.panes.split_dir = SplitDir::Right;
             self.active = src_idx;
         } else {
             self.active = self.docs.len() - 1;
@@ -644,10 +644,10 @@ impl App {
 
     /// Ends a tab drag: reorder in a tab strip, move to the other panel, or split.
     pub(super) fn resolve_tab_drag(&mut self, ctx: &egui::Context) {
-        let Some(from) = self.tab_drag else { return };
+        let Some(from) = self.panes.tab_drag else { return };
         let Some(p) = ctx.pointer_latest_pos() else { return };
         if from >= self.docs.len() {
-            self.tab_drag = None;
+            self.panes.tab_drag = None;
             return;
         }
         ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
@@ -656,7 +656,7 @@ impl App {
         let src = self.docs[from].pane;
         let split = self.is_split();
         let alone = self.docs.iter().filter(|d| d.pane == src).count() == 1;
-        let zones = std::mem::take(&mut self.drop_zones);
+        let zones = std::mem::take(&mut self.panes.drop_zones);
         let mut target = None;
         let hint = |r: egui::Rect, text: &str| {
             painter.rect_filled(r.shrink(4.0), 8.0, accent.gamma_multiply(0.18));
@@ -690,7 +690,7 @@ impl App {
             }
         }
         if !ctx.input(|i| i.pointer.primary_down()) {
-            self.tab_drag = None;
+            self.panes.tab_drag = None;
             match target {
                 Some(TabDrop::Strip(pane, to)) => {
                     self.docs[from].pane = pane;
@@ -715,7 +715,7 @@ impl App {
         let to = if to > from { to - 1 } else { to }.min(self.docs.len());
         self.docs.insert(to, d);
         self.active = to;
-        self.tab_scrolled = None;
+        self.panes.tab_scrolled = None;
     }
 
     pub(super) fn close_tab(&mut self, idx: usize, force: bool) {

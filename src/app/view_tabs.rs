@@ -41,7 +41,7 @@ impl App {
             return;
         }
         let cur = self.active;
-        let back = self.prev_tab.and_then(|u| self.docs.iter().position(|d| d.uid == u)).filter(|&i| i != cur);
+        let back = self.panes.prev_tab.and_then(|u| self.docs.iter().position(|d| d.uid == u)).filter(|&i| i != cur);
         let near = if cur > 0 { Some(cur - 1) } else { (cur + 1 < self.docs.len()).then_some(cur + 1) };
         if let Some(i) = back.or(near) {
             self.activate_tab(i);

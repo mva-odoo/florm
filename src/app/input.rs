@@ -152,7 +152,7 @@ impl App {
             match ev {
                 Event::Text(t) => {
                     doc.insert_text(&t, auto);
-                    if let Some(rec) = self.macro_rec.as_mut() {
+                    if let Some(rec) = self.macros.rec.as_mut() {
                         match rec.last_mut() {
                             Some(MacroStep::Text(prev)) => prev.push_str(&t),
                             _ => rec.push(MacroStep::Text(t.clone())),
@@ -187,7 +187,7 @@ impl App {
                 Event::Paste(t) => {
                     let lw = self.last_line_copy.as_deref() == Some(t.replace("\r\n", "\n").as_str());
                     doc.paste(&t, lw);
-                    if let Some(rec) = self.macro_rec.as_mut() {
+                    if let Some(rec) = self.macros.rec.as_mut() {
                         rec.push(MacroStep::Paste(t.clone()));
                     }
                 }
@@ -229,7 +229,7 @@ impl App {
             if let Some(d) = self.docs.get_mut(self.active) {
                 d.exec(cmd, auto);
             }
-            if let Some(rec) = self.macro_rec.as_mut() {
+            if let Some(rec) = self.macros.rec.as_mut() {
                 rec.push(MacroStep::Cmd(cmd));
             }
             return;
@@ -357,14 +357,14 @@ impl App {
             SplitRight | SplitDown => {
                 let dir = if cmd == SplitRight { SplitDir::Right } else { SplitDir::Down };
                 if self.is_split() {
-                    self.split_dir = dir;
+                    self.panes.split_dir = dir;
                 } else if self.active < self.docs.len() {
                     self.split_tab(self.active, Some(dir));
                 }
             }
             Unsplit => self.unsplit(),
             FocusOtherPane => {
-                if let Some(i) = self.pane_doc(1 - self.focused_pane) {
+                if let Some(i) = self.pane_doc(1 - self.panes.focused) {
                     self.activate_tab(i);
                 }
             }
@@ -545,28 +545,28 @@ impl App {
                 }
                 self.focus_editor(ctx);
             }
-            MacroRecord => match self.macro_rec.take() {
+            MacroRecord => match self.macros.rec.take() {
                 Some(steps) => {
                     let n = steps.len();
                     if n > 0 {
-                        self.macro_last = steps;
+                        self.macros.last = steps;
                     }
                     self.set_status(tf!("Macro enregistrée ({n} étapes) : Ctrl+Maj+Q pour la rejouer", "Macro recorded ({n} steps): Ctrl+Shift+Q to play it"));
                 }
                 None => {
-                    self.macro_rec = Some(Vec::new());
+                    self.macros.rec = Some(Vec::new());
                     self.set_status(t!("Enregistrement de la macro… Ctrl+Alt+Q pour arrêter", "Recording the macro… Ctrl+Alt+Q to stop"));
                 }
             },
             MacroPlay => {
-                if self.macro_rec.is_some() {
+                if self.macros.rec.is_some() {
                     self.set_status(t!("Arrête d'abord l'enregistrement (Ctrl+Alt+Q)", "Stop the recording first (Ctrl+Alt+Q)"));
-                } else if self.macro_last.is_empty() {
+                } else if self.macros.last.is_empty() {
                     self.set_status(t!("Aucune macro : Ctrl+Alt+Q pour en enregistrer une", "No macro: Ctrl+Alt+Q to record one"));
                 } else if self.docs.get(self.active).is_some_and(|d| d.read_only) {
                     self.set_status(t!("Fichier en lecture seule", "Read-only file"));
                 } else {
-                    for step in self.macro_last.clone() {
+                    for step in self.macros.last.clone() {
                         self.macro_step(&step);
                     }
                     if let Some(d) = self.docs.get_mut(self.active) {
@@ -681,14 +681,14 @@ impl App {
                 self.set_status(t!("Historique de recherche effacé", "Search history cleared"));
             }
             GitBlame => {
-                self.blame_mode = !self.blame_mode;
-                self.blame_req = None;
-                if !self.blame_mode {
+                self.blame.on = !self.blame.on;
+                self.blame.req = None;
+                if !self.blame.on {
                     for d in self.docs.iter_mut() {
                         d.blame = None;
                     }
                 }
-                self.set_status(if self.blame_mode {
+                self.set_status(if self.blame.on {
                     t!("Blame activé (Ctrl+B pour masquer, Ctrl+Alt+B : historique de la ligne)", "Blame on (Ctrl+B to hide, Ctrl+Alt+B: line history)")
                 } else {
                     t!("Blame masqué", "Blame hidden")

@@ -11,14 +11,14 @@ impl App {
         let accent = self.hl.colors.accent;
         // a pill, not a link lost among the details of the bar
         let pill = |text: String| egui::Button::new(RichText::new(text).size(12.0).color(text_on(accent)).strong()).fill(accent).rounding(9.0).min_size(egui::vec2(0.0, 18.0));
-        if let (Some(u), true) = (&self.update, self.update_installing) {
+        if let (Some(u), true) = (&self.upd.found, self.upd.installing) {
             ui.label(RichText::new(tf!("Mise à jour vers Florm {}…", "Updating to Florm {}…", u.version)).weak());
             spinner(ui);
-        } else if let (Some(u), true) = (&self.update, self.update_ready.is_some()) {
+        } else if let (Some(u), true) = (&self.upd.found, self.upd.ready.is_some()) {
             if ui.add(pill(tf!("⟳ Redémarrer pour la {}", "⟳ Restart for {}", u.version))).on_hover_text(t!("La nouvelle version est installée : Florm se relance (fichiers non enregistrés : la question habituelle)", "The new version is installed: Florm restarts (unsaved files: the usual question)")).clicked() {
                 self.restart_for_update(ctx);
             }
-        } else if let Some(u) = self.update.clone() {
+        } else if let Some(u) = self.upd.found.clone() {
             ui.scope(|ui| {
                 ui.spacing_mut().button_padding = egui::vec2(9.0, 0.0);
                 egui::menu::menu_custom_button(ui, pill(tf!("⬆ Mise à jour {}", "⬆ Update {}", u.version)), |ui| self.update_card(ui, &u, accent))
@@ -80,7 +80,7 @@ impl App {
                 }
             }
             if link(ui, t!("Plus tard", "Later")).on_hover_text(t!("Masquée jusqu'au prochain démarrage", "Hidden until the next start")).clicked() {
-                self.update = None;
+                self.upd.found = None;
                 ui.close_menu();
             }
         });

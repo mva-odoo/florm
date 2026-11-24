@@ -255,7 +255,7 @@ impl App {
             }
         }
         if touched {
-            self.last_disk_check = Instant::now() - Duration::from_secs(10);
+            self.watch.last_check = Instant::now() - Duration::from_secs(10);
             self.git_refresh();
         }
         for (title, what) in notes {

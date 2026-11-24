@@ -1034,11 +1034,11 @@ impl App {
                         return;
                     }
                 }
-                self.quit_confirmed = true;
+                self.quit.confirmed = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
             (Confirm::Quit, 2) => {
-                self.quit_confirmed = true;
+                self.quit.confirmed = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
             (Confirm::SwitchProject(p), 1) => {
@@ -1050,18 +1050,18 @@ impl App {
                 self.do_switch(p);
             }
             (Confirm::Quit, _) => {
-                self.restart = None;
-                self.claude_quit_ok = false;
+                self.upd.restart = None;
+                self.quit.claude_ok = false;
             }
             (Confirm::QuitClaude(_), 1) => {
-                self.quit_when_idle = true;
+                self.quit.when_idle = true;
                 self.set_status(t!("Florm se fermera quand Claude aura fini", "Florm will close when Claude is done"));
             }
             (Confirm::QuitClaude(_), 2) => {
-                self.claude_quit_ok = true;
+                self.quit.claude_ok = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
-            (Confirm::QuitClaude(_), _) => self.restart = None,
+            (Confirm::QuitClaude(_), _) => self.upd.restart = None,
             (Confirm::SwitchProject(p), 2) => self.do_switch(p),
             (Confirm::Overwrite(uid), 1 | 2) => {
                 if let Some(i) = self.docs.iter().position(|d| d.uid == uid) {

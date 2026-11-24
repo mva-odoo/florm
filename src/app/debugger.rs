@@ -211,7 +211,7 @@ impl App {
     /// Paused: the view under the file of the breakpoint, in the bottom panel. In an editor tab,
     /// the file would hide it (same panel), unless the tab is in the other panel of a split.
     fn debug_show_paused(&mut self) {
-        let beside = self.is_split() && self.docs.iter().any(|d| d.view == document::View::Debug && d.pane != self.focused_pane);
+        let beside = self.is_split() && self.docs.iter().any(|d| d.view == document::View::Debug && d.pane != self.panes.focused);
         if !beside {
             self.show_bottom(BottomTab::Debug, false);
         }

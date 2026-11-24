@@ -78,10 +78,10 @@ impl App {
             self.set_error(t!("Aucune configuration partagée : indiquez un dépôt GitHub dans Préférences → Avancé", "No shared configuration: give a GitHub repository in Preferences → Advanced"));
             return;
         }
-        if self.shared_busy {
+        if self.upd.shared_busy {
             return;
         }
-        self.shared_busy = true;
+        self.upd.shared_busy = true;
         self.set_status(match op {
             Op::Sync => t!("Configuration partagée : synchronisation…", "Shared configuration: synchronizing…"),
             Op::Publish => t!("Configuration partagée : publication…", "Shared configuration: publishing…"),
@@ -91,7 +91,7 @@ impl App {
     }
 
     pub(super) fn shared_done(&mut self, op: crate::shared::Op, result: Result<(String, String), String>) {
-        self.shared_busy = false;
+        self.upd.shared_busy = false;
         match result {
             Ok((spec, msg)) => {
                 if spec != self.settings.shared_config {
