@@ -166,9 +166,10 @@ impl App {
         let sound = self.settings.claude_done_sound.clone();
         let mut save: Vec<usize> = Vec::new();
         let mut restart: Vec<usize> = Vec::new();
-        // files changed by Claude (read again at once), and what to tell while Florm is not in front
-        let (mut touched, mut notes) = (false, Vec::new());
-        let away = !self.egui_ctx.input(|i| i.focused);
+        // files changed by Claude (read again at once)
+        let mut touched = false;
+        // the hooks tell the system themselves (at once, even while Florm is hidden and not drawn)
+        claude_term::set_away(!self.egui_ctx.input(|i| i.focused));
         let mut limits: Vec<(String, Vec<(String, f32, i64)>)> = Vec::new();
         let accounts = claude_account::accounts(&self.settings.claude_accounts);
         let term = &mut self.term;
@@ -207,10 +208,6 @@ impl App {
                         c.term_waiting = true;
                         c.unseen = true;
                         c.done_at = Some(Instant::now());
-                        if away {
-                            let what = if st.message.is_empty() { t!("Claude attend ta réponse", "Claude waits for your answer").to_string() } else { st.message.clone() };
-                            notes.push((conv_title(c), what));
-                        }
                     }
                     // `claude` stopped (/exit, Ctrl+D): Enter in its terminal starts it again
                     "ended" => {
@@ -257,9 +254,6 @@ impl App {
         if touched {
             self.watch.last_check = Instant::now() - Duration::from_secs(10);
             self.git_refresh();
-        }
-        for (title, what) in notes {
-            crate::os::notify(&tf!("Florm · {title}", "Florm · {title}"), &what);
         }
         for k in restart {
             let c = if k == 0 { &mut self.claude } else { &mut self.claude_others[k - 1] };

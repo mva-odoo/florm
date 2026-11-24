@@ -514,8 +514,9 @@ new in it work as they are. Claude's changes are reviewed in the **Git** view.
   them and refreshes Git as soon as Claude changes them.
 - **What Claude waits for**: when it asks for a permission or a question, its message (“needs your
   permission to use Bash”…) shows on hover over the conversation in the list and over **❓ waiting**
-  in the status bar. When Florm is not in front, a notification of the system tells you (macOS;
-  Linux with `notify-send`).
+  in the status bar. When Florm is not in front, a notification of the system tells you at
+  once, and also when Claude is done, even while Florm's window is hidden (macOS; Linux with
+  `notify-send`).
 - **Several conversations, one tab**: every conversation is listed on the left of the Claude
   tab, the newest at the top, with its title (its first message), what it does (⟳ working, ❓
   waiting for your answer, ✔ done) and how long it has been working; below, its project in its

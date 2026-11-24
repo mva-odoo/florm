@@ -176,11 +176,16 @@ fn on_event(file: &Path, what: &str, event: &Value) {
         }
         return;
     }
+    // « Claude is waiting for your input », a minute after it finished: the end was told then
+    // (Stop), this late one would only come too late
+    let message = event["message"].as_str().unwrap_or("").trim();
+    if what == "waiting" && (event["notification_type"] == "idle_prompt" || message.starts_with("Claude is waiting for your input")) {
+        return;
+    }
     let mut v = read_json(file);
     if what != "start" {
         v["state"] = json!(if what == "end" { "ended" } else { what });
-        let message = if what == "waiting" { event["message"].as_str().unwrap_or("").trim() } else { "" };
-        v["message"] = json!(message);
+        v["message"] = json!(if what == "waiting" { message } else { "" });
     }
     if let Some(id) = event["session_id"].as_str().filter(|s| !s.is_empty()) {
         v["session_id"] = json!(id);
@@ -190,6 +195,45 @@ fn on_event(file: &Path, what: &str, event: &Value) {
         v["title"] = json!(prompt.lines().next().unwrap_or("").chars().take(80).collect::<String>());
     }
     write_json(file, &v);
+    if matches!(what, "waiting" | "done") {
+        tell_if_away(file, what, &v);
+    }
+}
+
+/// Name of the file where Florm says if it is in front (`0`) or not (`1`), and its language.
+const AWAY: &str = "away";
+
+/// Florm in front or not, for the hooks (written when it changes): they tell the system at once
+/// that Claude is done or waits, even while Florm is hidden and not drawn.
+pub fn set_away(away: bool) {
+    use std::sync::atomic::{AtomicU8, Ordering};
+    static LAST: AtomicU8 = AtomicU8::new(u8::MAX);
+    let now = u8::from(away) + if crate::i18n::en() { 2 } else { 0 };
+    if LAST.swap(now, Ordering::Relaxed) != now {
+        let _ = std::fs::create_dir_all(dir());
+        let _ = std::fs::write(dir().join(AWAY), format!("{} {}", u8::from(away), if crate::i18n::en() { "en" } else { "fr" }));
+    }
+}
+
+/// From the hook: a notification of the system when Florm is not in front (Claude done, or
+/// waiting for an answer: a permission, a question).
+fn tell_if_away(file: &Path, what: &str, v: &Value) {
+    let flag = file.parent().map(|d| std::fs::read_to_string(d.join(AWAY)).unwrap_or_default()).unwrap_or_default();
+    let mut words = flag.split_whitespace();
+    if words.next() != Some("1") {
+        return;
+    }
+    let en = words.next() == Some("en");
+    let title = v["title"].as_str().filter(|t| !t.is_empty()).unwrap_or("Claude");
+    let message = v["message"].as_str().unwrap_or("");
+    let body = match (what, en) {
+        ("waiting", _) if !message.is_empty() => message,
+        ("waiting", false) => "Claude attend ta réponse",
+        ("waiting", true) => "Claude waits for your answer",
+        (_, false) => "Claude a fini",
+        (_, true) => "Claude is done",
+    };
+    crate::os::notify(&format!("Florm · {title}"), body);
 }
 
 /// The tokens read by the last answer of a session: its file of messages (`transcript_path`),
@@ -249,6 +293,24 @@ pub fn run_flag(args: &[String]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// « Claude is waiting for your input », a minute after the end: left aside (the end was
+    /// told then); a permission asked is a wait.
+    #[test]
+    fn the_late_idle_notification_is_left_aside() {
+        let d = std::env::temp_dir().join(format!("florm_claude_idle_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        // Florm in front: nothing told to the system from the test
+        std::fs::write(d.join(AWAY), "0 fr").unwrap();
+        let f = d.join("c.json");
+        on_event(&f, "done", &json!({}));
+        on_event(&f, "waiting", &json!({"message": "Claude is waiting for your input", "notification_type": "idle_prompt"}));
+        assert_eq!(read(&f).state, "done");
+        on_event(&f, "waiting", &json!({"message": "Claude needs your permission to use Bash", "notification_type": "permission_prompt"}));
+        assert_eq!((read(&f).state.as_str(), read(&f).message.as_str()), ("waiting", "Claude needs your permission to use Bash"));
+        let _ = std::fs::remove_dir_all(&d);
+    }
 
     /// The command, the settings, and a state written by the hooks then read back.
     #[test]
