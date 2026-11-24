@@ -575,16 +575,12 @@ new in it work as they are. Claude's changes are reviewed in the **Git** view.
   a `SKILL.md` to fill in (its `description` tells Claude when to use it). Without a folder chosen:
   `skills/` of the shared configuration.
 - **AI completion** (Preferences → Editor, or the palette: “AI completion while typing”): when
-  you stop typing at the end of a line, Claude (Haiku) suggests what follows in grey after the
-  cursor. **Tab** takes it, **Escape** or another key ignores it; typing its first letters keeps
-  the rest. **Alt+\\** asks for a suggestion at once, even when turned off. Few tokens: only the
-  lines around the cursor, without tools or CLAUDE.md (about a tenth of a cent per suggestion);
-  it takes one to two seconds to come. With several Claude accounts, the 👤 menu next to the
-  option chooses the one whose subscription pays for the suggestions (by default: the default account).
-  **With GitHub Copilot** (the menu next to the switch): the suggestions come faster (usually under
-  a second), with a Copilot plan. **Install Copilot** downloads its official server (about 160 MB)
-  into Florm's folder, without npm nor admin rights; **Sign in to GitHub** copies a code and opens
-  the page to type it in, once and for all.
+  you stop typing at the end of a line, **GitHub Copilot** suggests what follows in grey after the
+  cursor, usually in under a second (Copilot plan). **Tab** takes it, **Escape** or another key
+  ignores it; typing its first letters keeps the rest. **Alt+\\** asks for a suggestion at once,
+  even when turned off. **Install Copilot** downloads its official server (about 160 MB) into
+  Florm's folder, without npm nor admin rights; **Sign in to GitHub** copies a code and opens the
+  page to type it in, once and for all.
 - **Closing Florm while Claude works**: Florm says so and offers **Close when it is done**
   (Florm closes by itself at the end; “Don't close” to stay) or **Close now**. An update also
   waits for Claude to be done before restarting Florm.

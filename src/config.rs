@@ -73,12 +73,8 @@ pub struct Settings {
     pub auto_pair: bool,
     /// Alt alone puts letters on everything clickable: typing them clicks it.
     pub keyboard_hints: bool,
-    /// AI completion: Haiku suggests the rest of the line after a pause in typing (Tab takes it).
+    /// AI completion: GitHub Copilot suggests the rest of the line after a pause in typing (Tab takes it).
     pub ai_complete: bool,
-    /// The Claude account (its subscription) the AI completion uses; empty: the default one.
-    pub ai_complete_account: String,
-    /// Who suggests the AI completion: "claude" (Haiku) or "copilot" (GitHub Copilot).
-    pub ai_complete_source: String,
     pub lint_on_save: bool,
     /// Lint Python while typing (not only on save).
     pub lint_live: bool,
@@ -209,8 +205,6 @@ impl Default for Settings {
             auto_pair: true,
             keyboard_hints: true,
             ai_complete: false,
-            ai_complete_account: String::new(),
-            ai_complete_source: "claude".into(),
             lint_on_save: true,
             lint_live: true,
             python_linter: "auto".into(),
@@ -325,12 +319,8 @@ inline_diff = false
 auto_pair = true
 # Alt seul met des lettres sur tout ce qui se clique : les taper le clique
 keyboard_hints = true
-# Complétion par IA : Haiku propose la suite de la ligne après une pause dans la frappe (Tab la prend)
+# Complétion par IA : GitHub Copilot propose la suite de la ligne après une pause dans la frappe (Tab la prend)
 ai_complete = false
-# Le compte Claude (son abonnement) de la complétion par IA ; vide : le compte par défaut
-ai_complete_account = ""
-# Qui propose la complétion par IA : "claude" (Haiku) ou "copilot" (GitHub Copilot)
-ai_complete_source = "claude"
 lint_on_save = true
 # Lint Python pendant la frappe
 lint_live = true

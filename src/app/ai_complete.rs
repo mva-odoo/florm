@@ -1,13 +1,11 @@
-//! AI completion: when typing pauses at the end of a line, Haiku suggests what follows, shown in
+//! AI completion: when typing pauses at the end of a line, GitHub Copilot suggests what follows, shown in
 //! grey after the cursor (`Document::ghost`). Tab takes it, Escape or any other key drops it; typing
 //! its first letters keeps the rest. Alt+\ asks at once, even when it is turned off.
 
 use super::*;
 
-/// Pause in typing before a suggestion is asked: Claude starts a process each time, Copilot's
-/// server runs and answers fast (made for it).
-const PAUSE: Duration = Duration::from_millis(700);
-const PAUSE_COPILOT: Duration = Duration::from_millis(300);
+/// Pause in typing before a suggestion is asked (Copilot's server runs and answers fast).
+const PAUSE: Duration = Duration::from_millis(300);
 
 #[derive(Default)]
 pub(super) struct AiComplete {
@@ -32,11 +30,7 @@ pub(super) struct AiComplete {
 
 impl App {
     fn ai_complete_on(&self) -> bool {
-        self.settings.ai_complete && (self.copilot_chosen() || crate::features::on(crate::features::Feature::Claude))
-    }
-
-    pub(super) fn copilot_chosen(&self) -> bool {
-        self.settings.ai_complete_source == "copilot"
+        self.settings.ai_complete
     }
 
     /// Asks where Copilot stands (installed, signed in), on a thread.
@@ -128,7 +122,7 @@ impl App {
             let keeping = kept.is_some();
             d.ghost = kept;
             self.ai.asked = None;
-            let pause = if self.copilot_chosen() { PAUSE_COPILOT } else { PAUSE };
+            let pause = PAUSE;
             self.ai.at = (changed && on && !keeping).then(|| Instant::now() + pause);
             if !keeping {
                 for o in self.docs.iter_mut().filter(|o| o.uid != state.0) {
@@ -151,7 +145,7 @@ impl App {
         }
     }
 
-    /// Sends the lines around the cursor to Haiku.
+    /// Asks Copilot: the whole file (its server picks what it needs), the cursor as LSP counts it.
     fn ai_complete_ask(&mut self) {
         let Some(d) = self.ai_complete_doc() else {
             self.ai.manual = false;
@@ -159,35 +153,17 @@ impl App {
         };
         let head = d.primary_sel().head;
         let line = d.rope.char_to_line(head);
-        // 50 lines before, 15 after: enough to guess, few tokens
-        let from = d.rope.line_to_char(line.saturating_sub(50));
-        let to = d.rope.line_to_char((line + 16).min(d.rope.len_lines()));
-        let (before, after) = (d.slice(from, head), d.slice(head, to));
         let key = (d.uid, d.version, head);
         let dir = d.path.as_deref().and_then(|p| self.repo_for(p)).or_else(|| self.root.clone()).unwrap_or_else(std::env::temp_dir);
-        let file = d.path.as_ref().map(|p| p.strip_prefix(&dir).unwrap_or(p).display().to_string()).unwrap_or_else(|| d.syntax.clone());
-        // GitHub Copilot: the whole file (its server picks what it needs), the cursor as LSP counts it
-        if self.copilot_chosen() {
-            let path = d.path.clone().unwrap_or_else(|| dir.join(format!("sans-titre-{}", d.uid)));
-            let text = d.rope.to_string();
-            let line_start = d.rope.line_to_char(line);
-            let col: usize = d.slice(line_start, head).encode_utf16().count();
-            let (syntax, tab, spaces) = (d.syntax.clone(), self.settings.tab_size, self.settings.translate_tabs_to_spaces);
-            self.ai.n += 1;
-            let n = self.ai.n;
-            self.ai.asked = Some((n, key.0, key.1, key.2));
-            self.jobs.spawn(move || JobResult::AiComplete(n, crate::copilot::complete(&path, &syntax, &text, line, col, tab, spaces).map(|t| crate::claude::clean_completion(&t, "", ""))));
-            return;
-        }
-        let accounts = self.claude_accounts();
-        let account = match self.settings.ai_complete_account.as_str() {
-            "" => crate::claude_account::find(&accounts, &self.settings.claude_account).dir.clone(),
-            name => crate::claude_account::find(&accounts, name).dir.clone(),
-        };
+        let path = d.path.clone().unwrap_or_else(|| dir.join(format!("sans-titre-{}", d.uid)));
+        let text = d.rope.to_string();
+        let line_start = d.rope.line_to_char(line);
+        let col: usize = d.slice(line_start, head).encode_utf16().count();
+        let (syntax, tab, spaces) = (d.syntax.clone(), self.settings.tab_size, self.settings.translate_tabs_to_spaces);
         self.ai.n += 1;
         let n = self.ai.n;
         self.ai.asked = Some((n, key.0, key.1, key.2));
-        self.jobs.spawn(move || JobResult::AiComplete(n, crate::claude::complete(&dir, account.as_deref(), &file, &before, &after)));
+        self.jobs.spawn(move || JobResult::AiComplete(n, crate::copilot::complete(&path, &syntax, &text, line, col, tab, spaces).map(|t| crate::copilot::clean_completion(&t, "", ""))));
     }
 
     /// The suggestion came: shown if the text and the cursor did not change since.
@@ -204,7 +180,7 @@ impl App {
             }
             Ok(_) => {
                 if manual {
-                    let who = if self.copilot_chosen() { "Copilot" } else { "Claude" };
+                    let who = "Copilot";
                     self.set_status(tf!("{who} n'a rien à proposer ici", "{who} has nothing to suggest here"));
                 }
             }

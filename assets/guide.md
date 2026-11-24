@@ -588,14 +588,10 @@ ses nouveautés marchent tels quels. Les changements de Claude se revoient dans 
   **+ Nouveau skill** crée un `SKILL.md` à remplir (sa `description` dit à Claude quand s'en
   servir). Sans dossier choisi : `skills/` de la configuration partagée.
 - **Complétion par IA** (Préférences → Éditeur, ou la palette : « complétion par IA pendant la
-  frappe ») : quand tu t'arrêtes de taper en fin de ligne, Claude (Haiku) propose la suite en
-  gris après le curseur. **Tab** la prend, **Échap** ou une autre touche l'ignore ; taper ses
-  premières lettres garde le reste. **Alt+\\** demande une proposition tout de suite, même
-  désactivée. Peu de tokens : seulement les lignes autour du curseur, sans outils ni CLAUDE.md
-  (environ un dixième de centime la proposition) ; il faut une à deux secondes pour qu'elle arrive. Avec plusieurs comptes Claude, le menu 👤 à côté
-  de l'option choisit celui dont l'abonnement paie les propositions (par défaut : le compte par défaut).
-  **Avec GitHub Copilot** (le menu à côté de l'interrupteur) : les propositions arrivent plus vite (en
-  général moins d'une seconde), avec un abonnement Copilot. **Installer Copilot** télécharge son
+  frappe ») : quand tu t'arrêtes de taper en fin de ligne, **GitHub Copilot** propose la suite en
+  gris après le curseur, en général en moins d'une seconde (abonnement Copilot). **Tab** la prend,
+  **Échap** ou une autre touche l'ignore ; taper ses premières lettres garde le reste. **Alt+\\**
+  demande une proposition tout de suite, même désactivée. **Installer Copilot** télécharge son
   serveur officiel (environ 160 Mo) dans le dossier de Florm, sans npm ni droits administrateur ;
   **Se connecter à GitHub** copie un code et ouvre la page où le taper, une fois pour toutes.
 - **Fermer Florm pendant que Claude travaille** : Florm le dit et propose **Fermer quand il aura

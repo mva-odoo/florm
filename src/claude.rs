@@ -398,53 +398,6 @@ fn run_with(mut cmd: std::process::Command, dir: &Path, args: &[&str], input: St
     }
 }
 
-/// AI completion: the text to insert at the cursor, between `before` and `after` (a few lines of
-/// `file` around it); empty when Haiku has nothing to suggest. Few tokens: a short system prompt
-/// of its own, no tools, no MCP, nor the settings and CLAUDE.md of the project.
-/// `account`: the configuration folder of the Claude account to use (None: the usual one).
-pub fn complete(dir: &Path, account: Option<&Path>, file: &str, before: &str, after: &str) -> Result<String, String> {
-    let system = "You are a code completion engine inside a text editor. The input is a file with the marker \
-        <CURSOR> where the user is typing. Answer with only the text to insert at the cursor: no explanation, no \
-        markdown, no code fence, never the text already before or after the cursor. Usually the rest of the current \
-        line; a few lines when a block obviously follows (the body of a function just opened…). Follow the style \
-        and the indentation of the file. When nothing useful can be guessed, answer with an empty message.";
-    let input = format!("File: {file}\n{before}<CURSOR>{after}");
-    let args = ["-p", "Complete at <CURSOR>.", "--output-format", "text", "--model", "haiku", "--tools", "", "--strict-mcp-config", "--setting-sources", "user", "--system-prompt", system, "--no-session-persistence"];
-    match run_with(crate::claude_account::command_for(account), dir, &args, input) {
-        Ok(text) => Ok(clean_completion(&text, before, after)),
-        // nothing written: nothing to suggest
-        Err(e) if e.is_empty() => Ok(String::new()),
-        Err(e) => Err(e),
-    }
-}
-
-/// What Haiku answered, made insertable: without a code fence, without what the line already has
-/// before the cursor (when repeated) or what follows it, at most 8 lines.
-pub fn clean_completion(text: &str, before: &str, after: &str) -> String {
-    let mut t = text.trim_end().to_string();
-    if t.trim_start().starts_with("```") {
-        let inner: Vec<&str> = t.trim().lines().skip(1).filter(|l| !l.trim_start().starts_with("```")).collect();
-        t = inner.join("\n");
-    }
-    let t = t.trim_end_matches('\n');
-    // the line before the cursor repeated at the start of the answer
-    let line = before.rsplit('\n').next().unwrap_or("");
-    let mut t = if !line.trim().is_empty() && t.starts_with(line) { &t[line.len()..] } else { t };
-    if line.trim().is_empty() && !line.is_empty() && t.starts_with(line) {
-        // the indentation of the empty line, given again
-        t = &t[line.len()..];
-    }
-    // the rest of the line after the cursor (closing brackets…) written again at the end
-    let rest = after.split('\n').next().unwrap_or("").trim();
-    let mut t = t.to_string();
-    if !rest.is_empty() && t.trim_end().ends_with(rest) && t.trim_end().len() > rest.len() {
-        let keep = t.trim_end().len() - rest.len();
-        t.truncate(keep);
-    }
-    let lines: Vec<&str> = t.split('\n').take(8).collect();
-    lines.join("\n").trim_end().to_string()
-}
-
 /// A remark of an AI review, about a line of the diff (`line` 0 / `path` empty: about the whole).
 #[derive(Clone, Debug, PartialEq)]
 pub struct ReviewNote {
@@ -659,31 +612,6 @@ mod tests {
         assert!(parse_review("désolé").is_err());
     }
 
-    #[test]
-    fn the_ai_completion_is_made_insertable() {
-        // the answer as it is
-        assert_eq!(clean_completion("n * fact(n - 1)", "    return ", ""), "n * fact(n - 1)");
-        // a code fence, and the line before the cursor repeated
-        assert_eq!(clean_completion("```python\n    return n * 2\n```", "    return ", "\n"), "n * 2");
-        // the closing bracket already after the cursor
-        assert_eq!(clean_completion("\"hello\")", "print(", ")\nx = 1"), "\"hello\"");
-        // a block: the indentation of the empty line not given twice, at most 8 lines
-        assert_eq!(clean_completion("    a = 1\n    b = 2", "def f():\n    ", ""), "a = 1\n    b = 2");
-        let long: Vec<String> = (0..20).map(|k| format!("x{k}")).collect();
-        assert_eq!(clean_completion(&long.join("\n"), "", "").lines().count(), 8);
-        assert_eq!(clean_completion("  \n", "x = ", ""), "");
-    }
-
-    /// With the real `claude` (Haiku, a tenth of a cent): a suggestion comes, insertable.
-    #[test]
-    #[ignore]
-    fn ai_completion_with_claude() {
-        let dir = std::env::temp_dir();
-        let text = complete(&dir, None, "fact.py", "def fact(n):\n    if n < 2:\n        return 1\n    return ", "\n").unwrap();
-        println!("{text:?}");
-        assert!(text.contains("fact(n - 1)") || text.contains("fact(n-1)"), "{text}");
-        assert!(!text.contains("```") && !text.starts_with("return"));
-    }
 
     #[test]
     fn a_remark_talked_over() {
