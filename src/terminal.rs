@@ -273,8 +273,6 @@ struct Session {
     once: bool,
     /// Output kept as text (the end of it), for those who read it (the summary of tests).
     capture: Option<Arc<Mutex<Vec<u8>>>>,
-    /// Counts the output read: a change since the last look at its text.
-    changes: Arc<AtomicU64>,
     name: String,
     parser: Arc<Mutex<Parser>>,
     writer: SharedWriter,
@@ -413,8 +411,7 @@ impl Session {
         let drawn = Arc::new(AtomicU64::new(ctx.cumulative_pass_nr()));
         let typeahead: Typeahead = Arc::new(Mutex::new(Some(Vec::new())));
         let capture = capture.then(|| Arc::new(Mutex::new(Vec::new())));
-        let changes = Arc::new(AtomicU64::new(0));
-        let (p, ex, ctx, w, cap, ta, dr, ch) = (parser.clone(), exited.clone(), ctx.clone(), writer.clone(), capture.clone(), typeahead.clone(), drawn.clone(), changes.clone());
+        let (p, ex, ctx, w, cap, ta, dr) = (parser.clone(), exited.clone(), ctx.clone(), writer.clone(), capture.clone(), typeahead.clone(), drawn.clone());
         std::thread::spawn(move || {
             let mut buf = [0u8; 16384];
             loop {
@@ -430,7 +427,6 @@ impl Session {
                             }
                         }
                         p.lock().unwrap().process(&buf[..n]);
-                        ch.fetch_add(1, Ordering::Relaxed);
                         let answer = replies(&buf[..n], || p.lock().unwrap().screen().cursor_position());
                         if !answer.is_empty() {
                             let mut w = w.lock().unwrap();
@@ -459,7 +455,7 @@ impl Session {
             .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| shell.to_string());
-        Ok(Session { id: 0, docked: false, embedded: false, cmd: None, once: false, capture, changes, name, parser, writer, master: pair.master, child, exited, drawn, typeahead, cwd, size, sel: None, link_cache: None, search: None, typed_at: std::time::Instant::now(), pasted_at: None, v_down: false })
+        Ok(Session { id: 0, docked: false, embedded: false, cmd: None, once: false, capture, name, parser, writer, master: pair.master, child, exited, drawn, typeahead, cwd, size, sel: None, link_cache: None, search: None, typed_at: std::time::Instant::now(), pasted_at: None, v_down: false })
     }
 
     fn write(&mut self, bytes: &[u8]) {
@@ -524,7 +520,6 @@ impl Session {
         };
         let at = cells.iter().position(|&c| c == cell)?;
         let (a, b) = word_at(&text, at)?;
-        let b = pdb_line_end(&text, b);
         let word: String = text[a..b].iter().collect();
         let key = (word.clone(), cells[a], cells[b - 1]);
         if let Some((k, link)) = &self.link_cache {
@@ -893,35 +888,6 @@ impl Terminal {
         if let Some(s) = self.sessions.iter_mut().find(|s| s.id == id) {
             s.name = name;
         }
-    }
-
-    /// How many times session `id` printed something (it changed when the number did).
-    pub fn changes(&self, id: u64) -> Option<u64> {
-        self.sessions.iter().find(|s| s.id == id).map(|s| s.changes.load(Ordering::Relaxed))
-    }
-
-    /// The terminals of the bottom panel and of the tabs (not those shown inside another view).
-    pub fn plain_ids(&self) -> Vec<u64> {
-        self.sessions.iter().filter(|s| !s.embedded).map(|s| s.id).collect()
-    }
-
-    /// Whether session `id` is in an editor tab (else in the bottom panel).
-    pub fn is_docked(&self, id: u64) -> bool {
-        self.sessions.iter().any(|s| s.id == id && s.docked)
-    }
-
-    /// Where pdb / ipdb waits in session `id` (`trace::stop_in` of its visible lines), the file
-    /// found from its folder; `None` when no debugger waits there.
-    pub fn debugger_stop(&self, id: u64) -> Option<(String, usize, PathBuf)> {
-        let s = self.sessions.iter().find(|s| s.id == id)?;
-        let lines: Vec<String> = {
-            let p = s.parser.lock().unwrap();
-            let sc = p.screen();
-            let cols = sc.size().1.get();
-            sc.rows(0, cols).collect()
-        };
-        let (path, line) = crate::trace::stop_in(&lines)?;
-        Some((path, line, s.cwd.clone()))
     }
 
     /// Types `text` at the prompt of session `id`, without Enter: the user reads it and runs it.
@@ -1313,7 +1279,7 @@ fn traceback_at(s: &Session, r: u16) -> Option<(PathBuf, usize)> {
     while b + 1 < rows && sc.row_wrapped(b) {
         b += 1;
     }
-    let (path, line) = crate::trace::traceback_location(&sc.contents_between(a, 0, b, cols))?;
+    let (path, line) = traceback_location(&sc.contents_between(a, 0, b, cols))?;
     Some((resolve(&path, &s.cwd).unwrap_or_else(|| PathBuf::from(&path)), line))
 }
 
@@ -1528,16 +1494,6 @@ fn word_at(text: &[char], at: usize) -> Option<(usize, usize)> {
     (b > a && at < b).then_some((a, b))
 }
 
-/// The end of a word followed by `(12)`, as pdb writes the line of a file (`/a/b.py(12)f()`):
-/// after the parenthesis, else `b`.
-fn pdb_line_end(text: &[char], b: usize) -> usize {
-    if text.get(b) != Some(&'(') {
-        return b;
-    }
-    let digits = text[b + 1..].iter().take_while(|c| c.is_ascii_digit()).count();
-    if digits > 0 && text.get(b + 1 + digits) == Some(&')') { b + 2 + digits } else { b }
-}
-
 /// What the word `w` could open: a URL, or a path that looks like one (a folder in it, or a name
 /// with an extension), with `:line`, `:line:col` or `#Lline` after it.
 fn candidate(w: &str) -> Option<Cand> {
@@ -1549,8 +1505,6 @@ fn candidate(w: &str) -> Option<Cand> {
     }
     let (path, line) = match w.split_once("#L") {
         Some((p, l)) => (p, l.parse().unwrap_or(0)),
-        // where pdb stopped: /a/b.py(12)f()
-        None if crate::trace::pdb_location(w).is_some() => crate::trace::pdb_location(w)?,
         None => {
             let mut parts = w.splitn(3, ':');
             let first = parts.next().unwrap_or("");
@@ -1584,6 +1538,24 @@ fn osc8_target(uri: &str) -> Option<Target> {
     crate::os::web_url(uri).map(Target::Url)
 }
 
+/// A traceback line of Python: `File "/path/x.py", line 12` → (path, line).
+fn traceback_location(text: &str) -> Option<(String, usize)> {
+    let i = text.find("File \"")?;
+    let rest = &text[i + 6..];
+    let end = rest.find('"')?;
+    let path = &rest[..end];
+    let after = rest[end + 1..].trim_start().strip_prefix(',')?.trim_start().strip_prefix("line ")?;
+    let n: usize = after.chars().take_while(|c| c.is_ascii_digit()).collect::<String>().parse().ok()?;
+    Some((path.to_string(), n))
+}
+
+/// A file printed by a program in a container (`/opt/odoo/addons/sale/x.py`), here: its end under
+/// `dir` (`addons/sale/x.py`), the longest end first, at least a folder and the file.
+fn find_file(path: &str, dir: &Path) -> Option<PathBuf> {
+    let parts: Vec<&str> = path.split(['/', '\\']).filter(|s| !s.is_empty()).collect();
+    (2..=parts.len()).rev().map(|k| dir.join(parts[parts.len() - k..].iter().collect::<PathBuf>())).find(|f| f.is_file())
+}
+
 /// The file of path `p` printed by a program working in `cwd`, if it is there (`a/` and `b/` of a
 /// git diff tried too, and the end of a path of a container under `cwd`).
 fn resolve(p: &str, cwd: &Path) -> Option<PathBuf> {
@@ -1598,7 +1570,7 @@ fn resolve(p: &str, cwd: &Path) -> Option<PathBuf> {
     }
     tries.into_iter().find(|t| t.is_file()).or_else(|| {
         // a file of a container (a Unix path, even on Windows): its end under the folder
-        (Path::new(p).is_absolute() || p.starts_with('/')).then(|| crate::trace::find_file(p, &[cwd])).flatten()
+        (Path::new(p).is_absolute() || p.starts_with('/')).then(|| find_file(p, cwd)).flatten()
     })
 }
 
@@ -1992,10 +1964,6 @@ mod tests {
         assert_eq!(candidate("src/app.rs:12:5"), Some(Cand::Path("src/app.rs".into(), 12)));
         assert_eq!(candidate("src/app.rs#L40"), Some(Cand::Path("src/app.rs".into(), 40)));
         assert_eq!(candidate("README.md"), Some(Cand::Path("README.md".into(), 0)));
-        assert_eq!(candidate("/a/b.py(120)"), Some(Cand::Path("/a/b.py".into(), 120)));
-        let t: Vec<char> = "> /a/b.py(120)f()".chars().collect();
-        let (a, b) = word_at(&t, 4).unwrap();
-        assert_eq!(t[a..pdb_line_end(&t, b)].iter().collect::<String>(), "/a/b.py(120)");
         assert_eq!(candidate("~/notes.txt"), Some(Cand::Path("~/notes.txt".into(), 0)));
         assert_eq!(candidate(r"C:\src\app.rs:3"), Some(Cand::Path(r"C:\src\app.rs".into(), 3)));
         // not paths: versions, numbers, words, an extension of digits only ("e.g" is one, but only
@@ -2018,6 +1986,9 @@ mod tests {
         assert_eq!(resolve(&abs, Path::new("/elsewhere")), Some(PathBuf::from(&abs)));
         // a folder of a container, and a file that is not there
         assert_eq!(resolve("/mnt/code/src/app.rs", &dir), Some(dir.join("src/app.rs")));
+        assert_eq!(resolve("/mnt/code/gone.rs", &dir), None);
+        let tb = r#"  File "/a/b.py", line 120, in f"#;
+        assert_eq!(traceback_location(tb), Some(("/a/b.py".into(), 120)));
         assert_eq!(resolve("src/gone.rs", &dir), None);
         assert_eq!(resolve("src", &dir), None);
         let _ = std::fs::remove_dir_all(&dir);

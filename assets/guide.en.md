@@ -298,7 +298,7 @@ The operations started from Florm put the original version between the two sides
 
 - **Ctrl+`**: the terminal in the bottom panel.
 - **Shortcuts in a terminal** (and in Claude): Ctrl+letter (Ctrl+C, Ctrl+R, Ctrl+D…), Alt+letter
-  and Ctrl+Shift+C / V / F go to the shell; the F keys (F9, F12…), Ctrl+Alt+…, the other
+  and Ctrl+Shift+C / V / F go to the shell; the F keys (F2, F12…), Ctrl+Alt+…, the other
   Ctrl+Shift+… (Ctrl+Shift+G, Ctrl+Shift+J…) and Ctrl+Tab, Ctrl+PgUp / PgDn stay with Florm.
 - **Shift+Enter** (or Alt / Option+Enter) goes to a new line without sending, in Claude as in zsh
   and fish.
@@ -374,7 +374,7 @@ The tests of any project run in the terminal of the bottom panel:
   `cargo test app::calc::tests::adds`…): in “Tests: run tests…”, it can be changed before Enter.
   A project in a sub-folder starts with `cd sub-folder && `.
 - The output shows in the bottom panel, the summary (✔ or ⚠, passed and failed) in the status bar.
-- An `ipdb` in a test stops in that terminal, and the editor follows it (see “Breakpoints”).
+- An `ipdb` in a test stops in that terminal, where it is typed as usual.
 
 **Odoo tests** (files `tests/test_*.py` of a module, the folder holding `__manifest__.py`): the ▶
 and the cursor give the tags of the test (`/sale:TestSaleOrder.test_confirm`, `/sale` outside a
@@ -385,26 +385,6 @@ Ctrl+Shift+F6 take **the last Odoo test command run** and only change its tags: 
 options and the container stay. To change them, “Tests: run tests…” and edit the command. The
 summary read in the log (`1 failed, 0 error(s) of 12 tests`) goes to the status bar; **Ctrl+click**
 on a `File "…", line N` line opens the file.
-
-## Breakpoints (ipdb)
-
-No debugger to set up: the breakpoint is an `ipdb` line in the code, and the program stops in the
-terminal where it runs, whatever its command (`-d`, `-u`, a container…).
-
-- **F9** (or a click left of the line numbers, in a Python file) writes
-  `import ipdb; ipdb.set_trace()` above the line, indented like it; F9 on that line removes it.
-  Each line that stops the program (`ipdb`, `pdb.set_trace()`, `breakpoint()`) has a red dot in the
-  gutter. In JavaScript and TypeScript, it is `debugger;`. The line written is the one of the
-  `ipdb` template (Preferences → Templates): yours if you changed it (`breakpoint()`…).
-- **Ctrl+Shift+F9** removes all those of the open files (“Breakpoint: remove…” in the palette).
-- **The editor follows ipdb**: when pdb or ipdb waits in a terminal of the bottom panel
-  (`ipdb>`), the file opens at its line, highlighted in yellow, and the keyboard stays in the
-  terminal; `n`, `s`, `u`… make it follow. A path of a container (`/opt/odoo/addons/sale/…`) is
-  found in the project by its end. In a terminal in a tab, the file is not opened (it would take
-  its place), but the line is highlighted if it is shown. **Ctrl+click** on
-  `> /path/file.py(120)method()` opens it too.
-- **No ipdb in a commit**: when the changes committed add one of those lines, the Git view says so
-  first (file:line) and offers **Commit anyway**.
 
 ## Templates
 

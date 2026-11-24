@@ -45,10 +45,8 @@ fn removed_bg(light: bool) -> Color32 {
 fn claude_w() -> f32 {
     if crate::features::on(crate::features::Feature::Claude) { 14.0 } else { 0.0 }
 }
-/// Width of the ▶ of the tests (right of the breakpoints), in test files only.
+/// Width of the ▶ of the tests (right of the ✳), in test files only.
 const TEST_W: f32 = 14.0;
-/// Width of the breakpoints (right of the ✳), in Python and JavaScript files.
-const BP_W: f32 = 14.0;
 
 /// How the editor shows a document (from the settings).
 pub struct ViewOpts<'a> {
@@ -66,10 +64,6 @@ pub struct ViewOpts<'a> {
     pub notes: &'a [(usize, String)],
     /// Tests of the file: (line, Odoo tags or command), a ▶ in the gutter runs them.
     pub tests: &'a [(usize, String)],
-    /// Breakpoints (`ipdb` lines, `debugger;`) can be put in the gutter, in this language.
-    pub trace: Option<crate::trace::Lang>,
-    /// Where pdb / ipdb waits in this file (read in a terminal).
-    pub exec_line: Option<usize>,
     /// The brackets colored by level.
     pub rainbow: bool,
     /// Spaces and tabs shown (· and →).
@@ -236,10 +230,8 @@ fn text_area(
     let digits = nlines.to_string().len().max(3);
     // numbers, then the fold arrows, then the git marks
     let test_w = if opts.tests.is_empty() { 0.0 } else { TEST_W };
-    let bp_w = if opts.trace.is_some() { BP_W } else { 0.0 };
-    let test_x = claude_w() + bp_w;
-    let gutter_w = (digits as f32 + 1.0) * cw + 30.0 + bp_w + test_w;
-    let bps: HashSet<usize> = opts.trace.map(|g| doc.trace_lines(g)).unwrap_or_default().into_iter().collect();
+    let test_x = claude_w();
+    let gutter_w = (digits as f32 + 1.0) * cw + 30.0 + test_w;
     let test_at = |l: usize| opts.tests.iter().find(|(t, _)| *t == l).map(|(_, tags)| tags);
     doc.update_max_cols();
     doc.reveal_cursors(); // whatever placed a cursor in a folded block, open it
@@ -366,11 +358,8 @@ fn text_area(
                 // ✳ on the left of the numbers: the line, or the lines selected around it, for Claude
                 let on_claude = in_gutter && pressed && p.x < gx + claude_w();
                 let on_test = in_gutter && pressed && p.x >= gx + test_x && p.x < gx + test_x + test_w && test_at(line).is_some();
-                let on_bp = in_gutter && pressed && p.x >= gx + claude_w() && p.x < gx + claude_w() + bp_w;
                 if on_test {
                     doc.test_pick = test_at(line).cloned();
-                } else if on_bp {
-                    doc.bp_pick = Some(line);
                 } else if on_claude {
                     let s = doc.primary_sel();
                     let (a, b) = (doc.rope.char_to_line(s.start()), doc.rope.char_to_line(s.end().saturating_sub(usize::from(s.end() > s.start()))));
@@ -517,13 +506,6 @@ fn text_area(
                     msgs.extend(opts.notes.iter().filter(|(n, _)| *n == l).map(|(_, t)| t.clone()));
                     if p.x < gx + claude_w() {
                         msgs.push(t!("✳ Clic : ajouter cette ligne (ou les lignes sélectionnées) au contexte de Claude", "✳ Click: add this line (or the selected lines) to Claude's context").into());
-                    } else if p.x < gx + claude_w() + bp_w {
-                        ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
-                        msgs.push(match (bps.contains(&l), opts.trace) {
-                            (true, _) => t!("● Clic : retirer ce point d'arrêt (F9)", "● Click: remove this breakpoint (F9)"),
-                            (false, Some(crate::trace::Lang::Js)) => t!("● Clic : ajouter debugger; au-dessus de la ligne (F9)", "● Click: add debugger; above the line (F9)"),
-                            (false, _) => t!("● Clic : ajouter un ipdb au-dessus de la ligne (F9)", "● Click: add an ipdb above the line (F9)"),
-                        }.into());
                     } else if let Some(tags) = test_at(l).filter(|_| p.x >= gx + test_x && p.x < gx + test_x + test_w) {
                         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
                         msgs.push(if crate::odoo_test::is_tags(tags) {
@@ -566,12 +548,6 @@ fn text_area(
                     painter.rect_filled(r, 0.0, c.line_hl);
                 }
             }
-        }
-
-        // where ipdb waits: the line tinted in yellow
-        if let Some(l) = opts.exec_line.filter(|l| (first..=last).contains(l) && !rm.is_hidden(*l)) {
-            let col = highlight::yellow();
-            painter.rect_filled(Rect::from_min_size(Pos2::new(gx, line_y(l)), egui::vec2(vp.width(), line_h(l))), 0.0, mix(c.bg, col, 0.2));
         }
 
         // Merge conflicts: our side in green, theirs in blue, markers stronger
@@ -1044,25 +1020,6 @@ fn text_area(
             painter.text(Pos2::new(gx + gutter_w - 22.0, line_y(l)), Align2::RIGHT_TOP, (l + 1).to_string(), font.clone(), color);
             if hover_line == Some(l) {
                 painter.text(Pos2::new(gx + 2.0, line_y(l) + rh * 0.5), Align2::LEFT_CENTER, "✳", FontId::proportional(opts.font_size * 0.85), c.accent);
-            }
-            if bp_w > 0.0 {
-                let m = Pos2::new(gx + claude_w() + BP_W / 2.0, line_y(l) + rh * 0.5);
-                let r = (rh * 0.24).min(5.0);
-                if bps.contains(&l) {
-                    painter.circle_filled(m, r, highlight::red());
-                } else if hover_line == Some(l) && ui.ctx().pointer_hover_pos().is_some_and(|p| p.x >= gx + claude_w() && p.x < gx + claude_w() + bp_w) {
-                    painter.circle_filled(m, r, highlight::red().gamma_multiply(0.45));
-                }
-                if opts.exec_line == Some(l) {
-                    // where ipdb waits: an arrow over the breakpoint
-                    let col = highlight::yellow();
-                    let s = (rh * 0.28).min(6.0);
-                    painter.add(egui::Shape::convex_polygon(
-                        vec![m + egui::vec2(-s, -s * 0.55), m + egui::vec2(s * 0.1, -s * 0.55), m + egui::vec2(s, 0.0), m + egui::vec2(s * 0.1, s * 0.55), m + egui::vec2(-s, s * 0.55)],
-                        col,
-                        egui::Stroke::new(1.0_f32, c.bg),
-                    ));
-                }
             }
             if test_at(l).is_some() {
                 // ▶ of a test: a small green triangle

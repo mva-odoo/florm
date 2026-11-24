@@ -188,8 +188,6 @@ const DEFAULTS: &[(&str, &str)] = &[
     ("ctrl+f9", "sort_lines"),
     ("ctrl+f6", "test_again"),
     ("ctrl+shift+f6", "test_here"),
-    ("f9", "toggle_breakpoint"),
-    ("ctrl+shift+f9", "clear_breakpoints"),
     ("alt+f5", "git_next_change"),
     ("alt+shift+f5", "git_prev_change"),
     ("backspace", "backspace"),

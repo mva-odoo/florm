@@ -90,8 +90,6 @@ impl App {
         match self.docs.get(i)?.view {
             document::View::Text => {
                 let tests = self.test_marks(i);
-                let exec_line = self.trace_exec_line(i);
-                let trace = self.docs[i].path.as_deref().and_then(crate::trace::lang_of);
                 let matches: &[(usize, usize)] = if focused && self.find.open { &self.find.matches } else { &[] };
                 let doc = self.docs.get_mut(i)?;
                 let s = &self.settings;
@@ -104,18 +102,12 @@ impl App {
                     rulers: &s.rulers,
                     notes: doc.path.as_ref().and_then(|p| self.pr.notes.get(p)).map_or(&[], |v| &v[..]),
                     tests: &tests,
-                    trace,
-                    exec_line,
                     rainbow: s.rainbow_brackets,
                     whitespace: s.show_whitespace,
                 };
                 let r = editor_view::show(ui, doc, &self.hl, &opts, matches, id);
-                let bp = doc.bp_pick.take();
                 if let Some(t) = doc.test_pick.take() {
                     self.run_tests(t);
-                }
-                if let Some(line) = bp {
-                    self.trace_toggle_at(i, line);
                 }
                 self.conflict_picked(i);
                 Some(r)

@@ -2,8 +2,7 @@
 
 Florm : éditeur de texte en Rust (egui/eframe 0.29), inspiré de Sublime Text, un seul binaire.
 Intègre Git, GitHub (pull requests), Claude Code, terminal, LSP, linters, orthographe, tests (Odoo, pytest,
-jest, cargo, go, dans le terminal). Pas de débogueur : les points d'arrêt sont des lignes `ipdb` (F9), et
-l'éditeur suit ipdb dans le terminal (`src/trace.rs`, `src/app/breakpoints.rs`).
+jest, cargo, go, dans le terminal). Pas de débogueur : un `ipdb` tapé dans le code s'arrête dans le terminal.
 
 ## Commandes
 

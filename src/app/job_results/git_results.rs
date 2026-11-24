@@ -243,11 +243,6 @@ impl App {
                         self.history.notice = Some((l.trim().to_string(), ok()));
                     }
                 }
-                // the message of a commit done goes (kept when it failed: a hook said no…)
-                if label == "commit" {
-                    self.git.commit_msg.clear();
-                    self.git.amend = false;
-                }
                 self.log(out);
                 self.git.op_error = None;
                 self.set_status(tf!("git {label} : OK", "git {label}: OK"));

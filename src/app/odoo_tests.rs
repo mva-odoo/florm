@@ -1,7 +1,7 @@
 //! Tests (Odoo, pytest, jest, `cargo test`, `go test`), run where the project is. A command is
 //! asked with the one of the code under the cursor already filled, the last ones run again from
 //! anywhere (Ctrl+F6), or the ▶ of the gutter of a test file runs one. A run goes to the bottom
-//! panel's terminal (an `ipdb` in a test works there, and the editor follows it); its summary goes
+//! panel's terminal (an `ipdb` in a test works there); its summary goes
 //! to the status bar, its tracebacks open their file with Ctrl+clic.
 //!
 //! Odoo: the ▶ and the cursor give tags (`/sale:TestX.test_y`); they replace those of the last Odoo

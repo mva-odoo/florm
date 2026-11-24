@@ -390,8 +390,6 @@ impl App {
                 Some(t) => self.run_tests(t),
                 None => self.set_status(t!("Pas de test sous le curseur (Odoo, pytest, jest, cargo, go)", "No test under the cursor (Odoo, pytest, jest, cargo, go)")),
             },
-            ToggleBreakpoint => self.trace_toggle(),
-            ClearBreakpoints => self.trace_clear(),
             CreatePr => self.start_pr_create(),
             Claude => self.open_claude(),
             SuggestCommit => self.suggest_commit_message(),
@@ -866,7 +864,7 @@ mod tests {
         }
         // Florm's global shortcuts
         for s in [
-            "ctrl+shift+g", "ctrl+alt+r", "ctrl+shift+j", "ctrl+tab", "ctrl+pageup", "ctrl+pagedown", "f9", "ctrl+f6",
+            "ctrl+shift+g", "ctrl+alt+r", "ctrl+shift+j", "ctrl+tab", "ctrl+pageup", "ctrl+pagedown", "ctrl+f6",
             "ctrl+shift+f6", "ctrl+shift+p", "ctrl+p", "ctrl+b", "ctrl+alt+c",
         ] {
             assert!(through(s), "{s} should reach Florm");

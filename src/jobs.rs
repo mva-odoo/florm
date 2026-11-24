@@ -158,8 +158,6 @@ pub enum JobResult {
     /// Symbols of the whole project (go to definition, completion).
     /// `bool`: only the repositories being worked on so far, the whole index follows.
     SymbolIndex(PathBuf, crate::index::Index, bool),
-    /// What a commit adds was read: its breakpoints (`ipdb`…, file and line) before it is done.
-    CommitChecked { repo: PathBuf, args: Vec<String>, traces: Vec<(String, usize)> },
     Update { manual: bool, result: Result<Option<crate::update::Update>, String> },
     /// Update downloaded and installed: the program to start for the restart.
     UpdateInstalled { version: String, result: Result<std::path::PathBuf, String> },

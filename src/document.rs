@@ -157,8 +157,6 @@ pub struct Document {
     /// A link above a conflict block was clicked: (its first line, the side kept; `None`:
     /// compare the two sides).
     pub conflict_pick: Option<(usize, Option<Resolution>)>,
-    /// Line whose breakpoint (an `ipdb` line) was clicked in the gutter: added or removed by the app.
-    pub bp_pick: Option<usize>,
     /// What the app found about a hovered symbol (its range, the text of the tooltip).
     pub hover_info: Option<((usize, usize), String)>,
     /// Where the hovered symbol is defined in the project (like Sublime Text): its range, the
@@ -201,8 +199,6 @@ pub struct Document {
     pub folds: Vec<usize>,
     /// `hidden_ranges` for (version, folds, tab size): measured once, not at each frame.
     hidden_cache: std::cell::RefCell<Option<(u64, Vec<usize>, usize, Vec<(usize, usize)>)>>,
-    /// `trace_lines` for (version, language): read once per change, not at each frame.
-    trace_cache: std::cell::RefCell<Option<(u64, crate::trace::Lang, Vec<usize>)>>,
     /// Bookmarked lines, as the char position of their start (moved by the edits, like folds).
     pub bookmarks: Vec<usize>,
     /// Range searched by Ctrl+F "dans la sélection" (tinted in the editor).
@@ -717,7 +713,6 @@ impl Document {
             claude_pick: None,
             test_pick: None,
             conflict_pick: None,
-            bp_pick: None,
             hover_info: None,
             hover_defs: None,
             wraps: Default::default(),
@@ -744,7 +739,6 @@ impl Document {
             symbols_cache: None,
             folds: Vec::new(),
             hidden_cache: Default::default(),
-            trace_cache: Default::default(),
             bookmarks: Vec::new(),
             find_scope: None,
             conflicts_cache: None,
@@ -2466,68 +2460,6 @@ impl Document {
         v
     }
 
-    /// The chars of line `l` with its line break (or the one before it, for the last line).
-    fn line_span(&self, l: usize) -> (usize, usize) {
-        let n = self.rope.len_lines();
-        let (a, b) = (self.rope.line_to_char(l), if l + 1 < n { self.rope.line_to_char(l + 1) } else { self.len() });
-        if l + 1 >= n && l > 0 {
-            // the last line: its break is the one before it
-            let prev = self.rope.line_to_char(l);
-            return (prev - self.line_break_before(l), b.max(a));
-        }
-        (a, b)
-    }
-
-    fn line_break_before(&self, l: usize) -> usize {
-        let a = self.rope.line_to_char(l);
-        match (a >= 2).then(|| self.rope.slice(a - 2..a).to_string()).as_deref() {
-            Some("\r\n") => 2,
-            _ if a >= 1 => 1,
-            _ => 0,
-        }
-    }
-
-    /// Line `l` stops the program (`trace::is_trace`).
-    pub fn is_trace_line(&self, lang: crate::trace::Lang, l: usize) -> bool {
-        l < self.rope.len_lines() && crate::trace::is_trace(lang, &self.line_text(l))
-    }
-
-    /// F9: line `l` is a breakpoint (`ipdb`…): it goes; else `statement` is written above it,
-    /// indented like it (a blank line like the next one written). True: one was added.
-    pub fn toggle_trace(&mut self, lang: crate::trace::Lang, l: usize, statement: &str) -> bool {
-        if self.is_trace_line(lang, l) {
-            let (a, b) = self.line_span(l);
-            self.replace_keep(EditKind::Other, vec![(a, b, String::new())]);
-            return false;
-        }
-        let n = self.rope.len_lines();
-        let indent = (l..n).map(|k| self.line_text(k)).find(|t| !t.trim().is_empty()).map(|t| t[..t.len() - t.trim_start().len()].to_string()).unwrap_or_default();
-        let nl = if self.crlf { "\r\n" } else { "\n" };
-        let at = self.rope.line_to_char(l.min(n.saturating_sub(1)));
-        self.replace_keep(EditKind::Other, vec![(at, at, format!("{indent}{statement}{nl}"))]);
-        true
-    }
-
-    /// The breakpoint lines (`ipdb`…), for the gutter.
-    pub fn trace_lines(&self, lang: crate::trace::Lang) -> Vec<usize> {
-        if let Some((v, g, lines)) = &*self.trace_cache.borrow() {
-            if *v == self.version && *g == lang {
-                return lines.clone();
-            }
-        }
-        let lines: Vec<usize> = (0..self.rope.len_lines()).filter(|&l| self.is_trace_line(lang, l)).collect();
-        *self.trace_cache.borrow_mut() = Some((self.version, lang, lines.clone()));
-        lines
-    }
-
-    /// Removes every breakpoint line of the document; how many there were.
-    pub fn remove_traces(&mut self, lang: crate::trace::Lang) -> usize {
-        let lines: Vec<usize> = (0..self.rope.len_lines()).filter(|&l| self.is_trace_line(lang, l)).collect();
-        let edits: Vec<(usize, usize, String)> = lines.iter().map(|&l| self.line_span(l)).map(|(a, b)| (a, b, String::new())).collect();
-        self.replace_keep(EditKind::Other, edits);
-        lines.len()
-    }
-
     pub fn set_bookmark_lines(&mut self, lines: &[usize]) {
         let n = self.rope.len_lines();
         self.bookmarks = lines.iter().filter(|&&l| l < n).map(|&l| self.rope.line_to_char(l)).collect();
@@ -3002,25 +2934,6 @@ mod tests {
         assert_eq!(d.rope.char_to_line(d.primary_sel().head), 3);
         assert!(!d.toggle_bookmark());
         assert_eq!(d.bookmark_lines(), [0]);
-    }
-
-    #[test]
-    fn ipdb_lines_added_and_removed() {
-        use crate::trace::Lang;
-        let mut d = Document::from_text(1, "def f():\n    x = 1\n\n    return x\n", 4, true);
-        // above the line, indented like it; a blank line takes the indent of the next one
-        assert!(d.toggle_trace(Lang::Python, 1, "import ipdb; ipdb.set_trace()"));
-        assert_eq!(d.rope.to_string(), "def f():\n    import ipdb; ipdb.set_trace()\n    x = 1\n\n    return x\n");
-        assert!(d.toggle_trace(Lang::Python, 4, "breakpoint()"));
-        assert_eq!(d.rope.line(4).to_string(), "    breakpoint()\n");
-        // on the line itself: it goes
-        assert!(!d.toggle_trace(Lang::Python, 1, "x"));
-        assert_eq!(d.remove_traces(Lang::Python), 1);
-        assert_eq!(d.rope.to_string(), "def f():\n    x = 1\n\n    return x\n");
-        // the last line, without a line break after it
-        let mut d = Document::from_text(1, "a;\ndebugger;", 4, true);
-        assert_eq!(d.remove_traces(Lang::Js), 1);
-        assert_eq!(d.rope.to_string(), "a;");
     }
 
     #[test]

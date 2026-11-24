@@ -25,7 +25,6 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 mod git_view;
-mod breakpoints;
 mod ai_review;
 mod ai_complete;
 mod hints;
@@ -1016,8 +1015,6 @@ pub struct App {
     /// GitHub pull requests tab.
     pr: pulls::PrUi,
     tests: odoo_tests::Tests,
-    /// Where pdb / ipdb waits in a terminal, followed in the editor.
-    follow: breakpoints::Follow,
     /// Pull requests of branches and commits, creation of one.
     gh: pr_links::GhUi,
     /// Conversation with Claude Code and review of its changes: the one shown last.
@@ -1334,7 +1331,6 @@ impl App {
                 pr
             },
             tests: Default::default(),
-            follow: Default::default(),
             gh: Default::default(),
             claude: Default::default(),
             claude_others: Vec::new(),
@@ -1685,7 +1681,6 @@ impl eframe::App for App {
             self.last_active_path = cur;
         }
         self.lsp_frame(ctx);
-        self.trace_follow();
         self.update_hover(ctx);
         self.completion_keys(ctx);
         self.ai_complete_keys(ctx);

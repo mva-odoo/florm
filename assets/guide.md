@@ -306,7 +306,7 @@ Les opérations lancées depuis Florm mettent la version d'origine entre les deu
 
 - **Ctrl+`** : le terminal dans le panneau du bas.
 - **Les raccourcis dans un terminal** (et dans Claude) : Ctrl+lettre (Ctrl+C, Ctrl+R, Ctrl+D…),
-  Alt+lettre et Ctrl+Maj+C / V / F vont au shell ; les touches F (F9, F12…), les Ctrl+Alt+…, les
+  Alt+lettre et Ctrl+Maj+C / V / F vont au shell ; les touches F (F2, F12…), les Ctrl+Alt+…, les
   autres Ctrl+Maj+… (Ctrl+Maj+G, Ctrl+Maj+J…) et Ctrl+Tab, Ctrl+PgUp / PgDn restent à Florm.
 - **Maj+Entrée** (ou Alt / Option+Entrée) va à la ligne sans envoyer, dans Claude comme dans zsh
   et fish.
@@ -384,7 +384,7 @@ Les tests de n'importe quel projet se lancent dans le terminal du panneau du bas
   `cargo test app::calc::tests::adds`…) : dans « Tests : lancer des tests… », on peut la modifier avant
   Entrée. Un projet dans un sous-dossier commence par `cd sous-dossier && `.
 - La sortie s'affiche dans le panneau du bas, le résumé (✔ ou ⚠, réussis et en échec) dans la barre d'état.
-- Un `ipdb` dans un test s'arrête dans ce terminal, et l'éditeur suit (voir « Points d'arrêt »).
+- Un `ipdb` dans un test s'arrête dans ce terminal, où il se tape comme d'habitude.
 
 **Tests Odoo** (fichiers `tests/test_*.py` d'un module, le dossier qui contient `__manifest__.py`) :
 le ▶ et le curseur donnent les tags du test (`/sale:TestSaleOrder.test_confirm`, `/sale` hors
@@ -395,27 +395,6 @@ Ctrl+Maj+F6 reprennent **la dernière commande de tests Odoo lancée** en ne cha
 la base, les options et le conteneur restent. Pour en changer, « Tests : lancer des tests… » et
 modifier la commande. Le résumé lu dans le log (`1 failed, 0 error(s) of 12 tests`) va dans la
 barre d'état ; **Ctrl+clic** sur une ligne `File "…", line N` ouvre le fichier.
-
-## Points d'arrêt (ipdb)
-
-Pas de débogueur à configurer : le point d'arrêt est une ligne `ipdb` dans le code, et le
-programme s'arrête dans le terminal où il tourne, quelle que soit sa commande (`-d`, `-u`, un
-conteneur…).
-
-- **F9** (ou un clic à gauche des numéros de ligne, dans un fichier Python) écrit
-  `import ipdb; ipdb.set_trace()` au-dessus de la ligne, indenté comme elle ; F9 sur cette ligne
-  la retire. Chaque ligne qui arrête le programme (`ipdb`, `pdb.set_trace()`, `breakpoint()`) a un
-  rond rouge dans la marge. En JavaScript et TypeScript, c'est `debugger;`. La ligne écrite est
-  celle du modèle `ipdb` (Préférences → Modèles) : la tienne si tu l'as changée (`breakpoint()`…).
-- **Ctrl+Maj+F9** retire tous ceux des fichiers ouverts (« Point d'arrêt : retirer… » dans la palette).
-- **L'éditeur suit ipdb** : quand pdb ou ipdb attend dans un terminal du panneau du bas
-  (`ipdb>`), le fichier s'ouvre à sa ligne, surlignée en jaune, et le clavier reste dans le
-  terminal ; `n`, `s`, `u`… le font suivre. Un chemin du conteneur (`/opt/odoo/addons/sale/…`) est
-  retrouvé dans le projet par sa fin. Dans un terminal en onglet, le fichier n'est pas ouvert (il
-  prendrait sa place), mais la ligne est surlignée s'il est affiché. **Ctrl+clic** sur
-  `> /chemin/fichier.py(120)methode()` l'ouvre aussi.
-- **Pas d'ipdb dans un commit** : si les changements commités ajoutent une de ces lignes, la vue
-  Git le dit avant (fichier:ligne) et propose **Commiter quand même**.
 
 ## Modèles
 
