@@ -262,7 +262,7 @@ mod tests {
     /// names a command, a program, a folder used as configuration or that grants a permission.
     const SHARED: &[&str] = &[
         "language", "font_size", "tab_size", "translate_tabs_to_spaces", "theme", "accent_color", "text_softness", "editor_font", "ui_font", "show_minimap",
-        "spell_check", "rainbow_brackets", "show_whitespace", "word_wrap", "sticky_scroll", "rulers", "breadcrumbs", "show_menu_bar", "compact_ui", "search_in_tab", "diff_side_by_side",
+        "spell_check", "rainbow_brackets", "show_whitespace", "word_wrap", "sticky_scroll", "rulers", "breadcrumbs", "show_menu_bar", "search_in_tab", "diff_side_by_side",
         "git", "github", "claude", "claude_review", "claude_done_blink", "claude_done_sound", "markdown_toolbar", "tree_git_info", "inline_diff", "auto_pair",
         "keyboard_hints", "ai_complete", "lint_on_save", "lint_live", "lint_ignore_flake8", "lint_ignore_ruff", "lint_ignore_pylint", "lint_ignore_eslint",
         "trim_trailing_whitespace_on_save", "format_on_save", "hot_exit", "auto_save", "keys", "lsp", "exclude", "index_max_files", "check_updates",

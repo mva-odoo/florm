@@ -658,17 +658,17 @@ folders, the Claude accounts…) is never shared.
 
 ## Appearance
 
+The interface follows Zed's design: the panels, the tab strip and the menus a step lighter (darker on a
+light theme) than the editor, the title bar and the status bar a step beyond, thin lines between the
+parts, the active tab on the editor's background. These shades come from the chosen theme: they follow
+every theme.
+
 **Preferences → Appearance**: language (Français / English), theme (clickable previews: Florm and
 Florm Light, Florm Minimal and Florm Minimal Light, more sober (a deep or cream background, a
 soft palette), and Florm Monokai, One Dark, Dracula, GitHub Light after the usual themes of other editors),
 accent color, **softened text** (less “bold” text, useful on light themes), fonts of the editor
 and of the interface, minimap, breadcrumbs, **menu bar** (hidden, its commands are still in the palette,
 **Ctrl+Shift+P**).
-
-**Compact interface** (Preferences → Appearance): no menu bar, breadcrumbs nor minimap (the
-commands stay in the palette), the margin of the line numbers as narrow as it can be, and the interface in the editor's font, unless an interface font is
-chosen by hand. Off, everything comes back as before. It goes well with the themes **Florm
-Minimal** and **Florm Minimal Light**.
 
 **Theme colors → Create a theme from “…”**: all the colors of the editor (background, text,
 accent, cursor, selection, gutter…) and of the code (comments, keywords, strings, functions,

@@ -88,20 +88,26 @@ impl App {
 
     pub(in crate::app) fn status_bar(&mut self, ctx: &egui::Context) {
         let (mut toggle_spaces, mut convert_utf8) = (false, false);
-        let panel = ctx.style().visuals.panel_fill;
+        // as in Zed: the bars a step beyond the panels, a line above
+        let s = self.hl.surfaces();
         egui::TopBottomPanel::bottom("status")
-            .exact_height(26.0)
-            .frame(egui::Frame::none().fill(panel).inner_margin(egui::Margin::symmetric(12.0, 0.0)))
+            .exact_height(28.0)
+            .show_separator_line(false)
+            .frame(egui::Frame::none().fill(s.bar).inner_margin(egui::Margin::symmetric(8.0, 0.0)))
             .show(ctx, |ui| {
+            let edge = ui.max_rect();
+            ui.painter().hline(edge.x_range(), edge.top() + 0.5, egui::Stroke::new(1.0_f32, s.border));
             ui.style_mut().text_styles.insert(egui::TextStyle::Body, egui::FontId::proportional(12.5));
             ui.style_mut().text_styles.insert(egui::TextStyle::Button, egui::FontId::proportional(12.5));
-            ui.visuals_mut().override_text_color = Some(ui.visuals().weak_text_color());
+            // Zed's muted text: readable, a step below the text of the editor
+            let muted = crate::icons::mix(ui.visuals().text_color(), s.bar, 0.22);
+            ui.visuals_mut().override_text_color = Some(muted);
             ui.horizontal_centered(|ui| {
                 // the preferences, one click away (a click on them shown goes back to the tab before)
                 let shown = self.docs.get(self.active).is_some_and(|d| d.view == crate::document::View::Settings);
                 let keys = self.keymap.label(Cmd::OpenSettings);
                 let tip = if keys.is_empty() { t!("Préférences", "Preferences").to_string() } else { tf!("Préférences ({keys})", "Preferences ({keys})") };
-                let color = if shown { self.hl.colors.accent } else { ui.visuals().weak_text_color() };
+                let color = if shown { self.hl.colors.accent } else { muted };
                 if view_button(ui, icons::ViewIcon::Settings, color).on_hover_text(tip).clicked() {
                     if shown {
                         self.leave_tab(crate::document::View::Settings);
@@ -129,7 +135,7 @@ impl App {
                     };
                     let keys = self.keymap.label(cmd);
                     let tip = if keys.is_empty() { label.to_string() } else { format!("{label} ({keys})") };
-                    if view_button(ui, icon, if shown { accent } else { ui.visuals().weak_text_color() }).on_hover_text(tip).clicked() {
+                    if view_button(ui, icon, if shown { accent } else { muted }).on_hover_text(tip).clicked() {
                         match view {
                             Some(v) if shown => self.leave_tab(v),
                             _ => self.pending.push(cmd),
@@ -249,7 +255,7 @@ impl App {
                         }
                     }
                     // what is going on, only while it is: Claude
-                    let weak = ui.visuals().weak_text_color();
+                    let weak = muted;
                     // the conversations: finished and not seen yet, waiting for you, working
                     let (busy, waiting, done) = self.claude_states();
                     if let Some((id, lit)) = done {

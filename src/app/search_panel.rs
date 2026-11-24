@@ -145,8 +145,8 @@ impl App {
         let s = &mut self.search;
         let enter =|r: &egui::Response, ui: &egui::Ui| r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
         // the fields take the width there is (minus the buttons around them)
-        let field_w = (ui.available_width() - 470.0).clamp(240.0, 900.0);
-        let filter_w = ((ui.available_width() - 330.0) / 2.0).clamp(160.0, 560.0);
+        let field_w = (ui.available_width() - 420.0).clamp(240.0, 1200.0);
+        let filter_w = ((ui.available_width() - 200.0) / 2.0).clamp(160.0, 700.0);
 
         // the bar of the search: room around it and between its lines
         egui::Frame::none().inner_margin(egui::Margin { left: 10.0, right: 10.0, top: 8.0, bottom: 4.0 }).show(ui, |ui| {
@@ -161,31 +161,40 @@ impl App {
                 {
                     s.show_replace = !s.show_replace;
                 }
-                let te = crate::input::add(ui,
-                    egui::TextEdit::singleline(&mut s.q.pattern)
-                        .desired_width(field_w)
-                        .hint_text(t!("🔍  Rechercher dans le dossier… (Entrée)", "🔍  Find in folder… (Enter)"))
-                        .font(egui::TextStyle::Monospace),
-                );
-                if s.focus {
-                    te.request_focus();
-                    s.focus = false;
-                }
-                if enter(&te, ui) {
-                    go = true;
-                    te.request_focus();
-                }
-                if te.has_focus() {
-                    if let Some(t) = history_arrows(ui, &st.search_history, &mut s.hist_pos) {
-                        s.q.pattern = t;
-                    }
-                }
+                // the field and its options as one, as in Zed
+                let field = field_frame(ui).show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 2.0;
+                        let te = ui.add(
+                            egui::TextEdit::singleline(&mut s.q.pattern)
+                                .frame(false)
+                                .desired_width(field_w)
+                                .hint_text(t!("Rechercher dans tous les fichiers… (Entrée)", "Search all files… (Enter)"))
+                                .font(egui::TextStyle::Monospace),
+                        );
+                        if s.focus {
+                            te.request_focus();
+                            s.focus = false;
+                        }
+                        if enter(&te, ui) {
+                            go = true;
+                            te.request_focus();
+                        }
+                        if te.has_focus() {
+                            if let Some(t) = history_arrows(ui, &st.search_history, &mut s.hist_pos) {
+                                s.q.pattern = t;
+                            }
+                        }
+                        ui.toggle_value(&mut s.q.case, "Aa").on_hover_text(t!("Respecter la casse", "Match case"));
+                        ui.toggle_value(&mut s.q.whole, "« »").on_hover_text(t!("Mot entier", "Whole word"));
+                        ui.toggle_value(&mut s.q.regex, ".*").on_hover_text(t!("Expression régulière", "Regular expression"));
+                        te.has_focus()
+                    })
+                    .inner
+                });
+                focus_ring(ui, field.response.rect, field.inner);
                 go |= history_menu(ui, &st.search_history, &mut s.q.pattern, t!("Recherches récentes", "Recent searches"));
-                ui.toggle_value(&mut s.q.case, "Aa").on_hover_text(t!("Respecter la casse", "Match case"));
-                ui.toggle_value(&mut s.q.regex, ".*").on_hover_text(t!("Expression régulière", "Regular expression"));
-                ui.toggle_value(&mut s.q.whole, "« »").on_hover_text(t!("Mot entier", "Whole word"));
-                let search_btn = filled_button(t!("Rechercher", "Find"), accent);
-                if ui.add(search_btn).clicked() {
+                if ui.button(t!("Rechercher", "Find")).clicked() {
                     go = true;
                 }
                 if s.running {
@@ -232,8 +241,9 @@ impl App {
             // --- filters line
             ui.horizontal(|ui| {
                 ui.add_space(22.0);
-                ui.label(RichText::new(t!("Fichiers", "Files")).color(ok()));
-                let inc = crate::input::add(ui, egui::TextEdit::singleline(&mut s.q.include).desired_width(filter_w).hint_text("*.py, models/*.py, !tests"))
+                let inc_f = field_frame(ui).show(ui, |ui| ui.add(egui::TextEdit::singleline(&mut s.q.include).frame(false).desired_width(filter_w).hint_text(t!("Inclure : *.py, models/*.py, !tests", "Include: *.py, models/*.py, !tests"))));
+                focus_ring(ui, inc_f.response.rect, inc_f.inner.has_focus());
+                let inc = inc_f.inner
                     .on_hover_text(t!(
                         "Plusieurs règles, séparées par des virgules ; ! devant une règle l'exclut :\n\
                          *.py — tous les fichiers Python\n\
@@ -254,10 +264,11 @@ impl App {
                     ));
                 go |= history_menu(ui, &st.include_history, &mut s.q.include, t!("Filtres récents", "Recent filters"));
                 ui.add_space(8.0);
-                ui.label(RichText::new(t!("Exclure", "Exclude")).color(err()));
-                let exc = crate::input::add(ui,
-                    egui::TextEdit::singleline(&mut s.q.exclude).desired_width(filter_w).hint_text("tests, *.min.js"),
-                ).on_hover_text(t!(
+                let exc_f = field_frame(ui).show(ui, |ui| ui.add(
+                    egui::TextEdit::singleline(&mut s.q.exclude).frame(false).desired_width(filter_w).hint_text(t!("Exclure : tests, *.min.js", "Exclude: tests, *.min.js")),
+                ));
+                focus_ring(ui, exc_f.response.rect, exc_f.inner.has_focus());
+                let exc = exc_f.inner.on_hover_text(t!(
                     "Ce qui est ignoré, en plus du .gitignore (mêmes règles que « Fichiers », séparées par des virgules) :\n\
                      tests — tout dossier nommé « tests »\n\
                      addons/sale/tests — seulement celui-là\n\
@@ -320,15 +331,14 @@ impl App {
                             s.rebuild_rows();
                         }
                     }
-                } else {
-                    ui.label(
-                        RichText::new(t!("Tape un texte puis Entrée. Filtre les fichiers avec « *.py », exclus des dossiers avec « tests ».", "Type a text then Enter. Filter the files with “*.py”, exclude folders with “tests”."))
-                            .weak(),
-                    );
                 }
             });
         });
         ui.add_space(2.0);
+        // nothing searched yet: what can be done, in the middle, as in Zed
+        if s.stats.is_none() && s.error.is_none() && s.rows.is_empty() && !s.running {
+            search_help(ui);
+        }
 
         // --- results
         let v = ui.visuals().clone();
@@ -611,4 +621,45 @@ impl App {
         }
     }
 
+}
+
+/// A field as in Zed: on the editor's background, a thin border, a little rounded (the text field
+/// inside it has no frame of its own, its options sit beside it in the same frame).
+fn field_frame(ui: &egui::Ui) -> egui::Frame {
+    let v = ui.visuals();
+    egui::Frame::none()
+        .fill(v.extreme_bg_color)
+        .stroke(egui::Stroke::new(1.0_f32, v.widgets.noninteractive.bg_stroke.color))
+        .rounding(4.0)
+        .inner_margin(egui::Margin::symmetric(6.0, 3.0))
+}
+
+/// The accent around a field of `field_frame` while it has the keyboard.
+fn focus_ring(ui: &egui::Ui, rect: egui::Rect, focused: bool) {
+    if focused {
+        ui.painter().rect_stroke(rect, 4.0, egui::Stroke::new(1.0_f32, ui.visuals().selection.stroke.color));
+    }
+}
+
+/// Nothing searched yet: what the search can do, in the middle of the view.
+fn search_help(ui: &mut egui::Ui) {
+    let weak = ui.visuals().weak_text_color();
+    let rows: [(&str, &str); 6] = [
+        (t!("Filtrer les fichiers", "Filter the files"), "*.py, !tests"),
+        (t!("Remplacer", "Replace"), "⏵"),
+        (t!("Respecter la casse", "Match case"), "Aa"),
+        (t!("Mot entier", "Whole word"), "« »"),
+        (t!("Expression régulière", "Regular expression"), ".*"),
+        (t!("Les TODO et FIXME du projet", "The TODO and FIXME of the project"), "TODO / FIXME"),
+    ];
+    ui.add_space((ui.available_height() * 0.3).max(16.0));
+    ui.vertical_centered(|ui| {
+        ui.label(RichText::new(t!("Rechercher dans tous les fichiers", "Search all files")).size(15.0));
+        ui.add_space(4.0);
+        ui.label(RichText::new(t!("Tape un texte puis Entrée. Pour aller plus loin :", "Type a text then Enter. To go further:")).color(weak));
+        ui.add_space(6.0);
+        for (what, how) in rows {
+            ui.label(RichText::new(format!("{how}   {what}")).color(weak));
+        }
+    });
 }

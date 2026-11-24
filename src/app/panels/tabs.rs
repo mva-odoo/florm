@@ -125,8 +125,8 @@ impl App {
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         // a small gap between the tabs; the first one starts after the card's rounded corner
-                        ui.spacing_mut().item_spacing.x = 3.0;
-                        ui.add_space(CARD_ROUNDING);
+                        // side by side, as in Zed
+                        ui.spacing_mut().item_spacing.x = 0.0;
                         for (i, d) in self.docs.iter().enumerate() {
                             if pane.is_some_and(|p| p != d.pane) {
                                 continue;

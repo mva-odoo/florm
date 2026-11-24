@@ -2,9 +2,9 @@
 
 use super::*;
 
-/// The sidebar a little darker than the rest, to set the tree apart from the editor.
+/// The sidebar on the panels' surface, as in Zed.
 pub(super) fn sidebar_fill(v: &egui::Visuals) -> Color32 {
-    icons::mix(v.panel_fill, Color32::BLACK, if v.dark_mode { 0.15 } else { 0.04 })
+    v.panel_fill
 }
 
 impl App {
@@ -38,8 +38,8 @@ impl App {
             .frame(egui::Frame::none().fill(panel))
             .show(ctx, |ui| {
             let edge = ui.max_rect();
-            ui.painter().vline(edge.right() - 0.5, edge.y_range(), egui::Stroke::new(1.0_f32, tc.text_inactive.gamma_multiply(0.2)));
-            let card = egui::Frame::none().inner_margin(egui::Margin { left: 10.0, right: 6.0, top: 8.0, bottom: 6.0 });
+            ui.painter().vline(edge.right() - 0.5, edge.y_range(), egui::Stroke::new(1.0_f32, tc.border));
+            let card = egui::Frame::none().inner_margin(egui::Margin { left: 4.0, right: 4.0, top: 6.0, bottom: 4.0 });
             card.show(ui, |ui| {
             ui.set_min_size(ui.available_size());
             // what is drawn inside (sticky folders, icons) on the same background

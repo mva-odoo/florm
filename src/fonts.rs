@@ -142,21 +142,14 @@ pub fn find(family: &str) -> Option<FontInfo> {
     Some(f)
 }
 
-/// Fonts used when the settings name none: the system's screen fonts on Windows, else the built-in ones.
+/// Fonts used when the settings name none: none of the system's, the built-in ones (IBM Plex,
+/// as in Zed) everywhere.
 pub fn default_editor_font() -> &'static [&'static str] {
-    if cfg!(windows) {
-        &["Cascadia Mono", "Consolas"]
-    } else {
-        &[]
-    }
+    &[]
 }
 
 pub fn default_ui_font() -> &'static [&'static str] {
-    if cfg!(windows) {
-        &["Segoe UI"]
-    } else {
-        &[]
-    }
+    &[]
 }
 
 /// A Nerd Font installed on the system, for the icons of shell prompts (starship, powerline
@@ -234,9 +227,7 @@ fn scan_nerd_font() -> Option<PathBuf> {
 }
 
 /// egui fonts with the chosen editor (monospace) and interface fonts first.
-/// `mono_ui` (the compact interface): without an interface font of its own, the interface
-/// uses the editor's font.
-pub fn definitions(editor: &str, ui: &str, mono_ui: bool) -> FontDefinitions {
+pub fn definitions(editor: &str, ui: &str) -> FontDefinitions {
     let mut defs = crate::app::font_definitions();
     let load = |names: Vec<&str>| names.into_iter().filter(|n| !n.trim().is_empty()).find_map(|n| {
         let f = find(n.trim())?;
@@ -250,23 +241,10 @@ pub fn definitions(editor: &str, ui: &str, mono_ui: bool) -> FontDefinitions {
         defs.font_data.insert("user_mono".into(), d);
         defs.families.entry(FontFamily::Monospace).or_default().insert(0, "user_mono".into());
     }
-    let ui_names: Vec<&str> = if !ui.trim().is_empty() {
-        vec![ui]
-    } else if mono_ui {
-        editor_names.clone()
-    } else {
-        default_ui_font().to_vec()
-    };
+    let ui_names: Vec<&str> = if !ui.trim().is_empty() { vec![ui] } else { default_ui_font().to_vec() };
     if let Some(d) = load(ui_names) {
         defs.font_data.insert("user_ui".into(), d);
         defs.families.entry(FontFamily::Proportional).or_default().insert(0, "user_ui".into());
-    } else if mono_ui {
-        // no font found: the monospaced fonts of egui for the interface too
-        let mono = defs.families.get(&FontFamily::Monospace).cloned().unwrap_or_default();
-        let prop = defs.families.entry(FontFamily::Proportional).or_default();
-        for (k, f) in mono.into_iter().enumerate() {
-            prop.insert(k, f);
-        }
     }
     if let Some(bytes) = nerd_font_file().and_then(|p| std::fs::read(p).ok()) {
         defs.font_data.insert("nerd_symbols".into(), FontData::from_owned(bytes));

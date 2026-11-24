@@ -66,8 +66,6 @@ pub struct ViewOpts<'a> {
     pub tests: &'a [(usize, String)],
     /// The brackets colored by level.
     pub rainbow: bool,
-    /// Compact interface: the gutter only as wide as the numbers need (no room kept for more digits).
-    pub compact: bool,
     /// Spaces and tabs shown (· and →).
     pub whitespace: bool,
 }
@@ -229,11 +227,11 @@ fn text_area(
     let inline_diff = opts.inline_diff;
     let c = hl.colors;
     let nlines = doc.rope.len_lines();
-    let digits = if opts.compact { nlines.to_string().len() } else { nlines.to_string().len().max(3) };
+    let digits = nlines.to_string().len().max(3);
     // numbers, then the fold arrows, then the git marks
     let test_w = if opts.tests.is_empty() { 0.0 } else { TEST_W };
     let test_x = claude_w();
-    let gutter_w = if opts.compact { digits as f32 * cw + 22.0 + claude_w().max(6.0) + test_w } else { (digits as f32 + 1.0) * cw + 30.0 + test_w };
+    let gutter_w = (digits as f32 + 1.0) * cw + 30.0 + test_w;
     let test_at = |l: usize| opts.tests.iter().find(|(t, _)| *t == l).map(|(_, tags)| tags);
     doc.update_max_cols();
     doc.reveal_cursors(); // whatever placed a cursor in a folded block, open it
@@ -890,7 +888,9 @@ fn text_area(
         }
 
         // a bulb at the end of the cursor line when it has a problem: the corrections rapides
-        let caret_col = doc.primary_sel().head - doc.rope.line_to_char(caret.min(doc.rope.len_lines().saturating_sub(1)));
+        // (the text may have changed since `caret` was read, earlier in this frame)
+        let head = doc.primary_sel().head.min(doc.rope.len_chars());
+        let caret_col = head.saturating_sub(doc.rope.line_to_char(caret.min(doc.rope.len_lines().saturating_sub(1))));
         let misspelled_here = doc.spelling.iter().any(|m| m.line == caret && (m.col..=m.col + m.len).contains(&caret_col));
         if focused && (first..=last).contains(&caret) && (doc.diagnostics.iter().any(|d| d.line == caret) || misspelled_here) {
             let end = at(caret, doc.vcol(caret, doc.line_len(caret)));

@@ -17,8 +17,8 @@ impl App {
                 self.log(tf!("Thème inconnu : {}", "Unknown theme: {}", s.theme));
             }
         }
-        if s.editor_font != self.settings.editor_font || s.ui_font != self.settings.ui_font || s.compact_ui != self.settings.compact_ui {
-            self.egui_ctx.set_fonts(crate::fonts::definitions(&s.editor_font, &s.ui_font, s.compact_ui));
+        if s.editor_font != self.settings.editor_font || s.ui_font != self.settings.ui_font {
+            self.egui_ctx.set_fonts(crate::fonts::definitions(&s.editor_font, &s.ui_font));
         }
         if s.accent_color != self.settings.accent_color || s.text_softness != self.settings.text_softness {
             self.hl.set_overrides(highlight::parse_hex(&s.accent_color), s.text_softness);

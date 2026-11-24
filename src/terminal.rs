@@ -1834,10 +1834,12 @@ fn cell_colors(cell: &vt100::Cell, c: Colors, light: bool) -> (Color32, Color32)
     let mut bg = color(cell.bgcolor(), c.bg, c, light);
     // bold with a basic color: its bright variant, like most terminals
     if cell.bold() {
-        if let vt100::Color::Idx(i) = cell.fgcolor() {
-            if i < 8 {
-                fg = ansi(i + 8, c, light);
-            }
+        match cell.fgcolor() {
+            vt100::Color::Idx(i) if i < 8 => fg = ansi(i + 8, c, light),
+            // a light theme: bold in the text color (or black) tinted with the accent, not black
+            vt100::Color::Default if light => fg = crate::icons::mix(c.fg, c.accent, 0.45),
+            vt100::Color::Rgb(r, g, b) if light && (r as u32 + g as u32 + b as u32) < 120 => fg = crate::icons::mix(c.fg, c.accent, 0.45),
+            _ => {}
         }
     }
     // dim (Claude Code's hints, what is less important): halfway to the background

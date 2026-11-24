@@ -14,16 +14,17 @@ pub fn add(ui: &mut Ui, edit: TextEdit) -> Response {
     let ir = egui::Frame::none().inner_margin(MARGIN).show(ui, |ui| ui.add(edit.frame(false).margin(Margin::ZERO)));
     let (r, rect) = (ir.inner, ir.response.rect);
     let v = ui.visuals();
+    // as in Zed: the line color, the accent once it has the keyboard, a little rounded
     let stroke = if r.has_focus() {
-        Stroke::new(1.5_f32, v.selection.stroke.color)
+        Stroke::new(1.0_f32, v.selection.stroke.color)
     } else if ui.rect_contains_pointer(rect) {
         Stroke::new(1.0_f32, v.widgets.active.bg_fill)
     } else {
-        Stroke::new(1.0_f32, v.widgets.hovered.bg_fill)
+        Stroke::new(1.0_f32, v.widgets.noninteractive.bg_stroke.color)
     };
     let fill = if r.enabled() { v.extreme_bg_color } else { v.faint_bg_color };
-    ui.painter().set(behind, Shape::rect_filled(rect, 7.0, fill));
-    ui.painter().rect_stroke(rect, 7.0, stroke);
+    ui.painter().set(behind, Shape::rect_filled(rect, 4.0, fill));
+    ui.painter().rect_stroke(rect, 4.0, stroke);
     r
 }
 

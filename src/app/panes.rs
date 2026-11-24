@@ -94,7 +94,7 @@ impl App {
                 let s = &self.settings;
                 let opts = editor_view::ViewOpts {
                     font_size: s.font_size,
-                    minimap: s.minimap_on(),
+                    minimap: s.show_minimap,
                     wrap: s.word_wrap,
                     inline_diff: s.inline_diff,
                     sticky: s.sticky_scroll,
@@ -102,7 +102,6 @@ impl App {
                     notes: doc.path.as_ref().and_then(|p| self.pr.notes.get(p)).map_or(&[], |v| &v[..]),
                     tests: &tests,
                     rainbow: s.rainbow_brackets,
-                    compact: s.compact_ui,
                     whitespace: s.show_whitespace,
                 };
                 let r = editor_view::show(ui, doc, &self.hl, &opts, matches, id);
@@ -510,7 +509,7 @@ impl App {
 
     /// "dossier › fichier › Classe › méthode" above the editor; a click goes to the symbol.
     pub(super) fn breadcrumbs_ui(&mut self, ui: &mut egui::Ui, i: usize, pane: u8) {
-        if !self.settings.breadcrumbs_on() {
+        if !self.settings.breadcrumbs {
             return;
         }
         let root = self.root.clone();

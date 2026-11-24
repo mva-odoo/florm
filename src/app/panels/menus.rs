@@ -6,20 +6,20 @@ impl App {
     pub(in crate::app) fn menu_bar(&mut self, ctx: &egui::Context) {
         if self.own_title_bar() {
             // menus hidden: no bar, the window buttons are in the tab strip
-            if self.settings.menu_bar() {
+            if self.settings.show_menu_bar {
                 self.title_bar(ctx);
             }
             return;
         }
-        if !self.settings.menu_bar() {
+        if !self.settings.show_menu_bar {
             return;
         }
         let mut pending = Vec::new();
         let project = self.root.as_ref().and_then(|r| r.file_name()).map(|n| n.to_string_lossy().into_owned());
-        let panel = ctx.style().visuals.panel_fill;
+        let panel = self.hl.surfaces().bar;
         egui::TopBottomPanel::top("menu")
             .frame(egui::Frame::none().fill(panel).inner_margin(egui::Margin::symmetric(10.0, 5.0)))
-            .show_separator_line(false)
+            .show_separator_line(true)
             .show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
                 let (r, _) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), Sense::hover());

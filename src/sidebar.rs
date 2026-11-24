@@ -631,15 +631,20 @@ fn node_ui(
     let bg = v.panel_fill;
     let light = bg.r() as u32 + bg.g() as u32 + bg.b() as u32 > 384;
     if selected {
-        ui.painter().rect_filled(rect, 5.0, v.selection.bg_fill);
+        ui.painter().rect_filled(rect, 0.0, v.widgets.active.bg_fill);
     } else if r.hovered() {
-        ui.painter().rect_filled(rect, 5.0, v.widgets.hovered.weak_bg_fill);
+        ui.painter().rect_filled(rect, 0.0, v.widgets.hovered.weak_bg_fill);
     }
     if cursor == Some(node.path.as_path()) {
-        ui.painter().rect_stroke(rect.shrink(0.5), 5.0, Stroke::new(1.0_f32, v.selection.stroke.color));
+        ui.painter().rect_stroke(rect.shrink(0.5), 0.0, Stroke::new(1.0_f32, v.selection.stroke.color));
     }
     let painter = ui.painter().with_clip_rect(rect);
     let cy = rect.center().y;
+    // indent guides, as in Zed: a faint line for each folder above
+    for k in 0..depth {
+        let gx = (rect.left() + 4.0 + k as f32 * 14.0 + 5.0).round() + 0.5;
+        painter.vline(gx, rect.y_range(), Stroke::new(1.0_f32, v.code_bg_color));
+    }
     let mut x = rect.left() + 4.0 + depth as f32 * 14.0;
     if node.is_dir {
         icons::paint_chevron(&painter, Pos2::new(x + 5.0, cy), node.expanded, v.weak_text_color());

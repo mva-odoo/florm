@@ -7,7 +7,8 @@ use egui::viewport::ResizeDirection;
 use egui::{Color32, Pos2, Rect, Stroke, ViewportCommand};
 
 /// Radius of the window's corners when it does not fill the screen.
-const WINDOW_ROUNDING: f32 = 10.0;
+/// The corners of the window: square, as in Zed.
+const WINDOW_ROUNDING: f32 = 0.0;
 
 /// Makes the pixels outside the rounded corners transparent (blending cannot erase them: GL
 /// clears, row by row, through the scissor). The border drawn after smooths the edge.
@@ -56,13 +57,13 @@ const CORNER: f32 = 12.0;
 impl App {
     /// Florm draws the title bar (see `os::draws_title_bar`).
     pub(super) fn own_title_bar(&self) -> bool {
-        os::draws_title_bar(self.settings.menu_bar())
+        os::draws_title_bar(self.settings.show_menu_bar)
     }
 
     /// The window buttons go in the tab strip (menus hidden, so no bar): at its right end (Windows,
     /// Linux) or its left (macOS). `pane`: the strip of a split editor (None: the only one).
     pub(super) fn strip_controls(&self, pane: Option<u8>) -> Option<Controls> {
-        if self.settings.menu_bar() {
+        if self.settings.show_menu_bar {
             return None;
         }
         let c = os::window_controls();
@@ -80,7 +81,7 @@ impl App {
     /// The round buttons at the top of the sidebar (macOS, without the menu bar); the room left on
     /// their right, where the tree puts the name of the folder (a row less).
     pub(super) fn sidebar_mac_buttons(&self, ui: &mut egui::Ui) -> Option<Rect> {
-        if self.settings.menu_bar() || os::window_controls() != Controls::Mac {
+        if self.settings.show_menu_bar || os::window_controls() != Controls::Mac {
             return None;
         }
         let maximized = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
@@ -109,7 +110,7 @@ impl App {
         // rounded corners when the window does not fill the screen and has no system decorations;
         // a tiling compositor (Hyprland…) says « maximized » for every window: rounded there too
         let round = (!maximized || os::window_controls() == Controls::None)
-            && os::rounded_window(self.settings.menu_bar())
+            && os::rounded_window(self.settings.show_menu_bar)
             && os::TRANSPARENT_WINDOW.load(std::sync::atomic::Ordering::Relaxed);
         let radius = if round { WINDOW_ROUNDING } else { 0.0 };
         let tc = self.hl.tab_colors();
@@ -138,7 +139,7 @@ impl App {
     /// on macOS, none under a tiling window manager).
     pub(super) fn title_bar(&mut self, ctx: &egui::Context) {
         let mut pending = Vec::new();
-        let panel = self.hl.tab_colors().bar;
+        let panel = self.hl.surfaces().bar;
         let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
         let controls = os::window_controls();
         egui::TopBottomPanel::top("menu")
@@ -147,6 +148,7 @@ impl App {
             .show_separator_line(false)
             .show(ctx, |ui| {
                 let bar = ui.max_rect();
+                ui.painter().hline(bar.x_range(), bar.bottom() - 0.5, egui::Stroke::new(1.0_f32, self.hl.surfaces().border));
                 // under everything else of the bar: what is not a menu or a button moves the window
                 let drag = ui.interact(bar, egui::Id::new("title_drag"), Sense::click_and_drag());
                 drag_window(ctx, &drag, maximized);
@@ -155,7 +157,7 @@ impl App {
                         mac_buttons(ui, ctx, maximized);
                         ui.add_space(6.0);
                     }
-                    if self.settings.menu_bar() {
+                    if self.settings.show_menu_bar {
                         egui::menu::bar(ui, |ui| self.menus(ui, &mut pending));
                     }
                     if controls == Controls::Side {

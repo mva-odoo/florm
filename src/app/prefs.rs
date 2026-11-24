@@ -412,16 +412,13 @@ impl App {
                         }
                     });
                 };
-                let def_editor = crate::fonts::default_editor_font().first().copied().unwrap_or("Hack");
-                let def_ui = crate::fonts::default_ui_font().first().copied().unwrap_or("Ubuntu");
+                let def_editor = crate::fonts::default_editor_font().first().copied().unwrap_or("IBM Plex Mono");
+                let def_ui = crate::fonts::default_ui_font().first().copied().unwrap_or("IBM Plex Sans");
                 pref_row(ui, rc, t!("Police de l'éditeur", "Editor font"), t!("Polices à chasse fixe installées sur le système (code, terminal).", "Monospaced fonts installed on the system (code, terminal)."), |ui| {
                     font_combo(ui, "editor_font", &mut s.editor_font, true, def_editor);
                 });
                 pref_row(ui, rc, t!("Police de l'interface", "Interface font"), t!("Menus, panneaux, onglets.", "Menus, panels, tabs."), |ui| {
                     font_combo(ui, "ui_font", &mut s.ui_font, false, def_ui);
-                });
-                pref_row(ui, rc, t!("Interface compacte", "Compact interface"), t!("Ni barre de menus, ni fil d'Ariane, ni minimap, la marge des numéros de ligne au plus juste, et l'interface dans la police de l'éditeur (sauf une police d'interface choisie ci-dessus). Les commandes restent dans la palette (Ctrl+Shift+P) ; désactivée, tout revient comme avant.", "No menu bar, breadcrumbs nor minimap, the margin of the line numbers as narrow as it can be, and the interface in the editor's font (unless an interface font is chosen above). The commands stay in the palette (Ctrl+Shift+P); off, everything comes back as before."), |ui| {
-                    toggle_switch(ui, &mut s.compact_ui);
                 });
                 pref_row(ui, rc, "Minimap", t!("Aperçu du fichier à droite de l'éditeur.", "Overview of the file on the right of the editor."), |ui| {
                     toggle_switch(ui, &mut s.show_minimap);
@@ -1151,11 +1148,8 @@ impl App {
             self.persist("accent_color", config::toml_str(&s.accent_color));
             self.persist("text_softness", format!("{:.2}", s.text_softness));
         }
-        if s.compact_ui != before.compact_ui {
-            self.persist("compact_ui", s.compact_ui.to_string());
-        }
-        if s.editor_font != before.editor_font || s.ui_font != before.ui_font || s.compact_ui != before.compact_ui {
-            self.egui_ctx.set_fonts(crate::fonts::definitions(&s.editor_font, &s.ui_font, s.compact_ui));
+        if s.editor_font != before.editor_font || s.ui_font != before.ui_font {
+            self.egui_ctx.set_fonts(crate::fonts::definitions(&s.editor_font, &s.ui_font));
             self.persist("editor_font", config::toml_str(&s.editor_font));
             self.persist("ui_font", config::toml_str(&s.ui_font));
         }

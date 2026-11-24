@@ -91,10 +91,18 @@ fn apply_visuals(ctx: &egui::Context, v: egui::Visuals) {
     ctx.set_visuals_of(egui::Theme::Light, v);
 }
 
-/// egui's fonts, plus Hack (the monospace font) as a fallback for the interface text: it has the
-/// arrows and triangles (→ ↑ ▾ ● …) that Ubuntu-Light lacks.
+/// IBM Plex, Zed's fonts (assets/fonts, SIL Open Font License): Sans for the interface, Mono for
+/// the code; then egui's fonts, and Hack as a fallback for the interface text (the arrows and
+/// triangles → ↑ ▾ ● … that Plex Sans lacks).
 pub fn font_definitions() -> egui::FontDefinitions {
     let mut fonts = egui::FontDefinitions::default();
+    for (name, bytes, family) in [
+        ("plex_sans", &include_bytes!("../assets/fonts/IBMPlexSans-Regular.ttf")[..], egui::FontFamily::Proportional),
+        ("plex_mono", &include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf")[..], egui::FontFamily::Monospace),
+    ] {
+        fonts.font_data.insert(name.into(), egui::FontData::from_static(bytes));
+        fonts.families.entry(family).or_default().insert(0, name.into());
+    }
     fonts.families.entry(egui::FontFamily::Proportional).or_default().push("Hack".to_owned());
     fonts
 }
@@ -181,8 +189,6 @@ fn filled_button(text: impl Into<String>, fill: Color32) -> egui::Button<'static
 }
 
 const TAB_STRIP_H: f32 = 32.0;
-/// The rounding of the tabs (and of the small surfaces that go with them).
-const CARD_ROUNDING: f32 = 6.0;
 
 #[derive(PartialEq, Clone, Copy, Debug)]
 enum BottomTab {
@@ -1187,7 +1193,7 @@ impl App {
         history::SIDE_BY_SIDE.store(settings.diff_side_by_side, Ordering::Relaxed);
         git::set_trusted(&settings.trusted_folders);
         apply_visuals(egui_ctx, hl.visuals());
-        egui_ctx.set_fonts(crate::fonts::definitions(&settings.editor_font, &settings.ui_font, settings.compact_ui));
+        egui_ctx.set_fonts(crate::fonts::definitions(&settings.editor_font, &settings.ui_font));
         egui_extras::install_image_loaders(egui_ctx);
         crate::images::install(egui_ctx);
         install_link_opener(egui_ctx);
@@ -1267,7 +1273,7 @@ impl App {
             claude_loaded: false,
             claude_limits: claude_ui::load_limits(),
             egui_ctx: egui_ctx.clone(),
-            title_bar_on: crate::os::draws_title_bar(settings.menu_bar()),
+            title_bar_on: crate::os::draws_title_bar(settings.show_menu_bar),
             tree_scroll: None,
             tree_nav: sidebar::Nav::default(),
             repo_info: HashMap::new(),
@@ -1743,8 +1749,9 @@ fn doc_tab(d: &Document) -> (TabIcon<'_>, String) {
     }
 }
 
-/// One editor tab on the strip (the editor's background): the active one framed by a thin line
-/// in the accent, rounded (`CARD_ROUNDING`); the others text only, a light shade on hover. After
+/// One editor tab, as in Zed: square, side by side, a line on its right; the active one on the
+/// editor's background (it is one with the editor), the others on the strip's surface, a shade
+/// on hover; no line under the strip. After
 /// the title: the parent folder when another tab has the same name (`hint`), the number of errors
 /// in red. The close button shows on hover and on the active tab (else the "modified" dot, in the
 /// accent). Positions are rounded to whole pixels so the text stays sharp.
@@ -1780,20 +1787,25 @@ fn tab_widget(
     let extra = hint_g.as_ref().map_or(0.0, |g| g.size().x + 8.0) + count_g.as_ref().map_or(0.0, |g| g.size().x + 6.0);
     let w = (galley.size().x + extra + 64.0).round();
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, TAB_STRIP_H), Sense::click_and_drag());
-    let tab = egui::Rect::from_min_max(egui::pos2(rect.left(), rect.top() + 4.0).round(), egui::pos2(rect.right(), rect.bottom() - 3.0).round());
+    let tab = egui::Rect::from_min_max(rect.min.round(), rect.max.round());
     let close_rect = egui::Rect::from_center_size(egui::pos2(tab.right() - 16.0, tab.center().y), egui::vec2(18.0, 18.0));
     let close = ui.interact(close_rect, resp.id.with("close"), Sense::click());
     let hovered = resp.hovered() || close.hovered();
     let p = ui.painter();
-    let rounding = egui::Rounding::same(CARD_ROUNDING);
-    let light = tc.bar.r() as u32 + tc.bar.g() as u32 + tc.bar.b() as u32 > 384;
-    // a shade of the strip, darker on a light theme, lighter on a dark one
-    let shade = icons::mix(tc.bar, if light { Color32::BLACK } else { Color32::WHITE }, 0.06);
-    let fill = if hovered && !active { shade } else { tc.bar };
+    let fill = if active {
+        tc.active
+    } else if hovered {
+        tc.close_hover
+    } else {
+        tc.bar
+    };
     let fill = flash.map_or(fill, |c| icons::mix(fill, c, 0.45));
-    p.rect_filled(tab, rounding, fill);
+    p.rect_filled(tab, 0.0, fill);
+    let line = egui::Stroke::new(1.0_f32, tc.border);
+    p.vline(tab.right() - 0.5, tab.y_range(), line);
     if active {
-        p.rect_stroke(tab.shrink(0.5), rounding, egui::Stroke::new(1.0_f32, icons::mix(tc.accent, tc.bar, 0.25)));
+        // the line on its left too (the tab before it has its own on its right)
+        p.vline(tab.left() - 0.5, tab.y_range(), line);
     }
     let y = tab.center().y.round();
     let icon_at = egui::pos2(tab.left() + 15.0, y);

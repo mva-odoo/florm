@@ -27,10 +27,34 @@ pub struct Colors {
 #[derive(Clone, Copy)]
 pub struct TabColors {
     pub bar: Color32,
+    /// The active tab: the editor's background.
+    pub active: Color32,
+    /// The lines between the tabs and under the strip.
+    pub border: Color32,
     pub text_active: Color32,
     pub text_inactive: Color32,
     pub close_hover: Color32,
     pub accent: Color32,
+}
+
+/// The surfaces of the interface, as Zed makes them from its editor's background (its theme One):
+/// on a dark theme each one a step lighter than the editor, on a light theme a step darker.
+#[derive(Clone, Copy)]
+pub struct Surfaces {
+    /// The text: the editor.
+    pub editor: Color32,
+    /// The panels, the tab strip, the menus and windows.
+    pub surface: Color32,
+    /// The title bar and the status bar.
+    pub bar: Color32,
+    /// The lines between the parts, the edges of the windows and fields.
+    pub border: Color32,
+    /// Fainter lines (separators inside a panel, indent guides).
+    pub border_variant: Color32,
+    pub hover: Color32,
+    pub selected: Color32,
+    /// The edge of what has the keyboard (a row of a list, a field).
+    pub focused: Color32,
 }
 
 pub struct Highlighting {
@@ -258,6 +282,32 @@ impl Highlighting {
         bg.r() as u32 + bg.g() as u32 + bg.b() as u32 > 384
     }
 
+    /// The surfaces around the editor, after Zed's theme One (offsets from the editor's background:
+    /// One Dark #282c33 → #2f343e panels, #3b414d bars, #464b57 borders; One Light the other way).
+    pub fn surfaces(&self) -> Surfaces {
+        let c = self.colors;
+        let light = self.is_light();
+        let step = |dark: i16, light_d: i16| {
+            let d = if light { -light_d } else { dark };
+            let f = |x: u8| (x as i16 + d).clamp(0, 255) as u8;
+            Color32::from_rgb(f(c.bg.r()), f(c.bg.g()), f(c.bg.b()))
+        };
+        let mix = |a: Color32, b: Color32, t: f32| {
+            let f = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t) as u8;
+            Color32::from_rgb(f(a.r(), b.r()), f(a.g(), b.g()), f(a.b(), b.b()))
+        };
+        Surfaces {
+            editor: c.bg,
+            surface: step(7, 15),
+            bar: step(19, 30),
+            border: step(30, 49),
+            border_variant: step(14, 27),
+            hover: step(14, 27),
+            selected: step(29, 48),
+            focused: mix(c.accent, c.bg, if light { 0.15 } else { 0.35 }),
+        }
+    }
+
     /// Colors of the editor tab strip, chosen for readable contrast on dark and light themes.
     pub fn tab_colors(&self) -> TabColors {
         let c = self.colors;
@@ -270,13 +320,18 @@ impl Highlighting {
             let f = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t) as u8;
             Color32::from_rgb(f(a.r(), b.r()), f(a.g(), b.g()), f(a.b(), b.b()))
         };
-        // the title bar and the tab strip on the editor's background (flat, as one surface)
-        let bar = c.bg;
+        // as in Zed: the strip and the other tabs on the panels' surface, the active one on the
+        // editor's background, lines between them
+        let s = self.surfaces();
+        let bar = s.surface;
+        let _ = adj;
         TabColors {
             bar,
-            text_active: if light { mix(c.fg, Color32::BLACK, 0.5) } else { mix(c.fg, Color32::WHITE, 0.5) },
-            text_inactive: if light { mix(c.fg, Color32::BLACK, 0.1) } else { mix(c.fg, bar, 0.22) },
-            close_hover: adj(c.bg, if light { -30 } else { 26 }),
+            active: c.bg,
+            border: s.border,
+            text_active: if light { mix(c.fg, Color32::BLACK, 0.3) } else { mix(c.fg, Color32::WHITE, 0.4) },
+            text_inactive: if light { mix(c.fg, bar, 0.3) } else { mix(c.fg, bar, 0.3) },
+            close_hover: s.hover,
             accent: c.accent,
         }
     }
@@ -294,17 +349,20 @@ impl Highlighting {
             Color32::from_rgb(f(a.r(), b.r()), f(a.g(), b.g()), f(a.b(), b.b()))
         };
         let mut v = if light { egui::Visuals::light() } else { egui::Visuals::dark() };
-        v.panel_fill = shade(-4);
-        v.window_fill = shade(5);
-        v.extreme_bg_color = shade(-9);
-        v.faint_bg_color = shade(5);
-        v.code_bg_color = shade(8);
+        // Zed's surfaces: the panels, menus and windows a step from the editor, fields on the
+        // editor's background, lines in its border color
+        let s = self.surfaces();
+        let _ = shade;
+        v.panel_fill = s.surface;
+        v.window_fill = s.surface;
+        v.extreme_bg_color = s.editor;
+        v.faint_bg_color = s.hover;
+        v.code_bg_color = s.border_variant;
         v.hyperlink_color = c.accent;
-        v.selection.bg_fill = mix(c.bg, mix(c.accent, c.accent2, 0.6), 0.38);
-        v.selection.stroke = Stroke::new(1.0_f32, mix(c.accent, c.bg, 0.15));
-        // the edge of the windows and menus: seen against the view behind (shade 14 hardly was)
-        v.window_stroke = Stroke::new(1.0_f32, shade(34));
-        // flat: little rounding, a soft shadow only under what floats (windows, menus)
+        // the selection: the accent, faint (Zed's 0x3d over the background)
+        v.selection.bg_fill = mix(c.bg, c.accent, 0.26);
+        v.selection.stroke = Stroke::new(1.0_f32, s.focused);
+        v.window_stroke = Stroke::new(1.0_f32, s.border);
         v.window_rounding = Rounding::same(8.0);
         v.menu_rounding = Rounding::same(6.0);
         let shadow = Color32::from_black_alpha(if light { 22 } else { 80 });
@@ -314,23 +372,23 @@ impl Highlighting {
         // on light themes, pure black text looks bold with egui's rendering: a dark grey instead
         // the text softness already lightens c.fg: no more fading on top, or menus and lists turn pale
         let fade = (0.18 - self.softness).max(0.0);
-        let text = if light { mix(mix(c.fg, Color32::BLACK, 0.25), c.bg, fade) } else { mix(c.fg, Color32::WHITE, 0.3) };
+        let text = if light { mix(c.fg, c.bg, 0.06 + fade) } else { mix(c.fg, Color32::WHITE, 0.3) };
         v.widgets.noninteractive.bg_fill = v.panel_fill;
         v.widgets.noninteractive.weak_bg_fill = v.panel_fill;
-        v.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, shade(8)); // separators: barely visible
+        v.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, s.border); // separators: Zed's lines
         v.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, text);
         // Ghost buttons: no fill or border until hovered.
         for (w, fill, weak) in [
-            (&mut v.widgets.inactive, shade(12), Color32::TRANSPARENT),
-            (&mut v.widgets.hovered, shade(18), shade(14)),
-            (&mut v.widgets.active, shade(26), shade(22)),
-            (&mut v.widgets.open, shade(14), shade(12)),
+            (&mut v.widgets.inactive, s.hover, Color32::TRANSPARENT),
+            (&mut v.widgets.hovered, s.hover, s.hover),
+            (&mut v.widgets.active, s.selected, s.selected),
+            (&mut v.widgets.open, s.hover, s.hover),
         ] {
             w.bg_fill = fill;
             w.weak_bg_fill = weak;
             w.bg_stroke = Stroke::NONE;
             w.fg_stroke = Stroke::new(1.0_f32, text);
-            w.rounding = Rounding::same(6.0);
+            w.rounding = Rounding::same(4.0);
             w.expansion = 0.0;
         }
         v.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, mix(text, c.bg, (0.12 - self.softness / 2.0).max(0.0)));

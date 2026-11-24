@@ -677,6 +677,11 @@ comptes Claude…) n'est jamais partagé.
 
 ## Apparence
 
+L'interface suit le design de Zed : les panneaux, la barre d'onglets et les menus un cran plus clairs
+(plus foncés sur un thème clair) que l'éditeur, la barre de titre et la barre d'état un cran au-delà, de
+fines lignes entre les parties, l'onglet actif sur le fond de l'éditeur. Ces teintes viennent du thème
+choisi : elles suivent tous les thèmes.
+
 **Préférences → Apparence** : langue (Français / English), thème (aperçus cliquables : Florm et
 Florm Light, Florm Minimal et Florm Minimal Light, plus sobres (un fond profond ou crème, une
 palette douce), et Florm Monokai, One Dark, Dracula, GitHub Light d'après les thèmes habituels des autres
@@ -684,11 +689,6 @@ palette douce), et Florm Monokai, One Dark, Dracula, GitHub Light d'après les t
 **texte adouci** (texte moins « gras », utile sur les thèmes clairs), polices de l'éditeur et
 de l'interface, minimap, fil d'Ariane, **barre de menus** (masquée, ses commandes restent dans la palette,
 **Ctrl+Shift+P**).
-
-**Interface compacte** (Préférences → Apparence) : ni barre de menus, ni fil d'Ariane, ni minimap
-(les commandes restent dans la palette), la marge des numéros de ligne au plus juste, et l'interface dans la police de l'éditeur, sauf une police
-d'interface choisie à la main. Désactivée, tout revient comme avant. Elle va bien avec les thèmes
-**Florm Minimal** et **Florm Minimal Light**.
 
 **Couleurs du thème → Créer un thème à partir de « … »** : toutes les couleurs de l'éditeur
 (fond, texte, accent, curseur, sélection, marge…) et du code (commentaires, mots-clés, chaînes,
