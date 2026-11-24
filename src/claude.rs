@@ -231,7 +231,7 @@ fn finish_message(dir: &Path, msg: &str, rules: &str, width: Option<usize>) -> S
             "Raccourcis cette première ligne de message de commit (reçue sur l'entrée standard) à {max} caractères au plus. Garde son préfixe, sa langue et son sens. Consignes du projet :\n{rules}\n\nRéponds uniquement par la ligne.",
             "Shorten this first line of a commit message (given on the standard input) to at most {max} characters. Keep its prefix, its language and its meaning. Rules of the project:\n{rules}\n\nAnswer only with the line."
         );
-        let short = run_once(dir, &["-p", &prompt, "--output-format", "text", "--model", "haiku", "--tools", "", "--no-session-persistence"], subject.clone());
+        let short = run_once(dir, &["-p", &prompt, "--output-format", "text", "--model", "haiku", "--tools", "", "--strict-mcp-config", "--setting-sources", "user", "--no-session-persistence"], subject.clone());
         if let Some(s) = short.ok().map(|t| clean_message(&t).lines().next().unwrap_or("").trim().to_string()).filter(|s| !s.is_empty() && s.chars().count() <= max) {
             subject = s;
         }
@@ -269,7 +269,7 @@ pub fn commit_message(dir: &Path, diff: &str, recent: &str, wish: &str) -> Resul
     let diff: String = diff.chars().take(30_000).collect();
     // with rules of the project: Sonnet, which follows them (Haiku often forgets the prefixes, the length)
     let model = if rules.is_empty() { "haiku" } else { "sonnet" };
-    let msg = run_once(dir, &["-p", &prompt, "--output-format", "text", "--model", model, "--tools", "", "--no-session-persistence"], diff).map(|t| clean_message(&t))?;
+    let msg = run_once(dir, &["-p", &prompt, "--output-format", "text", "--model", model, "--tools", "", "--strict-mcp-config", "--setting-sources", "user", "--no-session-persistence"], diff).map(|t| clean_message(&t))?;
     Ok(finish_message(dir, &msg, &rules, body_width(dir)))
 }
 
@@ -289,7 +289,7 @@ pub fn pr_description(dir: &Path, log: &str, diff: &str) -> Result<String, Strin
     let log: String = log.chars().take(10_000).collect();
     let diff: String = diff.chars().take(30_000).collect();
     let input = format!("Commits :\n{log}\n\nDiff :\n{diff}");
-    run_once(dir, &["-p", &prompt, "--output-format", "text", "--model", "haiku", "--tools", "", "--no-session-persistence"], input).map(|t| clean_message(&t))
+    run_once(dir, &["-p", &prompt, "--output-format", "text", "--model", "haiku", "--tools", "", "--strict-mcp-config", "--setting-sources", "user", "--no-session-persistence"], input).map(|t| clean_message(&t))
 }
 
 /// The longest side of an image sent to Claude: a bigger one only costs more tokens.
@@ -472,7 +472,7 @@ pub fn inline(dir: &Path, file: &str, before: &str, selection: &str, after: &str
          Markdown, in English."
     );
     let input = format!("{before}\n<extrait>\n{selection}\n</extrait>\n{after}");
-    let text = run_once(dir,&["-p", &prompt, "--output-format", "text", "--model", "sonnet", "--tools", "", "--no-session-persistence"], input)?;
+    let text = run_once(dir,&["-p", &prompt, "--output-format", "text", "--model", "sonnet", "--tools", "", "--strict-mcp-config", "--setting-sources", "user", "--no-session-persistence"], input)?;
     Ok(parse_inline(&text))
 }
 
@@ -545,7 +545,7 @@ pub fn review(dir: &Path, diff: &str, about: &str, language: &str) -> Result<Vec
         prompt.push_str(about.trim());
     }
     let numbered: String = number_diff(diff).chars().take(200_000).collect();
-    let text = run_once(dir, &["-p", &prompt, "--output-format", "text", "--tools", "Read,Grep,Glob", "--setting-sources", "user", "--no-session-persistence"], numbered)?;
+    let text = run_once(dir, &["-p", &prompt, "--output-format", "text", "--tools", "Read,Grep,Glob", "--strict-mcp-config", "--setting-sources", "user", "--no-session-persistence"], numbered)?;
     parse_review(&text)
 }
 
@@ -596,7 +596,7 @@ pub fn refine_note(dir: &Path, note: &ReviewNote, diff: &str, about: &str, threa
         prompt.push_str(&format!("\n{who} : {text}"));
     }
     let numbered: String = number_diff(diff).chars().take(60_000).collect();
-    let text = run_once(dir, &["-p", &prompt, "--output-format", "text", "--tools", "Read,Grep,Glob", "--setting-sources", "user", "--no-session-persistence"], numbered)?;
+    let text = run_once(dir, &["-p", &prompt, "--output-format", "text", "--tools", "Read,Grep,Glob", "--strict-mcp-config", "--setting-sources", "user", "--no-session-persistence"], numbered)?;
     parse_refined(&text)
 }
 

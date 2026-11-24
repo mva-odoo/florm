@@ -591,7 +591,8 @@ pub fn lint_python(path: &Path, text: &str, root: Option<&Path>, cfg: &LintConfi
             return (failed, name.to_string());
         }
     }
-    let args = vec!["-c".to_string(), PY_SYNTAX.to_string(), display];
+    // -I: the folder of the project is not on the path (an `ast.py` there would be imported)
+    let args = vec!["-I".to_string(), "-c".to_string(), PY_SYNTAX.to_string(), display];
     let out = run_with_stdin(&Runner::Bin(PathBuf::from(python())), &args, text, cwd).unwrap_or_default();
     failed.extend(parse_colon_format(&out, "python"));
     (failed, "syntaxe".into())

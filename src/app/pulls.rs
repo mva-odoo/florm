@@ -620,7 +620,7 @@ impl App {
                                             if d.body.trim().is_empty() {
                                                 ui.label(RichText::new(t!("Pas de description.", "No description.")).weak().italics());
                                             } else {
-                                                egui_commonmark::CommonMarkViewer::new().show(ui, cache, &super::md::autolink(&d.body));
+                                                super::md::remote_viewer().show(ui, cache, &super::md::remote(&d.body));
                                             }
                                         });
                                     }
@@ -638,7 +638,7 @@ impl App {
                                             comment_block(ui, &c.author.login, &date, review.map(|(t, c, _)| (t, c)), |ui| {
                                                 let tools = CommentTools { id: &c.id, body: &c.body, mine: c.mine, deletable: !c.is_review(), busy: p.busy, accent };
                                                 comment_body(ui, cache, tools, &mut p.editing, &mut act, |ui, cache, _| {
-                                                    egui_commonmark::CommonMarkViewer::new().show(ui, cache, &super::md::autolink(&c.body));
+                                                    super::md::remote_viewer().show(ui, cache, &super::md::remote(&c.body));
                                                 });
                                             });
                                         }
@@ -1900,7 +1900,7 @@ fn thread_ui(
                             for part in github::parts(&c.body) {
                                 match part {
                                     Part::Text(text) => {
-                                        egui_commonmark::CommonMarkViewer::new().show(ui, cache, &super::md::autolink(&text));
+                                        super::md::remote_viewer().show(ui, cache, &super::md::remote(&text));
                                     }
                                     Part::Suggestion(text) => suggestion_ui(ui, t, c, &text, start, line, applied, shifts, checked_out, accent, act),
                                 }

@@ -80,9 +80,10 @@ pub fn diff(a: &Path, b: &Path, la: &str, lb: &str) -> Result<String, String> {
     Ok(text.replace(&strip(a), la).replace(&strip(b), lb).replace(&quoted(a), la).replace(&quoted(b), lb))
 }
 
-/// A text written in a file of its own (the editor or the clipboard, to compare it).
+/// A text written in a file of its own (the editor or the clipboard, to compare it): in the data
+/// folder of Florm, not in /tmp where another user could put a link in its place beforehand.
 pub fn temp_file(name: &str, text: &str) -> Result<PathBuf, String> {
-    let dir = std::env::temp_dir().join(format!("florm-compare-{}", std::process::id()));
+    let dir = crate::config::data_dir().join("compare").join(std::process::id().to_string());
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let p = dir.join(name);
     std::fs::write(&p, text).map_err(|e| e.to_string())?;

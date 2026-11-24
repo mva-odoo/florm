@@ -249,10 +249,7 @@ impl App {
                 let d = &self.docs[i];
                 let text = |a: usize, b: usize| -> String { (a..b).map(|l| d.rope.line(l).to_string()).collect() };
                 let (green, blue) = (text(c.start + 1, c.base.unwrap_or(c.mid)), text(c.mid + 1, c.end));
-                let dir = std::env::temp_dir().join(format!("florm_conflict_{}", std::process::id()));
-                let _ = std::fs::create_dir_all(&dir);
-                let (a, b) = (dir.join("vert"), dir.join("bleu"));
-                if std::fs::write(&a, green).and_then(|_| std::fs::write(&b, blue)).is_ok() {
+                if let (Ok(a), Ok(b)) = (crate::local_history::temp_file("vert", &green), crate::local_history::temp_file("bleu", &blue)) {
                     let label = |side: &str, name: &str| if name.is_empty() { side.to_string() } else { format!("{side} ({name})") };
                     let (la, lb) = (label(t!("vert", "green"), &c.ours), label(t!("bleu", "blue"), &c.theirs));
                     self.compare_labeled(a, b, la, lb);

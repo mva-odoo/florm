@@ -169,7 +169,7 @@ fn table(ui: &mut egui::Ui, cache: &mut egui_commonmark::CommonMarkCache, header
                             if strong {
                                 ui.label(RichText::new(cell.replace(['`', '*'], "")).strong());
                             } else {
-                                egui_commonmark::CommonMarkViewer::new().show(ui, cache, &autolink(&html_text(cell)));
+                                remote_viewer().show(ui, cache, &remote(&html_text(cell)));
                             }
                         });
                     }
@@ -352,6 +352,18 @@ pub(super) fn sections(text: &str) -> (String, Vec<(String, String)>) {
 /// Markdown, its code blocks with a « Copier » button.
 /// The bare addresses of `text` (https://…) made into links, so a click opens them in the
 /// browser; the ones already in a link (`<…>`, `[…](…)`) or in code (`…`) are left as they are.
+/// The viewer for a text that comes from elsewhere (a pull request, a comment, Claude): its
+/// images only from an address with a scheme (`remote`), never a path of this machine.
+pub(super) fn remote_viewer() -> egui_commonmark::CommonMarkViewer {
+    egui_commonmark::CommonMarkViewer::new().explicit_image_uri_scheme(true)
+}
+
+/// A text from elsewhere ready for `remote_viewer`: its addresses made links (`autolink`), and
+/// `file://` broken (an image `![](file:///dev/zero)` would be read from the disk without end).
+pub(super) fn remote(text: &str) -> String {
+    autolink(text).replace("file://", "file:/\u{2060}/")
+}
+
 pub(super) fn autolink(text: &str) -> String {
     let mut out = String::with_capacity(text.len() + 16);
     for (n, line) in text.split('\n').enumerate() {
@@ -398,7 +410,7 @@ pub(super) fn markdown(ui: &mut egui::Ui, cache: &mut egui_commonmark::CommonMar
         match part {
             // an id of its own: the viewer names what it draws from its place in the text it is given
             MdPart::Text(t) => {
-                ui.push_id(k, |ui| egui_commonmark::CommonMarkViewer::new().show(ui, cache, &autolink(&html_text(&t))));
+                ui.push_id(k, |ui| remote_viewer().show(ui, cache, &remote(&html_text(&t))));
             }
             MdPart::Table { header, rows } => {
                 ui.push_id(k, |ui| table(ui, cache, &header, &rows));

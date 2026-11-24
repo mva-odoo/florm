@@ -950,6 +950,7 @@ impl Terminal {
             return false;
         }
         let bracketed = s.parser.lock().unwrap().screen().bracketed_paste();
+        let text = without_escapes(text);
         if bracketed {
             s.write(format!("\x1b[200~{text}\x1b[201~").as_bytes());
         } else {
@@ -1160,7 +1161,7 @@ impl Terminal {
                 match ev {
                     Event::Text(t) if !exited => s.write(t.as_bytes()),
                     Event::Paste(t) if !exited => {
-                        let t = t.replace("\r\n", "\r").replace('\n', "\r");
+                        let t = without_escapes(&t.replace("\r\n", "\r").replace('\n', "\r"));
                         if bracketed {
                             s.write(format!("\x1b[200~{t}\x1b[201~").as_bytes());
                         } else {
@@ -1880,6 +1881,14 @@ fn key_bytes(key: Key, m: Modifiers, app_cursor: bool) -> Option<Vec<u8>> {
         Key::F12 => tilde(24),
         _ => return None,
     })
+}
+
+
+/// A text pasted without its escape characters: a `\x1b[201~` in it (from a file shown, or put in
+/// the clipboard by a program through OSC 52) would end the bracketed paste early, and the shell
+/// would run what follows.
+fn without_escapes(text: &str) -> String {
+    text.chars().filter(|&c| c != '\x1b' && c != '\u{9b}').collect()
 }
 
 #[cfg(test)]
