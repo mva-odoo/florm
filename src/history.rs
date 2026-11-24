@@ -131,7 +131,7 @@ pub fn load(repo: &Path, all: bool, limit: usize) -> Result<Graph, String> {
     let local = git::stdout(repo, &["for-each-ref", "--format=%(refname:short)", "refs/heads"])
         .map(|s| s.lines().map(String::from).collect())
         .unwrap_or_default();
-    Ok(Graph { commits, rows, lanes, local, rebasing: crate::split::rebase_in_progress(repo) })
+    Ok(Graph { commits, rows, lanes, local, rebasing: git::rebase_in_progress(repo) })
 }
 
 pub fn details(repo: &Path, hash: &str) -> Result<Details, String> {

@@ -238,13 +238,6 @@ impl App {
         }
     }
 
-    /// An open tab of `path` (without changes) shows the file as it is now on the disk.
-    pub(super) fn reload_open(&mut self, path: &Path) {
-        for d in self.docs.iter_mut().filter(|d| d.path.as_deref() == Some(path) && !d.is_dirty()) {
-            let _ = d.reload_from_disk();
-        }
-    }
-
     /// A link after a `<<<<<<<` was clicked in the editor (`doc.conflict_pick`): the side kept,
     /// or the two sides compared in a tab.
     pub(super) fn conflict_picked(&mut self, i: usize) {

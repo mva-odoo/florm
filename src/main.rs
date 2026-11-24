@@ -50,14 +50,12 @@ mod skills;
 mod sidebar;
 mod sound;
 mod spell;
-mod split;
 mod update;
 mod view_bar;
 mod symbols;
 mod templates;
 mod terminal;
 mod tools;
-mod tour;
 mod walk;
 mod wrap;
 

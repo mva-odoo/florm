@@ -173,10 +173,6 @@ impl App {
                 egui::CentralPanel::default().show_inside(ui, |ui| self.line_history_ui(ui));
                 None
             }
-            document::View::Tour => {
-                egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.tour_ui(ui));
-                None
-            }
             document::View::Help => {
                 let (key, text) = if crate::i18n::en() {
                     ("guide_en", include_str!("../../assets/guide.en.md"))
@@ -728,9 +724,6 @@ impl App {
         let d = self.docs.remove(idx);
         if d.view == document::View::History {
             self.line_history = None;
-        }
-        if d.view == document::View::Tour {
-            self.tour_closed();
         }
         // a terminal sent back to the bottom panel keeps running
         if let document::View::Terminal(id) = d.view.clone() {

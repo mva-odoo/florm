@@ -97,7 +97,7 @@ pub(super) fn session_ui(ui: &mut egui::Ui, c: &ClaudeUi, project: &str, branch:
                         open = Some(p.clone());
                     }
                 }
-                let tip = t!("Claude range les changements non commités du dossier par idée et explique chacune pas à pas : tu gardes ou enlèves une idée entière", "Claude sorts the uncommitted changes of the folder by idea and explains each one step by step: you keep or take out a whole idea");
+                let tip = t!("Claude explique ici les changements non commités du dossier, idée par idée", "Claude explains here the uncommitted changes of the folder, idea by idea");
                 if ui.small_button(t!("🗺 Expliquer ces changements", "🗺 Explain these changes")).on_hover_text(tip).clicked() {
                     explain = true;
                 }

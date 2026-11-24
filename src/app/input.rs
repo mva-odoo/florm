@@ -247,8 +247,6 @@ impl App {
                 } else if maximize::restore_shown(ctx) {
                 } else if self.showing(document::View::History) {
                     self.leave_tab(document::View::History);
-                } else if self.showing(document::View::Tour) {
-                    self.leave_tab(document::View::Tour);
                 } else if self.showing(document::View::Git) && self.history_detail_open() {
                     self.close_history_detail();
                 } else if self.showing(document::View::Git) {

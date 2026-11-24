@@ -153,7 +153,7 @@ pub(super) enum PrAct {
 /// 🗺 under a conversation: Claude explains it step by step.
 fn explain_button(ui: &mut egui::Ui) -> bool {
     ui.small_button(t!("🗺 Expliquer ce commentaire", "🗺 Explain this comment"))
-        .on_hover_text(t!("Claude reformule ce que le relecteur demande, dit s'il a raison et pourquoi, et ce que ça changerait, étape par étape", "Claude rephrases what the reviewer asks, says whether they are right and why, and what it would change, step by step"))
+        .on_hover_text(t!("Claude reformule ce que le relecteur demande, dit s'il a raison et pourquoi, et ce que ça changerait, dans l'onglet Claude", "Claude rephrases what the reviewer asks, says whether they are right and why, and what it would change, in the Claude tab"))
         .clicked()
 }
 
@@ -544,7 +544,7 @@ impl App {
                         if crate::features::on(crate::features::Feature::Claude)
                             && ui
                                 .button(t!("🗺 Expliquer", "🗺 Explain"))
-                                .on_hover_text(t!("Claude range les changements de la PR par idée et explique chacune, bloc de code par bloc de code", "Claude sorts the changes of the PR by idea and explains each one, block of code by block of code"))
+                                .on_hover_text(t!("Claude explique les changements de la PR, idée par idée, dans l'onglet Claude", "Claude explains the changes of the PR, idea by idea, in the Claude tab"))
                                 .clicked()
                         {
                             act = Some(PrAct::Explain);

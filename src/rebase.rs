@@ -42,7 +42,7 @@ pub struct Step {
 
 /// Commits from `from` (included) to HEAD, oldest first, after checking the rebase is safe.
 pub fn load(repo: &Path, from: &str) -> Result<Vec<Step>, String> {
-    if crate::split::rebase_in_progress(repo) {
+    if crate::git::rebase_in_progress(repo) {
         return Err(t!("Un rebase est déjà en cours dans ce dépôt : termine-le ou annule-le d'abord.", "A rebase is already in progress in this repository: finish or abort it first.").into());
     }
     if !git::stdout(repo, &["status", "--porcelain", "--untracked-files=no"])?.trim().is_empty() {

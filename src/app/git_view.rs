@@ -986,7 +986,7 @@ impl App {
                             if crate::features::on(crate::features::Feature::Claude) && ui.add_enabled(!ai.loading, egui::Button::new(t!("✳ Revue IA", "✳ AI review"))).on_hover_text(tip).clicked() {
                                 ai_start = true;
                             }
-                            let tip = t!("Claude range tout ce qui n'est pas commité par idée et explique chacune, bloc de code par bloc de code : tu gardes ou enlèves une idée entière", "Claude sorts everything not committed by idea and explains each one, block of code by block of code: you keep or take out a whole idea");
+                            let tip = t!("Claude explique tout ce qui n'est pas commité, idée par idée, dans l'onglet Claude", "Claude explains everything not committed, idea by idea, in the Claude tab");
                             if crate::features::on(crate::features::Feature::Claude) && ui.button(t!("🗺 Expliquer", "🗺 Explain")).on_hover_text(tip).clicked() {
                                 explain_start = true;
                             }

@@ -253,8 +253,6 @@ pub enum View {
     Settings,
     /// The history of lines, of a file, a search in the commits or the reflog.
     History,
-    /// The guided tour of changes, idea by idea (🗺).
-    Tour,
 }
 
 /// Files shown as images rather than text.

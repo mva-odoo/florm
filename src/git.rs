@@ -394,6 +394,11 @@ fn git_path_exists(root: &Path, name: &str) -> bool {
     })
 }
 
+/// A rebase stopped half way (conflict, edit, interactive).
+pub fn rebase_in_progress(repo: &Path) -> bool {
+    git_path_exists(repo, "rebase-merge") || git_path_exists(repo, "rebase-apply")
+}
+
 pub fn operation(root: &Path) -> Option<Operation> {
     if git_path_exists(root, "rebase-merge") || git_path_exists(root, "rebase-apply") {
         Some(Operation::Rebase)

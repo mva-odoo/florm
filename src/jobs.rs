@@ -5,7 +5,6 @@ use crate::git;
 use crate::history;
 use crate::lint::Diagnostic;
 use crate::search;
-use crate::split;
 use eframe::egui;
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -32,14 +31,6 @@ pub enum JobResult {
     /// The commits of a pull request fetched to show one of them in the Git view: repository,
     /// commit, and what git said.
     PrCommitFetched(std::path::PathBuf, String, Result<String, String>),
-    /// The guided tour of changes (its number): the ideas and the blocks they are made of.
-    Tour(u64, Result<(crate::tour::Tour, Vec<split::Block>), String>),
-    /// The blocks of a step of the tour (tour, step) taken out of the files: how to put them back.
-    TourDrop(u64, usize, Result<Vec<crate::tour::Undo>, String>),
-    /// The blocks of a step of the tour put back in the files.
-    TourRestore(u64, usize, Result<(), String>),
-    /// Claude's answer to a question on a step of the tour.
-    TourAnswer(u64, usize, Result<String, String>),
     /// Commit message written by Claude.
     CommitMessage(Result<String, String>),
     /// Commit after a task of the queue of conversation (id): the first line of its message.

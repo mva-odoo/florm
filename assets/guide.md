@@ -475,8 +475,8 @@ avec `gh auth login` (connexion par le navigateur). Sans `gh`, la vue explique c
   l'affiner (« plus court », « en anglais », « tu es sûr ? regarde `_compute_total` ») : il
   répond sous la remarque et la réécrit si besoin, **↶ Version d'avant** revient en arrière.
   Aussi dans la vue Git, pour les changements pas encore commités.
-- **🗺 Expliquer** (en-tête de la PR) : la PR expliquée idée par idée dans une visite guidée (voir
-  plus bas). **🗺 Expliquer ce commentaire**, sous chaque conversation : Claude reformule ce que
+- **🗺 Expliquer** (en-tête de la PR) : Claude explique la PR idée par idée, dans l'onglet Claude
+  (voir plus bas). **🗺 Expliquer ce commentaire**, sous chaque conversation : Claude reformule ce que
   le relecteur demande, dit s'il a raison et pourquoi, et ce que ça changerait.
 - En bas de la conversation, le cadre de fusion, dans la couleur de l'état (rouge bloquée, orange
   s'il manque quelque chose, vert prête) : où en est la PR (**Revue requise**, **Conflits**, **En
@@ -598,25 +598,16 @@ ses nouveautés marchent tels quels. Les changements de Claude se revoient dans 
 indexés (sinon tous), dans le style des derniers commits du dépôt et d'après ta première demande
 dans l'onglet Claude.
 
-### 🗺 Visite guidée : comprendre un changement
+### 🗺 Expliquer un changement
 
 Pour comprendre **ce que Claude propose et pourquoi**, idée par idée plutôt que fichier par
 fichier. **🗺 Expliquer** dans la vue Git (à côté de ✳ Revue IA), **🗺 Expliquer ces
 changements** sous les fichiers modifiés du panneau Session de Claude, ou la palette (« Git :
-expliquer les changements non commités ») : Claude range tous les changements non commités en
-**idées** (une idée touche souvent plusieurs fichiers) et les explique dans un onglet **🗺** :
-
-- **🎯 Le problème et 💡 l'idée** d'abord, en quelques phrases, puis **une page par étape** :
-  une explication courte, **⚠ Ce qui pourrait casser** quand il y a un vrai risque, puis **le vrai
-  code** de l'idée bloc par bloc, chaque bloc sous une phrase qui dit ce qu'il fait (Claude ne fait
-  que ranger les blocs du diff, il ne réécrit rien). À la fin, **⚖ À décider**.
-- **✔ Je garde cette idée**, ou **✖ J'enlève cette idée** : tous ses blocs sont retirés des
-  fichiers d'un coup, **↶ Remettre** les remet. Une copie de ce qui est enlevé est gardée 30 jours
-  (dossier `tours` de la configuration de Florm), même si la visite est fermée.
-- **💬 Une question sur cette étape ?** : « pourquoi pas un simple dictionnaire ? », « donne un
-  exemple »… Claude répond sous l'étape (**Ctrl+Entrée**).
-- Sur une pull request, la visite explique seulement (**✔ J'ai compris**) : rien n'est retiré.
-- **⟳** réexplique depuis le début. Compter une à quelques minutes.
+expliquer les changements non commités ») : la demande part dans l'onglet Claude, dans la
+conversation qui travaille dans ce dossier (elle sait pourquoi elle a fait ces changements), sinon
+dans une nouvelle. Claude donne le problème et l'idée, puis chaque idée avec les endroits du code
+(chemin:ligne, cliquables) et ce qui pourrait casser ; il ne modifie rien. On continue la
+discussion avec lui comme d'habitude.
 
 ## Markdown
 
