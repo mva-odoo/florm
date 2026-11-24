@@ -107,6 +107,9 @@ struct Snapshot {
     content: u64,
 }
 
+/// Pause in typing after which the symbols drawn at each frame are computed again.
+const SYMBOLS_PAUSE: Duration = Duration::from_millis(300);
+
 pub struct Document {
     pub uid: u64,
     pub rope: Rope,
@@ -2550,6 +2553,22 @@ impl Document {
             self.symbols_cache = Some((self.version, self.syntax.clone(), syms));
         }
         &self.symbols_cache.as_ref().unwrap().2
+    }
+
+    /// `symbols` for what is drawn at each frame (breadcrumbs, sticky scroll): while typing the
+    /// last ones are kept, computed again once typing pauses (`SYMBOLS_PAUSE`).
+    pub fn symbols_lazy(&mut self) -> &[crate::symbols::Symbol] {
+        let typing = self.last_change.elapsed() < SYMBOLS_PAUSE;
+        if typing && self.rope.len_bytes() <= 4_000_000 && self.symbols_cache.as_ref().is_some_and(|(_, s, _)| *s == self.syntax) {
+            return &self.symbols_cache.as_ref().unwrap().2;
+        }
+        self.symbols()
+    }
+
+    /// Time left before `symbols_lazy` computes them again (None: they are up to date).
+    pub fn symbols_wait(&self) -> Option<Duration> {
+        let fresh = self.symbols_cache.as_ref().is_some_and(|(v, s, _)| *v == self.version && *s == self.syntax);
+        (!fresh).then(|| SYMBOLS_PAUSE.saturating_sub(self.last_change.elapsed())).filter(|d| !d.is_zero())
     }
 
     pub fn goto_line(&mut self, line: usize, col: usize) {

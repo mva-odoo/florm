@@ -165,7 +165,7 @@ fn sticky_lines(doc: &mut Document, top: usize) -> Vec<usize> {
     let mut lines: Vec<usize> = Vec::new();
     for _ in 0..3 {
         let under = top + lines.len();
-        let mut next: Vec<usize> = crate::symbols::path_at(doc.symbols(), under)
+        let mut next: Vec<usize> = crate::symbols::path_at(doc.symbols_lazy(), under)
             .iter()
             .filter(|s| s.line < under)
             .map(|s| s.line)
@@ -313,6 +313,9 @@ fn text_area(
         let sticky_top = origin.y + vp.min.y;
         let top_line = rm.line_at_row((vp.min.y / rh).ceil() as usize, nlines);
         let sticky = if opts.sticky && top_line > 0 { sticky_lines(doc, top_line) } else { Vec::new() };
+        if let Some(w) = doc.symbols_wait().filter(|_| opts.sticky && top_line > 0) {
+            ui.ctx().request_repaint_after(w);
+        }
         let sticky_h = sticky.len() as f32 * rh;
 
         // ---------------------------------------------------------------- mouse

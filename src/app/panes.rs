@@ -395,19 +395,29 @@ impl App {
     fn guide_view(&mut self, ui: &mut egui::Ui, key: &str, text: &str) {
         let bg = self.hl.colors.bg;
         let accent = self.hl.colors.accent;
-        let (intro, sections) = md::sections(text);
+        // cut into sections once (55 KB of Markdown), not at each frame
+        if self.guide.as_ref().is_none_or(|g| g.key != key) {
+            let (intro, sections) = md::sections(text);
+            let heights = vec![0.0; sections.len()];
+            self.guide = Some(GuideView { key: key.to_string(), intro, sections, heights, width: 0.0 });
+        }
+        let Some(g) = self.guide.as_mut() else { return };
         let mut go_to = None;
         let cache = &mut self.md_cache;
         egui::CentralPanel::default().frame(egui::Frame::none().fill(bg)).show_inside(ui, |ui| {
             egui::ScrollArea::vertical().id_salt(key).auto_shrink([false, false]).show(ui, |ui| {
                 let w = ui.available_width().min(880.0);
                 let pad = ((ui.available_width() - w) / 2.0).max(16.0);
+                if (g.width - w).abs() > 0.5 {
+                    g.width = w;
+                    g.heights.iter_mut().for_each(|h| *h = 0.0);
+                }
                 egui::Frame::none().inner_margin(egui::Margin { left: pad, right: pad, top: 16.0, bottom: 40.0 }).show(ui, |ui| {
                     ui.set_max_width(w);
-                    egui_commonmark::CommonMarkViewer::new().show(ui, cache, &intro);
+                    egui_commonmark::CommonMarkViewer::new().show(ui, cache, &g.intro);
                     ui.horizontal_wrapped(|ui| {
                         ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
-                        for (i, (title, _)) in sections.iter().enumerate() {
+                        for (i, (title, _)) in g.sections.iter().enumerate() {
                             let chip = egui::Button::new(RichText::new(title).small().color(accent)).rounding(12.0);
                             if ui.add(chip).clicked() {
                                 go_to = Some(i);
@@ -415,11 +425,20 @@ impl App {
                         }
                     });
                     ui.add_space(12.0);
-                    for (i, (_, body)) in sections.iter().enumerate() {
+                    let clip = ui.clip_rect();
+                    for (i, (_, body)) in g.sections.iter().enumerate() {
+                        let top = ui.cursor().top();
+                        // a section measured and out of sight: only its place is kept
+                        let h = g.heights[i];
+                        if h > 0.0 && go_to != Some(i) && (top > clip.bottom() || top + h < clip.top()) {
+                            ui.allocate_space(egui::vec2(w, h));
+                            continue;
+                        }
                         let r = ui.scope(|ui| {
                             ui.separator();
                             egui_commonmark::CommonMarkViewer::new().show(ui, cache, body);
                         });
+                        g.heights[i] = ui.cursor().top() - top;
                         if go_to == Some(i) {
                             r.response.scroll_to_me(Some(egui::Align::TOP));
                         }
@@ -539,7 +558,11 @@ impl App {
             None => d.title(),
         };
         let chain: Vec<(String, symbols::Kind, usize)> =
-            symbols::path_at(d.symbols(), line).iter().map(|s| (s.name.clone(), s.kind, s.line)).collect();
+            symbols::path_at(d.symbols_lazy(), line).iter().map(|s| (s.name.clone(), s.kind, s.line)).collect();
+        // the symbols kept while typing: computed again once it pauses
+        if let Some(w) = d.symbols_wait() {
+            ui.ctx().request_repaint_after(w);
+        }
         let is_md = d.view == document::View::Text && d.syntax.contains("Markdown");
         let (mut goto, mut list, mut preview, mut open, mut reveal) = (None, false, false, None, None);
         let bg = self.hl.colors.bg;
@@ -790,6 +813,17 @@ pub(super) struct MdPreview {
     /// The Markdown pieces as shown: their images checked (`md::preview_image`).
     shown: Vec<String>,
     /// Height of each piece at the last frame it was shown (0: not measured yet).
+    heights: Vec<f32>,
+    width: f32,
+}
+
+/// The guide shown, cut into its sections.
+pub(super) struct GuideView {
+    /// Which guide (its language).
+    key: String,
+    intro: String,
+    sections: Vec<(String, String)>,
+    /// Height of each section at the last frame it was shown (0: not measured yet).
     heights: Vec<f32>,
     width: f32,
 }

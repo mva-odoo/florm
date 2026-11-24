@@ -761,6 +761,8 @@ struct HistoryUi {
     jump: Option<history::FileJump>,
     /// File to scroll to once the diff is loaded (a file clicked in the Git panel).
     jump_path: Option<String>,
+    /// The commits matching `filter`, and for which filter, load, length and list of commits.
+    filtered: Option<((String, u64, usize, usize), Arc<Vec<usize>>)>,
 }
 
 /// A place in a document, for the cursor history (Alt+- / Alt++).
@@ -982,6 +984,8 @@ pub struct App {
     md_cache: egui_commonmark::CommonMarkCache,
     /// The Markdown preview shown, cut into pieces for the version of its text.
     md_preview: Option<panes::MdPreview>,
+    /// The guide shown, cut into its sections once.
+    guide: Option<panes::GuideView>,
     /// AI completion while typing (see ai_complete.rs).
     ai: ai_complete::AiComplete,
     /// The letters put on everything clickable (Alt alone), see `hints`.
@@ -1305,6 +1309,7 @@ impl App {
             pending_focus: false,
             md_cache: egui_commonmark::CommonMarkCache::default(),
             md_preview: None,
+            guide: None,
             ai: Default::default(),
             hints: Default::default(),
             repo_init: None,

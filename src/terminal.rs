@@ -7,7 +7,7 @@ use eframe::egui::{self, Align2, Color32, CursorIcon, Event, FontId, Id, Key, Mo
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// Lines of history kept by a terminal: each line is a row of cells, so this is most of its memory.
@@ -282,6 +282,9 @@ struct Session {
     master: Box<dyn MasterPty + Send>,
     child: Box<dyn Child + Send + Sync>,
     exited: Arc<AtomicBool>,
+    /// Pass during which its grid was last drawn: the output of a terminal not shown repaints
+    /// the window less often.
+    drawn: Arc<AtomicU64>,
     typeahead: Typeahead,
     cwd: PathBuf,
     size: (u16, u16),
@@ -408,9 +411,10 @@ impl Session {
         let parser = Arc::new(Mutex::new(Parser::new_with_callbacks(nz(size.0), nz(size.1), SCROLLBACK, told)));
         parser.lock().unwrap().process(prefill);
         let exited = Arc::new(AtomicBool::new(false));
+        let drawn = Arc::new(AtomicU64::new(ctx.cumulative_pass_nr()));
         let typeahead: Typeahead = Arc::new(Mutex::new(Some(Vec::new())));
         let capture = capture.then(|| Arc::new(Mutex::new(Vec::new())));
-        let (p, ex, ctx, w, cap, ta) = (parser.clone(), exited.clone(), ctx.clone(), writer.clone(), capture.clone(), typeahead.clone());
+        let (p, ex, ctx, w, cap, ta, dr) = (parser.clone(), exited.clone(), ctx.clone(), writer.clone(), capture.clone(), typeahead.clone(), drawn.clone());
         std::thread::spawn(move || {
             let mut buf = [0u8; 16384];
             loop {
@@ -437,7 +441,13 @@ impl Session {
                             let _ = w.write_all(&text);
                             let _ = w.flush();
                         }
-                        ctx.request_repaint();
+                        // drawn during the last pass (the window may be idle since): at once;
+                        // not shown (a Claude tab in the background): twice a second is enough
+                        if dr.load(Ordering::Relaxed) + 1 >= ctx.cumulative_pass_nr() {
+                            ctx.request_repaint();
+                        } else {
+                            ctx.request_repaint_after(std::time::Duration::from_millis(500));
+                        }
                     }
                 }
             }
@@ -448,7 +458,7 @@ impl Session {
             .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| shell.to_string());
-        Ok(Session { id: 0, docked: false, embedded: false, cmd: None, once: false, capture, mounts: Vec::new(), name, parser, writer, master: pair.master, child, exited, typeahead, cwd, size, sel: None, link_cache: None, search: None, typed_at: std::time::Instant::now(), pasted_at: None, v_down: false })
+        Ok(Session { id: 0, docked: false, embedded: false, cmd: None, once: false, capture, mounts: Vec::new(), name, parser, writer, master: pair.master, child, exited, drawn, typeahead, cwd, size, sel: None, link_cache: None, search: None, typed_at: std::time::Instant::now(), pasted_at: None, v_down: false })
     }
 
     fn write(&mut self, bytes: &[u8]) {
@@ -1034,6 +1044,7 @@ impl Terminal {
         let id = self.sessions[i].id;
         self.grids.insert(id, (pass, ui.available_rect_before_wrap()));
         let s = &mut self.sessions[i];
+        s.drawn.store(pass, Ordering::Relaxed);
         let font = egui::TextStyle::Monospace.resolve(ui.style());
         let (rh, cw) = ui.fonts(|f| (f.row_height(&font), crate::editor_view::char_width(f, &font)));
         let (rect, resp) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());

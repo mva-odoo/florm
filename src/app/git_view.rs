@@ -776,26 +776,13 @@ impl App {
                     ui.separator();
                 }
             }
+            let idx = h.filtered();
             let Some(g) = &h.graph else {
                 match &h.error {
                     Some(e) => ui.label(RichText::new(e).color(err())),
                     None => ui.label(RichText::new(t!("Chargement…", "Loading…")).weak()),
                 };
                 return;
-            };
-            let f = h.filter.to_lowercase();
-            let idx: Vec<usize> = if f.is_empty() {
-                (0..g.commits.len()).collect()
-            } else {
-                (0..g.commits.len())
-                    .filter(|&i| {
-                        let c = &g.commits[i];
-                        c.subject.to_lowercase().contains(&f)
-                            || c.author.to_lowercase().contains(&f)
-                            || c.hash.starts_with(&f)
-                            || c.refs.iter().any(|r| r.to_lowercase().contains(&f))
-                    })
-                    .collect()
             };
             if idx.is_empty() {
                 ui.label(RichText::new(t!("Aucun commit", "No commit")).weak());
@@ -836,7 +823,7 @@ impl App {
                 for k in range {
                     let i = idx[k];
                     let c = &g.commits[i];
-                    let r = history::row_ui(ui, c, &g.rows[i], graph_w, h.selected == Some(i) && h.wip_sel.is_none() && h.compare.is_none(), f.is_empty());
+                    let r = history::row_ui(ui, c, &g.rows[i], graph_w, h.selected == Some(i) && h.wip_sel.is_none() && h.compare.is_none(), h.filter.is_empty());
                     if r.clicked() || r.secondary_clicked() {
                         select = Some(i);
                     }
@@ -1506,4 +1493,35 @@ pub(super) fn file_row(ui: &mut egui::Ui, letter: char, path: &str, stats: Optio
         p.text(egui::pos2(r.right() + 6.0, cy), Align2::LEFT_CENTER, dir, egui::FontId::proportional(11.5), v.weak_text_color());
     }
     resp.on_hover_text(path)
+}
+
+impl HistoryUi {
+    /// The commits of the graph matching the filter (indices), found again only when the filter
+    /// or the graph changed (a graph has up to 100 000 commits).
+    fn filtered(&mut self) -> Arc<Vec<usize>> {
+        let Some(g) = &self.graph else { return Arc::default() };
+        let key = (self.filter.clone(), self.gen, g.commits.len(), g.commits.as_ptr() as usize);
+        if let Some((k, idx)) = &self.filtered {
+            if *k == key {
+                return idx.clone();
+            }
+        }
+        let f = self.filter.to_lowercase();
+        let idx: Vec<usize> = if f.is_empty() {
+            (0..g.commits.len()).collect()
+        } else {
+            (0..g.commits.len())
+                .filter(|&i| {
+                    let c = &g.commits[i];
+                    c.subject.to_lowercase().contains(&f)
+                        || c.author.to_lowercase().contains(&f)
+                        || c.hash.starts_with(&f)
+                        || c.refs.iter().any(|r| r.to_lowercase().contains(&f))
+                })
+                .collect()
+        };
+        let idx = Arc::new(idx);
+        self.filtered = Some((key, idx.clone()));
+        idx
+    }
 }
