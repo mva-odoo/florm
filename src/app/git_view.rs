@@ -515,6 +515,10 @@ impl App {
         if self.install_guide(ui, crate::tools::Tool::Git, false) {
             return;
         }
+        if let Some(repo) = self.repo.clone().filter(|r| !git::trusted(r)) {
+            self.untrusted_git_ui(ui, &repo);
+            return;
+        }
         let (mut select, mut diff_to_tab, mut close_detail) = (None, false, false);
         let mut diff_click: Option<history::DiffClick> = None;
         let source = match (self.history.wip_sel, &self.history.compare) {

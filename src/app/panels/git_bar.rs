@@ -86,6 +86,10 @@ impl App {
             }
             return;
         }
+        // restricted mode: said below (in the graph's place), with the button to trust the folder
+        if self.repo.as_ref().is_some_and(|r| !git::trusted(r)) {
+            return;
+        }
         let bg = ui.visuals().panel_fill;
         let mut dismiss_error = false;
         let (mut chosen_repo, mut reload) = (None, false);

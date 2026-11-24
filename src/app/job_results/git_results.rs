@@ -105,7 +105,8 @@ impl App {
                         self.git.status = Some(st);
                     }
                 }
-                Err(e) if repo == selected => self.git.error = Some(e),
+                // not trusted: the Git view says so (restricted mode), it is not a failure
+                Err(e) if repo == selected && e != git::untrusted_error() => self.git.error = Some(e),
                 Err(_) => {}
             }
         }

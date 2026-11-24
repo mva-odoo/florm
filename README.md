@@ -263,8 +263,9 @@ Pour choisir une autre commande, dans `settings.toml` :
 python = "pyright-langserver --stdio"
 ```
 
-Un serveur de langage, eslint ou les plugins flake8 d'un projet peuvent exécuter son code : ils ne
-tournent que dans un **dossier de confiance**. Ailleurs, une barre « 🔒 Mode restreint » au-dessus du
+Un serveur de langage, eslint, les plugins flake8 d'un projet ou la configuration d'un dépôt git
+(`.git/config`, filtres de `.gitattributes`) peuvent exécuter son code : Git, les serveurs de langage
+et les linters du projet ne tournent que dans un **dossier de confiance**. Ailleurs, une barre « 🔒 Mode restreint » au-dessus du
 fichier propose de faire confiance au dossier. **Préférences → Lint → Dossiers de confiance** les liste, × retire la
 confiance (le dossier repasse en mode restreint) ; la liste est dans `settings.toml` :
 

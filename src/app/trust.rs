@@ -1,6 +1,7 @@
-//! Trusted folders: the language servers and the linters set up by the project (flake8 with its
-//! plugins, eslint) may run its code, so they only run in a folder the developer trusted. Elsewhere
-//! a bar above the file offers to trust it (restricted mode).
+//! Trusted folders: git (the configuration of a repository can name commands), the language
+//! servers and the linters set up by the project (flake8 with its plugins, eslint) may run its
+//! code, so they only run in a folder the developer trusted. Elsewhere a bar above the file and the
+//! Git view offer to trust it (restricted mode).
 
 use super::*;
 
@@ -18,7 +19,7 @@ impl App {
 
     /// `dir` trusted from now on (written in settings.toml): its open files are linted again,
     /// their language servers start.
-    fn trust_folder(&mut self, dir: PathBuf) {
+    pub(super) fn trust_folder(&mut self, dir: PathBuf) {
         let s = dir.to_string_lossy().into_owned();
         if !self.settings.trusted_folders.contains(&s) {
             self.settings.trusted_folders.push(s);
@@ -28,6 +29,11 @@ impl App {
             if self.docs[i].path.as_deref().is_some_and(|p| p.starts_with(&dir)) {
                 self.analyze(i, false);
             }
+        }
+        // git runs there now: its status, and the graph of the Git view
+        self.git_refresh();
+        if self.repo.as_ref().is_some_and(|r| r.starts_with(&dir)) {
+            self.load_history();
         }
         self.set_status(tf!("🔓 {} : dossier de confiance", "🔓 {}: trusted folder", dir.display()));
     }
@@ -46,6 +52,7 @@ impl App {
             self.docs[i].set_lsp_diagnostics(Vec::new());
             self.analyze(i, false);
         }
+        self.git_refresh();
         self.set_status(tf!("🔒 {dir} : plus de confiance (mode restreint)", "🔒 {dir}: no longer trusted (restricted mode)"));
     }
 
@@ -53,6 +60,7 @@ impl App {
         // a JSON list of strings is a TOML list too
         let list = serde_json::to_string(&self.settings.trusted_folders).unwrap_or_else(|_| "[]".into());
         self.persist("trusted_folders", list);
+        git::set_trusted(&self.settings.trusted_folders);
     }
 
     /// Bar above a file of a folder not trusted, when something waits for that (a language
@@ -60,7 +68,9 @@ impl App {
     pub(super) fn trust_bar(&mut self, ui: &mut egui::Ui, i: usize, pane: u8) {
         let Some(d) = self.docs.get(i).filter(|d| d.view == document::View::Text) else { return };
         let Some(path) = d.path.clone() else { return };
-        let waits = (self.settings.lsp && lsp::language_of(&path).is_some()) || matches!(lint::lang_of(&path), Some("python" | "javascript"));
+        let waits = (self.settings.lsp && lsp::language_of(&path).is_some())
+            || matches!(lint::lang_of(&path), Some("python" | "javascript"))
+            || (crate::features::on(crate::features::Feature::Git) && self.repo_for(&path).is_some());
         if !waits || self.trusted(&path) {
             return;
         }
@@ -77,8 +87,8 @@ impl App {
                 ui.horizontal_wrapped(|ui| {
                     ui.label(RichText::new(t!("🔒 Mode restreint", "🔒 Restricted mode")).color(warn()).strong()).on_hover_text(dir.display().to_string());
                     ui.label(t!(
-                        "les serveurs de langage et les linters configurés par ce dossier ne tournent pas : ils peuvent exécuter son code",
-                        "the language servers and the linters set up by this folder do not run: they may run its code"
+                        "Git, les serveurs de langage et les linters configurés par ce dossier ne tournent pas : ils peuvent exécuter son code",
+                        "Git, the language servers and the linters set up by this folder do not run: they may run its code"
                     ));
                     trust = ui.button(tf!("Faire confiance à « {name} »", "Trust “{name}”")).on_hover_text(dir.display().to_string()).clicked();
                     later = ui.button(t!("Plus tard", "Later")).on_hover_text(t!("Jusqu'à la fermeture de Florm", "Until Florm is closed")).clicked();
@@ -88,6 +98,29 @@ impl App {
             self.trust_folder(dir);
         } else if later {
             self.trust_later.insert(dir);
+        }
+    }
+}
+
+impl App {
+    /// The Git view of a repository not trusted: why nothing shows, and a button to trust it.
+    pub(super) fn untrusted_git_ui(&mut self, ui: &mut egui::Ui, repo: &Path) {
+        let dir = self.trust_root(repo).unwrap_or_else(|| repo.to_path_buf());
+        let name = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| dir.display().to_string());
+        let mut trust = false;
+        ui.add_space(24.0);
+        ui.vertical_centered(|ui| {
+            ui.label(RichText::new(t!("🔒 Mode restreint", "🔒 Restricted mode")).color(warn()).strong().size(16.0));
+            ui.add_space(6.0);
+            ui.label(t!(
+                "Git ne tourne pas dans ce dossier : la configuration d'un dépôt (.git/config, filtres de .gitattributes) peut lancer des commandes.",
+                "Git does not run in this folder: the configuration of a repository (.git/config, filters of .gitattributes) can run commands."
+            ));
+            ui.add_space(8.0);
+            trust = ui.button(tf!("Faire confiance à « {name} »", "Trust “{name}”")).on_hover_text(dir.display().to_string()).clicked();
+        });
+        if trust {
+            self.trust_folder(dir);
         }
     }
 }

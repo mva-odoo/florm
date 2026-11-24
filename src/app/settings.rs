@@ -30,8 +30,13 @@ impl App {
         }
         let parts = (s.github, s.debugger, s.claude) != (self.settings.github, self.settings.debugger, self.settings.claude);
         let sandbox = s.claude_sandbox != self.settings.claude_sandbox;
+        let trust = s.trusted_folders != self.settings.trusted_folders;
         history::SIDE_BY_SIDE.store(s.diff_side_by_side, Ordering::Relaxed);
         self.settings = s;
+        if trust {
+            git::set_trusted(&self.settings.trusted_folders);
+            self.git_refresh();
+        }
         if parts {
             self.apply_features();
         }

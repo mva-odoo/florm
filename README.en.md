@@ -263,8 +263,9 @@ To choose another command, in `settings.toml`:
 python = "pyright-langserver --stdio"
 ```
 
-A language server, eslint or the flake8 plugins of a project may run its code: they only run in a
-**trusted folder**. Elsewhere, a “🔒 Restricted mode” bar above the file offers to trust the folder.
+A language server, eslint, the flake8 plugins of a project or the configuration of a git repository
+(`.git/config`, filters of `.gitattributes`) may run its code: Git, the language servers and the
+linters of the project only run in a **trusted folder**. Elsewhere, a “🔒 Restricted mode” bar above the file offers to trust the folder.
 **Preferences → Lint → Trusted folders** lists them, × takes the trust back (the folder goes back to
 restricted mode); the list is in `settings.toml`:
 

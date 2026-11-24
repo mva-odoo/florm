@@ -1273,6 +1273,7 @@ impl App {
         }
         hl.set_overrides(highlight::parse_hex(&settings.accent_color), settings.text_softness);
         history::SIDE_BY_SIDE.store(settings.diff_side_by_side, Ordering::Relaxed);
+        git::set_trusted(&settings.trusted_folders);
         highlight::SQUARE.store(settings.ui_style == "square", Ordering::Relaxed);
         apply_visuals(egui_ctx, hl.visuals());
         egui_ctx.set_fonts(crate::fonts::definitions(&settings.editor_font, &settings.ui_font, settings.ui_style == "square"));

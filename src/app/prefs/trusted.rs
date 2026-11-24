@@ -8,8 +8,8 @@ impl App {
         let accent = self.hl.colors.accent;
         let title = t!("Dossiers de confiance", "Trusted folders");
         let desc = t!(
-            "Les serveurs de langage et les linters configurés par le projet (plugins flake8, eslint) ne tournent que dans ces dossiers (et ceux qu'ils contiennent) : ils peuvent exécuter son code. × retire la confiance : les fichiers ouverts de ce dossier repassent en mode restreint.",
-            "The language servers and the linters set up by the project (flake8 plugins, eslint) only run in these folders (and those inside): they may run its code. × takes the trust back: the open files of that folder go back to restricted mode."
+            "Git, les serveurs de langage et les linters configurés par le projet (plugins flake8, eslint) ne tournent que dans ces dossiers (et ceux qu'ils contiennent) : ils peuvent exécuter son code. × retire la confiance : les fichiers ouverts de ce dossier repassent en mode restreint.",
+            "Git, the language servers and the linters set up by the project (flake8 plugins, eslint) only run in these folders (and those inside): they may run its code. × takes the trust back: the open files of that folder go back to restricted mode."
         );
         if !rc.matches(&[title, desc, t!("confiance", "trust"), t!("restreint", "restricted")]) {
             return;

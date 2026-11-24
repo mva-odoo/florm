@@ -355,10 +355,11 @@ Problems are underlined in the code and listed in **Problems** (bottom panel):
   Preferences → Editor.
 - **XML and JSON**: a badly formed file (unclosed or badly nested tag, missing quote), live.
 
-**🔒 Restricted mode.** A language server, eslint or the flake8 plugins declared by a project may
-run its code. In a folder not trusted yet, a bar above the file says so: the language servers and
-eslint do not run, and flake8 ignores the configuration of the project (`node --check` and the
-Python lint stay). **Trust “folder”** starts them, for that folder and those inside it
+**🔒 Restricted mode.** A language server, eslint, the flake8 plugins declared by a project or the
+configuration of a git repository (`.git/config`, filters of `.gitattributes`) may run its code. In
+a folder not trusted yet, a bar above the file says so: Git, the language servers and eslint do not
+run, and flake8 ignores the configuration of the project (`node --check` and the Python lint stay);
+the Git view says so too, with the same button. **Trust “folder”** starts them, for that folder and those inside it
 (`trusted_folders` key of `settings.toml`); **Later** hides the bar until Florm is closed.
 **Preferences → Lint → Trusted folders** lists them; × takes the trust of a folder back, and it
 goes back to restricted mode.

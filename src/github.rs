@@ -509,6 +509,10 @@ pub fn commit_diff(dir: &Path, sha: &str) -> Result<String, String> {
 
 /// `gh pr checkout n`: the branch of the pull request in the working copy.
 pub fn checkout(dir: &Path, n: u64) -> Result<String, String> {
+    // gh runs git there (checkout: the filters of the repository)
+    if !crate::git::trusted(dir) {
+        return Err(crate::git::untrusted_error().to_string());
+    }
     gh(dir, &["pr", "checkout", &n.to_string()]).map(|o| o.trim().to_string())
 }
 

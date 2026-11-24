@@ -26,11 +26,7 @@ const DIFF_COMMANDS: &[&str] = &["diff", "log", "show", "blame", "reflog", "form
 /// `stash show` for a stash).
 fn hardened<'a>(args: &[&'a str]) -> Vec<&'a str> {
     let mut out = args.to_vec();
-    // the command: the first word that is not a global option (`-c x=y` and `-C dir` take a value)
-    let mut i = 0;
-    while i < args.len() && args[i].starts_with('-') {
-        i += if matches!(args[i], "-c" | "-C") { 2 } else { 1 };
-    }
+    let i = subcommand_at(args);
     let at = match args.get(i) {
         Some(sub) if DIFF_COMMANDS.contains(sub) => Some(i + 1),
         Some(&"stash") if args.get(i + 1) == Some(&"show") => Some(i + 2),
@@ -42,13 +38,67 @@ fn hardened<'a>(args: &[&'a str]) -> Vec<&'a str> {
     out
 }
 
+/// Where the command is in `args`: the first word that is not a global option (`-c x=y` and
+/// `-C dir` take a value).
+fn subcommand_at(args: &[&str]) -> usize {
+    let mut i = 0;
+    while i < args.len() && args[i].starts_with('-') {
+        i += if matches!(args[i], "-c" | "-C") { 2 } else { 1 };
+    }
+    i
+}
+
+fn subcommand<'a>(args: &[&'a str]) -> Option<&'a str> {
+    args.get(subcommand_at(args)).copied()
+}
+
 /// Git turned off (Préférences → Git, or `git` not installed): nothing is run.
 fn off() -> Option<String> {
     (!crate::features::on(crate::features::Feature::Git)).then(|| t!("Git est désactivé (Préférences → Git)", "Git is turned off (Preferences → Git)").to_string())
 }
 
+/// The trusted folders (settings `trusted_folders`): the configuration of a repository
+/// (`.git/config`, filters of `.gitattributes`) can name commands that git runs (a `clean` filter
+/// runs on `git status`), so git only runs in them. None: no limit (until the app sets it).
+static TRUSTED: std::sync::RwLock<Option<Vec<PathBuf>>> = std::sync::RwLock::new(None);
+
+/// The trusted folders, set by the app (and again when they change).
+pub fn set_trusted(list: &[String]) {
+    // tests make their repositories anywhere, from several threads: never limited there
+    if cfg!(test) {
+        return;
+    }
+    let dirs = list.iter().map(|t| t.trim()).filter(|t| !t.is_empty()).map(PathBuf::from).collect();
+    *TRUSTED.write().unwrap_or_else(|e| e.into_inner()) = Some(dirs);
+}
+
+/// git may run in `dir`: a trusted folder (or no limit set).
+pub fn trusted(dir: &Path) -> bool {
+    allowed(TRUSTED.read().unwrap_or_else(|e| e.into_inner()).as_deref(), dir, &[])
+}
+
+/// git may run `args` in `dir`: inside a trusted folder, or a command that reads no repository
+/// configuration (`clone` and `init` make a new one).
+fn allowed(trusted: Option<&[PathBuf]>, dir: &Path, args: &[&str]) -> bool {
+    let Some(list) = trusted else { return true };
+    matches!(subcommand(args), Some("clone" | "init")) || list.iter().any(|t| dir.starts_with(t))
+}
+
+/// Why git does not run in `dir` (not a trusted folder), if so.
+fn untrusted(dir: &Path, args: &[&str]) -> Option<String> {
+    (!allowed(TRUSTED.read().unwrap_or_else(|e| e.into_inner()).as_deref(), dir, args)).then(|| untrusted_error().to_string())
+}
+
+/// The error of git in a folder not trusted.
+pub fn untrusted_error() -> &'static str {
+    t!(
+        "🔒 Dossier pas de confiance : Git n'y tourne pas (sa configuration peut lancer des commandes)",
+        "🔒 Folder not trusted: Git does not run there (its configuration can run commands)"
+    )
+}
+
 fn exec(dir: &Path, args: &[&str]) -> Result<(String, String), String> {
-    if let Some(e) = off() {
+    if let Some(e) = off().or_else(|| untrusted(dir, args)) {
         return Err(e);
     }
     let out = git(args)
@@ -73,7 +123,7 @@ pub fn run(dir: &Path, args: &[&str]) -> Result<String, String> {
 
 /// Like `run`, with extra environment variables and text written to stdin.
 pub fn run_with(dir: &Path, args: &[&str], env: &[(&str, &str)], input: Option<&str>) -> Result<String, String> {
-    if let Some(e) = off() {
+    if let Some(e) = off().or_else(|| untrusted(dir, args)) {
         return Err(e);
     }
     let mut child = git(args)
@@ -766,6 +816,9 @@ pub fn blame_line(file: &Path, line: usize, contents: &str) -> Result<Blame, Str
     let dir = file.parent().ok_or(t!("chemin invalide", "invalid path"))?;
     let name = file.file_name().and_then(|n| n.to_str()).ok_or(t!("chemin invalide", "invalid path"))?;
     let range = format!("{line},{line}");
+    if let Some(e) = untrusted(dir, &[]) {
+        return Err(e);
+    }
     let mut child = git(&["blame", "--porcelain", "-L", &range, "--contents", "-", "--", name])
         .current_dir(dir)
         .stdin(Stdio::piped())
@@ -908,6 +961,21 @@ pub fn parse_github(url: &str) -> Option<(String, String)> {
 #[cfg(test)]
 mod status_tests {
     use super::*;
+
+    /// git only in a trusted folder (and those inside), except to make a new repository.
+    #[test]
+    fn git_runs_only_in_a_trusted_folder() {
+        let list = vec![PathBuf::from("/home/a/projet")];
+        let ok = |dir: &str, args: &[&str]| allowed(Some(&list), Path::new(dir), args);
+        assert!(ok("/home/a/projet", &["status"]));
+        assert!(ok("/home/a/projet/addons/x", &["-c", "a=b", "log"]));
+        assert!(!ok("/home/a/projet2", &["status"]));
+        assert!(!ok("/tmp/recu", &["diff"]));
+        assert!(ok("/tmp", &["clone", "https://x/y.git"]));
+        assert!(ok("/tmp/nouveau", &["init"]));
+        // nothing set yet: no limit
+        assert!(allowed(None, Path::new("/tmp/recu"), &["status"]));
+    }
 
     #[test]
     fn diffs_never_run_the_programs_of_the_repository() {
