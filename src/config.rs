@@ -18,11 +18,8 @@ pub struct Settings {
     pub text_softness: f32,
     /// Editor font (a monospaced font installed on the system); empty: the default one.
     pub editor_font: String,
-    /// Interface font; empty: the default one (the editor's font with the "square" style).
+    /// Interface font; empty: the default one.
     pub ui_font: String,
-    /// Look of the interface: "rounded" (cards, rounded corners, shadows) or "square" (straight
-    /// corners, no shadows, the interface in the editor's monospaced font, like a terminal).
-    pub ui_style: String,
     pub show_minimap: bool,
     /// Spell checking of the Markdown, the comments and the commit messages (French and English).
     pub spell_check: bool,
@@ -40,6 +37,9 @@ pub struct Settings {
     pub breadcrumbs: bool,
     /// Menu bar (Fichier, Édition…) at the top; hidden, its commands are in the palette.
     pub show_menu_bar: bool,
+    /// Compact interface: no menu bar, breadcrumbs nor minimap, a narrow gutter, the interface in
+    /// the monospaced font. Their own settings are kept, not changed.
+    pub compact_ui: bool,
     /// "Find in files" in an editor tab instead of the bottom panel.
     pub search_in_tab: bool,
     /// Diffs side by side (old on the left, new on the right) instead of in one column.
@@ -131,6 +131,19 @@ pub struct Settings {
 }
 
 impl Settings {
+    /// The menu bar is shown (and not hidden by the compact interface).
+    pub fn menu_bar(&self) -> bool {
+        self.show_menu_bar && !self.compact_ui
+    }
+
+    pub fn breadcrumbs_on(&self) -> bool {
+        self.breadcrumbs && !self.compact_ui
+    }
+
+    pub fn minimap_on(&self) -> bool {
+        self.show_minimap && !self.compact_ui
+    }
+
     /// The codes ignored for `linter` (one of `lint::WITH_CODES`).
     pub fn lint_ignore_mut(&mut self, linter: &str) -> &mut Vec<String> {
         match linter {
@@ -154,7 +167,6 @@ impl Default for Settings {
             text_softness: 0.0,
             editor_font: String::new(),
             ui_font: String::new(),
-            ui_style: "rounded".into(),
             show_minimap: true,
             spell_check: true,
             rainbow_brackets: true,
@@ -164,6 +176,7 @@ impl Default for Settings {
             rulers: vec![80],
             breadcrumbs: true,
             show_menu_bar: true,
+            compact_ui: false,
             search_in_tab: false,
             diff_side_by_side: false,
             claude_sandbox: true,
@@ -229,8 +242,6 @@ text_softness = 0.0
 # polices installées sur le système ; vide = par défaut (Consolas / Segoe UI sous Windows)
 editor_font = ""
 ui_font = ""
-# style de l'interface : "rounded" (coins arrondis, ombres) ou "square" (coins droits, sans ombres, police de l'éditeur partout, comme un terminal)
-ui_style = "rounded"
 show_minimap = true
 # orthographe (français et anglais) du Markdown, des commentaires et des messages de commit ;
 # les dictionnaires sont téléchargés la première fois
@@ -249,6 +260,8 @@ rulers = [80]
 breadcrumbs = true
 # barre de menus en haut (masquée : ses commandes restent dans la palette, Ctrl+Shift+P)
 show_menu_bar = true
+# interface compacte : ni barre de menus, ni fil d'Ariane, ni minimap, marge des numéros étroite, police monospace
+compact_ui = false
 # recherche dans le dossier (Ctrl+Shift+F) dans un onglet plutôt que dans le panneau du bas
 search_in_tab = false
 # diffs côte à côte (l'ancienne version à gauche, la nouvelle à droite) plutôt qu'en une colonne

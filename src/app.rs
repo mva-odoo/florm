@@ -66,28 +66,6 @@ mod panels;
 mod prefs;
 mod title_bar;
 
-/// The "square" style: every rectangle painted this frame loses its rounded corners (cards,
-/// tabs, buttons, pills…), wherever it was drawn, the round shapes (circles) staying round.
-fn square_shapes(ctx: &egui::Context) {
-    fn flat(s: &mut egui::Shape) {
-        match s {
-            egui::Shape::Rect(r) => r.rounding = egui::Rounding::ZERO,
-            egui::Shape::Vec(v) => v.iter_mut().for_each(flat),
-            _ => {}
-        }
-    }
-    let mut layers: Vec<egui::LayerId> = ctx.memory(|m| m.layer_ids().collect());
-    layers.push(egui::LayerId::background());
-    ctx.graphics_mut(|g| {
-        for id in layers {
-            let Some(list) = g.get_mut(id) else { continue };
-            for k in 0..list.next_idx().0 {
-                list.mutate_shape(egui::layers::ShapeIdx(k), |c| flat(&mut c.shape));
-            }
-        }
-    });
-}
-
 /// Where the opener of links leaves its refusal, for the status bar.
 const LINK_ERROR: &str = "florm_link_error";
 
@@ -187,54 +165,6 @@ fn replace_tip() -> &'static str {
     t!("Maj+Entrée : retour à la ligne dans le remplacement.\nEn mode regex (.*) : \\n retour à la ligne, \\t tabulation, \\\\ barre oblique inverse, $1 groupe.\nEx. : chercher \\\\n (regex), remplacer par \\n, pour changer les « \\n » écrits en vrais retours à la ligne.", "Shift+Enter: new line in the replacement.\nIn regex mode (.*): \\n new line, \\t tab, \\\\ backslash, $1 group.\nE.g.: find \\\\n (regex), replace with \\n, to turn written “\\n” into real new lines.")
 }
 
-/// The editor area as a card, like the sidebar's: drawn over what the editor painted in `rect`,
-/// its corners are rounded (the bits outside them painted in `outside`, the window's background)
-/// and a thin border goes round it, open under the tab shown (`gap`) so that tab merges with it.
-fn card_over(ui: &egui::Ui, rect: egui::Rect, outside: Color32, border: egui::Stroke, gap: Option<egui::Rect>) {
-    let r = CARD_ROUNDING;
-    let p = ui.painter();
-    // (corner, center of its arc, angle where the arc starts): top left, top right, bottom right, bottom left
-    let corners = [
-        (rect.left_top(), rect.left_top() + egui::vec2(r, r), std::f32::consts::PI),
-        (rect.right_top(), rect.right_top() + egui::vec2(-r, r), 1.5 * std::f32::consts::PI),
-        (rect.right_bottom(), rect.right_bottom() + egui::vec2(-r, -r), 0.0),
-        (rect.left_bottom(), rect.left_bottom() + egui::vec2(r, -r), 0.5 * std::f32::consts::PI),
-    ];
-    let arc = |c: egui::Pos2, a0: f32, rad: f32| (0..=8).map(move |k| {
-        let a = a0 + k as f32 / 8.0 * std::f32::consts::FRAC_PI_2;
-        c + rad * egui::vec2(a.cos(), a.sin())
-    });
-    // outside each arc: a fan from the corner, in the window's color
-    for (corner, c, a0) in corners {
-        let mut mesh = egui::epaint::Mesh::default();
-        mesh.colored_vertex(corner, outside);
-        for q in arc(c, a0, r) {
-            mesh.colored_vertex(q, outside);
-        }
-        for k in 1..9 {
-            mesh.add_triangle(0, k, k + 1);
-        }
-        p.add(egui::Shape::mesh(mesh));
-    }
-    // the border, half a pixel inside, from the right of the gap round to its left
-    let inner = rect.shrink(0.5);
-    let rad = r - 0.5;
-    let c = [
-        inner.left_top() + egui::vec2(rad, rad),
-        inner.right_top() + egui::vec2(-rad, rad),
-        inner.right_bottom() + egui::vec2(-rad, -rad),
-        inner.left_bottom() + egui::vec2(rad, -rad),
-    ];
-    let (g0, g1) = gap.map_or((inner.left() + rad, inner.left() + rad), |g| (g.left().max(inner.left() + rad), g.right().min(inner.right() - rad)));
-    let mut path = vec![egui::pos2(g1, inner.top())];
-    path.extend(arc(c[1], 1.5 * std::f32::consts::PI, rad));
-    path.extend(arc(c[2], 0.0, rad));
-    path.extend(arc(c[3], 0.5 * std::f32::consts::PI, rad));
-    path.extend(arc(c[0], std::f32::consts::PI, rad));
-    path.push(egui::pos2(g0, inner.top()));
-    p.add(egui::Shape::line(path, border));
-}
-
 /// Behind a dialog: the rest of Florm darkened, and its clicks ignored until the dialog is closed
 /// (drawn between the panels and the windows). Without it a dialog looked like part of the view.
 fn modal_backdrop(ctx: &egui::Context) {
@@ -251,8 +181,8 @@ fn filled_button(text: impl Into<String>, fill: Color32) -> egui::Button<'static
 }
 
 const TAB_STRIP_H: f32 = 32.0;
-/// The rounding of the sidebar's card and of the top of the tabs, the same so they go together.
-const CARD_ROUNDING: f32 = 8.0;
+/// The rounding of the tabs (and of the small surfaces that go with them).
+const CARD_ROUNDING: f32 = 6.0;
 
 #[derive(PartialEq, Clone, Copy, Debug)]
 enum BottomTab {
@@ -1256,9 +1186,8 @@ impl App {
         hl.set_overrides(highlight::parse_hex(&settings.accent_color), settings.text_softness);
         history::SIDE_BY_SIDE.store(settings.diff_side_by_side, Ordering::Relaxed);
         git::set_trusted(&settings.trusted_folders);
-        highlight::SQUARE.store(settings.ui_style == "square", Ordering::Relaxed);
         apply_visuals(egui_ctx, hl.visuals());
-        egui_ctx.set_fonts(crate::fonts::definitions(&settings.editor_font, &settings.ui_font, settings.ui_style == "square"));
+        egui_ctx.set_fonts(crate::fonts::definitions(&settings.editor_font, &settings.ui_font, settings.compact_ui));
         egui_extras::install_image_loaders(egui_ctx);
         crate::images::install(egui_ctx);
         install_link_opener(egui_ctx);
@@ -1338,7 +1267,7 @@ impl App {
             claude_loaded: false,
             claude_limits: claude_ui::load_limits(),
             egui_ctx: egui_ctx.clone(),
-            title_bar_on: crate::os::draws_title_bar(settings.show_menu_bar),
+            title_bar_on: crate::os::draws_title_bar(settings.menu_bar()),
             tree_scroll: None,
             tree_nav: sidebar::Nav::default(),
             repo_info: HashMap::new(),
@@ -1735,9 +1664,6 @@ impl eframe::App for App {
         self.follow_file_repo();
         self.sync_history_tab();
         self.window_border(ctx);
-        if highlight::square() {
-            square_shapes(ctx);
-        }
         // the button of the diffs changes it for all of them: kept for the next time
         let side = history::side_by_side();
         if side != self.settings.diff_side_by_side {
@@ -1817,9 +1743,8 @@ fn doc_tab(d: &Document) -> (TabIcon<'_>, String) {
     }
 }
 
-/// One editor tab, rounded at the top like the sidebar's card (`CARD_ROUNDING`), a small gap
-/// between two tabs: the active one in the editor's color, bordered and open at the bottom (it
-/// merges with the editor), the others a softer shape of the same form, lighter on hover. After
+/// One editor tab on the strip (the editor's background): the active one framed by a thin line
+/// in the accent, rounded (`CARD_ROUNDING`); the others text only, a light shade on hover. After
 /// the title: the parent folder when another tab has the same name (`hint`), the number of errors
 /// in red. The close button shows on hover and on the active tab (else the "modified" dot, in the
 /// accent). Positions are rounded to whole pixels so the text stays sharp.
@@ -1855,28 +1780,20 @@ fn tab_widget(
     let extra = hint_g.as_ref().map_or(0.0, |g| g.size().x + 8.0) + count_g.as_ref().map_or(0.0, |g| g.size().x + 6.0);
     let w = (galley.size().x + extra + 64.0).round();
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, TAB_STRIP_H), Sense::click_and_drag());
-    let tab = egui::Rect::from_min_max(egui::pos2(rect.left(), rect.top() + 5.0).round(), rect.max.round());
+    let tab = egui::Rect::from_min_max(egui::pos2(rect.left(), rect.top() + 4.0).round(), egui::pos2(rect.right(), rect.bottom() - 3.0).round());
     let close_rect = egui::Rect::from_center_size(egui::pos2(tab.right() - 16.0, tab.center().y), egui::vec2(18.0, 18.0));
     let close = ui.interact(close_rect, resp.id.with("close"), Sense::click());
     let hovered = resp.hovered() || close.hovered();
     let p = ui.painter();
-    let rounding = egui::Rounding { nw: CARD_ROUNDING, ne: CARD_ROUNDING, sw: 0.0, se: 0.0 };
-    let border = egui::Stroke::new(1.0_f32, tc.text_inactive.gamma_multiply(0.25));
-    let fill = if active {
-        tc.active
-    } else if hovered {
-        icons::mix(tc.bar, tc.active, 0.75)
-    } else {
-        icons::mix(tc.bar, tc.active, 0.4)
-    };
+    let rounding = egui::Rounding::same(CARD_ROUNDING);
+    let light = tc.bar.r() as u32 + tc.bar.g() as u32 + tc.bar.b() as u32 > 384;
+    // a shade of the strip, darker on a light theme, lighter on a dark one
+    let shade = icons::mix(tc.bar, if light { Color32::BLACK } else { Color32::WHITE }, 0.06);
+    let fill = if hovered && !active { shade } else { tc.bar };
     let fill = flash.map_or(fill, |c| icons::mix(fill, c, 0.45));
+    p.rect_filled(tab, rounding, fill);
     if active {
-        p.rect_filled(tab, rounding, fill);
-        // its border on the sides and the top only: the bottom (below the strip) is cut off
-        let outline = egui::Rect::from_min_max(tab.min + egui::vec2(0.5, 0.5), egui::pos2(tab.right() - 0.5, tab.bottom() + 12.0));
-        p.with_clip_rect(tab.expand(1.0)).rect_stroke(outline, rounding, border);
-    } else {
-        p.rect_filled(tab, rounding, fill);
+        p.rect_stroke(tab.shrink(0.5), rounding, egui::Stroke::new(1.0_f32, icons::mix(tc.accent, tc.bar, 0.25)));
     }
     let y = tab.center().y.round();
     let icon_at = egui::pos2(tab.left() + 15.0, y);

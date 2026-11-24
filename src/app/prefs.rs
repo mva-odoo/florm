@@ -420,13 +420,8 @@ impl App {
                 pref_row(ui, rc, t!("Police de l'interface", "Interface font"), t!("Menus, panneaux, onglets.", "Menus, panels, tabs."), |ui| {
                     font_combo(ui, "ui_font", &mut s.ui_font, false, def_ui);
                 });
-                pref_row(ui, rc, t!("Style", "Style"), t!("« Arrondi » : cartes et boutons arrondis, ombres sous les menus. « Carré » : coins droits, sans ombres, et l'interface dans la police de l'éditeur, comme un terminal (une police d'interface choisie ci-dessus reste prioritaire).", "“Rounded”: rounded cards and buttons, shadows under the menus. “Square”: straight corners, no shadows, and the interface in the editor's font, like a terminal (an interface font chosen above still wins)."), |ui| {
-                    let label = |m: &str| if m == "square" { t!("Carré", "Square") } else { t!("Arrondi", "Rounded") };
-                    egui::ComboBox::from_id_salt("ui_style").selected_text(label(&s.ui_style)).show_ui(ui, |ui| {
-                        for m in ["rounded", "square"] {
-                            ui.selectable_value(&mut s.ui_style, m.to_string(), label(m));
-                        }
-                    });
+                pref_row(ui, rc, t!("Interface compacte", "Compact interface"), t!("Ni barre de menus, ni fil d'Ariane, ni minimap, la marge des numéros de ligne au plus juste, et l'interface dans la police de l'éditeur (sauf une police d'interface choisie ci-dessus). Les commandes restent dans la palette (Ctrl+Shift+P) ; désactivée, tout revient comme avant.", "No menu bar, breadcrumbs nor minimap, the margin of the line numbers as narrow as it can be, and the interface in the editor's font (unless an interface font is chosen above). The commands stay in the palette (Ctrl+Shift+P); off, everything comes back as before."), |ui| {
+                    toggle_switch(ui, &mut s.compact_ui);
                 });
                 pref_row(ui, rc, "Minimap", t!("Aperçu du fichier à droite de l'éditeur.", "Overview of the file on the right of the editor."), |ui| {
                     toggle_switch(ui, &mut s.show_minimap);
@@ -1156,13 +1151,11 @@ impl App {
             self.persist("accent_color", config::toml_str(&s.accent_color));
             self.persist("text_softness", format!("{:.2}", s.text_softness));
         }
-        if s.ui_style != before.ui_style {
-            highlight::SQUARE.store(s.ui_style == "square", std::sync::atomic::Ordering::Relaxed);
-            self.visuals_dirty = true;
-            self.persist("ui_style", config::toml_str(&s.ui_style));
+        if s.compact_ui != before.compact_ui {
+            self.persist("compact_ui", s.compact_ui.to_string());
         }
-        if s.editor_font != before.editor_font || s.ui_font != before.ui_font || s.ui_style != before.ui_style {
-            self.egui_ctx.set_fonts(crate::fonts::definitions(&s.editor_font, &s.ui_font, s.ui_style == "square"));
+        if s.editor_font != before.editor_font || s.ui_font != before.ui_font || s.compact_ui != before.compact_ui {
+            self.egui_ctx.set_fonts(crate::fonts::definitions(&s.editor_font, &s.ui_font, s.compact_ui));
             self.persist("editor_font", config::toml_str(&s.editor_font));
             self.persist("ui_font", config::toml_str(&s.ui_font));
         }

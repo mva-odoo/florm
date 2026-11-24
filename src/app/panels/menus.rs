@@ -6,12 +6,12 @@ impl App {
     pub(in crate::app) fn menu_bar(&mut self, ctx: &egui::Context) {
         if self.own_title_bar() {
             // menus hidden: no bar, the window buttons are in the tab strip
-            if self.settings.show_menu_bar {
+            if self.settings.menu_bar() {
                 self.title_bar(ctx);
             }
             return;
         }
-        if !self.settings.show_menu_bar {
+        if !self.settings.menu_bar() {
             return;
         }
         let mut pending = Vec::new();

@@ -17,12 +17,8 @@ impl App {
                 self.log(tf!("Thème inconnu : {}", "Unknown theme: {}", s.theme));
             }
         }
-        if s.ui_style != self.settings.ui_style {
-            highlight::SQUARE.store(s.ui_style == "square", Ordering::Relaxed);
-            self.visuals_dirty = true;
-        }
-        if s.editor_font != self.settings.editor_font || s.ui_font != self.settings.ui_font || s.ui_style != self.settings.ui_style {
-            self.egui_ctx.set_fonts(crate::fonts::definitions(&s.editor_font, &s.ui_font, s.ui_style == "square"));
+        if s.editor_font != self.settings.editor_font || s.ui_font != self.settings.ui_font || s.compact_ui != self.settings.compact_ui {
+            self.egui_ctx.set_fonts(crate::fonts::definitions(&s.editor_font, &s.ui_font, s.compact_ui));
         }
         if s.accent_color != self.settings.accent_color || s.text_softness != self.settings.text_softness {
             self.hl.set_overrides(highlight::parse_hex(&s.accent_color), s.text_softness);

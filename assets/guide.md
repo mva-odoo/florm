@@ -678,16 +678,17 @@ comptes Claude…) n'est jamais partagé.
 ## Apparence
 
 **Préférences → Apparence** : langue (Français / English), thème (aperçus cliquables : Florm et
-Florm Light, et Florm Monokai, One Dark, Dracula, GitHub Light d'après les thèmes habituels des autres
+Florm Light, Florm Minimal et Florm Minimal Light, plus sobres (un fond profond ou crème, une
+palette douce), et Florm Monokai, One Dark, Dracula, GitHub Light d'après les thèmes habituels des autres
 éditeurs), couleur d'accentuation,
 **texte adouci** (texte moins « gras », utile sur les thèmes clairs), polices de l'éditeur et
 de l'interface, minimap, fil d'Ariane, **barre de menus** (masquée, ses commandes restent dans la palette,
 **Ctrl+Shift+P**).
 
-**Style** : **Arrondi** (cartes et boutons arrondis, ombres sous les menus) ou **Carré** : coins
-droits, sans ombres, et toute l'interface dans la police monospace du système (celle du terminal,
-sous Linux celle que donne `fc-match monospace`), comme un terminal ou Omarchy. Une police
-d'interface choisie à la main reste prioritaire.
+**Interface compacte** (Préférences → Apparence) : ni barre de menus, ni fil d'Ariane, ni minimap
+(les commandes restent dans la palette), la marge des numéros de ligne au plus juste, et l'interface dans la police de l'éditeur, sauf une police
+d'interface choisie à la main. Désactivée, tout revient comme avant. Elle va bien avec les thèmes
+**Florm Minimal** et **Florm Minimal Light**.
 
 **Couleurs du thème → Créer un thème à partir de « … »** : toutes les couleurs de l'éditeur
 (fond, texte, accent, curseur, sélection, marge…) et du code (commentaires, mots-clés, chaînes,

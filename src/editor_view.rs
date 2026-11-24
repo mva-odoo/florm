@@ -66,6 +66,8 @@ pub struct ViewOpts<'a> {
     pub tests: &'a [(usize, String)],
     /// The brackets colored by level.
     pub rainbow: bool,
+    /// Compact interface: the gutter only as wide as the numbers need (no room kept for more digits).
+    pub compact: bool,
     /// Spaces and tabs shown (· and →).
     pub whitespace: bool,
 }
@@ -227,11 +229,11 @@ fn text_area(
     let inline_diff = opts.inline_diff;
     let c = hl.colors;
     let nlines = doc.rope.len_lines();
-    let digits = nlines.to_string().len().max(3);
+    let digits = if opts.compact { nlines.to_string().len() } else { nlines.to_string().len().max(3) };
     // numbers, then the fold arrows, then the git marks
     let test_w = if opts.tests.is_empty() { 0.0 } else { TEST_W };
     let test_x = claude_w();
-    let gutter_w = (digits as f32 + 1.0) * cw + 30.0 + test_w;
+    let gutter_w = if opts.compact { digits as f32 * cw + 22.0 + claude_w().max(6.0) + test_w } else { (digits as f32 + 1.0) * cw + 30.0 + test_w };
     let test_at = |l: usize| opts.tests.iter().find(|(t, _)| *t == l).map(|(_, tags)| tags);
     doc.update_max_cols();
     doc.reveal_cursors(); // whatever placed a cursor in a folded block, open it

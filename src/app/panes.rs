@@ -69,7 +69,7 @@ impl App {
 
     /// One panel of a split editor: its tabs and its editor.
     pub(super) fn pane_ui(&mut self, ui: &mut egui::Ui, pane: u8) -> Option<egui::Response> {
-        let gap = self.tabs_strip(ui, Some(pane));
+        self.tabs_strip(ui, Some(pane));
         let rect = ui.available_rect_before_wrap();
         self.panes.drop_zones.panes.push((pane, rect));
         let i = self.pane_doc(pane)?;
@@ -81,7 +81,6 @@ impl App {
         let focused = pane == self.panes.focused;
         let id = if focused { editor_id() } else { editor_view::other_editor_id() };
         let r = self.doc_body(ui, i, id, focused);
-        self.editor_card(ui, rect, gap);
         focused.then_some(r?)
     }
 
@@ -95,7 +94,7 @@ impl App {
                 let s = &self.settings;
                 let opts = editor_view::ViewOpts {
                     font_size: s.font_size,
-                    minimap: s.show_minimap,
+                    minimap: s.minimap_on(),
                     wrap: s.word_wrap,
                     inline_diff: s.inline_diff,
                     sticky: s.sticky_scroll,
@@ -103,6 +102,7 @@ impl App {
                     notes: doc.path.as_ref().and_then(|p| self.pr.notes.get(p)).map_or(&[], |v| &v[..]),
                     tests: &tests,
                     rainbow: s.rainbow_brackets,
+                    compact: s.compact_ui,
                     whitespace: s.show_whitespace,
                 };
                 let r = editor_view::show(ui, doc, &self.hl, &opts, matches, id);
@@ -510,7 +510,7 @@ impl App {
 
     /// "dossier › fichier › Classe › méthode" above the editor; a click goes to the symbol.
     pub(super) fn breadcrumbs_ui(&mut self, ui: &mut egui::Ui, i: usize, pane: u8) {
-        if !self.settings.breadcrumbs {
+        if !self.settings.breadcrumbs_on() {
             return;
         }
         let root = self.root.clone();

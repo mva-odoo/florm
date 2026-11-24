@@ -56,13 +56,13 @@ const CORNER: f32 = 12.0;
 impl App {
     /// Florm draws the title bar (see `os::draws_title_bar`).
     pub(super) fn own_title_bar(&self) -> bool {
-        os::draws_title_bar(self.settings.show_menu_bar)
+        os::draws_title_bar(self.settings.menu_bar())
     }
 
     /// The window buttons go in the tab strip (menus hidden, so no bar): at its right end (Windows,
     /// Linux) or its left (macOS). `pane`: the strip of a split editor (None: the only one).
     pub(super) fn strip_controls(&self, pane: Option<u8>) -> Option<Controls> {
-        if self.settings.show_menu_bar {
+        if self.settings.menu_bar() {
             return None;
         }
         let c = os::window_controls();
@@ -80,7 +80,7 @@ impl App {
     /// The round buttons at the top of the sidebar (macOS, without the menu bar); the room left on
     /// their right, where the tree puts the name of the folder (a row less).
     pub(super) fn sidebar_mac_buttons(&self, ui: &mut egui::Ui) -> Option<Rect> {
-        if self.settings.show_menu_bar || os::window_controls() != Controls::Mac {
+        if self.settings.menu_bar() || os::window_controls() != Controls::Mac {
             return None;
         }
         let maximized = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
@@ -109,9 +109,9 @@ impl App {
         // rounded corners when the window does not fill the screen and has no system decorations;
         // a tiling compositor (Hyprland…) says « maximized » for every window: rounded there too
         let round = (!maximized || os::window_controls() == Controls::None)
-            && os::rounded_window(self.settings.show_menu_bar)
+            && os::rounded_window(self.settings.menu_bar())
             && os::TRANSPARENT_WINDOW.load(std::sync::atomic::Ordering::Relaxed);
-        let radius = if round && !crate::highlight::square() { WINDOW_ROUNDING } else { 0.0 };
+        let radius = if round { WINDOW_ROUNDING } else { 0.0 };
         let tc = self.hl.tab_colors();
         let r = ctx.screen_rect();
         let p = ctx.layer_painter(egui::LayerId::new(egui::Order::Debug, egui::Id::new("window_border")));
@@ -155,7 +155,7 @@ impl App {
                         mac_buttons(ui, ctx, maximized);
                         ui.add_space(6.0);
                     }
-                    if self.settings.show_menu_bar {
+                    if self.settings.menu_bar() {
                         egui::menu::bar(ui, |ui| self.menus(ui, &mut pending));
                     }
                     if controls == Controls::Side {

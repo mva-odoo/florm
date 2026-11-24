@@ -8,13 +8,6 @@ use std::time::{Duration, Instant};
 use syntect::highlighting::{Color, HighlightIterator, HighlightState, Highlighter, Theme, ThemeSet};
 use syntect::parsing::{ParseState, ScopeStack, SyntaxSet};
 
-/// The "square" style of the interface (setting `ui_style`): straight corners, no shadows.
-pub static SQUARE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-pub fn square() -> bool {
-    SQUARE.load(std::sync::atomic::Ordering::Relaxed)
-}
-
 #[derive(Clone, Copy)]
 pub struct Colors {
     pub bg: Color32,
@@ -34,7 +27,6 @@ pub struct Colors {
 #[derive(Clone, Copy)]
 pub struct TabColors {
     pub bar: Color32,
-    pub active: Color32,
     pub text_active: Color32,
     pub text_inactive: Color32,
     pub close_hover: Color32,
@@ -114,6 +106,8 @@ impl Highlighting {
         for (name, src) in [
             ("Florm", include_str!("../assets/Florm.tmTheme")),
             ("Florm Light", include_str!("../assets/Florm Light.tmTheme")),
+            ("Florm Minimal", include_str!("../assets/Florm Minimal.tmTheme")),
+            ("Florm Minimal Light", include_str!("../assets/Florm Minimal Light.tmTheme")),
             ("Florm Monokai", include_str!("../assets/Florm Monokai.tmTheme")),
             ("Florm One Dark", include_str!("../assets/Florm One Dark.tmTheme")),
             ("Florm Dracula", include_str!("../assets/Florm Dracula.tmTheme")),
@@ -276,11 +270,10 @@ impl Highlighting {
             let f = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t) as u8;
             Color32::from_rgb(f(a.r(), b.r()), f(a.g(), b.g()), f(a.b(), b.b()))
         };
-        // the title bar and the tab strip a bit darker than the panels, so they stand out
-        let bar = adj(self.visuals().panel_fill, if light { -14 } else { -10 });
+        // the title bar and the tab strip on the editor's background (flat, as one surface)
+        let bar = c.bg;
         TabColors {
             bar,
-            active: c.bg,
             text_active: if light { mix(c.fg, Color32::BLACK, 0.5) } else { mix(c.fg, Color32::WHITE, 0.5) },
             text_inactive: if light { mix(c.fg, Color32::BLACK, 0.1) } else { mix(c.fg, bar, 0.22) },
             close_hover: adj(c.bg, if light { -30 } else { 26 }),
@@ -290,23 +283,6 @@ impl Highlighting {
 
     /// Interface colors (panels, buttons, selection) derived from the editor theme.
     pub fn visuals(&self) -> egui::Visuals {
-        let mut v = self.visuals_rounded();
-        if square() {
-            // straight corners and flat popups, framed by a line instead of a shadow
-            v.window_rounding = Rounding::ZERO;
-            v.menu_rounding = Rounding::ZERO;
-            // a sharp shadow, offset and without blur: square too, but the window stands out
-            let hard = Color32::from_black_alpha(if v.dark_mode { 150 } else { 45 });
-            v.window_shadow = egui::epaint::Shadow { offset: egui::vec2(6.0, 6.0), blur: 0.0, spread: 0.0, color: hard };
-            v.popup_shadow = egui::epaint::Shadow { offset: egui::vec2(3.0, 3.0), blur: 0.0, spread: 0.0, color: hard };
-            for w in [&mut v.widgets.noninteractive, &mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active, &mut v.widgets.open] {
-                w.rounding = Rounding::ZERO;
-            }
-        }
-        v
-    }
-
-    fn visuals_rounded(&self) -> egui::Visuals {
         let c = self.colors;
         let light = c.bg.r() as u32 + c.bg.g() as u32 + c.bg.b() as u32 > 384;
         let shade = |amount: i16| {
@@ -328,11 +304,12 @@ impl Highlighting {
         v.selection.stroke = Stroke::new(1.0_f32, mix(c.accent, c.bg, 0.15));
         // the edge of the windows and menus: seen against the view behind (shade 14 hardly was)
         v.window_stroke = Stroke::new(1.0_f32, shade(34));
-        v.window_rounding = Rounding::same(12.0);
-        v.menu_rounding = Rounding::same(10.0);
-        let shadow = Color32::from_black_alpha(if light { 40 } else { 110 });
-        v.window_shadow = egui::epaint::Shadow { offset: egui::vec2(0.0, 10.0), blur: 30.0, spread: 0.0, color: shadow };
-        v.popup_shadow = egui::epaint::Shadow { offset: egui::vec2(0.0, 6.0), blur: 18.0, spread: 0.0, color: shadow };
+        // flat: little rounding, a soft shadow only under what floats (windows, menus)
+        v.window_rounding = Rounding::same(8.0);
+        v.menu_rounding = Rounding::same(6.0);
+        let shadow = Color32::from_black_alpha(if light { 22 } else { 80 });
+        v.window_shadow = egui::epaint::Shadow { offset: egui::vec2(0.0, 6.0), blur: 20.0, spread: 0.0, color: shadow };
+        v.popup_shadow = egui::epaint::Shadow { offset: egui::vec2(0.0, 3.0), blur: 10.0, spread: 0.0, color: shadow };
         // UI text a bit brighter than code text, for readability on panels.
         // on light themes, pure black text looks bold with egui's rendering: a dark grey instead
         // the text softness already lightens c.fg: no more fading on top, or menus and lists turn pale
@@ -622,8 +599,11 @@ mod tests {
         let hl = Highlighting::new("Florm Monokai", Path::new("/nonexistent"));
         let mut names = hl.theme_names();
         names.sort();
-        assert_eq!(names, ["Florm", "Florm Dracula", "Florm GitHub Light", "Florm Light", "Florm Monokai", "Florm One Dark"]);
+        assert_eq!(names, ["Florm", "Florm Dracula", "Florm GitHub Light", "Florm Light", "Florm Minimal", "Florm Minimal Light", "Florm Monokai", "Florm One Dark"]);
         assert!(!hl.is_light());
+        // the sober ones: the light one light
+        let mut min = Highlighting::new("Florm Minimal Light", Path::new("/nonexistent"));
+        assert!(min.is_light() && min.set_theme("Florm Minimal") && !min.is_light());
         // the old built-in themes give way to the closest one
         assert_eq!(Highlighting::new("Light+ (VS Code)", Path::new("/nonexistent")).theme_name, "Florm GitHub Light");
         assert_eq!(Highlighting::new("Solarized (light)", Path::new("/nonexistent")).theme_name, "Florm Light");
