@@ -73,11 +73,23 @@ const LINK_ERROR: &str = "florm_link_error";
 fn install_link_opener(ctx: &egui::Context) {
     ctx.on_end_pass(
         "florm_links",
-        std::sync::Arc::new(|ctx: &egui::Context| {
-            let Some(open) = ctx.output_mut(|o| o.open_url.take()) else { return };
-            if let Err(e) = crate::os::open_url(&open.url) {
-                ctx.data_mut(|d| d.insert_temp(egui::Id::new(LINK_ERROR), e));
-                ctx.request_repaint();
+        std::sync::Arc::new(|ui: &mut egui::Ui| {
+            let ctx = ui.ctx();
+            let mut urls = Vec::new();
+            ctx.output_mut(|o| {
+                o.commands.retain(|c| match c {
+                    egui::OutputCommand::OpenUrl(u) => {
+                        urls.push(u.url.clone());
+                        false
+                    }
+                    _ => true,
+                })
+            });
+            for url in urls {
+                if let Err(e) = crate::os::open_url(&url) {
+                    ctx.data_mut(|d| d.insert_temp(egui::Id::unique(LINK_ERROR), e));
+                    ctx.request_repaint();
+                }
             }
         }),
     );
@@ -104,7 +116,7 @@ pub fn font_definitions() -> egui::FontDefinitions {
         ("plex_sans", &include_bytes!("../assets/fonts/IBMPlexSans-Regular.ttf")[..], egui::FontFamily::Proportional),
         ("plex_mono", &include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf")[..], egui::FontFamily::Monospace),
     ] {
-        fonts.font_data.insert(name.into(), egui::FontData::from_static(bytes));
+        fonts.font_data.insert(name.into(), std::sync::Arc::new(egui::FontData::from_static(bytes)));
         fonts.families.entry(family).or_default().insert(0, name.into());
     }
     fonts.families.entry(egui::FontFamily::Proportional).or_default().push("Hack".to_owned());
@@ -177,11 +189,14 @@ fn replace_tip() -> &'static str {
     t!("Maj+Entrée : retour à la ligne dans le remplacement.\nEn mode regex (.*) : \\n retour à la ligne, \\t tabulation, \\\\ barre oblique inverse, $1 groupe.\nEx. : chercher \\\\n (regex), remplacer par \\n, pour changer les « \\n » écrits en vrais retours à la ligne.", "Shift+Enter: new line in the replacement.\nIn regex mode (.*): \\n new line, \\t tab, \\\\ backslash, $1 group.\nE.g.: find \\\\n (regex), replace with \\n, to turn written “\\n” into real new lines.")
 }
 
+const MODAL_BACKDROP: &str = "modal_backdrop";
+
 /// Behind a dialog: the rest of Florm darkened, and its clicks ignored until the dialog is closed
 /// (drawn between the panels and the windows). Without it a dialog looked like part of the view.
 fn modal_backdrop(ctx: &egui::Context) {
-    let screen = ctx.screen_rect();
-    egui::Area::new(egui::Id::new("modal_backdrop")).order(egui::Order::PanelResizeLine).fixed_pos(screen.min).show(ctx, |ui| {
+    let screen = ctx.content_rect();
+    // on the panels' layer, above them (an area shown goes on top of its order), below the windows
+    egui::Area::new(egui::Id::unique(MODAL_BACKDROP)).order(egui::Order::Background).fixed_pos(screen.min).show(ctx, |ui| {
         let (rect, _) = ui.allocate_exact_size(screen.size(), egui::Sense::click_and_drag());
         let dark = if ui.visuals().dark_mode { 120 } else { 70 };
         ui.painter().rect_filled(rect, 0.0, Color32::from_black_alpha(dark));
@@ -1167,11 +1182,14 @@ impl App {
             s.spacing.interact_size.y = 22.0;
             // the menus and tooltips: room around their text, and wide enough before it wraps
             // (in a monospace font a file name went past the 400 of egui)
-            s.spacing.menu_margin = egui::Margin::symmetric(12.0, 8.0);
+            s.spacing.menu_margin = egui::Margin::symmetric(12, 8);
             s.spacing.menu_width = 480.0;
             s.spacing.tooltip_width = 540.0;
-            s.spacing.window_margin = egui::Margin::same(12.0);
+            s.spacing.window_margin = egui::Margin::same(12);
             s.spacing.scroll = egui::style::ScrollStyle::floating();
+            // as before egui 0.34 and 0.37: no faded edges, no coasting nor rubber band after a trackpad scroll
+            s.spacing.scroll.fade.strength = 0.0;
+            s.spacing.scroll.kinetic = egui::style::KineticScrollStyle { decay_time: 0.0, rubber_band: false, ..Default::default() };
             s.text_styles.insert(TextStyle::Body, FontId::proportional(15.0));
             s.text_styles.insert(TextStyle::Button, FontId::proportional(15.0));
             s.text_styles.insert(TextStyle::Small, FontId::proportional(11.5));
@@ -1541,7 +1559,8 @@ impl eframe::App for App {
         }
     }
 
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = &ui.ctx().clone();
         // Without vsync, an animation (scrolling, panel opening) would redraw as fast as the processor
         // allows: at most ~120 frames per second, and never later than an input (key, mouse).
         if let Some(last) = self.paced_frame {
@@ -1558,7 +1577,7 @@ impl eframe::App for App {
         }
         self.process_jobs();
         self.prof.mark("jobs");
-        if let Some(e) = ctx.data_mut(|d| d.remove_temp::<String>(egui::Id::new(LINK_ERROR))) {
+        if let Some(e) = ctx.data_mut(|d| d.remove_temp::<String>(egui::Id::unique(LINK_ERROR))) {
             self.set_error(e);
         }
         // the update is installed and nothing is unsaved: Florm restarts by itself, without asking
@@ -1567,7 +1586,7 @@ impl eframe::App for App {
             self.restart_for_update(ctx);
         }
         self.sync_decorations(ctx);
-        let (dropped, pos): (Vec<PathBuf>, _) = ctx.input(|i| (i.raw.dropped_files.iter().filter_map(|f| f.path.clone()).collect(), i.pointer.latest_pos()));
+        let (dropped, pos): (Vec<PathBuf>, _) = ctx.input(|i| (i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).filter(|p| !p.as_os_str().is_empty()).collect(), i.pointer.latest_pos()));
         // images dropped on Claude: their paths written into its field
         let on_claude = self.claude.drop_area.is_some_and(|(f, r)| f + 2 >= ctx.cumulative_pass_nr() && pos.is_none_or(|p| r.contains(p)));
         // on a terminal (Claude's too): the paths typed at its prompt, as Ghostty or iTerm do
@@ -1618,24 +1637,24 @@ impl eframe::App for App {
         // tab strip only span the editor area.
         // distraction-free: only the text
         if !self.zen {
-            self.menu_bar(ctx);
-            self.status_bar(ctx);
+            self.menu_bar(ui);
+            self.status_bar(ui);
             self.prof.mark("barres");
             if self.show_sidebar {
-                self.sidebar(ctx);
+                self.sidebar(ui);
             } else {
-                self.sidebar_strip(ctx);
+                self.sidebar_strip(ui);
             }
             self.prof.mark("barre latérale");
             if self.bottom.is_some() {
-                self.bottom_panel(ctx);
+                self.bottom_panel(ui);
                 self.prof.mark("panneau du bas");
             }
         }
         if self.find.open {
-            self.find_bar(ctx);
+            self.find_bar(ui);
         }
-        self.central(ctx);
+        self.central(ui);
         self.prof.mark("centre");
         self.sync_terminal_tabs();
         // Ctrl+clic on a traceback in a terminal
@@ -1880,7 +1899,7 @@ fn tab_menu(ui: &mut egui::Ui, i: usize, d: &Document, split: bool, alone: bool,
         let r = if tip.is_empty() { r } else { r.on_disabled_hover_text(tip) };
         if r.clicked() {
             *act = Some(a);
-            ui.close_menu();
+            ui.close();
         }
     };
     if split {
@@ -1954,7 +1973,7 @@ fn commit_menu(ui: &mut egui::Ui, c: &history::Commit, m: &MenuCtx, selected: Op
     fn item(ui: &mut egui::Ui, label: &str, a: HistAct, act: &mut Option<HistAct>) {
         if ui.button(label).clicked() {
             *act = Some(a);
-            ui.close_menu();
+            ui.close();
         }
     }
     let short = &c.hash[..c.hash.len().min(8)];
@@ -2111,7 +2130,7 @@ fn history_menu(ui: &mut egui::Ui, list: &[String], target: &mut String, title: 
             if ui.button(RichText::new(h).monospace()).clicked() {
                 *target = h.clone();
                 picked = true;
-                ui.close_menu();
+                ui.close();
             }
         }
     })
@@ -2166,7 +2185,7 @@ mod font_tests {
     fn all_symbols_have_glyphs() {
         let ctx = egui::Context::default();
         ctx.set_fonts(font_definitions());
-        let _ = ctx.run(Default::default(), |_| {});
+        let _ = crate::run_ui(&ctx, Default::default(), |_| {});
         // every source file of Florm (a list kept by hand forgot some: 🧪 of the Docker view
         // showed as a box)
         let mut files = Vec::new();
@@ -2191,7 +2210,7 @@ mod font_tests {
             for line in src.lines().filter(|l| !l.trim_start().starts_with("//")) {
                 for ch in line.chars().filter(|c| !c.is_ascii()) {
                     for font in [egui::FontId::proportional(14.0), egui::FontId::monospace(14.0)] {
-                        if !ctx.fonts(|f| f.has_glyphs(&font, &ch.to_string())) {
+                        if !ctx.fonts_mut(|f| f.has_glyphs(&font, &ch.to_string())) {
                             missing.insert(format!("{ch} U+{:04X} ({:?})", ch as u32, font.family));
                         }
                     }
@@ -2201,11 +2220,11 @@ mod font_tests {
         assert!(missing.is_empty(), "caractères sans glyphe : {missing:#?}");
         // the check does see missing glyphs, and the Hack fallback is what brings the arrows
         let prop = egui::FontId::proportional(14.0);
-        assert!(!ctx.fonts(|f| f.has_glyphs(&prop, "\u{2460}")));
-        assert!(ctx.fonts(|f| f.has_glyphs(&prop, "\u{2192}\u{25BE}\u{25CF}")));
+        assert!(!ctx.fonts_mut(|f| f.has_glyphs(&prop, "\u{2460}")));
+        assert!(ctx.fonts_mut(|f| f.has_glyphs(&prop, "\u{2192}\u{25BE}\u{25CF}")));
         let plain = egui::Context::default();
-        let _ = plain.run(Default::default(), |_| {});
-        assert!(!plain.fonts(|f| f.has_glyphs(&prop, "\u{2192}")));
+        let _ = crate::run_ui(&plain, Default::default(), |_| {});
+        assert!(!plain.fonts_mut(|f| f.has_glyphs(&prop, "\u{2192}")));
     }
 
     /// The image tabs rely on egui_extras' loaders: PNG and SVG files must decode.
@@ -2224,7 +2243,8 @@ mod font_tests {
             let uri = format!("file://{}", path.display());
             let mut size = None;
             for _ in 0..200 {
-                let _ = ctx.run(Default::default(), |ctx| {
+                let _ = crate::run_ui(&ctx, Default::default(), |ui| {
+                    let ctx = &ui.ctx().clone();
                     if let Ok(egui::load::TexturePoll::Ready { texture }) =
                         egui::Image::new(uri.as_str()).load_for_size(ctx, egui::Vec2::splat(512.0))
                     {
@@ -2339,9 +2359,9 @@ mod font_tests {
         app.confirm = Some(Confirm::Delete(proj.join("a long name of a file to delete, to see it wrap.txt")));
         let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 800.0))), ..Default::default() };
         for _ in 0..4 {
-            let _ = ctx.run(input.clone(), |ctx| app.confirm_ui(ctx));
+            let _ = crate::run_ui(&ctx, input.clone(), |ui| app.confirm_ui(ui.ctx()));
         }
-        let r = ctx.memory(|m| m.area_rect(egui::Id::new("confirm"))).expect("the window is shown");
+        let r = ctx.memory(|m| m.area_rect(egui::Id::unique("confirm"))).expect("the window is shown");
         assert!(r.height() < 320.0 && r.width() < 560.0, "{r:?}");
         assert!(r.top() > 100.0, "in the middle of the screen: {r:?}");
         let _ = std::fs::remove_dir_all(&dir);
@@ -2367,14 +2387,14 @@ mod font_tests {
         let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 800.0))), ..Default::default() };
         app.open_overlay_with(Mode::Prompt(Prompt::NewBranch), Vec::<Item>::new(), String::new());
         for _ in 0..3 {
-            let _ = ctx.run(input.clone(), |ctx| app.overlay_ui(ctx));
+            let _ = crate::run_ui(&ctx, input.clone(), |ui| app.overlay_ui(ui.ctx()));
         }
         let items: Vec<Item> = (0..20).map(|k| Item { label: format!("branch-{k}"), detail: String::new(), action: Action::Cmd(Cmd::Claude) }).collect();
         app.open_overlay_with(Mode::Themes, items, String::new());
         for _ in 0..3 {
-            let _ = ctx.run(input.clone(), |ctx| app.overlay_ui(ctx));
+            let _ = crate::run_ui(&ctx, input.clone(), |ui| app.overlay_ui(ui.ctx()));
         }
-        let r = ctx.memory(|m| m.area_rect(egui::Id::new("overlay"))).expect("the list is shown");
+        let r = ctx.memory(|m| m.area_rect(egui::Id::unique("overlay"))).expect("the list is shown");
         assert!(r.height() > 400.0, "{r:?}");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -2403,8 +2423,8 @@ mod font_tests {
         app.prefs.section = PrefSection::Claude;
         let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 800.0))), ..Default::default() };
         for _ in 0..3 {
-            let _ = ctx.run(input.clone(), |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| app.prefs_ui(ui));
+            let _ = crate::run_ui(&ctx, input.clone(), |ui| {
+                egui::CentralPanel::default().show(ui, |ui| app.prefs_ui(ui));
             });
         }
         // the conversation of the Pro account goes on with the Perso one
@@ -2467,8 +2487,8 @@ mod font_tests {
         assert!(app.conflicts.open_pending.is_none());
         let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 800.0))), ..Default::default() };
         for _ in 0..3 {
-            let _ = ctx.run(input.clone(), |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| app.pane_ui(ui, 0));
+            let _ = crate::run_ui(&ctx, input.clone(), |ui| {
+                egui::CentralPanel::default().show(ui, |ui| app.pane_ui(ui, 0));
             });
         }
         let info = app.conflicts.info.clone().expect("the rebase is read").2;
@@ -2509,10 +2529,10 @@ mod font_tests {
         }
         app.activate_tab(0);
         let screen = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 600.0)));
-        let id = egui::Id::new("tabs").with(None::<u8>);
+        let id = egui::Id::unique("tabs").with(None::<u8>);
         let frame = |app: &mut App, events: Vec<egui::Event>| {
-            let _ = ctx.run(egui::RawInput { screen_rect: screen, events, ..Default::default() }, |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            let _ = crate::run_ui(&ctx, egui::RawInput { screen_rect: screen, events, ..Default::default() }, |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
                     app.tabs_strip(ui, None);
                 });
             });
@@ -2526,7 +2546,7 @@ mod font_tests {
         let at = egui::pos2(300.0, 15.0);
         frame(&mut app, vec![egui::Event::PointerMoved(at)]);
         for _ in 0..30 {
-            frame(&mut app, vec![egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: egui::vec2(0.0, -60.0), modifiers: Default::default() }]);
+            frame(&mut app, vec![egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: egui::vec2(0.0, -60.0), phase: egui::TouchPhase::Move, modifiers: Default::default(), source: egui::MouseWheelSource::Unknown }]);
         }
         for _ in 0..10 {
             frame(&mut app, Vec::new());
@@ -2554,9 +2574,9 @@ mod font_tests {
         let mut app = App::with_ctx(&ctx, Some(proj.clone()));
         let screen = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 800.0)));
         let frame = |app: &mut App| {
-            let _ = ctx.run(egui::RawInput { screen_rect: screen, ..Default::default() }, |ctx| {
-                app.sidebar(ctx);
-                app.central(ctx);
+            let _ = crate::run_ui(&ctx, egui::RawInput { screen_rect: screen, ..Default::default() }, |ui| {
+                app.sidebar(ui);
+                app.central(ui);
             });
         };
         for _ in 0..2 {
@@ -2592,12 +2612,12 @@ mod font_tests {
         assert_eq!(views(&again), views(&app));
         // every view, large in a tab then in the bottom panel
         let all = |app: &mut App| {
-            let _ = ctx.run(egui::RawInput { screen_rect: screen, ..Default::default() }, |ctx| {
-                app.sidebar(ctx);
+            let _ = crate::run_ui(&ctx, egui::RawInput { screen_rect: screen, ..Default::default() }, |ui| {
+                app.sidebar(ui);
                 if app.bottom.is_some() {
-                    app.bottom_panel(ctx);
+                    app.bottom_panel(ui);
                 }
-                app.central(ctx);
+                app.central(ui);
             });
         };
         for (tab, ..) in BottomTab::ALL {
@@ -2612,7 +2632,7 @@ mod font_tests {
         // Ctrl+K alone opens nothing (Ctrl+Shift+P is the palette); a chord still works
         let press = |app: &mut App, key: Key, modifiers: egui::Modifiers| {
             let ev = egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers };
-            let _ = ctx.run(egui::RawInput { screen_rect: screen, events: vec![ev], ..Default::default() }, |ctx| app.handle_keys(ctx));
+            let _ = crate::run_ui(&ctx, egui::RawInput { screen_rect: screen, events: vec![ev], ..Default::default() }, |ui| app.handle_keys(ui.ctx()));
         };
         let sidebar = app.show_sidebar;
         press(&mut app, Key::K, egui::Modifiers::CTRL);
@@ -2622,7 +2642,7 @@ mod font_tests {
         // the palette: the views first (those in a tab too), then the commands
         app.open_overlay(Mode::Commands);
         let frame = |app: &mut App| {
-            let _ = ctx.run(egui::RawInput { screen_rect: screen, ..Default::default() }, |ctx| app.overlay_ui(ctx));
+            let _ = crate::run_ui(&ctx, egui::RawInput { screen_rect: screen, ..Default::default() }, |ui| app.overlay_ui(ui.ctx()));
         };
         let shown = |app: &App| {
             let o = app.overlay.as_ref().unwrap();
@@ -2699,14 +2719,14 @@ mod font_tests {
         let frame = |app: &mut App, events: Vec<egui::Event>| {
             let t = Instant::now();
             app.process_jobs();
-            let out = ctx.run(egui::RawInput { screen_rect: screen, events, ..Default::default() }, |ctx| {
-                app.menu_bar(ctx);
-                app.status_bar(ctx);
-                app.sidebar(ctx);
+            let out = crate::run_ui(&ctx, egui::RawInput { screen_rect: screen, events, ..Default::default() }, |ui| {
+                app.menu_bar(ui);
+                app.status_bar(ui);
+                app.sidebar(ui);
                 if app.bottom.is_some() {
-                    app.bottom_panel(ctx);
+                    app.bottom_panel(ui);
                 }
-                app.central(ctx);
+                app.central(ui);
             });
             let drawn = t.elapsed();
             let t = Instant::now();
@@ -2739,7 +2759,7 @@ mod font_tests {
         let editor_at = egui::pos2(900.0, 500.0);
         let wheel = move |k: usize| {
             let dy = if (k / 40) % 2 == 0 { -120.0 } else { 120.0 };
-            vec![egui::Event::PointerMoved(editor_at), egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: egui::vec2(0.0, dy), modifiers: Default::default() }]
+            vec![egui::Event::PointerMoved(editor_at), egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: egui::vec2(0.0, dy), phase: egui::TouchPhase::Move, modifiers: Default::default(), source: egui::MouseWheelSource::Unknown }]
         };
         let hover = move |k: usize| vec![egui::Event::PointerMoved(egui::pos2(300.0 + (k % 50) as f32 * 10.0, 300.0))];
         run(&mut app, "accueil", 60, &none);

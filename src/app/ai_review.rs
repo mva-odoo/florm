@@ -134,11 +134,11 @@ pub(super) fn note_card(ui: &mut egui::Ui, cache: &mut egui_commonmark::CommonMa
     let (label, color) = severity(&n.note.severity, accent);
     let v = ui.visuals().clone();
     ui.add_space(5.0);
-    let frame = egui::Frame::none()
+    let frame = egui::Frame::NONE
         .fill(icons::mix(v.panel_fill, color, if n.keep { 0.10 } else { 0.035 }))
         .stroke(egui::Stroke::new(1.0_f32, icons::mix(v.panel_fill, color, if n.keep { 0.7 } else { 0.25 })))
-        .rounding(8.0)
-        .inner_margin(egui::Margin { left: 16.0, right: 10.0, top: 8.0, bottom: 10.0 })
+        .corner_radius(8.0)
+        .inner_margin(egui::Margin { left: 16, right: 10, top: 8, bottom: 10 })
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.horizontal(|ui| {
@@ -172,7 +172,7 @@ pub(super) fn note_card(ui: &mut egui::Ui, cache: &mut egui_commonmark::CommonMa
                     } else {
                         egui::Button::new(RichText::new(t!("Garder", "Keep")).small().color(color)).fill(Color32::TRANSPARENT).stroke(egui::Stroke::new(1.0_f32, color))
                     };
-                    if ui.add(keep.rounding(10.0)).on_hover_text(if n.keep { t!("Ne plus la garder", "Stop keeping it") } else { t!("La garder", "Keep it") }).clicked() {
+                    if ui.add(keep.corner_radius(10.0)).on_hover_text(if n.keep { t!("Ne plus la garder", "Stop keeping it") } else { t!("La garder", "Keep it") }).clicked() {
                         n.keep = !n.keep;
                     }
                 });
@@ -205,7 +205,7 @@ pub(super) fn note_card(ui: &mut egui::Ui, cache: &mut egui_commonmark::CommonMa
     // the edge, of the color of its kind
     let r = frame.response.rect;
     let edge = egui::Rect::from_min_size(r.min, egui::vec2(4.0, r.height()));
-    ui.painter().rect_filled(edge, egui::Rounding { nw: 8.0, sw: 8.0, ne: 0.0, se: 0.0 }, color);
+    ui.painter().rect_filled(edge, egui::CornerRadius { nw: 8, sw: 8, ne: 0, se: 0 }, color);
     ui.add_space(5.0);
 }
 
@@ -248,11 +248,11 @@ fn suggestion(ui: &mut egui::Ui, code: &str) {
     let v = ui.visuals().clone();
     let base = v.extreme_bg_color;
     ui.add_space(4.0);
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(base)
         .stroke(egui::Stroke::new(1.0_f32, icons::mix(base, ok(), 0.45)))
-        .rounding(6.0)
-        .inner_margin(egui::Margin::symmetric(8.0, 6.0))
+        .corner_radius(6.0)
+        .inner_margin(egui::Margin::symmetric(8, 6))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.horizontal(|ui| {
@@ -286,11 +286,11 @@ pub(super) fn review_bar(
     }
     let v = ui.visuals().clone();
     ui.add_space(4.0);
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(icons::mix(v.panel_fill, accent, 0.06))
         .stroke(egui::Stroke::new(1.0_f32, icons::mix(v.panel_fill, accent, 0.25)))
-        .rounding(8.0)
-        .inner_margin(egui::Margin::symmetric(12.0, 8.0))
+        .corner_radius(8.0)
+        .inner_margin(egui::Margin::symmetric(12, 8))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             // title and state on the left, what to do on the right

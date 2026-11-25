@@ -1,4 +1,4 @@
-use eframe::egui::{self, Color32, Rounding, Stroke};
+use eframe::egui::{self, Color32, CornerRadius, Stroke};
 use ropey::Rope;
 use std::collections::BTreeMap;
 use std::ops::Range;
@@ -213,7 +213,7 @@ impl Highlighting {
             let f = |c: u8| (c as i16 + if light { -amount } else { amount }).clamp(0, 255) as u8;
             Color32::from_rgb(f(bg.r()), f(bg.g()), f(bg.b()))
         };
-        let fg = mix(fg, bg, self.softness);
+        let fg = mix(fg, bg, self.soft(light));
         self.colors = Colors {
             bg,
             fg,
@@ -252,11 +252,18 @@ impl Highlighting {
 
     /// A syntax color with the text softness applied.
     fn code_color(&self, c: Color32) -> Color32 {
-        if self.softness > 0.0 {
-            mix(c, self.colors.bg, self.softness)
+        let soft = self.soft(self.is_light());
+        if soft > 0.0 {
+            mix(c, self.colors.bg, soft)
         } else {
             c
         }
+    }
+
+    /// How much the code text goes toward the background: the preference, plus a step on light
+    /// themes, where dark text looks bold (Zed's code is a grey, #383a42, not a near-black).
+    fn soft(&self, light: bool) -> f32 {
+        self.softness + if light { 0.14 } else { 0.0 }
     }
 
     pub fn preview(&self, name: &str) -> Option<ThemePreview> {
@@ -364,15 +371,15 @@ impl Highlighting {
         v.selection.bg_fill = mix(c.bg, c.accent, 0.26);
         v.selection.stroke = Stroke::new(1.0_f32, s.focused);
         v.window_stroke = Stroke::new(1.0_f32, s.border);
-        v.window_rounding = Rounding::same(8.0);
-        v.menu_rounding = Rounding::same(6.0);
+        v.window_corner_radius = CornerRadius::same(8);
+        v.menu_corner_radius = CornerRadius::same(6);
         let shadow = Color32::from_black_alpha(if light { 22 } else { 80 });
-        v.window_shadow = egui::epaint::Shadow { offset: egui::vec2(0.0, 6.0), blur: 20.0, spread: 0.0, color: shadow };
-        v.popup_shadow = egui::epaint::Shadow { offset: egui::vec2(0.0, 3.0), blur: 10.0, spread: 0.0, color: shadow };
+        v.window_shadow = egui::epaint::Shadow { offset: [0, 6], blur: 20, spread: 0, color: shadow };
+        v.popup_shadow = egui::epaint::Shadow { offset: [0, 3], blur: 10, spread: 0, color: shadow };
         // UI text a bit brighter than code text, for readability on panels.
         // on light themes, pure black text looks bold with egui's rendering: a dark grey instead
         // the text softness already lightens c.fg: no more fading on top, or menus and lists turn pale
-        let fade = (0.18 - self.softness).max(0.0);
+        let fade = (0.18 - self.soft(light)).max(0.0);
         let text = if light { mix(c.fg, c.bg, 0.06 + fade) } else { mix(c.fg, Color32::WHITE, 0.3) };
         v.widgets.noninteractive.bg_fill = v.panel_fill;
         v.widgets.noninteractive.weak_bg_fill = v.panel_fill;
@@ -389,10 +396,10 @@ impl Highlighting {
             w.weak_bg_fill = weak;
             w.bg_stroke = Stroke::NONE;
             w.fg_stroke = Stroke::new(1.0_f32, text);
-            w.rounding = Rounding::same(4.0);
+            w.corner_radius = CornerRadius::same(4);
             w.expansion = 0.0;
         }
-        v.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, mix(text, c.bg, (0.12 - self.softness / 2.0).max(0.0)));
+        v.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, mix(text, c.bg, (0.12 - self.soft(light) / 2.0).max(0.0)));
         v
     }
 
@@ -684,7 +691,8 @@ mod tests {
             let at = text.find(word).unwrap();
             cache.spans(line).unwrap().iter().find(|(_, r)| r.contains(&at)).map(|(c, _)| *c).unwrap()
         };
-        let rgb = |h: u32| Color32::from_rgb((h >> 16) as u8, (h >> 8) as u8, h as u8);
+        // the theme's colors, a step toward the background on a light theme (code_color)
+        let rgb = |h: u32| hl.code_color(Color32::from_rgb((h >> 16) as u8, (h >> 8) as u8, h as u8));
         assert_eq!(color_of(0, "def"), rgb(0xcf222e));
         assert_eq!(color_of(0, "f("), rgb(0x8250df));
         assert_eq!(color_of(0, "note"), rgb(0x6e7781));

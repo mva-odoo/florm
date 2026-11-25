@@ -289,11 +289,11 @@ impl App {
         let indexing = files_mode && self.index.files.is_empty() && self.root.is_some();
         // at most one background scoring started per frame
         let mut send = files_mode.then(|| self.jobs.sender());
-        let area = egui::Area::new(egui::Id::new("overlay"))
+        let area = egui::Area::new(egui::Id::unique("overlay"))
             .anchor(Align2::CENTER_TOP, egui::vec2(0.0, 40.0))
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
-                egui::Frame::popup(ui.style()).inner_margin(egui::Margin::same(12.0)).rounding(14.0).show(ui, |ui| {
+                egui::Frame::popup(ui.style()).inner_margin(egui::Margin::same(12)).corner_radius(14.0).show(ui, |ui| {
                     ui.set_width(640.0);
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(&title).small().weak());
@@ -310,7 +310,7 @@ impl App {
                     let te = ui.add(
                         egui::TextEdit::singleline(&mut ov.query)
                             .desired_width(f32::INFINITY)
-                            .frame(false)
+                            .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(4, 2)))
                             .hint_text(if matches!(ov.mode, Mode::Commands) { t!("Tapez pour filtrer… (# : ouvrir une vue)", "Type to filter… (#: open a view)") } else { t!("Tapez pour filtrer…", "Type to filter…") })
                             .font(egui::FontId::proportional(17.0))
                             // Tab completes the path: it must not also move the focus to the next widget
@@ -877,8 +877,8 @@ impl App {
         };
         let mut choice = None;
         // the rest of the window darkened and out of reach while the question is open
-        let screen = ctx.screen_rect();
-        egui::Area::new(egui::Id::new("confirm_backdrop"))
+        let screen = ctx.content_rect();
+        egui::Area::new(egui::Id::unique("confirm_backdrop"))
             .order(egui::Order::Middle)
             .fixed_pos(screen.min)
             .show(ctx, |ui| {
@@ -908,12 +908,12 @@ impl App {
         let (icon, icon_color) = if careful || no_loses { ("⚠", warn()) } else { ("?", accent) };
         modal_backdrop(ctx);
         egui::Window::new(title)
-            .id(egui::Id::new("confirm"))
+            .id(egui::Id::unique("confirm"))
             .title_bar(false)
             .collapsible(false)
             .resizable(false)
             .order(egui::Order::Foreground)
-            .frame(egui::Frame::window(&ctx.style()).inner_margin(egui::Margin::same(22.0)))
+            .frame(egui::Frame::window(&ctx.global_style()).inner_margin(egui::Margin::same(22)))
             .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
                 // a fixed width: the message (often a path) wraps the same way every time
@@ -973,7 +973,7 @@ impl App {
                 let focused = ui.ctx().memory(|m| m.focused());
                 match buttons.iter().find(|b| Some(b.id) == focused) {
                     Some(b) => {
-                        ui.painter().rect_stroke(b.rect.expand(3.0), 8.0, egui::Stroke::new(2.0_f32, accent));
+                        ui.painter().rect_stroke(b.rect.expand(3.0), 8.0, egui::Stroke::new(2.0_f32, accent), egui::StrokeKind::Middle);
                     }
                     None => {
                         let default = if careful { buttons.last() } else { buttons.first() };

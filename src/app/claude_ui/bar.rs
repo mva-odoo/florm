@@ -59,7 +59,7 @@ fn context_menu(ui: &mut egui::Ui, c: &mut ClaudeUi, a: &mut Acts) {
         ] {
             if ui.button(label).on_hover_text(tip).clicked() {
                 a.ctx_add = Some(what);
-                ui.close_menu();
+                ui.close();
             }
         }
         // the last commits of the folder of the conversation, read when the menu opens
@@ -72,7 +72,7 @@ fn context_menu(ui: &mut egui::Ui, c: &mut ClaudeUi, a: &mut Acts) {
                 for (hash, short, subject, ago) in &c.recent_commits {
                     if ui.button(format!("{short}  {subject}")).on_hover_text(tf!("{ago} — son message et son diff\n(aussi : clic droit sur un commit dans la vue Git)", "{ago} — its message and diff\n(also: right click on a commit in the Git view)")).clicked() {
                         a.ctx_add = Some(CtxAdd::Commit(hash.clone()));
-                        ui.close_menu();
+                        ui.close();
                     }
                 }
             });
@@ -84,7 +84,7 @@ fn context_menu(ui: &mut egui::Ui, c: &mut ClaudeUi, a: &mut Acts) {
             .on_disabled_hover_text(t!("Pas d'image dans le presse-papiers : fais une capture et rouvre ce menu", "No image in the clipboard: take a capture and open this menu again"));
         if clip.clicked() {
             a.clipboard = true;
-            ui.close_menu();
+            ui.close();
         }
         ui.label(RichText::new(tf!("Capture de l'écran dans le presse-papiers : {}", "Screen capture to the clipboard: {}", system_shot_keys())).small().weak());
         ui.separator();
@@ -149,9 +149,9 @@ pub(super) fn bar(ui: &mut egui::Ui, c: &mut ClaudeUi, accent: Color32, d: BarDa
     let BarData { dirs, dir_name, history, accounts, account_name, limits, side } = d;
     let mut a = Acts::default();
     let fill = ui.visuals().panel_fill;
-    egui::TopBottomPanel::top(egui::Id::new("claude_bar").with(c.id))
-        .frame(egui::Frame::none().fill(fill).inner_margin(egui::Margin { left: 10.0, right: 10.0, top: 8.0, bottom: 6.0 }))
-        .show_inside(ui, |ui| {
+    egui::Panel::top(egui::Id::unique("claude_bar").with(c.id))
+        .frame(egui::Frame::NONE.fill(fill).inner_margin(egui::Margin { left: 10, right: 10, top: 8, bottom: 6 }))
+        .show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.label(RichText::new("✳ Claude").strong().size(15.0).color(accent));
                 // its folder is set once something was said
@@ -178,14 +178,14 @@ pub(super) fn bar(ui: &mut egui::Ui, c: &mut ClaudeUi, accent: Color32, d: BarDa
                     for x in accounts {
                         if ui.selectable_label(x.name == account_name, &x.name).clicked() && x.name != account_name {
                             a.account = Some(x.name.clone());
-                            ui.close_menu();
+                            ui.close();
                         }
                     }
                     ui.separator();
                     let label = if accounts.len() > 1 { t!("Gérer les comptes…", "Manage the accounts…") } else { t!("+ Ajouter un compte…", "+ Add an account…") };
                     if ui.button(label).on_hover_text(t!("Préférences → Claude → Comptes Claude : un autre abonnement (pro, perso…), sa connexion, ses dossiers", "Preferences → Claude → Claude accounts: another subscription (work, personal…), its login, its folders")).clicked() {
                         a.manage_accounts = true;
-                        ui.close_menu();
+                        ui.close();
                     }
                 })
                 .response
@@ -200,7 +200,7 @@ pub(super) fn bar(ui: &mut egui::Ui, c: &mut ClaudeUi, accent: Color32, d: BarDa
                             ui.horizontal(|ui| {
                                 if ui.button(title).on_hover_text(t!("La rouvrir : Claude reprend avec son contexte", "Reopen it: Claude goes on with its context")).clicked() {
                                     a.open_saved = Some(*key);
-                                    ui.close_menu();
+                                    ui.close();
                                 }
                                 ui.label(RichText::new(info).small().weak());
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

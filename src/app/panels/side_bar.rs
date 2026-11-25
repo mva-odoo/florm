@@ -10,11 +10,11 @@ pub(super) fn sidebar_fill(v: &egui::Visuals) -> Color32 {
 impl App {
     /// Thin strip at the left edge while the sidebar is hidden, the room the editor's card has on
     /// its right (no more): lit under the pointer, a click brings the sidebar back.
-    pub(in crate::app) fn sidebar_strip(&mut self, ctx: &egui::Context) {
+    pub(in crate::app) fn sidebar_strip(&mut self, ui: &mut egui::Ui) {
         let bar = self.hl.tab_colors().bar;
-        egui::SidePanel::left("sidebar_strip").exact_width(6.0).resizable(false).show_separator_line(false).frame(egui::Frame::none().fill(bar)).show(ctx, |ui| {
+        egui::Panel::left("sidebar_strip").exact_size(6.0).resizable(false).show_separator_line(false).frame(egui::Frame::NONE.fill(bar)).show(ui, |ui| {
             let rect = ui.max_rect();
-            let r = ui.interact(rect, egui::Id::new("sidebar_strip_btn"), Sense::click());
+            let r = ui.interact(rect, egui::Id::unique("sidebar_strip_btn"), Sense::click());
             if r.hovered() {
                 ui.painter().rect_filled(rect.shrink2(egui::vec2(1.5, 0.0)), 2.0, self.hl.colors.accent.gamma_multiply(0.6));
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -25,21 +25,24 @@ impl App {
         });
     }
 
-    pub(in crate::app) fn sidebar(&mut self, ctx: &egui::Context) {
+    pub(in crate::app) fn sidebar(&mut self, ui: &mut egui::Ui) {
+        let ctx = &ui.ctx().clone();
         let mut tree_action = None;
-        let panel = sidebar_fill(&ctx.style().visuals);
+        let panel = sidebar_fill(&ctx.global_style().visuals);
         let tc = self.hl.tab_colors();
-        let shown = egui::SidePanel::left("sidebar")
+        // the width fitted at the last frame (double click on its border), kept by egui from then on
+        let fit_to = ctx.data_mut(|d| d.remove_temp::<f32>(egui::Id::unique("sidebar_fit")));
+        let shown = egui::Panel::left("sidebar")
             .resizable(true)
-            .default_width(260.0)
-            .width_range(150.0..=700.0)
+            .default_size(260.0)
+            .size_range(fit_to.map_or(150.0..=700.0, |w| w..=w))
             // flat, a shade apart from the editor, a thin line between them
             .show_separator_line(false)
-            .frame(egui::Frame::none().fill(panel))
-            .show(ctx, |ui| {
+            .frame(egui::Frame::NONE.fill(panel))
+            .show(ui, |ui| {
             let edge = ui.max_rect();
             ui.painter().vline(edge.right() - 0.5, edge.y_range(), egui::Stroke::new(1.0_f32, tc.border));
-            let card = egui::Frame::none().inner_margin(egui::Margin { left: 4.0, right: 4.0, top: 6.0, bottom: 4.0 });
+            let card = egui::Frame::NONE.inner_margin(egui::Margin { left: 4, right: 4, top: 6, bottom: 4 });
             card.show(ui, |ui| {
             ui.set_min_size(ui.available_size());
             // what is drawn inside (sticky folders, icons) on the same background
@@ -81,10 +84,7 @@ impl App {
         if fit {
             if let Some(tree) = self.tree.as_ref() {
                 let width = sidebar::fit_width(ctx, tree).clamp(150.0, 700.0);
-                let r = shown.response.rect;
-                // the panel's width is kept by egui between frames: this one is the next frame's
-                let rect = egui::Rect::from_min_max(r.min, egui::pos2(r.min.x + width, r.max.y));
-                ctx.data_mut(|d| d.insert_persisted(egui::Id::new("sidebar"), egui::containers::panel::PanelState { rect }));
+                ctx.data_mut(|d| d.insert_temp(egui::Id::unique("sidebar_fit"), width));
                 ctx.request_repaint();
             }
         }
@@ -107,7 +107,7 @@ impl App {
             TreeAction::Rename(p) => self.open_prompt(Prompt::Rename(p)),
             TreeAction::Move(src, dir) => self.move_entry(src, dir),
             TreeAction::Delete(p) => self.confirm = Some(Confirm::Delete(p)),
-            TreeAction::CopyPath(p) => ctx.output_mut(|o| o.copied_text = p.display().to_string()),
+            TreeAction::CopyPath(p) => ctx.copy_text(p.display().to_string()),
             TreeAction::Reveal(p) => self.reveal(&p),
             TreeAction::Terminal(d) => {
                 let shell = self.term_shell();

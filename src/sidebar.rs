@@ -51,7 +51,7 @@ pub struct Nav {
 const ROW_H: f32 = 26.0;
 
 pub fn tree_id() -> Id {
-    Id::new("florm_tree")
+    Id::unique("florm_tree")
 }
 
 pub struct Node {
@@ -324,7 +324,7 @@ pub fn fit_width(ctx: &egui::Context, root: &Node) -> f32 {
     let mut rows = Vec::new();
     root.visible(&mut rows);
     let font = FontId::proportional(14.0);
-    let longest = ctx.fonts(|f| {
+    let longest = ctx.fonts_mut(|f| {
         rows.iter()
             .map(|(path, _, _)| {
                 let depth = path.strip_prefix(&root.path).map_or(0, |r| r.components().count().saturating_sub(1));
@@ -372,15 +372,15 @@ pub fn show(
     bg.context_menu(|ui| {
         if ui.button(t!("Nouveau fichier…", "New file…")).clicked() {
             act = Some(TreeAction::NewFile(root.path.clone()));
-            ui.close_menu();
+            ui.close();
         }
         if ui.button(t!("Nouveau dossier…", "New folder…")).clicked() {
             act = Some(TreeAction::NewFolder(root.path.clone()));
-            ui.close_menu();
+            ui.close();
         }
         if ui.button(t!("Coller", "Paste")).clicked() {
             act = Some(TreeAction::Paste(root.path.clone()));
-            ui.close_menu();
+            ui.close();
         }
     });
     if std::mem::take(&mut nav.focus) || bg.clicked() {
@@ -433,7 +433,7 @@ pub fn show(
                     let logo = match app_menu {
                         Some(menus) => {
                             let b = egui::Button::new("").frame(false).min_size(egui::vec2(16.0, 16.0));
-                            let r = egui::menu::menu_custom_button(ui, b, |ui| menus(ui)).response;
+                            let r = egui::containers::menu::MenuButton::from_button(b).ui(ui, |ui| menus(ui)).0;
                             let r = r.on_hover_cursor(CursorIcon::PointingHand).on_hover_text(t!("Menus (Fichier, Édition, Git…)", "Menus (File, Edit, Git…)"));
                             if r.hovered() {
                                 ui.painter().rect_filled(r.rect.expand(3.0), 4.0, ui.visuals().widgets.hovered.weak_bg_fill);
@@ -462,12 +462,12 @@ pub fn show(
             }
         };
         let r = r.on_hover_cursor(CursorIcon::PointingHand).on_hover_text(t!("Changer de projet (Ctrl+Alt+P)", "Switch project (Ctrl+Alt+P)"));
-        let popup = Id::new("project_menu");
+        let popup = Id::unique("project_menu");
         if r.clicked() {
-            ui.memory_mut(|m| m.toggle_popup(popup));
+            egui::Popup::toggle_id(ui.ctx(), popup);
         }
         // clicks in its filter field must not close it
-        let shown = egui::popup_below_widget(ui, popup, &r, egui::PopupCloseBehavior::CloseOnClickOutside, |ui| {
+        let shown = egui::Popup::from_response(&r).id(popup).open_memory(None).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
             ui.set_min_width(260.0);
             ui.label(RichText::new(t!("Projets", "Projects")).small().weak());
             let names: Vec<String> = projects.iter().map(|(n, _)| n.clone()).collect();
@@ -476,12 +476,12 @@ pub fn show(
                 if Some(k) != current {
                     act = Some(TreeAction::SwitchProject(projects[k].1.clone()));
                 }
-                ui.memory_mut(|m| m.close_popup());
+                egui::Popup::close_id(ui.ctx(), popup);
             }
             ui.separator();
             if ui.button(t!("Ouvrir un dossier…", "Open a folder…")).clicked() {
                 act = Some(TreeAction::OpenFolder);
-                ui.memory_mut(|m| m.close_popup());
+                egui::Popup::close_id(ui.ctx(), popup);
             }
         });
         // its filter starts empty at the next opening
@@ -515,7 +515,7 @@ pub fn show(
     if let Some(p) = DragAndDrop::payload::<PathBuf>(ui.ctx()) {
         ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
         let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        egui::show_tooltip_at_pointer(ui.ctx(), ui.layer_id(), Id::new("florm_dnd"), |ui| ui.label(tf!("Déplacer {name}", "Move {name}")));
+        egui::Tooltip::always_open(ui.ctx().clone(), ui.layer_id(), Id::unique("florm_dnd"), egui::PopupAnchor::Pointer).show(|ui| ui.label(tf!("Déplacer {name}", "Move {name}")));
     }
     act
 }
@@ -599,7 +599,7 @@ fn drop_target(ui: &Ui, r: &egui::Response, dir: &Path, act: &mut Option<TreeAct
     let valid = |src: &Path| src != dir && !dir.starts_with(src) && src.parent() != Some(dir);
     if let Some(src) = r.dnd_hover_payload::<PathBuf>() {
         if valid(&src) {
-            ui.painter().rect_stroke(r.rect.expand(1.0), 2.0, Stroke::new(1.5_f32, ui.visuals().selection.stroke.color));
+            ui.painter().rect_stroke(r.rect.expand(1.0), 2.0, Stroke::new(1.5_f32, ui.visuals().selection.stroke.color), egui::StrokeKind::Middle);
         }
     }
     if let Some(src) = r.dnd_release_payload::<PathBuf>() {
@@ -641,7 +641,7 @@ fn node_ui(
     let selected = !node.is_dir && active == Some(node.path.as_path());
     // the id of the row is its path: the rows skipped above do not change it (hover, drag)
     let (_, rect) = ui.allocate_space(egui::vec2(ui.available_width(), ROW_H));
-    let r = ui.interact(rect, Id::new(("tree_row", &node.path)), Sense::click_and_drag());
+    let r = ui.interact(rect, Id::unique(("tree_row", &node.path)), Sense::click_and_drag());
     if scroll_to.as_deref() == Some(node.path.as_path()) {
         r.scroll_to_me(Some(egui::Align::Center));
         *scroll_to = None;
@@ -655,7 +655,7 @@ fn node_ui(
         ui.painter().rect_filled(rect, 0.0, v.widgets.hovered.weak_bg_fill);
     }
     if cursor == Some(node.path.as_path()) {
-        ui.painter().rect_stroke(rect.shrink(0.5), 0.0, Stroke::new(1.0_f32, v.selection.stroke.color));
+        ui.painter().rect_stroke(rect.shrink(0.5), 0.0, Stroke::new(1.0_f32, v.selection.stroke.color), egui::StrokeKind::Middle);
     }
     let painter = ui.painter().with_clip_rect(rect);
     let cy = rect.center().y;
@@ -899,7 +899,7 @@ fn sticky(ui: &mut Ui, root: &Node, rows_top: f32, act: &mut Option<TreeAction>)
     for (s, (i, path, push)) in stack.iter().enumerate().rev() {
         let top = view.top() + s as f32 * ROW_H + push;
         let rect = Rect::from_min_max(Pos2::new(ui.max_rect().left(), top), Pos2::new(ui.max_rect().right(), top + ROW_H));
-        let r = ui.interact(rect, Id::new(("tree_sticky", path)), Sense::click());
+        let r = ui.interact(rect, Id::unique(("tree_sticky", path)), Sense::click());
         let painter = ui.painter().with_clip_rect(view);
         painter.rect_filled(rect, 0.0, bg);
         if r.hovered() {
@@ -953,7 +953,7 @@ fn menu(ui: &mut Ui, path: &Path, is_dir: bool, excluded: Option<bool>, act: &mu
     let dir = if is_dir { path.to_path_buf() } else { path.parent().map(Path::to_path_buf).unwrap_or_default() };
     let mut pick = |a: TreeAction, ui: &mut Ui| {
         *act = Some(a);
-        ui.close_menu();
+        ui.close();
     };
     if ui.button(t!("Nouveau fichier…", "New file…")).clicked() {
         pick(TreeAction::NewFile(dir.clone()), ui);
@@ -982,7 +982,7 @@ fn menu(ui: &mut Ui, path: &Path, is_dir: bool, excluded: Option<bool>, act: &mu
         pick(TreeAction::CopyPath(path.to_path_buf()), ui);
     }
     // compare: this one first, then "compare with" on the other (two files or two folders)
-    let first_id = Id::new("tree_compare_first");
+    let first_id = Id::unique("tree_compare_first");
     let first: Option<PathBuf> = ui.data(|d| d.get_temp(first_id));
     if let Some(f) = first.filter(|f| f != path && f.is_dir() == is_dir) {
         let name = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
@@ -994,7 +994,7 @@ fn menu(ui: &mut Ui, path: &Path, is_dir: bool, excluded: Option<bool>, act: &mu
     let what = if is_dir { t!("⇄ Choisir ce dossier pour comparer", "⇄ Select this folder to compare") } else { t!("⇄ Choisir ce fichier pour comparer", "⇄ Select this file to compare") };
     if ui.button(what).on_hover_text(t!("Puis clic droit sur l'autre → Comparer avec", "Then right click the other one → Compare with")).clicked() {
         ui.data_mut(|d| d.insert_temp(first_id, path.to_path_buf()));
-        ui.close_menu();
+        ui.close();
     }
     if ui.button(t!("Afficher dans le gestionnaire de fichiers", "Show in the file manager")).clicked() {
         pick(TreeAction::Reveal(path.to_path_buf()), ui);
@@ -1148,8 +1148,8 @@ mod tests {
             let mut input = egui::RawInput::default();
             input.events.push(egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() });
             let mut out = None;
-            let _ = ctx.run(input, |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| out = keyboard(ui, tree, nav, &mut scroll));
+            let _ = crate::run_ui(&ctx, input, |ui| {
+                egui::CentralPanel::default().show(ui, |ui| out = keyboard(ui, tree, nav, &mut scroll));
             });
             out
         };

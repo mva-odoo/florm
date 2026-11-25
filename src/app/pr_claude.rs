@@ -25,7 +25,7 @@ pub(super) fn to_claude_bar(ui: &mut egui::Ui, d: &github::PrDetail, ticked: &mu
     // those resolved since are no longer handled
     ticked.retain(|id| open.contains(&id.as_str()));
     ui.add_space(4.0);
-    egui::Frame::none().fill(ui.visuals().faint_bg_color).rounding(6.0).inner_margin(egui::Margin::symmetric(10.0, 6.0)).show(ui, |ui| {
+    egui::Frame::NONE.fill(ui.visuals().faint_bg_color).corner_radius(6.0).inner_margin(egui::Margin::symmetric(10, 6)).show(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
             let mut all = ticked.len() == open.len();
             if ui.checkbox(&mut all, t!("Tous", "All")).on_hover_text(t!("Cocher toutes les conversations non résolues", "Tick every unresolved conversation")).changed() {

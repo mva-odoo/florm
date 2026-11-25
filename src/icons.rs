@@ -140,7 +140,7 @@ pub fn paint_search(painter: &Painter, center: Pos2, color: Color32) {
 /// Small terminal window with a `>_` prompt (terminal button).
 pub fn paint_terminal(painter: &Painter, center: Pos2, color: Color32) {
     let r = Rect::from_center_size(center, Vec2::new(15.0, 12.0));
-    painter.rect_stroke(r, 2.0, Stroke::new(1.3_f32, color));
+    painter.rect_stroke(r, 2.0, Stroke::new(1.3_f32, color), eframe::egui::StrokeKind::Middle);
     let (x, y) = (r.left() + 3.5, r.center().y);
     painter.add(Shape::line(vec![Pos2::new(x, y - 2.5), Pos2::new(x + 2.5, y), Pos2::new(x, y + 2.5)], Stroke::new(1.3_f32, color)));
     painter.line_segment([Pos2::new(x + 4.5, y + 2.5), Pos2::new(x + 8.0, y + 2.5)], Stroke::new(1.3_f32, color));
@@ -246,7 +246,7 @@ pub fn paint_view(painter: &Painter, center: Pos2, icon: ViewIcon, color: Color3
         ViewIcon::Output => {
             // page of text lines
             let r = Rect::from_center_size(center, Vec2::new(11.0, 13.0));
-            painter.rect_stroke(r, 1.5, st);
+            painter.rect_stroke(r, 1.5, st, eframe::egui::StrokeKind::Middle);
             for (k, w) in [7.0_f32, 5.0, 6.0].into_iter().enumerate() {
                 let y = r.top() + 3.5 + k as f32 * 3.0;
                 painter.line_segment([Pos2::new(r.left() + 2.5, y), Pos2::new(r.left() + 2.5 + w * 0.85, y)], Stroke::new(1.1_f32, color));
@@ -315,15 +315,15 @@ pub fn paint_layout(p: &Painter, c: Pos2, kind: Layout, color: Color32) {
             }
         }
         Layout::ToTab => {
-            p.rect_stroke(win, 2.0, stroke);
+            p.rect_stroke(win, 2.0, stroke, eframe::egui::StrokeKind::Middle);
             p.rect_filled(Rect::from_min_max(win.min, Pos2::new(win.min.x + 6.0, win.min.y + 3.5)), 1.0, color);
         }
         Layout::ToBottom => {
-            p.rect_stroke(win, 2.0, stroke);
+            p.rect_stroke(win, 2.0, stroke, eframe::egui::StrokeKind::Middle);
             p.rect_filled(Rect::from_min_max(Pos2::new(win.min.x, win.max.y - 4.5), win.max), 1.0, fill);
         }
         Layout::SidePanel(shown) => {
-            p.rect_stroke(win, 2.0, stroke);
+            p.rect_stroke(win, 2.0, stroke, eframe::egui::StrokeKind::Middle);
             let x = win.max.x - 5.0;
             if shown {
                 p.rect_filled(Rect::from_min_max(Pos2::new(x, win.min.y), win.max), 1.0, fill);

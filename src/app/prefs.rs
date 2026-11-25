@@ -27,9 +27,9 @@ fn theme_card(ui: &mut egui::Ui, name: &str, pv: &highlight::ThemePreview, selec
     p.rect_filled(egui::Rect::from_min_size(egui::pos2(rect.right() - 26.0, rect.top() + 10.0), egui::vec2(16.0, 16.0)), 8.0, pv.accent);
     let band = egui::Rect::from_min_max(egui::pos2(rect.left(), rect.bottom() - 26.0), rect.max);
     let band_bg = icons::mix(pv.bg, pv.fg, 0.08);
-    p.rect_filled(band, egui::Rounding { nw: 0.0, ne: 0.0, sw: 8.0, se: 8.0 }, band_bg);
+    p.rect_filled(band, egui::CornerRadius { nw: 0, ne: 0, sw: 8, se: 8 }, band_bg);
     p.with_clip_rect(band.shrink(4.0)).text(band.left_center() + egui::vec2(10.0, 0.0), Align2::LEFT_CENTER, name, egui::FontId::proportional(12.5), pv.fg);
-    p.rect_stroke(rect, 8.0, stroke);
+    p.rect_stroke(rect, 8.0, stroke, egui::StrokeKind::Middle);
     resp
 }
 
@@ -170,11 +170,11 @@ fn pref_row_wide(ui: &mut egui::Ui, rc: &mut RowCtx, title: &str, desc: &str, co
 impl App {
     pub(super) fn prefs_ui(&mut self, ui: &mut egui::Ui) {
         let panel = ui.visuals().panel_fill;
-        egui::SidePanel::left("prefs_nav")
-            .exact_width(210.0)
+        egui::Panel::left("prefs_nav")
+            .exact_size(210.0)
             .resizable(false)
-            .frame(egui::Frame::none().fill(panel).inner_margin(egui::Margin::symmetric(12.0, 16.0)))
-            .show_inside(ui, |ui| {
+            .frame(egui::Frame::NONE.fill(panel).inner_margin(egui::Margin::symmetric(12, 16)))
+            .show(ui, |ui| {
                 ui.label(RichText::new(t!("Préférences", "Preferences")).size(19.0).strong());
                 ui.add_space(12.0);
                 for (sec, fr, en) in PREF_SECTIONS {
@@ -203,8 +203,8 @@ impl App {
                 }
             });
         egui::CentralPanel::default()
-            .frame(egui::Frame::none().fill(self.hl.colors.bg).inner_margin(egui::Margin::symmetric(28.0, 18.0)))
-            .show_inside(ui, |ui| {
+            .frame(egui::Frame::NONE.fill(self.hl.colors.bg).inner_margin(egui::Margin::symmetric(28, 18)))
+            .show(ui, |ui| {
                 crate::input::add(ui,
                     egui::TextEdit::singleline(&mut self.prefs.filter)
                         .hint_text(t!("Rechercher un réglage…", "Search a setting…"))
@@ -795,10 +795,10 @@ impl App {
                     rc.header(ui);
                     let other = self.keymap.lookup_seq(seq);
                     let name = |c: Cmd| self.cmd_name(c);
-                    egui::Frame::none()
+                    egui::Frame::NONE
                         .stroke(egui::Stroke::new(1.0_f32, warn()))
-                        .rounding(8.0)
-                        .inner_margin(egui::Margin::same(10.0))
+                        .corner_radius(8.0)
+                        .inner_margin(egui::Margin::same(10))
                         .show(ui, |ui| {
                             ui.label(tf!(
                                 "« {} » est déjà utilisé par « {} ». L'attribuer à « {} » ?",

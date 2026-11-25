@@ -341,9 +341,9 @@ impl App {
         let cache = &mut self.md_cache;
 
         // ------------------------------------------------ filters
-        egui::TopBottomPanel::top("pr_bar")
-            .frame(egui::Frame::none().fill(fill).inner_margin(egui::Margin { left: 10.0, right: 10.0, top: 8.0, bottom: 6.0 }))
-            .show_inside(ui, |ui| {
+        egui::Panel::top("pr_bar")
+            .frame(egui::Frame::NONE.fill(fill).inner_margin(egui::Margin { left: 10, right: 10, top: 8, bottom: 6 }))
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     crate::view_bar::title(ui, "Pull requests");
                     let labels: Vec<String> = repo_choices.iter().map(|(_, l)| l.clone()).collect();
@@ -379,7 +379,7 @@ impl App {
             });
 
         // one of the two can take all the room (the pull request only when one is shown)
-        let view = egui::Id::new("pr_view");
+        let view = egui::Id::unique("pr_view");
         let mut maxed = maximize::maxed(ui.ctx(), view);
         let shown = matches!(p.detail, Some(Ok(_)));
         if maxed == Some("detail") && !shown && !p.detail_loading {
@@ -433,14 +433,14 @@ impl App {
         };
         match maxed {
             Some("list") => {
-                crate::app::work_panel(ui).show_inside(ui, |ui| {
+                crate::app::work_panel(ui).show(ui, |ui| {
                     list_ui(ui);
                     maximize::corner(ui, view, "list");
                 });
             }
             Some("detail") => {}
             _ => {
-                egui::SidePanel::left("pr_list").resizable(true).default_width(380.0).width_range(240.0..=700.0).show_inside(ui, |ui| {
+                egui::Panel::left("pr_list").resizable(true).default_size(380.0).size_range(240.0..=700.0).show(ui, |ui| {
                     list_ui(ui);
                     if shown {
                         maximize::corner(ui, view, "list");
@@ -451,7 +451,7 @@ impl App {
 
         // ------------------------------------------------ the selected pull request
         if maxed != Some("list") {
-            crate::app::work_panel(ui).show_inside(ui, |ui| {
+            crate::app::work_panel(ui).show(ui, |ui| {
                 let d = match &p.detail {
                     None if p.detail_loading => {
                         spinner(ui);
@@ -565,7 +565,7 @@ impl App {
                 match p.section {
                     PrSection::Conversation => {
                         // reviewers and assignees on the right, like on GitHub
-                        egui::SidePanel::right("pr_side").resizable(true).default_width(230.0).width_range(170.0..=420.0).show_inside(ui, |ui| {
+                        egui::Panel::right("pr_side").resizable(true).default_size(230.0).size_range(170.0..=420.0).show(ui, |ui| {
                             egui::ScrollArea::vertical().id_salt("pr_side_scroll").auto_shrink([false, false]).show(ui, |ui| {
                                 side_info(ui, d);
                             });
@@ -663,11 +663,11 @@ impl App {
                     PrSection::Commits => {
                         // the commits on top, the changes of the one chosen below
                         let avail = ui.available_height();
-                        egui::TopBottomPanel::top("pr_commit_list")
+                        egui::Panel::top("pr_commit_list")
                             .resizable(true)
-                            .default_height((avail * 0.3).max(90.0))
-                            .height_range(60.0..=(avail - 120.0).max(80.0))
-                            .show_inside(ui, |ui| {
+                            .default_size((avail * 0.3).max(90.0))
+                            .size_range(60.0..=(avail - 120.0).max(80.0))
+                            .show(ui, |ui| {
                                 egui::ScrollArea::vertical().id_salt("pr_commits").auto_shrink([false, false]).show(ui, |ui| {
                                     ui.spacing_mut().item_spacing.y = 0.0;
                                     for c in d.commits.iter().rev() {
@@ -680,18 +680,18 @@ impl App {
                                         r.context_menu(|ui| {
                                             if ui.button(t!("Voir dans la vue Git", "Show in the Git view")).clicked() {
                                                 act = Some(PrAct::CommitInGit(c.oid.clone()));
-                                                ui.close_menu();
+                                                ui.close();
                                             }
                                             if ui.button(t!("Copier le hash", "Copy the hash")).clicked() {
                                                 ui.ctx().copy_text(c.oid.clone());
                                                 act = Some(PrAct::Copied(c.oid[..c.oid.len().min(8)].to_string()));
-                                                ui.close_menu();
+                                                ui.close();
                                             }
                                         });
                                     }
                                 });
                             });
-                        egui::CentralPanel::default().frame(egui::Frame::none().inner_margin(egui::Margin { top: 6.0, ..Default::default() })).show_inside(ui, |ui| {
+                        egui::CentralPanel::default().frame(egui::Frame::NONE.inner_margin(egui::Margin { top: 6, ..Default::default() })).show(ui, |ui| {
                             let Some(sha) = &p.commit else {
                                 ui.add_space(20.0);
                                 ui.vertical_centered(|ui| ui.label(RichText::new(t!("Choisis un commit : ses changements à lui seul s'affichent ici", "Choose a commit: its changes alone show here")).weak()));
@@ -713,7 +713,7 @@ impl App {
                             });
                             // the whole message, not only its first line
                             if let Some(body) = commit.map(|c| c.message_body.trim()).filter(|b| !b.is_empty()) {
-                                egui::Frame::none().fill(ui.visuals().faint_bg_color).rounding(4.0).inner_margin(egui::Margin::symmetric(10.0, 6.0)).show(ui, |ui| {
+                                egui::Frame::NONE.fill(ui.visuals().faint_bg_color).corner_radius(4.0).inner_margin(egui::Margin::symmetric(10, 6)).show(ui, |ui| {
                                     ui.set_width(ui.available_width());
                                     egui::ScrollArea::vertical().id_salt(("pr_commit_body", sha)).max_height(180.0).show(ui, |ui| {
                                         ui.add(egui::Label::new(RichText::new(body).monospace().size(12.5)).wrap());
@@ -991,7 +991,7 @@ fn diff_area(ui: &mut egui::Ui, id: &str, pd: &mut PrDiff, threads: &[github::Th
         }
         return None;
     };
-    egui::SidePanel::left(egui::Id::new(id).with("files")).resizable(true).default_width(300.0).width_range(180.0..=600.0).show_inside(ui, |ui| {
+    egui::Panel::left(egui::Id::unique(id).with("files")).resizable(true).default_size(300.0).size_range(180.0..=600.0).show(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 0.0;
         // only the rows in sight (a big pull request has hundreds of files)
         egui::ScrollArea::vertical().id_salt((id, "files_scroll")).auto_shrink([false, false]).show_rows(ui, 24.0, diff.files.len(), |ui, range| {
@@ -1025,8 +1025,8 @@ fn diff_area(ui: &mut egui::Ui, id: &str, pd: &mut PrDiff, threads: &[github::Th
         });
     });
     egui::CentralPanel::default()
-        .frame(egui::Frame::none().inner_margin(egui::Margin { left: 6.0, ..Default::default() }))
-        .show_inside(ui, |ui| {
+        .frame(egui::Frame::NONE.inner_margin(egui::Margin { left: 6, ..Default::default() }))
+        .show(ui, |ui| {
             let file_buttons: &[history::DiffButton] = &[(t!("Ouvrir", "Open"), t!("Ouvrir le fichier (tel qu'il est dans tes fichiers)", "Open the file (as it is in your files)"), DiffAct::Open)];
             let jump = pd.jump.take();
             history::stacked_diff_view(ui, &diff.lines, &diff.files, &mut pd.collapsed, id, &[], file_buttons, jump, notes)
@@ -1038,7 +1038,7 @@ fn diff_area(ui: &mut egui::Ui, id: &str, pd: &mut PrDiff, threads: &[github::Th
 fn quick_menu(ui: &mut egui::Ui, n: u64, url: &str, in_list: bool, act: &mut Option<PrAct>) {
     let mut pick = |a: PrAct, ui: &mut egui::Ui| {
         *act = Some(a);
-        ui.close_menu();
+        ui.close();
     };
     if in_list && ui.button(t!("Ouvrir", "Open")).clicked() {
         pick(PrAct::Select(n), ui);
@@ -1092,12 +1092,12 @@ fn merge_box(ui: &mut egui::Ui, d: &github::PrDetail, method: &mut usize, delete
     } else {
         (icons::mix(v.panel_fill, color, 0.06), icons::mix(v.panel_fill, color, 0.45))
     };
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(fill)
         .stroke(egui::Stroke::new(1.0_f32, edge))
-        .rounding(8.0)
-        .inner_margin(egui::Margin::same(10.0))
-        .outer_margin(egui::Margin { bottom: 8.0, ..Default::default() })
+        .corner_radius(8.0)
+        .inner_margin(egui::Margin::same(10))
+        .outer_margin(egui::Margin { bottom: 8, ..Default::default() })
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             let review = match (d.state.as_str(), d.review_decision.as_str()) {
@@ -1217,7 +1217,7 @@ fn merge_box(ui: &mut egui::Ui, d: &github::PrDetail, method: &mut usize, delete
                         ui.menu_button(t!("⟳ Mettre à jour la branche", "⟳ Update the branch"), |ui| {
                             if ui.button(tf!("Fusionner {base} dedans", "Merge {base} into it")).on_hover_text("gh pr update-branch").clicked() {
                                 *act = Some(gh(t!("Branche mise à jour", "Branch updated"), &[], "update-branch"));
-                                ui.close_menu();
+                                ui.close();
                             }
                             if ui.button(tf!("Rebaser sur {base}", "Rebase onto {base}")).on_hover_text("gh pr update-branch --rebase").clicked() {
                                 *act = Some(PrAct::Ask {
@@ -1227,7 +1227,7 @@ fn merge_box(ui: &mut egui::Ui, d: &github::PrDetail, method: &mut usize, delete
                                     label: t!("Branche rebasée", "Branch rebased").into(),
                                     cmds: vec![github::pr_args("update-branch", n, &["--rebase"])],
                                 });
-                                ui.close_menu();
+                                ui.close();
                             }
                         });
                         if !d.is_draft && ui.add_enabled(!busy, egui::Button::new(t!("Repasser en brouillon", "Back to draft"))).on_hover_text("gh pr ready --undo").clicked() {
@@ -1325,7 +1325,7 @@ fn pr_row(ui: &mut egui::Ui, pr: &github::PrSummary, selected: bool, accent: Col
     };
     job.append(&rest, 0.0, egui::TextFormat::simple(font, v.strong_text_color()));
     job.wrap = egui::text::TextWrapping { max_width: title_w.max(40.0), max_rows: 2, break_anywhere: false, overflow_character: Some('…') };
-    let title = ui.fonts(|f| f.layout_job(job));
+    let title = ui.fonts_mut(|f| f.layout_job(job));
     let h = title.size().y + 30.0;
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(width, h), Sense::click());
     if selected {
@@ -1436,8 +1436,8 @@ fn pr_tab(ui: &mut egui::Ui, label: &str, count: usize, chosen: bool, alert: boo
     let font = egui::FontId::proportional(14.0);
     let small = egui::FontId::proportional(11.5);
     let text_color = if chosen { v.strong_text_color() } else { v.text_color() };
-    let name = ui.fonts(|f| f.layout_no_wrap(label.to_string(), font, text_color));
-    let num = ui.fonts(|f| f.layout_no_wrap(count.to_string(), small, if alert { text_on(accent) } else { v.text_color() }));
+    let name = ui.fonts_mut(|f| f.layout_no_wrap(label.to_string(), font, text_color));
+    let num = ui.fonts_mut(|f| f.layout_no_wrap(count.to_string(), small, if alert { text_on(accent) } else { v.text_color() }));
     let pill = egui::vec2(num.size().x + 12.0, 18.0);
     let size = egui::vec2(12.0 + name.size().x + 6.0 + pill.x + 12.0, 34.0);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
@@ -1459,13 +1459,13 @@ fn pr_tab(ui: &mut egui::Ui, label: &str, count: usize, chosen: bool, alert: boo
 /// The state of the pull request in a full rounded pill, as on GitHub (« Ouverte » on green).
 fn state_pill(ui: &mut egui::Ui, text: &str, color: Color32) {
     let text = RichText::new(text).strong().color(text_on(color));
-    ui.add(egui::Button::new(text).fill(color).rounding(14.0).sense(Sense::hover()).min_size(egui::vec2(0.0, 26.0)));
+    ui.add(egui::Button::new(text).fill(color).corner_radius(14.0).sense(Sense::hover()).min_size(egui::vec2(0.0, 26.0)));
 }
 
 /// A branch name in monospace on a light tint of the accent, as on GitHub.
 fn branch_pill(ui: &mut egui::Ui, name: &str, accent: Color32) -> egui::Response {
     let bg = icons::mix(ui.visuals().panel_fill, accent, if ui.visuals().dark_mode { 0.22 } else { 0.12 });
-    ui.add(egui::Button::new(RichText::new(name).monospace().color(accent)).fill(bg).stroke(egui::Stroke::NONE).rounding(6.0))
+    ui.add(egui::Button::new(RichText::new(name).monospace().color(accent)).fill(bg).stroke(egui::Stroke::NONE).corner_radius(6.0))
 }
 
 fn badge(ui: &mut egui::Ui, text: &str, color: Color32) {
@@ -1490,15 +1490,15 @@ fn comment_block(ui: &mut egui::Ui, author: &str, date: &str, tag: Option<(&str,
     {
         let v = ui.visuals().clone();
         let edge = v.widgets.noninteractive.bg_stroke.color;
-        egui::Frame::none().fill(v.extreme_bg_color).stroke(egui::Stroke::new(1.0_f32, edge)).rounding(6.0).show(ui, |ui| {
+        egui::Frame::NONE.fill(v.extreme_bg_color).stroke(egui::Stroke::new(1.0_f32, edge)).corner_radius(6.0).show(ui, |ui| {
             ui.set_width(ui.available_width());
             // the band above the body (the frame is in a row: it would put them side by side)
             ui.vertical(|ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
-            let band = egui::Frame::none()
+            let band = egui::Frame::NONE
                 .fill(v.panel_fill)
-                .rounding(egui::Rounding { nw: 6.0, ne: 6.0, sw: 0.0, se: 0.0 })
-                .inner_margin(egui::Margin::symmetric(12.0, 6.0))
+                .corner_radius(egui::CornerRadius { nw: 6, ne: 6, sw: 0, se: 0 })
+                .inner_margin(egui::Margin::symmetric(12, 6))
                 .show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     ui.horizontal_wrapped(|ui| {
@@ -1515,7 +1515,7 @@ fn comment_block(ui: &mut egui::Ui, author: &str, date: &str, tag: Option<(&str,
                     });
                 });
             ui.painter().hline(band.response.rect.x_range(), band.response.rect.bottom(), egui::Stroke::new(1.0_f32, edge));
-            egui::Frame::none().inner_margin(egui::Margin::symmetric(12.0, 10.0)).show(ui, |ui| {
+            egui::Frame::NONE.inner_margin(egui::Margin::symmetric(12, 10)).show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 4.0;
                 ui.set_max_width(ui.available_width());
                 body(ui)
@@ -1647,19 +1647,19 @@ fn thread_ui(
     let start = t.start_line.unwrap_or(line);
     let v = ui.visuals().clone();
     let edge = v.widgets.noninteractive.bg_stroke.color;
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(v.extreme_bg_color)
         .stroke(egui::Stroke::new(1.0_f32, edge))
-        .rounding(6.0)
-        .outer_margin(egui::Margin { left: 0.0, right: 0.0, top: 4.0, bottom: 4.0 })
+        .corner_radius(6.0)
+        .outer_margin(egui::Margin { left: 0, right: 0, top: 4, bottom: 4 })
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.spacing_mut().item_spacing.y = 0.0;
             // header: the file and lines, its state
-            let head = egui::Frame::none()
+            let head = egui::Frame::NONE
                 .fill(v.panel_fill)
-                .rounding(egui::Rounding { nw: 6.0, ne: 6.0, sw: 0.0, se: 0.0 })
-                .inner_margin(egui::Margin::symmetric(10.0, 6.0))
+                .corner_radius(egui::CornerRadius { nw: 6, ne: 6, sw: 0, se: 0 })
+                .inner_margin(egui::Margin::symmetric(10, 6))
                 .show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     ui.horizontal(|ui| {
@@ -1677,7 +1677,7 @@ fn thread_ui(
                     });
                 });
             ui.painter().hline(head.response.rect.x_range(), head.response.rect.bottom() - 0.5, egui::Stroke::new(1.0_f32, edge));
-            egui::Frame::none().inner_margin(egui::Margin::symmetric(12.0, 10.0)).show(ui, |ui| {
+            egui::Frame::NONE.inner_margin(egui::Margin::symmetric(12, 10)).show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.spacing_mut().item_spacing.y = 4.0;
                 // in the diff, the code is just above
@@ -1724,13 +1724,13 @@ fn suggestion_ui(
     let old = github::commented_lines(&c.diff_hunk, line - start + 1);
     let v = ui.visuals().clone();
     let base = v.extreme_bg_color;
-    egui::Frame::none()
+    egui::Frame::NONE
         .stroke(egui::Stroke::new(1.0_f32, icons::mix(v.panel_fill, accent, 0.45)))
-        .rounding(6.0)
-        .outer_margin(egui::Margin::symmetric(0.0, 4.0))
+        .corner_radius(6.0)
+        .outer_margin(egui::Margin::symmetric(0, 4))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
-            egui::Frame::none().fill(icons::mix(v.panel_fill, accent, 0.10)).inner_margin(egui::Margin::symmetric(8.0, 4.0)).show(ui, |ui| {
+            egui::Frame::NONE.fill(icons::mix(v.panel_fill, accent, 0.10)).inner_margin(egui::Margin::symmetric(8, 4)).show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.label(RichText::new(t!("Changement suggéré", "Suggested change")).small().strong().color(accent));
             });
@@ -1746,7 +1746,7 @@ fn suggestion_ui(
                 p.rect_filled(r, 0.0, icons::mix(base, color, 0.16));
                 p.text(egui::pos2(r.left() + 8.0, r.center().y), Align2::LEFT_CENTER, format!("{kind} {l}"), font.clone(), color);
             }
-            egui::Frame::none().inner_margin(egui::Margin::symmetric(8.0, 6.0)).show(ui, |ui| {
+            egui::Frame::NONE.inner_margin(egui::Margin::symmetric(8, 6)).show(ui, |ui| {
                 if applied.contains(&c.id) {
                     ui.label(RichText::new(t!("✔ appliquée dans ton fichier", "✔ applied in your file")).color(ok()));
                     return;
@@ -1866,8 +1866,8 @@ mod render_check {
         let mut cache = egui_commonmark::CommonMarkCache::default();
         let mut shapes = Vec::new();
         for _ in 0..3 {
-            let out = ctx.run(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 800.0))), ..Default::default() }, |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            let out = crate::run_ui(&ctx, egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 800.0))), ..Default::default() }, |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
                     egui::ScrollArea::vertical().show(ui, |ui| {
                         comment_block(ui, "bob", "2026-01-01T00:00:00Z", None, |ui| {
                             egui_commonmark::CommonMarkViewer::new().show(ui, &mut cache, "Bonjour `_get_valid_date()` monde");
@@ -1916,8 +1916,8 @@ mod render_check {
         let (mut method, mut delete, mut all) = (0, false, false);
         let mut shapes = Vec::new();
         for _ in 0..3 {
-            let out = ctx.run(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 800.0))), ..Default::default() }, |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            let out = crate::run_ui(&ctx, egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 800.0))), ..Default::default() }, |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
                     let mut act = None;
                     merge_box(ui, &d, &mut method, &mut delete, &mut all, false, Color32::BLUE, &mut act);
                     side_info(ui, &d);
@@ -1944,8 +1944,8 @@ mod render_check {
         let at: HashSet<usize> = [6].into();
         let mut shapes = Vec::new();
         for _ in 0..3 {
-            let out = ctx.run(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 800.0))), ..Default::default() }, |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            let out = crate::run_ui(&ctx, egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 800.0))), ..Default::default() }, |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
                     let mut show = |ui: &mut egui::Ui, i: usize| {
                         ui.label(format!("NOTE sous {i}"));
                         ui.label("deuxième ligne de la note");

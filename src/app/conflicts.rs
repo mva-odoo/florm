@@ -108,9 +108,9 @@ impl App {
         }
         let mut act = None;
         let bg = icons::mix(ui.visuals().panel_fill, if conflicts.is_empty() { ok() } else { warn() }, 0.15);
-        egui::TopBottomPanel::top(egui::Id::new("conflicts").with(pane))
-            .frame(egui::Frame::none().fill(bg).inner_margin(egui::Margin::symmetric(10.0, 4.0)))
-            .show_inside(ui, |ui| {
+        egui::Panel::top(egui::Id::unique("conflicts").with(pane))
+            .frame(egui::Frame::NONE.fill(bg).inner_margin(egui::Margin::symmetric(10, 4)))
+            .show(ui, |ui| {
                 // what is going on: « Rebase of feature onto master — commit 3 of 7 »
                 if let Some((o, info)) = &op {
                     ui.horizontal_wrapped(|ui| {

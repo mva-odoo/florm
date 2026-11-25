@@ -3,11 +3,11 @@
 use super::*;
 
 impl App {
-    pub(in crate::app) fn menu_bar(&mut self, ctx: &egui::Context) {
+    pub(in crate::app) fn menu_bar(&mut self, ui: &mut egui::Ui) {
         if self.own_title_bar() {
             // menus hidden: no bar, the window buttons are in the tab strip
             if self.settings.show_menu_bar {
-                self.title_bar(ctx);
+                self.title_bar(ui);
             }
             return;
         }
@@ -17,11 +17,11 @@ impl App {
         let mut pending = Vec::new();
         let project = self.root.as_ref().and_then(|r| r.file_name()).map(|n| n.to_string_lossy().into_owned());
         let panel = self.hl.surfaces().bar;
-        egui::TopBottomPanel::top("menu")
-            .frame(egui::Frame::none().fill(panel).inner_margin(egui::Margin::symmetric(10.0, 5.0)))
+        egui::Panel::top("menu")
+            .frame(egui::Frame::NONE.fill(panel).inner_margin(egui::Margin::symmetric(10, 5)))
             .show_separator_line(true)
-            .show(ctx, |ui| {
-            egui::menu::bar(ui, |ui| {
+            .show(ui, |ui| {
+            egui::MenuBar::new().ui(ui, |ui| {
                 let (r, _) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), Sense::hover());
                 logo::paint(ui.painter(), r, false);
                 ui.add_space(2.0);
@@ -52,7 +52,7 @@ pub(in crate::app) fn menus(ui: &mut egui::Ui, km: &crate::keymap::Keymap, pendi
         }
         if ui.add(egui::Button::new(label).shortcut_text(km.label(cmd))).clicked() {
             pending.push(cmd);
-            ui.close_menu();
+            ui.close();
         }
     };
     ui.menu_button(t!("Fichier", "File"), |ui| {

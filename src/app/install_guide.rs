@@ -22,7 +22,7 @@ fn guide_steps(ui: &mut egui::Ui, steps: Vec<crate::tools::Step>, code_bg: Color
         ui.label(RichText::new(format!("{}. {}", n + 1, step.label)).strong());
         if let Some(cmd) = step.command {
             ui.horizontal(|ui| {
-                egui::Frame::none().fill(code_bg).rounding(4.0).inner_margin(egui::Margin::symmetric(8.0, 5.0)).show(ui, |ui| {
+                egui::Frame::NONE.fill(code_bg).corner_radius(4.0).inner_margin(egui::Margin::symmetric(8, 5)).show(ui, |ui| {
                     ui.add(egui::Label::new(RichText::new(&cmd).monospace()).selectable(true));
                 });
                 if ui
@@ -62,17 +62,17 @@ impl App {
         }
         // the program is looked for again a moment later (`Tool::installed` keeps its answer 2 s)
         ui.ctx().request_repaint_after(Duration::from_secs(2));
-        let sys_id = egui::Id::new("install_guide_system").with(tool);
+        let sys_id = egui::Id::unique("install_guide_system").with(tool);
         let mut sys = ui.ctx().data(|d| d.get_temp::<usize>(sys_id)).map_or_else(crate::tools::system, |k| SYSTEMS[k]);
         let accent = self.hl.colors.accent;
         let bg = self.hl.colors.bg;
         let code_bg = ui.visuals().extreme_bg_color;
         let mut act = None;
         // the theme's background all over the view (not the default one of the window)
-        egui::Frame::none().fill(bg).show(ui, |ui| {
+        egui::Frame::NONE.fill(bg).show(ui, |ui| {
             ui.set_min_size(ui.available_size());
             egui::ScrollArea::vertical().id_salt(sys_id.with("scroll")).auto_shrink([false, false]).show(ui, |ui| {
-                egui::Frame::none().inner_margin(egui::Margin::same(16.0)).show(ui, |ui| {
+                egui::Frame::NONE.inner_margin(egui::Margin::same(16)).show(ui, |ui| {
                     ui.set_max_width(760.0);
                     ui.label(RichText::new(tf!("{} n'est pas installé", "{} is not installed", tool.title())).strong().size(17.0));
                     ui.add_space(4.0);

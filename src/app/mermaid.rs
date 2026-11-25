@@ -141,7 +141,7 @@ fn draw_sequence(ui: &mut egui::Ui, s: &Sequence) {
     let line = egui::Stroke::new(1.2_f32, fg);
     let note_fill = egui::Color32::from_rgba_unmultiplied(230, 200, 90, if v.dark_mode { 40 } else { 70 });
     let ctx = ui.ctx().clone();
-    let size = |t: &str, f: &egui::FontId| ctx.fonts(|fs| fs.layout_no_wrap(t.to_string(), f.clone(), fg).size());
+    let size = |t: &str, f: &egui::FontId| ctx.fonts_mut(|fs| fs.layout_no_wrap(t.to_string(), f.clone(), fg).size());
     let n = s.actors.len();
 
     // the space between each two lifelines: their boxes, then each message over the gaps it crosses
@@ -239,7 +239,7 @@ fn draw_sequence(ui: &mut egui::Ui, s: &Sequence) {
                 p.line_segment([egui::pos2(c.x, c.y + 14.0), egui::pos2(c.x + 6.0, c.y + 20.0)], line);
             }
             let r = egui::Rect::from_min_size(egui::pos2(x(k) - box_w[k] / 2.0, box_top), egui::vec2(box_w[k], box_h));
-            p.rect(r, 5.0, box_fill, egui::Stroke::new(1.0_f32, weak));
+            p.rect(r, 5.0, box_fill, egui::Stroke::new(1.0_f32, weak), egui::StrokeKind::Middle);
             p.text(r.center(), Align2::CENTER_CENTER, label, font.clone(), fg);
         }
         dashed(&p, egui::pos2(x(k), top + head_h), egui::pos2(x(k), bottom + figure_h), egui::Stroke::new(1.0_f32, weak));
@@ -280,7 +280,7 @@ fn draw_sequence(ui: &mut egui::Ui, s: &Sequence) {
                 let w = sz.x + 20.0;
                 let (l, r) = note_x(*from, *to, *side, w);
                 let r = egui::Rect::from_min_max(egui::pos2(shift + l, y + 4.0), egui::pos2(shift + r, y + h - 6.0));
-                p.rect(r, 3.0, note_fill, egui::Stroke::new(1.0_f32, weak));
+                p.rect(r, 3.0, note_fill, egui::Stroke::new(1.0_f32, weak), egui::StrokeKind::Middle);
                 p.text(r.center(), Align2::CENTER_CENTER, text, font.clone(), fg);
             }
             Step::Open { kind, label } => frames.push((y + 4.0, kind.clone(), label.clone(), Vec::new())),
@@ -293,11 +293,11 @@ fn draw_sequence(ui: &mut egui::Ui, s: &Sequence) {
                 if let Some((fy, kind, label, parts)) = frames.pop() {
                     let depth = frames.len() as f32 * 6.0;
                     let r = egui::Rect::from_min_max(egui::pos2(left + depth, fy), egui::pos2(right - depth, y + 6.0));
-                    p.rect_stroke(r, 2.0, egui::Stroke::new(1.0_f32, weak));
+                    p.rect_stroke(r, 2.0, egui::Stroke::new(1.0_f32, weak), egui::StrokeKind::Middle);
                     if kind != "rect" {
                         let tag = size(&kind, &small);
                         let t = egui::Rect::from_min_size(r.min, egui::vec2(tag.x + 14.0, tag.y + 6.0));
-                        p.rect(t, egui::Rounding { se: 6.0, ..Default::default() }, box_fill, egui::Stroke::new(1.0_f32, weak));
+                        p.rect(t, egui::CornerRadius { se: 6, ..Default::default() }, box_fill, egui::Stroke::new(1.0_f32, weak), egui::StrokeKind::Middle);
                         p.text(t.center(), Align2::CENTER_CENTER, &kind, small.clone(), fg);
                         if !label.is_empty() {
                             p.text(egui::pos2(t.right() + 8.0, t.center().y), Align2::LEFT_CENTER, format!("[{label}]"), small.clone(), weak);
@@ -374,8 +374,8 @@ mod tests {
         let ctx = egui::Context::default();
         let mut size = egui::Vec2::ZERO;
         for _ in 0..2 {
-            let _ = ctx.run(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(2000.0, 2000.0))), ..Default::default() }, |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            let _ = crate::run_ui(&ctx, egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(2000.0, 2000.0))), ..Default::default() }, |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
                     let r = ui.scope(|ui| draw_sequence(ui, &parse_sequence(code).unwrap())).response.rect;
                     size = r.size();
                 });

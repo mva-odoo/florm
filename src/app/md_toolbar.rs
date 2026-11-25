@@ -165,9 +165,9 @@ impl App {
         }
         let mut act = None;
         let bg = icons::mix(ui.visuals().panel_fill, ui.visuals().strong_text_color(), 0.04);
-        egui::TopBottomPanel::top(egui::Id::new("md_toolbar").with(pane))
-            .frame(egui::Frame::none().fill(bg).inner_margin(egui::Margin::symmetric(6.0, 3.0)))
-            .show_inside(ui, |ui| {
+        egui::Panel::top(egui::Id::unique("md_toolbar").with(pane))
+            .frame(egui::Frame::NONE.fill(bg).inner_margin(egui::Margin::symmetric(6, 3)))
+            .show(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
                     for (label, tip, fmt) in formats() {
                         if ui.small_button(label).on_hover_text(tip).clicked() {

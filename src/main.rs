@@ -59,6 +59,14 @@ mod wrap;
 use eframe::egui;
 use std::path::PathBuf;
 
+/// Tests: one egui pass, its texture changes let go (egui asserts that they were handled).
+#[cfg(test)]
+pub(crate) fn run_ui(ctx: &egui::Context, input: egui::RawInput, f: impl FnMut(&mut egui::Ui)) -> egui::FullOutput {
+    let mut out = ctx.run_ui(input, f);
+    out.textures_delta.clear();
+    out
+}
+
 fn main() -> eframe::Result<()> {
     // Called by `git rebase -i` as sequence editor for an interactive rebase prepared in the UI.
     if std::env::args().nth(1).as_deref() == Some(rebase::PLAN_FLAG) {
@@ -92,7 +100,7 @@ fn main() -> eframe::Result<()> {
         // Under Wayland, with vsync, eglSwapBuffers waits for a frame callback that a hidden window
         // (other workspace, minimized) never gets: the event loop blocks and the compositor reports
         // "application not responding". Florm only repaints on events, so vsync is not needed.
-        vsync: std::env::var_os("WAYLAND_DISPLAY").is_none(),
+        glow_options: eframe::egui_glow::GlowConfiguration { vsync: std::env::var_os("WAYLAND_DISPLAY").is_none(), ..Default::default() },
         // macOS: the menu winit adds quits at Cmd+Q without telling Florm (no question for unsaved
         // files, nor for Claude at work); without it, Cmd+Q is Florm's own Quit, which asks
         #[cfg(target_os = "macos")]

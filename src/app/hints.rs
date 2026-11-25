@@ -63,7 +63,8 @@ impl App {
             }
         }
         let h = &mut self.hints;
-        let alt = raw.modifiers.alt;
+        // the modifiers only come as events now: the last change, else as at the last frame
+        let alt = raw.events.iter().rev().find_map(|e| if let egui::Event::ModifiersChanged(m) = e { Some(m.alt) } else { None }).unwrap_or(ctx.input(|i| i.modifiers.alt));
         let other = raw.events.iter().any(|e| matches!(e, egui::Event::Key { .. } | egui::Event::Text(_) | egui::Event::PointerButton { .. } | egui::Event::MouseWheel { .. }));
         if alt && !h.alt_was_down {
             h.alt_alone = !other;
@@ -132,30 +133,30 @@ impl App {
     /// The labels put on what egui saw clickable at the last frame: only the dialog or the menu
     /// open when there is one (what is behind cannot be clicked anyway).
     pub(super) fn hints_open(&mut self, ctx: &egui::Context) {
-        let screen = ctx.screen_rect();
+        let screen = ctx.content_rect();
         // copied first: reading the state of a field locks egui, which `viewport` holds
         let widgets: Vec<(egui::Id, egui::LayerId, egui::Rect, bool)> = ctx.viewport(|v| {
             v.prev_pass
                 .widgets
                 .layers()
                 .flat_map(|(_, w)| w.iter())
-                .filter(|w| w.enabled && w.sense.click && w.interact_rect.width() >= 4.0 && w.interact_rect.height() >= 4.0)
+                .filter(|w| w.enabled && w.sense.senses_click() && w.interact_rect.width() >= 4.0 && w.interact_rect.height() >= 4.0)
                 .filter(|w| screen.intersects(w.interact_rect))
-                .map(|w| (w.id, w.layer_id, w.interact_rect, w.sense.drag))
+                .map(|w| (w.id, w.layer_id, w.interact_rect, w.sense.senses_drag()))
                 .collect()
         });
         // what can be dragged too is text that can be selected (left out), or a field (kept)
         let mut found: Vec<(egui::LayerId, egui::Rect)> =
             widgets.into_iter().filter(|(id, _, _, drag)| !drag || egui::TextEdit::load_state(ctx, *id).is_some()).map(|(_, l, r, _)| (l, r)).collect();
         // the dark backdrop of a dialog covers the whole window: only what is above it counts
-        let backdrop = found.iter().any(|(l, r)| l.order == egui::Order::PanelResizeLine && r.area() >= screen.area() * 0.9);
+        let backdrop = found.iter().any(|(l, r)| l.id == egui::Id::unique(super::MODAL_BACKDROP) && r.area() >= screen.area() * 0.9);
         let top = found.iter().map(|(l, _)| l.order).max().unwrap_or(egui::Order::Background);
         found.retain(|(l, r)| {
             let big = r.area() >= screen.area() * 0.9;
             if top >= egui::Order::Foreground {
                 l.order >= egui::Order::Foreground
             } else if backdrop {
-                l.order > egui::Order::PanelResizeLine && !big
+                l.order > egui::Order::Background && !big
             } else {
                 !big
             }
@@ -185,7 +186,7 @@ impl App {
         if !self.hints.active {
             return;
         }
-        let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Debug, egui::Id::new("keyboard_hints")));
+        let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Debug, egui::Id::unique("keyboard_hints")));
         let accent = self.hl.colors.accent;
         let (fill, text) = (Color32::from_rgb(0xff, 0xd8, 0x4d), Color32::from_rgb(0x20, 0x20, 0x20));
         let font = egui::FontId::monospace(12.0);
@@ -197,18 +198,18 @@ impl App {
             let mut job = egui::text::LayoutJob::default();
             job.append(typed, 0.0, egui::TextFormat { font_id: font.clone(), color: text.gamma_multiply(0.45), ..Default::default() });
             job.append(&code[typed.len()..], 0.0, egui::TextFormat { font_id: font.clone(), color: text, ..Default::default() });
-            let galley = ctx.fonts(|f| f.layout_job(job));
+            let galley = ctx.fonts_mut(|f| f.layout_job(job));
             let at = egui::pos2(rect.left().max(0.0), rect.top().max(0.0));
             let r = egui::Rect::from_min_size(at, galley.size() + egui::vec2(8.0, 2.0));
-            painter.rect(r, 3.0, fill, egui::Stroke::new(1.0_f32, accent));
+            painter.rect(r, 3.0, fill, egui::Stroke::new(1.0_f32, accent), egui::StrokeKind::Middle);
             painter.galley(r.min + egui::vec2(4.0, 1.0), galley, text);
         }
         // the way out, at the bottom
         let tip = t!("Tape les lettres pour cliquer · Retour arrière : corriger · Échap : fermer", "Type the letters to click · Backspace: fix · Esc: close");
-        let screen = ctx.screen_rect();
-        let galley = ctx.fonts(|f| f.layout_no_wrap(tip.to_string(), egui::FontId::proportional(13.0), text));
+        let screen = ctx.content_rect();
+        let galley = ctx.fonts_mut(|f| f.layout_no_wrap(tip.to_string(), egui::FontId::proportional(13.0), text));
         let r = egui::Rect::from_center_size(egui::pos2(screen.center().x, screen.bottom() - 46.0), galley.size() + egui::vec2(20.0, 10.0));
-        painter.rect(r, 6.0, fill, egui::Stroke::new(1.0_f32, accent));
+        painter.rect(r, 6.0, fill, egui::Stroke::new(1.0_f32, accent), egui::StrokeKind::Middle);
         painter.galley(r.min + egui::vec2(10.0, 5.0), galley, text);
     }
 }
@@ -222,9 +223,9 @@ const OWN_LISTS: [&str; 4] = ["completion", "quick_fix", "overlay", "quit_when_i
 /// arrows move in the menu from then on and Enter chooses (egui does both once an entry has focus).
 fn menu_keys(ctx: &egui::Context, raw: &mut egui::RawInput) {
     // Enter chose an entry at the last frame: a list of choices only closes by itself on a click
-    let chose = egui::Id::new("menu_keys_chose");
+    let chose = egui::Id::unique("menu_keys_chose");
     if ctx.data_mut(|d| d.remove_temp::<bool>(chose)).is_some() {
-        ctx.memory_mut(|m| m.close_popup());
+        egui::Popup::close_all(ctx);
     }
     let enter = raw.events.iter().any(|e| matches!(e, egui::Event::Key { key: egui::Key::Enter, pressed: true, modifiers, .. } if modifiers.is_none()));
     let arrow = raw.events.iter().position(|e| {
@@ -233,7 +234,7 @@ fn menu_keys(ctx: &egui::Context, raw: &mut egui::RawInput) {
     if arrow.is_none() && !enter {
         return;
     }
-    let own: Vec<egui::Id> = OWN_LISTS.iter().map(|n| egui::Id::new(*n)).collect();
+    let own: Vec<egui::Id> = OWN_LISTS.iter().map(|n| egui::Id::unique(*n)).collect();
     // the entries of the menus open at the last frame
     let entries: Vec<(egui::Id, egui::LayerId, egui::Rect)> = ctx.viewport(|v| {
         v.prev_pass
@@ -241,7 +242,7 @@ fn menu_keys(ctx: &egui::Context, raw: &mut egui::RawInput) {
             .layers()
             .filter(|(l, _)| l.order == egui::Order::Foreground && !own.contains(&l.id))
             .flat_map(|(_, w)| w.iter())
-            .filter(|w| w.enabled && w.sense.click && !w.sense.drag && w.interact_rect.height() >= 4.0)
+            .filter(|w| w.enabled && w.sense.senses_click() && !w.sense.senses_drag() && w.interact_rect.height() >= 4.0)
             .map(|w| (w.id, w.layer_id, w.interact_rect))
             .collect()
     });
@@ -310,7 +311,8 @@ mod tests {
         for frame in 0..10 {
             let mut raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 300.0))), ..Default::default() };
             match frame {
-                2 => raw.modifiers = alt,
+                2 => raw.events.push(egui::Event::ModifiersChanged(alt)),
+                3 => raw.events.push(egui::Event::ModifiersChanged(egui::Modifiers::NONE)),
                 5 => raw.events.push(egui::Event::Text("s".into())),
                 _ => {}
             }
@@ -319,8 +321,9 @@ mod tests {
                 assert!(app.hints.active, "Alt alone shows the labels");
                 assert_eq!(app.hints.targets.len(), 2);
             }
-            let _ = ctx.run(raw, |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            let _ = crate::run_ui(&ctx, raw, |ui| {
+                let ctx = &ui.ctx().clone();
+                egui::CentralPanel::default().show(ui, |ui| {
                     let _ = ui.button("Un");
                     if ui.button("Deux").clicked() {
                         clicks += 1;
@@ -352,13 +355,13 @@ mod tests {
                 _ => {}
             }
             menu_keys(&ctx, &mut raw);
-            let _ = ctx.run(raw, |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            let _ = crate::run_ui(&ctx, raw, |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
                     let r = ui.menu_button("Fichier", |ui| {
                         for name in ["Ouvrir", "Enregistrer", "Fermer"] {
                             if ui.button(name).clicked() {
                                 chosen.push(name);
-                                ui.close_menu();
+                                ui.close();
                             }
                         }
                     });
@@ -386,8 +389,8 @@ mod tests {
                 _ => {}
             }
             menu_keys(&ctx, &mut raw);
-            let _ = ctx.run(raw, |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            let _ = crate::run_ui(&ctx, raw, |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
                     let r = egui::ComboBox::from_id_salt("who").selected_text("x").show_ui(ui, |ui| {
                         for (k, name) in ["Toutes", "Les miennes", "À relire"].iter().enumerate() {
                             ui.selectable_value(&mut who, k, *name);
@@ -398,6 +401,6 @@ mod tests {
             });
         }
         assert_eq!(who, 1, "the second entry chosen");
-        assert!(!ctx.memory(|m| m.any_popup_open()), "the list closed once chosen");
+        assert!(!egui::Popup::is_any_open(&ctx), "the list closed once chosen");
     }
 }

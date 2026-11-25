@@ -140,10 +140,10 @@ fn table(ui: &mut egui::Ui, cache: &mut egui_commonmark::CommonMarkCache, header
     let gap = 14.0;
     let v = ui.visuals().clone();
     ui.add_space(4.0);
-    egui::Frame::none()
+    egui::Frame::NONE
         .stroke(egui::Stroke::new(1.0_f32, v.widgets.noninteractive.bg_stroke.color))
-        .rounding(4.0)
-        .inner_margin(egui::Margin::symmetric(8.0, 4.0))
+        .corner_radius(4.0)
+        .inner_margin(egui::Margin::symmetric(8, 4))
         .show(ui, |ui| {
             let avail = (ui.available_width() - gap * (n - 1) as f32).max(40.0 * n as f32);
             // the width of each column on one line (the marks of bold and code left out)
@@ -152,7 +152,7 @@ fn table(ui: &mut egui::Ui, cache: &mut egui_commonmark::CommonMarkCache, header
                 .map(|k| {
                     std::iter::once(header).chain(rows.iter().map(|r| r.as_slice())).filter_map(|r| r.get(k)).map(|c| {
                         let plain: String = c.chars().filter(|c| !matches!(c, '`' | '*')).collect();
-                        ui.fonts(|f| f.layout_no_wrap(plain, font.clone(), Color32::WHITE).size().x) + 6.0
+                        ui.fonts_mut(|f| f.layout_no_wrap(plain, font.clone(), Color32::WHITE).size().x) + 6.0
                     }).fold(20.0_f32, f32::max)
                 })
                 .collect();
@@ -354,7 +354,7 @@ pub(super) fn sections(text: &str) -> (String, Vec<(String, String)>) {
 /// browser; the ones already in a link (`<…>`, `[…](…)`) or in code (`…`) are left as they are.
 /// The viewer for a text that comes from elsewhere (a pull request, a comment, Claude): its
 /// images only from an address with a scheme (`remote`), never a path of this machine.
-pub(super) fn remote_viewer() -> egui_commonmark::CommonMarkViewer {
+pub(super) fn remote_viewer() -> egui_commonmark::CommonMarkViewer<'static> {
     egui_commonmark::CommonMarkViewer::new().explicit_image_uri_scheme(true)
 }
 
@@ -574,11 +574,11 @@ fn code_job(ui: &egui::Ui, hl: &Highlighting, lang: &str, code: &str, font: &egu
 pub(super) fn code_block(ui: &mut egui::Ui, hl: Option<&Highlighting>, lang: &str, code: &str) {
     let v = ui.visuals().clone();
     ui.add_space(4.0);
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(v.extreme_bg_color)
         .stroke(egui::Stroke::new(1.0_f32, v.widgets.noninteractive.bg_stroke.color))
-        .rounding(6.0)
-        .inner_margin(egui::Margin::symmetric(10.0, 6.0))
+        .corner_radius(6.0)
+        .inner_margin(egui::Margin::symmetric(10, 6))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.horizontal(|ui| {
@@ -608,7 +608,7 @@ pub(super) fn code_block(ui: &mut egui::Ui, hl: Option<&Highlighting>, lang: &st
 
 /// « 🗐 label », then « ✔ Copié » a moment after a click.
 pub(super) fn copy_button(ui: &mut egui::Ui, text: &str, label: &str) {
-    let id = egui::Id::new(("copied", text));
+    let id = egui::Id::unique(("copied", text));
     let now = ui.input(|i| i.time);
     let recent = ui.data(|d| d.get_temp::<f64>(id)).is_some_and(|t| now - t < 1.5);
     let shown = if recent { t!("✔ Copié", "✔ Copied").to_string() } else { format!("🗐 {label}") };
@@ -643,8 +643,8 @@ mod tests {
                     events.push(egui::Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() });
                 }
             }
-            let out = ctx.run(egui::RawInput { screen_rect: screen, events, ..Default::default() }, |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            let out = crate::run_ui(&ctx, egui::RawInput { screen_rect: screen, events, ..Default::default() }, |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
                     markdown(ui, &mut cache, Some(&hl), "Publiée : https://github.com/o/r/releases/tag/v1");
                 });
             });
@@ -652,7 +652,7 @@ mod tests {
             if at.is_none() {
                 at = Some(egui::pos2(260.0, 18.0));
             }
-            opened = opened.or(out.platform_output.open_url.map(|u| u.url));
+            opened = opened.or(out.platform_output.commands.iter().find_map(|c| if let egui::OutputCommand::OpenUrl(u) = c { Some(u.url.clone()) } else { None }));
         }
         assert_eq!(opened.as_deref(), Some("https://github.com/o/r/releases/tag/v1"));
     }
@@ -812,8 +812,8 @@ mod tests {
         let width = 600.0;
         let mut right = 0.0;
         for _ in 0..3 {
-            let _ = ctx.run(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 2000.0))), ..Default::default() }, |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            let _ = crate::run_ui(&ctx, egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 2000.0))), ..Default::default() }, |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
                     markdown(ui, &mut cache, Some(&hl), &text);
                     right = ui.min_rect().right();
                 });

@@ -120,7 +120,7 @@ impl App {
                 None
             }
             document::View::Welcome => {
-                egui::CentralPanel::default().frame(egui::Frame::none().fill(self.hl.colors.bg)).show_inside(ui, |ui| self.welcome_ui(ui));
+                egui::CentralPanel::default().frame(egui::Frame::NONE.fill(self.hl.colors.bg)).show(ui, |ui| self.welcome_ui(ui));
                 None
             }
             document::View::Claude => {
@@ -129,36 +129,36 @@ impl App {
                 // a single conversation: its « + » starts the next one
                 let mut act = None;
                 let fill = ui.visuals().panel_fill;
-                egui::SidePanel::left(egui::Id::new("claude_list").with(uid))
+                egui::Panel::left(egui::Id::unique("claude_list").with(uid))
                     .resizable(true)
-                    .default_width(250.0)
-                    .width_range(180.0..=420.0)
-                    .frame(egui::Frame::none().fill(fill).inner_margin(egui::Margin { left: 8.0, right: 6.0, top: 0.0, bottom: 6.0 }))
-                    .show_inside(ui, |ui| act = self.claude_list_ui(ui, uid));
-                egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.claude_show(ui, uid));
+                    .default_size(250.0)
+                    .size_range(180.0..=420.0)
+                    .frame(egui::Frame::NONE.fill(fill).inner_margin(egui::Margin { left: 8, right: 6, top: 0, bottom: 6 }))
+                    .show(ui, |ui| act = self.claude_list_ui(ui, uid));
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| self.claude_show(ui, uid));
                 if let Some(a) = act {
                     self.claude_list_act(a, uid);
                 }
                 None
             }
             document::View::PullRequests => {
-                egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.pulls_ui(ui));
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| self.pulls_ui(ui));
                 None
             }
             document::View::Git => {
                 let fill = ui.visuals().panel_fill;
-                egui::TopBottomPanel::top(egui::Id::new("git_bar").with(self.docs[i].uid))
-                    .frame(egui::Frame::none().fill(fill).inner_margin(egui::Margin { left: 10.0, right: 10.0, top: 8.0, bottom: 4.0 }))
-                    .show_inside(ui, |ui| self.git_bar(ui));
-                crate::app::work_panel(ui).show_inside(ui, |ui| self.history_ui(ui));
+                egui::Panel::top(egui::Id::unique("git_bar").with(self.docs[i].uid))
+                    .frame(egui::Frame::NONE.fill(fill).inner_margin(egui::Margin { left: 10, right: 10, top: 8, bottom: 4 }))
+                    .show(ui, |ui| self.git_bar(ui));
+                crate::app::work_panel(ui).show(ui, |ui| self.history_ui(ui));
                 None
             }
             document::View::Settings => {
-                egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| self.prefs_ui(ui));
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| self.prefs_ui(ui));
                 None
             }
             document::View::History => {
-                crate::app::work_panel(ui).show_inside(ui, |ui| self.line_history_ui(ui));
+                crate::app::work_panel(ui).show(ui, |ui| self.line_history_ui(ui));
                 None
             }
             document::View::Help => {
@@ -174,8 +174,8 @@ impl App {
                 // on the editor's background, as in Zed
                 let bg = ui.visuals().extreme_bg_color;
                 egui::CentralPanel::default()
-                    .frame(egui::Frame::none().fill(bg).inner_margin(egui::Margin { left: 12.0, right: 12.0, top: 10.0, bottom: 4.0 }))
-                    .show_inside(ui, |ui| self.search_ui(ui, true));
+                    .frame(egui::Frame::NONE.fill(bg).inner_margin(egui::Margin { left: 12, right: 12, top: 10, bottom: 4 }))
+                    .show(ui, |ui| self.search_ui(ui, true));
                 None
             }
             document::View::Terminal(id) => {
@@ -265,7 +265,7 @@ impl App {
         let uri = format!("file://{}", path.display());
         let bg = self.hl.colors.bg;
         let mut zoom = self.docs[i].zoom;
-        egui::TopBottomPanel::top(egui::Id::new("image_bar").with(i)).show_inside(ui, |ui| {
+        egui::Panel::top(egui::Id::unique("image_bar").with(i)).show(ui, |ui| {
             ui.horizontal(|ui| {
                 let size = egui::Image::new(uri.as_str()).load_for_size(ui.ctx(), egui::Vec2::splat(4096.0)).ok().and_then(|t| t.size());
                 if let Some(s) = size {
@@ -289,7 +289,7 @@ impl App {
                 }
             });
         });
-        egui::CentralPanel::default().frame(egui::Frame::none().fill(bg)).show_inside(ui, |ui| {
+        egui::CentralPanel::default().frame(egui::Frame::NONE.fill(bg)).show(ui, |ui| {
             egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
                 let avail = ui.available_size();
                 let img = egui::Image::new(uri.as_str()).show_loading_spinner(true);
@@ -341,7 +341,7 @@ impl App {
         let bg = self.hl.colors.bg;
         let cache = &mut self.md_cache;
         let Some(p) = self.md_preview.as_mut() else { return };
-        egui::CentralPanel::default().frame(egui::Frame::none().fill(bg)).show_inside(ui, |ui| {
+        egui::CentralPanel::default().frame(egui::Frame::NONE.fill(bg)).show(ui, |ui| {
             egui::ScrollArea::vertical().id_salt(("md_preview", src)).auto_shrink([false, false]).show(ui, |ui| {
                 let w = ui.available_width().min(880.0);
                 let pad = ((ui.available_width() - w) / 2.0).max(16.0);
@@ -349,7 +349,7 @@ impl App {
                     p.width = w;
                     p.heights.iter_mut().for_each(|h| *h = 0.0);
                 }
-                egui::Frame::none().inner_margin(egui::Margin { left: pad, right: pad, top: 16.0, bottom: 40.0 }).show(ui, |ui| {
+                padded(ui, pad, 16.0, 40.0, |ui| {
                     ui.set_max_width(w);
                     let clip = ui.clip_rect();
                     for (k, chunk) in p.chunks.iter().enumerate() {
@@ -392,7 +392,7 @@ impl App {
         let Some(g) = self.guide.as_mut() else { return };
         let mut go_to = None;
         let cache = &mut self.md_cache;
-        egui::CentralPanel::default().frame(egui::Frame::none().fill(bg)).show_inside(ui, |ui| {
+        egui::CentralPanel::default().frame(egui::Frame::NONE.fill(bg)).show(ui, |ui| {
             egui::ScrollArea::vertical().id_salt(key).auto_shrink([false, false]).show(ui, |ui| {
                 let w = ui.available_width().min(880.0);
                 let pad = ((ui.available_width() - w) / 2.0).max(16.0);
@@ -400,13 +400,13 @@ impl App {
                     g.width = w;
                     g.heights.iter_mut().for_each(|h| *h = 0.0);
                 }
-                egui::Frame::none().inner_margin(egui::Margin { left: pad, right: pad, top: 16.0, bottom: 40.0 }).show(ui, |ui| {
+                padded(ui, pad, 16.0, 40.0, |ui| {
                     ui.set_max_width(w);
                     egui_commonmark::CommonMarkViewer::new().show(ui, cache, &g.intro);
                     ui.horizontal_wrapped(|ui| {
                         ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
                         for (i, (title, _)) in g.sections.iter().enumerate() {
-                            let chip = egui::Button::new(RichText::new(title).small().color(accent)).rounding(12.0);
+                            let chip = egui::Button::new(RichText::new(title).small().color(accent)).corner_radius(12.0);
                             if ui.add(chip).clicked() {
                                 go_to = Some(i);
                             }
@@ -477,9 +477,9 @@ impl App {
         let Some(change) = self.docs.get(i).and_then(|d| d.disk_change) else { return };
         let (mut reload, mut keep, mut close) = (false, false, false);
         let bg = icons::mix(ui.visuals().panel_fill, warn(), 0.15);
-        egui::TopBottomPanel::top(egui::Id::new("disk_change").with(pane))
-            .frame(egui::Frame::none().fill(bg).inner_margin(egui::Margin::symmetric(10.0, 4.0)))
-            .show_inside(ui, |ui| {
+        egui::Panel::top(egui::Id::unique("disk_change").with(pane))
+            .frame(egui::Frame::NONE.fill(bg).inner_margin(egui::Margin::symmetric(10, 4)))
+            .show(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
                     match change {
                         document::DiskChange::Changed => {
@@ -559,10 +559,10 @@ impl App {
         // as in Zed: the path in the font of the code (`src/app/panes.rs › App › f`), on the
         // editor's background (one with the tab shown), a line between it and the text
         let mono = egui::FontId::monospace((self.settings.font_size - 0.5).max(9.0));
-        egui::TopBottomPanel::top(egui::Id::new("crumbs").with(pane))
-            .exact_height(TAB_STRIP_H)
-            .frame(egui::Frame::none().fill(bg).inner_margin(egui::Margin { left: 16.0, right: 10.0, top: 0.0, bottom: 0.0 }))
-            .show_inside(ui, |ui| {
+        egui::Panel::top(egui::Id::unique("crumbs").with(pane))
+            .exact_size(TAB_STRIP_H)
+            .frame(egui::Frame::NONE.fill(bg).inner_margin(egui::Margin { left: 16, right: 10, top: 0, bottom: 0 }))
+            .show(ui, |ui| {
                 ui.horizontal_centered(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
                     ui.spacing_mut().button_padding = egui::vec2(1.0, 1.0);
@@ -581,12 +581,12 @@ impl App {
                                     ui.set_max_height(420.0);
                                     if ui.button(t!("Afficher dans l'arborescence", "Show in the tree")).clicked() {
                                         reveal = Some(dir.clone());
-                                        ui.close_menu();
+                                        ui.close();
                                     }
                                     ui.separator();
                                     // read again every 2 s, not at every frame (slow on network folders)
                                     type Entries = std::sync::Arc<Vec<(String, PathBuf, bool)>>;
-                                    let id = egui::Id::new(("crumb_entries", dir));
+                                    let id = egui::Id::unique(("crumb_entries", dir));
                                     let cached = ui.ctx().data(|d| d.get_temp::<(Instant, Entries)>(id)).filter(|(t, _)| t.elapsed() < Duration::from_secs(2));
                                     let entries = match cached {
                                         Some((_, e)) => e,
@@ -614,7 +614,7 @@ impl App {
                                                 } else {
                                                     open = Some(path);
                                                 }
-                                                ui.close_menu();
+                                                ui.close();
                                             }
                                         }
                                     });
@@ -655,9 +655,9 @@ impl App {
                             let c = rect.center();
                             let back = egui::Rect::from_min_size(c + egui::vec2(-5.0, -6.0), egui::vec2(8.0, 9.0));
                             let front = back.translate(egui::vec2(3.0, 3.0));
-                            ui.painter().rect_stroke(back, 1.5, st);
+                            ui.painter().rect_stroke(back, 1.5, st, egui::StrokeKind::Inside);
                             ui.painter().rect_filled(front, 1.5, bg);
-                            ui.painter().rect_stroke(front, 1.5, st);
+                            ui.painter().rect_stroke(front, 1.5, st, egui::StrokeKind::Inside);
                             if r.clicked() {
                                 copy = Some(Cmd::CopyFilePath);
                             }
@@ -669,7 +669,7 @@ impl App {
                                 ] {
                                     if ui.button(label).clicked() {
                                         copy = Some(cmd);
-                                        ui.close_menu();
+                                        ui.close();
                                     }
                                 }
                             });
@@ -721,7 +721,7 @@ impl App {
         }
         ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
         let accent = self.hl.colors.accent;
-        let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("tab_drop")));
+        let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::unique("tab_drop")));
         let src = self.docs[from].pane;
         let split = self.is_split();
         let alone = self.docs.iter().filter(|d| d.pane == src).count() == 1;
@@ -729,7 +729,7 @@ impl App {
         let mut target = None;
         let hint = |r: egui::Rect, text: &str| {
             painter.rect_filled(r.shrink(4.0), 8.0, accent.gamma_multiply(0.18));
-            painter.rect_stroke(r.shrink(4.0), 8.0, egui::Stroke::new(2.0_f32, accent));
+            painter.rect_stroke(r.shrink(4.0), 8.0, egui::Stroke::new(2.0_f32, accent), egui::StrokeKind::Middle);
             painter.text(r.center(), Align2::CENTER_CENTER, text, egui::FontId::proportional(16.0), accent);
         };
         if let Some((pane, _, tabs)) = zones.strips.iter().find(|(_, r, _)| r.contains(p)) {
@@ -889,4 +889,15 @@ fn md_chunks(text: &str) -> Vec<MdChunk> {
     }
     flush(&mut out, &mut pending);
     out
+}
+
+/// Content with `pad` on each side, `top` above and `bottom` below (a `Margin` is in whole points
+/// up to 127 since egui 0.31: not enough to center a page on a wide window).
+fn padded<R>(ui: &mut egui::Ui, pad: f32, top: f32, bottom: f32, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    ui.add_space(top);
+    let r = ui.available_rect_before_wrap();
+    let inner = egui::Rect::from_min_max(egui::pos2(r.left() + pad, r.top()), egui::pos2(r.right() - pad, r.bottom()));
+    let res = ui.scope_builder(egui::UiBuilder::new().max_rect(inner), add).inner;
+    ui.add_space(bottom);
+    res
 }

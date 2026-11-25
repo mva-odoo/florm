@@ -187,7 +187,7 @@ impl App {
     pub(super) fn line_history_ui(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         // the keys only for the panel with the keyboard (an editor may be beside it)
-        let focused = self.showing(document::View::History) && !ctx.wants_keyboard_input();
+        let focused = self.showing(document::View::History) && !ctx.egui_wants_keyboard_input();
         let Some(lh) = self.line_history.as_mut() else { return };
         let (mut show_graph, mut copy, mut chose) = (None, None, false);
         let mut act: Option<HistAct> = None;
@@ -267,7 +267,7 @@ impl App {
                                 for (label, a) in items {
                                     if ui.button(label).clicked() {
                                         act = Some(a);
-                                        ui.close_menu();
+                                        ui.close();
                                     }
                                 }
                             });
@@ -309,7 +309,7 @@ impl App {
             self.line_history_load_diff();
         }
         if let Some(h) = copy {
-            ctx.output_mut(|o| o.copied_text = h);
+            ctx.copy_text(h);
             self.set_status(t!("Hash copié", "Hash copied"));
         }
         if let Some(a) = act {
@@ -590,8 +590,8 @@ impl App {
         let cache = &mut self.md_cache;
         let h = &mut self.history;
         // messages and operations in progress, above the list (nothing when there are none)
-        let banner = h.notice.is_some() || op_banner.is_some() || bisecting || h.graph.as_ref().is_some_and(|g| g.rebasing);
-        egui::TopBottomPanel::top("history_top").show_animated_inside(ui, banner, |ui| {
+        let mut banner = h.notice.is_some() || op_banner.is_some() || bisecting || h.graph.as_ref().is_some_and(|g| g.rebasing);
+        egui::Panel::top("history_top").drag_to_open(false).show_collapsible(ui, &mut banner, |ui| {
             if let Some((n, color)) = &h.notice {
                 ui.horizontal(|ui| {
                     let icon = if *color == err() { "⚠" } else { "✔" };
@@ -758,7 +758,7 @@ impl App {
                         if resp.hovered() {
                             let b = egui::Rect::from_center_size(egui::pos2(right - 10.0, cy), egui::vec2(20.0, 18.0));
                             let (sign, tip) = if is_staged { ("−", t!("Retirer de l'index", "Unstage")) } else { ("+", t!("Indexer ce fichier", "Stage this file")) };
-                            let br = ui.interact(b, egui::Id::new(("wip_file_op", is_staged, &e.path)), Sense::click()).on_hover_text(tip);
+                            let br = ui.interact(b, egui::Id::unique(("wip_file_op", is_staged, &e.path)), Sense::click()).on_hover_text(tip);
                             ui.painter().rect_filled(b, 4.0, if br.hovered() { accent.gamma_multiply(0.3) } else { ui.visuals().widgets.inactive.weak_bg_fill });
                             ui.painter().text(b.center(), Align2::CENTER_CENTER, sign, egui::FontId::monospace(13.0), ui.visuals().strong_text_color());
                             if br.clicked() {
@@ -828,7 +828,7 @@ impl App {
             }
             if let Some(k) = moved {
                 let id = ui.make_persistent_id("history_list");
-                let top = egui::scroll_area::State::load(ui.ctx(), id).map_or(0.0, |st| st.offset.y);
+                let top = egui::scroll_area::State::load(ui.ctx(), id).map_or(0.0, |st| st.clamped_offset().y);
                 let (y, view_h) = (k as f32 * row_h, ui.available_height());
                 if y < top {
                     area = area.vertical_scroll_offset(y);
@@ -856,13 +856,13 @@ impl App {
             });
         };
         // one of the two can take all the room
-        let view = egui::Id::new("git_view");
+        let view = egui::Id::unique("git_view");
         let maxed = maximize::maxed(ui.ctx(), view);
         if maxed == Some("detail") && !has_detail {
             maximize::restore(ui.ctx(), view);
         }
         if !has_detail || maxed == Some("list") {
-            crate::app::work_panel(ui).show_inside(ui, |ui| {
+            crate::app::work_panel(ui).show(ui, |ui| {
                 list(ui);
                 if has_detail {
                     maximize::corner(ui, view, "list");
@@ -871,18 +871,18 @@ impl App {
         } else {
             if maxed != Some("detail") {
                 let avail = ui.available_height();
-                egui::TopBottomPanel::top("history_list_panel")
+                egui::Panel::top("history_list_panel")
                     .resizable(true)
-                    .default_height((avail * 0.36).max(140.0))
-                    .height_range(100.0..=(avail - 160.0).max(120.0))
-                    .show_inside(ui, |ui| {
+                    .default_size((avail * 0.36).max(140.0))
+                    .size_range(100.0..=(avail - 160.0).max(120.0))
+                    .show(ui, |ui| {
                         list(ui);
                         maximize::corner(ui, view, "list");
                     });
             }
 
             // ------------------------------------------------ below: what is selected, then its changes (like a pull request)
-            crate::app::work_panel(ui).show_inside(ui, |ui| {
+            crate::app::work_panel(ui).show(ui, |ui| {
                 ui.add_space(4.0);
                 let r = ui.max_rect();
                 if h.rebase.is_none() {
@@ -910,11 +910,11 @@ impl App {
                     let mut swap = None;
                     egui::ScrollArea::vertical().id_salt("rebase_steps").max_height(ui.available_height() - 70.0).show(ui, |ui| {
                         for (k, st) in rb.steps.iter_mut().enumerate() {
-                            egui::Frame::none()
+                            egui::Frame::NONE
                                 .fill(ui.visuals().faint_bg_color)
-                                .rounding(6.0)
-                                .inner_margin(egui::Margin::symmetric(6.0, 4.0))
-                                .outer_margin(egui::Margin { bottom: 3.0, ..Default::default() })
+                                .corner_radius(6.0)
+                                .inner_margin(egui::Margin::symmetric(6, 4))
+                                .outer_margin(egui::Margin { bottom: 3, ..Default::default() })
                                 .show(ui, |ui| {
                                     ui.set_width(ui.available_width());
                                     ui.horizontal(|ui| {
@@ -1078,7 +1078,7 @@ impl App {
                                 if !c.refs.is_empty() {
                                     // as wide as the chips: the pull requests follow on the same line
                                     let font = egui::FontId::proportional(11.0);
-                                    let w: f32 = c.refs.iter().map(|r| ui.fonts(|f| f.layout_no_wrap(r.strip_prefix("HEAD -> ").or_else(|| r.strip_prefix("tag: ")).unwrap_or(r).to_string(), font.clone(), Color32::WHITE).size().x) + 16.0).sum();
+                                    let w: f32 = c.refs.iter().map(|r| ui.fonts_mut(|f| f.layout_no_wrap(r.strip_prefix("HEAD -> ").or_else(|| r.strip_prefix("tag: ")).unwrap_or(r).to_string(), font.clone(), Color32::WHITE).size().x) + 16.0).sum();
                                     let (rect, _) = ui.allocate_exact_size(egui::vec2(w, 22.0), Sense::hover());
                                     history::paint_refs(ui, rect.left(), rect.center().y, &c.refs, &font);
                                 }
@@ -1119,12 +1119,12 @@ impl App {
                     Some((x, y)) => (a + x.unwrap_or(0), r + y.unwrap_or(0)),
                     _ => (a, r),
                 });
-                egui::SidePanel::left("history_files")
+                egui::Panel::left("history_files")
                     .resizable(true)
-                    .default_width(300.0)
-                    .width_range(180.0..=600.0)
-                    .frame(egui::Frame::none().inner_margin(egui::Margin { left: 0.0, right: 6.0, top: 2.0, bottom: 0.0 }))
-                    .show_inside(ui, |ui| {
+                    .default_size(300.0)
+                    .size_range(180.0..=600.0)
+                    .frame(egui::Frame::NONE.inner_margin(egui::Margin { left: 0, right: 6, top: 2, bottom: 0 }))
+                    .show(ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.label(RichText::new(tf!("{} FICHIER(S)", "{} FILE(S)", chips.len())).small().strong().color(accent));
                             ui.label(RichText::new(format!("+{adds}")).small().monospace().color(ok()));
@@ -1148,7 +1148,7 @@ impl App {
                             }
                         });
                     });
-                egui::CentralPanel::default().frame(egui::Frame::none().inner_margin(egui::Margin { left: 6.0, ..Default::default() })).show_inside(ui, |ui| {
+                egui::CentralPanel::default().frame(egui::Frame::NONE.inner_margin(egui::Margin { left: 6, ..Default::default() })).show(ui, |ui| {
                     if let Some(d) = h.diff.as_ref().filter(|d| !d.files.is_empty()) {
                         // in a row: alone, the right-to-left layout would take the whole height
                         ui.horizontal(|ui| {
@@ -1271,7 +1271,7 @@ impl App {
                     self.open_overlay_with(Mode::Prompt(Prompt::BranchAt(hash)), Vec::new(), String::new())
                 }
                 (HistAct::Copy(text), _) => {
-                    ui.ctx().output_mut(|o| o.copied_text = text.clone());
+                    ui.ctx().copy_text(text.clone());
                     self.set_status(tf!("Copié : {text}", "Copied: {text}"));
                 }
                 (HistAct::Diff(hash), _) => {
@@ -1426,15 +1426,15 @@ fn commit_box(ui: &mut egui::Ui, msg: &mut String, amend: &mut bool, pushed: boo
         resp.context_menu(|ui| {
             if ui.button(t!("Mes consignes de commit (tous les dépôts)…", "My commit rules (every repository)…")).on_hover_text(t!("Langue, format, préfixes… pour les dépôts sans consignes à eux : rien à ajouter dans le dépôt", "Language, format, prefixes… for the repositories without rules of their own: nothing to add to the repository")).clicked() {
                 *rules = Some(true);
-                ui.close_menu();
+                ui.close();
             }
             if ui.button(t!("Consignes de ce projet (.florm/commit.md)…", "Rules of this project (.florm/commit.md)…")).on_hover_text(t!("Un fichier du dépôt, à commiter pour le partager avec l'équipe ; passe avant les tiennes", "A file of the repository, to commit to share it with the team; comes before yours")).clicked() {
                 *rules = Some(false);
-                ui.close_menu();
+                ui.close();
             }
         });
     };
-    egui::Frame::none().inner_margin(egui::Margin { left: 4.0, right: 4.0, top: 4.0, bottom: 6.0 }).show(ui, |ui| {
+    egui::Frame::NONE.inner_margin(egui::Margin { left: 4, right: 4, top: 4, bottom: 6 }).show(ui, |ui| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
             let clicked = ui.add_enabled(can, filled_button(label, accent)).on_hover_text(tip).clicked();
             if !claude_on {

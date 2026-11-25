@@ -269,8 +269,8 @@ impl App {
                 let font = egui::FontId::proportional(13.5);
                 let room = rect.width() - 12.0 - 10.0 - if close_zone { 24.0 } else { state_w };
                 let mut title = r.title.clone();
-                if ui.fonts(|f| f.layout_no_wrap(title.clone(), font.clone(), title_color).size().x) > room {
-                    while !title.is_empty() && ui.fonts(|f| f.layout_no_wrap(format!("{title}…"), font.clone(), title_color).size().x) > room {
+                if ui.fonts_mut(|f| f.layout_no_wrap(title.clone(), font.clone(), title_color).size().x) > room {
+                    while !title.is_empty() && ui.fonts_mut(|f| f.layout_no_wrap(format!("{title}…"), font.clone(), title_color).size().x) > room {
                         title.pop();
                     }
                     title = format!("{}…", title.trim_end());
@@ -285,7 +285,7 @@ impl App {
                 let mut on_close = false;
                 if close_zone {
                     let x = egui::Rect::from_center_size(egui::pos2(rect.right() - 16.0, title_y + 8.0), egui::vec2(18.0, 18.0));
-                    let xr = ui.interact(x, ui.id().with(("conv_close", r.id)), Sense::click());
+                    let xr = ui.interact(x, ui.scope_id().with(("conv_close", r.id)), Sense::click());
                     on_close = xr.hovered();
                     p.text(x.center(), Align2::CENTER_CENTER, "×", egui::FontId::proportional(14.0), if xr.hovered() { err() } else { weak });
                     if xr.on_hover_text(t!("Fermer cette conversation (son processus claude s'arrête ; elle reste dans l'historique)", "Close this conversation (its claude process stops; it stays in the history)")).clicked() {
@@ -307,16 +307,16 @@ impl App {
                 resp.context_menu(|ui| {
                     if ui.add_enabled(r.can_fork, egui::Button::new(t!("⇉ Dupliquer", "⇉ Duplicate"))).on_hover_text(t!("Une copie qui repart de la dernière réponse : pour essayer autre chose sans perdre celle-ci", "A copy that starts again from the last answer: to try something else without losing this one")).on_disabled_hover_text(t!("Après une première réponse de Claude", "After a first answer of Claude")).clicked() {
                         act = Some(ListAct::Fork(r.id));
-                        ui.close_menu();
+                        ui.close();
                     }
                     if r.tab == Some(LISTED) && ui.button(t!("⇱ Ouvrir dans son propre onglet", "⇱ Open in its own tab")).on_hover_text(t!("Pour la mettre à côté d'un fichier", "To put it beside a file")).clicked() {
                         act = Some(ListAct::OwnTab(r.id));
-                        ui.close_menu();
+                        ui.close();
                     }
                     ui.separator();
                     if ui.button(t!("× Fermer", "× Close")).clicked() {
                         act = Some(ListAct::Close(r.id));
-                        ui.close_menu();
+                        ui.close();
                     }
                 });
             }
@@ -428,9 +428,9 @@ mod glyph_tests {
     fn symbols_of_the_list_exist() {
         let ctx = egui::Context::default();
         ctx.set_fonts(crate::app::font_definitions());
-        let _ = ctx.run(Default::default(), |_| {});
+        let _ = crate::run_ui(&ctx, Default::default(), |_| {});
         let id = egui::FontId::proportional(13.0);
-        let missing: Vec<char> = "⟳❓✔·⇉+⇱×📄👤✏⇄■▶⚠".chars().filter(|c| !ctx.fonts(|f| f.has_glyphs(&id, &c.to_string()))).collect();
+        let missing: Vec<char> = "⟳❓✔·⇉+⇱×📄👤✏⇄■▶⚠".chars().filter(|c| !ctx.fonts_mut(|f| f.has_glyphs(&id, &c.to_string()))).collect();
         assert!(missing.is_empty(), "{missing:?}");
     }
 }

@@ -7,7 +7,13 @@ license = "MIT"
 repository = "https://github.com/mva-odoo/florm"
 
 [dependencies]
-eframe = "0.29"
+# glow as before (0.37 defaults to wgpu: bigger binary, and the title bar draws with a GL callback)
+eframe = { version = "0.37", default-features = false, features = ["accesskit", "clipboard", "default_fonts", "glow", "links", "wayland", "x11"] }
+# already used by eframe: its emoji and symbol fonts, no longer there by default (the symbols of the UI: ⏳ ⌘ 📄…)
+egui = { version = "0.37", default-features = false, features = ["monochrome_emoji_fonts"] }
+# winit's default features, that eframe no longer turns on without its own defaults (Wayland through dlopen,
+# its decorations); on macOS also used to take out winit's default menu (main.rs)
+winit = "0.30"
 ropey = "1.6"
 syntect = { version = "5.2", default-features = false, features = ["default-fancy"] }
 regex = "1"
@@ -21,13 +27,13 @@ similar = "2"
 arboard = { version = "3", default-features = false, features = ["image-data"] }
 portable-pty = "0.8"
 vt100 = "0.18"
-egui_extras = { version = "0.29", features = ["image", "svg", "file"] }
+egui_extras = { version = "0.37", features = ["image", "svg", "file"] }
 # already used by egui_extras (svg): the SVG drawn with options that never read other files
-resvg = { version = "0.37", default-features = false }
+resvg = { version = "0.45", default-features = false }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "ico"] }
-egui_commonmark = "0.18"
+egui_commonmark = "0.26"
 # already used by egui_commonmark: the images of a text checked as the viewer will read them
-pulldown-cmark = { version = "0.12", default-features = false }
+pulldown-cmark = { version = "0.13", default-features = false }
 dunce = "1"
 ttf-parser = "0.25"
 # vérification des mises à jour téléchargées (SHA256SUMS de la release)
@@ -63,9 +69,18 @@ opt-level = 3
 opt-level = 3
 [profile.release.package.emath]
 opt-level = 3
-[profile.release.package.ab_glyph]
+# the text of egui since 0.34-0.35: shaping (harfrust), fonts (skrifa), glyphs drawn (vello_cpu)
+[profile.release.package.harfrust]
 opt-level = 3
-[profile.release.package.ab_glyph_rasterizer]
+[profile.release.package.skrifa]
+opt-level = 3
+[profile.release.package.read-fonts]
+opt-level = 3
+[profile.release.package.vello_cpu]
+opt-level = 3
+[profile.release.package.vello_common]
+opt-level = 3
+[profile.release.package.fearless_simd]
 opt-level = 3
 [profile.release.package.memchr]
 opt-level = 3
@@ -108,13 +123,9 @@ opt-level = 2
 [target.'cfg(any(windows, target_os = "macos"))'.dependencies]
 rfd = { version = "0.15", default-features = false }
 
-# macOS: the default menu of winit taken out, so that Cmd+Q asks before quitting (already used by eframe).
-[target.'cfg(target_os = "macos")'.dependencies]
-winit = { version = "0.30", default-features = false }
-
 # Linux: the desktop's file chooser through the xdg portal (zbus is already used by egui's accessibility).
 [target.'cfg(target_os = "linux")'.dependencies]
-zbus = { version = "4", default-features = false, features = ["async-io"] }
+zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
 
 # Icône de florm.exe (build.rs).
 [target.'cfg(windows)'.build-dependencies]

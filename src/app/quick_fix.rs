@@ -186,7 +186,7 @@ impl App {
         let i = self.active;
         let Some(d) = self.docs.get(i).filter(|d| d.view == document::View::Text) else { return };
         let uid = d.uid;
-        let at = d.caret_screen.map_or_else(|| ctx.screen_rect().center(), |(x, y)| egui::pos2(x, y + 2.0));
+        let at = d.caret_screen.map_or_else(|| ctx.content_rect().center(), |(x, y)| egui::pos2(x, y + 2.0));
         let items = self.local_fixes(i);
         let mut waiting = false;
         if let Some((ci, _)) = self.lsp_for(i, ctx, true) {
@@ -384,7 +384,7 @@ impl App {
         }
         let accent = self.hl.colors.accent;
         let mut act = None;
-        let area = egui::Area::new(egui::Id::new("quick_fix")).order(egui::Order::Foreground).fixed_pos(q.at).show(ctx, |ui| {
+        let area = egui::Area::new(egui::Id::unique("quick_fix")).order(egui::Order::Foreground).fixed_pos(q.at).show(ctx, |ui| {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
                 ui.set_min_width(320.0);
                 ui.set_max_width(640.0);

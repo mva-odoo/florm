@@ -211,7 +211,7 @@ impl App {
     /// « Florm se fermera quand Claude aura fini », with a button to stay.
     pub(in crate::app) fn quit_when_idle_ui(&mut self, ctx: &egui::Context) {
         let accent = self.hl.colors.accent;
-        egui::Area::new(egui::Id::new("quit_when_idle")).order(egui::Order::Foreground).anchor(Align2::RIGHT_BOTTOM, [-16.0, -36.0]).show(ctx, |ui| {
+        egui::Area::new(egui::Id::unique("quit_when_idle")).order(egui::Order::Foreground).anchor(Align2::RIGHT_BOTTOM, [-16.0, -36.0]).show(ctx, |ui| {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
                 ui.horizontal(|ui| {
                     spinner(ui);

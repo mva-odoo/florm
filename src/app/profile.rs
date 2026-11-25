@@ -119,10 +119,10 @@ impl Profiler {
 
 fn paint(ctx: &egui::Context, text: String) {
     {
-        let p = ctx.layer_painter(egui::LayerId::new(egui::Order::Debug, egui::Id::new("florm_profile")));
+        let p = ctx.layer_painter(egui::LayerId::new(egui::Order::Debug, egui::Id::unique("florm_profile")));
         let font = egui::FontId::monospace(11.0);
         let galley = p.layout_no_wrap(text, font, egui::Color32::WHITE);
-        let screen = ctx.screen_rect();
+        let screen = ctx.content_rect();
         let at = egui::pos2(screen.right() - galley.size().x - 16.0, screen.bottom() - galley.size().y - 40.0);
         let bg = egui::Rect::from_min_size(at, galley.size()).expand(6.0);
         p.rect_filled(bg, 4.0, egui::Color32::from_black_alpha(200));

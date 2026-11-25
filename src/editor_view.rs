@@ -18,18 +18,18 @@ use std::sync::Arc;
 /// Real advance of one monospace character, as laid out by egui. `glyph_width` returns the
 /// unrounded advance (e.g. 8.275 px) while laid out text uses pixel-rounded advances
 /// (8 px): using the former makes the cursor drift right on long lines.
-pub fn char_width(fonts: &egui::text::Fonts, font: &FontId) -> f32 {
+pub fn char_width(fonts: &mut egui::epaint::FontsView<'_>, font: &FontId) -> f32 {
     fonts.layout_no_wrap("M".repeat(100), font.clone(), Color32::WHITE).size().x / 100.0
 }
 
 /// Focus id of the editor of the active panel (keyboard input goes to `App::active`).
 pub fn editor_id() -> Id {
-    Id::new("florm_editor")
+    Id::unique("florm_editor")
 }
 
 /// Editor of the other panel when split: clicking it makes that panel the active one.
 pub fn other_editor_id() -> Id {
-    Id::new("florm_editor_other")
+    Id::unique("florm_editor_other")
 }
 
 fn added_bg(light: bool) -> Color32 {
@@ -72,20 +72,26 @@ pub struct ViewOpts<'a> {
 
 pub fn show(ui: &mut Ui, doc: &mut Document, hl: &Highlighting, opts: &ViewOpts, matches: &[(usize, usize)], id: Id) -> egui::Response {
     let font = FontId::monospace(opts.font_size);
-    let (rh, cw) = ui.fonts(|f| (f.row_height(&font), char_width(f, &font)));
+    let (rh, cw) = ui.fonts_mut(|f| (f.row_height(&font), char_width(f, &font)));
+    let rh = line_height(opts.font_size, rh);
     let bg = hl.colors.bg;
     if opts.minimap {
-        egui::SidePanel::right(id.with("minimap"))
-            .exact_width(110.0)
+        egui::Panel::right(id.with("minimap"))
+            .exact_size(110.0)
             .resizable(false)
             .show_separator_line(false)
-            .frame(egui::Frame::none().fill(bg))
-            .show_inside(ui, |ui| minimap_ui(ui, doc, hl, rh));
+            .frame(egui::Frame::NONE.fill(bg))
+            .show(ui, |ui| minimap_ui(ui, doc, hl, rh));
     }
     egui::CentralPanel::default()
-        .frame(egui::Frame::none().fill(bg))
-        .show_inside(ui, |ui| text_area(ui, doc, hl, &font, rh, cw, opts, matches, id))
+        .frame(egui::Frame::NONE.fill(bg))
+        .show(ui, |ui| text_area(ui, doc, hl, &font, rh, cw, opts, matches, id))
         .inner
+}
+
+/// Height of a row: Zed's comfortable line height (1.618 × the font size), the text centered in it.
+pub fn line_height(font_size: f32, glyph_h: f32) -> f32 {
+    (font_size * 1.618).round().max(glyph_h)
 }
 
 /// Line `l` with its syntax colors, from visual column `vstart` to `vend` (tabs expanded):
@@ -225,6 +231,8 @@ fn text_area(
     id: Id,
 ) -> egui::Response {
     let inline_diff = opts.inline_diff;
+    // the glyphs, shorter than the row, centered in it
+    let pad = ((rh - ui.fonts_mut(|f| f.row_height(font))) / 2.0).round();
     let c = hl.colors;
     let nlines = doc.rope.len_lines();
     let digits = nlines.to_string().len().max(3);
@@ -619,7 +627,7 @@ fn text_area(
                         v += w;
                     }
                     painter.text(
-                        Pos2::new(text_x + vstart as f32 * cw, y),
+                        Pos2::new(text_x + vstart as f32 * cw, y + pad),
                         Align2::LEFT_TOP,
                         shown,
                         font.clone(),
@@ -635,7 +643,7 @@ fn text_area(
                         Pos2::new(gx + vp.width() - galley.size().x - 26.0, y + (rh - galley.size().y) / 2.0 - 1.0),
                         galley.size() + egui::vec2(10.0, 2.0),
                     );
-                    let r = ui.interact(br, Id::new(("revert_hunk", doc.uid, h.new_start)), Sense::click());
+                    let r = ui.interact(br, Id::unique(("revert_hunk", doc.uid, h.new_start)), Sense::click());
                     let fill = if r.hovered() { c.selection } else { c.gutter_bg };
                     painter.rect_filled(br, 3.0, fill);
                     painter.galley(br.min + egui::vec2(5.0, 1.0), galley, c.fg);
@@ -722,7 +730,7 @@ fn text_area(
         let i0 = matches.partition_point(|m| m.1 < vis_start);
         for &(a, b) in matches[i0..].iter().take_while(|m| m.0 <= vis_end) {
             for r in span_rects(doc, &rm, &wraps, a, b, first, last, text_x, origin.y, rh, cw) {
-                painter.rect_stroke(r, 2.0, Stroke::new(1.0_f32, c.find));
+                painter.rect_stroke(r, 2.0, Stroke::new(1.0_f32, c.find), egui::StrokeKind::Middle);
             }
         }
 
@@ -740,7 +748,7 @@ fn text_area(
             for r in span_rects(doc, &rm, &wraps, a, b, first, last, text_x, origin.y, rh, cw) {
                 let r = r.expand(1.0 + 3.0 * pulse);
                 painter.rect_filled(r, 3.0, mix(c.bg, c.accent, 0.35 + 0.25 * pulse));
-                painter.rect_stroke(r, 3.0, Stroke::new(2.0_f32, c.accent));
+                painter.rect_stroke(r, 3.0, Stroke::new(2.0_f32, c.accent), egui::StrokeKind::Middle);
             }
         }
 
@@ -826,8 +834,8 @@ fn text_area(
                 None => {
                     let (start_v, job) = line_job(doc, l, font, c.fg, vstart, vend, &brackets);
                     if let Some(sv) = start_v {
-                        let galley = ui.fonts(|f| f.layout_job(job));
-                        painter.galley(Pos2::new(text_x + sv as f32 * cw, line_y(l)), galley, c.fg);
+                        let galley = ui.fonts_mut(|f| f.layout_job(job));
+                        painter.galley(Pos2::new(text_x + sv as f32 * cw, line_y(l) + pad), galley, c.fg);
                     }
                 }
                 // one row after the other, each with its part of the line
@@ -836,9 +844,9 @@ fn text_area(
                         let (a, b) = w.row_span(k);
                         let (start_v, job) = line_job(doc, l, font, c.fg, a, b, &brackets);
                         if let Some(sv) = start_v {
-                            let galley = ui.fonts(|f| f.layout_job(job));
+                            let galley = ui.fonts_mut(|f| f.layout_job(job));
                             let x = (sv.saturating_sub(a) + if k > 0 { w.indent } else { 0 }) as f32 * cw;
-                            painter.galley(Pos2::new(text_x + x, line_y(l) + k as f32 * rh), galley, c.fg);
+                            painter.galley(Pos2::new(text_x + x, line_y(l) + k as f32 * rh + pad), galley, c.fg);
                         }
                     }
                 }
@@ -981,7 +989,7 @@ fn text_area(
                     if k > 0 {
                         painter.rect_filled(Rect::from_min_size(p, egui::vec2(10_000.0, rh)), 0.0, c.bg);
                     }
-                    painter.text(p, Align2::LEFT_TOP, line, font.clone(), color);
+                    painter.text(p + egui::vec2(0.0, pad), Align2::LEFT_TOP, line, font.clone(), color);
                 }
             }
         }
@@ -1015,7 +1023,7 @@ fn text_area(
                 None if cursor_lines.contains(&l) => c.fg,
                 None => c.gutter_fg.gamma_multiply(0.75),
             };
-            painter.text(Pos2::new(gx + gutter_w - 22.0, line_y(l)), Align2::RIGHT_TOP, (l + 1).to_string(), font.clone(), color);
+            painter.text(Pos2::new(gx + gutter_w - 22.0, line_y(l) + pad), Align2::RIGHT_TOP, (l + 1).to_string(), font.clone(), color);
             if hover_line == Some(l) {
                 painter.text(Pos2::new(gx + 2.0, line_y(l) + rh * 0.5), Align2::LEFT_CENTER, "✳", FontId::proportional(opts.font_size * 0.85), c.accent);
             }
@@ -1072,7 +1080,7 @@ fn text_area(
                 for k in 0..count {
                     let y = origin.y + (top_row + k) as f32 * rh;
                     if y + rh >= origin.y + vp.min.y && y <= origin.y + vp.max.y {
-                        painter.text(Pos2::new(gx + gutter_w - 22.0, y), Align2::RIGHT_TOP, "−", font.clone(), highlight::red());
+                        painter.text(Pos2::new(gx + gutter_w - 22.0, y + pad), Align2::RIGHT_TOP, "−", font.clone(), highlight::red());
                         painter.rect_filled(Rect::from_min_size(Pos2::new(gx + gutter_w - 5.0, y), egui::vec2(3.0, rh)), 0.0, highlight::red());
                     }
                 }
@@ -1090,11 +1098,11 @@ fn text_area(
                 let y = sticky_top + k as f32 * rh;
                 let (start_v, job) = line_job(doc, l, font, c.fg, vstart, vend, &[]);
                 if let Some(sv) = start_v {
-                    let galley = ui.fonts(|f| f.layout_job(job));
-                    painter.galley(Pos2::new(text_x + sv as f32 * cw, y), galley, c.fg);
+                    let galley = ui.fonts_mut(|f| f.layout_job(job));
+                    painter.galley(Pos2::new(text_x + sv as f32 * cw, y + pad), galley, c.fg);
                 }
                 painter.rect_filled(Rect::from_min_size(Pos2::new(gx, y), egui::vec2(gutter_w, rh)), 0.0, c.bg);
-                painter.text(Pos2::new(gx + gutter_w - 22.0, y), Align2::RIGHT_TOP, (l + 1).to_string(), font.clone(), c.gutter_fg);
+                painter.text(Pos2::new(gx + gutter_w - 22.0, y + pad), Align2::RIGHT_TOP, (l + 1).to_string(), font.clone(), c.gutter_fg);
             }
             if on_sticky {
                 let k = ((ptr.unwrap().y - sticky_top) / rh) as usize;
@@ -1150,7 +1158,7 @@ fn text_area(
         resp
     });
     doc.wraps = wraps;
-    doc.scroll_y = out.state.offset.y;
+    doc.scroll_y = out.state.clamped_offset().y;
     doc.view_h = out.inner_rect.height();
     doc.page_lines = ((doc.view_h / rh) as usize).saturating_sub(1).max(1);
     out.inner
@@ -1173,8 +1181,8 @@ fn diff_peek(ui: &Ui, uid: u64, index: usize, count: usize, h: &crate::diff::Hun
         GitMark::Deleted => t!("Supprimé", "Deleted"),
         GitMark::Modified => t!("Modifié", "Changed"),
     };
-    egui::Area::new(Id::new(("diff_peek", uid))).fixed_pos(right_top).pivot(Align2::RIGHT_TOP).order(egui::Order::Foreground).show(ui.ctx(), |ui| {
-        egui::Frame::popup(ui.style()).inner_margin(egui::Margin::symmetric(6.0, 2.0)).show(ui, |ui| {
+    egui::Area::new(Id::unique(("diff_peek", uid))).fixed_pos(right_top).pivot(Align2::RIGHT_TOP).order(egui::Order::Foreground).show(ui.ctx(), |ui| {
+        egui::Frame::popup(ui.style()).inner_margin(egui::Margin::symmetric(6, 2)).show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(RichText::new(tf!("{kind} · {}/{count}", "{kind} · {}/{count}", index + 1)).small().weak());
                 if ui.small_button("⏶").on_hover_text(t!("Changement précédent (Alt+Maj+F5)", "Previous change (Alt+Shift+F5)")).clicked() {
@@ -1298,11 +1306,11 @@ mod tests {
         let mut doc = Document::new(1, 4, true);
         let def = |name: &str| (PathBuf::from(format!("/p/{name}.py")), 3, format!("def {name}"), format!("{name}.py:4"));
         doc.hover_defs = Some(((0, 3), vec![def("a1"), def("a2")], 0));
-        let id = Id::new("editor");
+        let id = Id::unique("editor");
         let frame = |doc: &mut Document, time: f64, pointer: Pos2, new: Option<(TipAt, String)>| {
             let input = egui::RawInput { time: Some(time), events: vec![egui::Event::PointerMoved(pointer)], ..Default::default() };
-            let _ = ctx.run(input, |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| definitions_popup(ui, doc, id, new.clone()));
+            let _ = crate::run_ui(&ctx, input, |ui| {
+                egui::CentralPanel::default().show(ui, |ui| definitions_popup(ui, doc, id, new.clone()));
             });
         };
         let shown = |ctx: &egui::Context| ctx.data(|d| d.get_temp::<DefsPopup>(id.with("defs_popup")));
@@ -1329,11 +1337,12 @@ mod tests {
     #[test]
     fn cursor_matches_drawn_text() {
         let ctx = egui::Context::default();
-        let _ = ctx.run(Default::default(), |_| {});
-        let _ = ctx.run(Default::default(), |ctx| {
+        let _ = crate::run_ui(&ctx, Default::default(), |_| {});
+        let _ = crate::run_ui(&ctx, Default::default(), |ui| {
+            let ctx = &ui.ctx().clone();
             for size in [12.0, 13.0, 14.0, 15.5, 18.0] {
                 let font = FontId::monospace(size);
-                ctx.fonts(|f| {
+                ctx.fonts_mut(|f| {
                     let cw = char_width(f, &font);
                     for line in ["        return f\"{self.name} <{self.email}>\"", "x = 'é à ’ « » … €'", &"y".repeat(200)] {
                         let drawn = f.layout_no_wrap(line.to_string(), font.clone(), Color32::WHITE).size().x;
@@ -1490,14 +1499,14 @@ mod defs_popup_tests {
     fn the_list_takes_the_height_of_its_rows() {
         let ctx = egui::Context::default();
         let mut doc = Document::new(1, 4, true);
-        let id = Id::new("ed");
+        let id = Id::unique("ed");
         let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1600.0, 1000.0))), ..Default::default() };
         let defs = |n: usize| (0..n).map(|k| (PathBuf::from(format!("/p/{k}.py")), k, "m subscription".to_string(), format!("enterprise/18.0/sale_subscription_{k}/controllers/portal.py:{k}"))).collect::<Vec<_>>();
         let height = |doc: &mut Document, n: usize| {
             doc.hover_defs = Some(((n, 0), defs(n), 0));
             for _ in 0..3 {
-                let _ = ctx.run(input.clone(), |ctx| {
-                    egui::CentralPanel::default().show(ctx, |ui| definitions_popup(ui, doc, id, Some(((Pos2::new(50.0, 50.0), Align2::LEFT_TOP), String::new()))));
+                let _ = crate::run_ui(&ctx, input.clone(), |ui| {
+                    egui::CentralPanel::default().show(ui, |ui| definitions_popup(ui, doc, id, Some(((Pos2::new(50.0, 50.0), Align2::LEFT_TOP), String::new()))));
                 });
             }
             ctx.memory(|m| m.area_rect(id.with("defs_popup").with("area"))).expect("the popup is shown").height()

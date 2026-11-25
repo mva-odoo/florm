@@ -238,16 +238,16 @@ pub fn definitions(editor: &str, ui: &str) -> FontDefinitions {
     });
     let editor_names: Vec<&str> = if editor.trim().is_empty() { default_editor_font().to_vec() } else { vec![editor] };
     if let Some(d) = load(editor_names.clone()) {
-        defs.font_data.insert("user_mono".into(), d);
+        defs.font_data.insert("user_mono".into(), std::sync::Arc::new(d));
         defs.families.entry(FontFamily::Monospace).or_default().insert(0, "user_mono".into());
     }
     let ui_names: Vec<&str> = if !ui.trim().is_empty() { vec![ui] } else { default_ui_font().to_vec() };
     if let Some(d) = load(ui_names) {
-        defs.font_data.insert("user_ui".into(), d);
+        defs.font_data.insert("user_ui".into(), std::sync::Arc::new(d));
         defs.families.entry(FontFamily::Proportional).or_default().insert(0, "user_ui".into());
     }
     if let Some(bytes) = nerd_font_file().and_then(|p| std::fs::read(p).ok()) {
-        defs.font_data.insert("nerd_symbols".into(), FontData::from_owned(bytes));
+        defs.font_data.insert("nerd_symbols".into(), std::sync::Arc::new(FontData::from_owned(bytes)));
         for family in [FontFamily::Monospace, FontFamily::Proportional] {
             defs.families.entry(family).or_default().push("nerd_symbols".into());
         }
@@ -256,7 +256,7 @@ pub fn definitions(editor: &str, ui: &str) -> FontDefinitions {
     for (k, path) in symbol_font_files().into_iter().enumerate() {
         let Ok(bytes) = std::fs::read(&path) else { continue };
         let name = format!("system_symbols_{k}");
-        defs.font_data.insert(name.clone(), FontData::from_owned(bytes));
+        defs.font_data.insert(name.clone(), std::sync::Arc::new(FontData::from_owned(bytes)));
         for family in [FontFamily::Monospace, FontFamily::Proportional] {
             defs.families.entry(family).or_default().push(name.clone());
         }

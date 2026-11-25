@@ -85,10 +85,10 @@ impl App {
             return None;
         }
         let maximized = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
-        egui::TopBottomPanel::top("sidebar_mac_buttons").exact_height(TITLE_H - 6.0).frame(egui::Frame::none()).show_separator_line(false).show_inside(ui, |ui| {
+        egui::Panel::top("sidebar_mac_buttons").exact_size(TITLE_H - 6.0).frame(egui::Frame::NONE).show_separator_line(false).show(ui, |ui| {
             let bar = ui.max_rect();
             // the empty part moves the window, as the title bar does
-            let drag = ui.interact(bar, egui::Id::new("sidebar_mac_drag"), Sense::click_and_drag());
+            let drag = ui.interact(bar, egui::Id::unique("sidebar_mac_drag"), Sense::click_and_drag());
             drag_window(ui.ctx(), &drag, maximized);
             // from the left edge of the window (the sidebar has a margin)
             let left = Rect::from_min_max(Pos2::new(bar.left() - 8.0, bar.top()), bar.right_bottom());
@@ -114,16 +114,16 @@ impl App {
             && os::TRANSPARENT_WINDOW.load(std::sync::atomic::Ordering::Relaxed);
         let radius = if round { WINDOW_ROUNDING } else { 0.0 };
         let tc = self.hl.tab_colors();
-        let r = ctx.screen_rect();
-        let p = ctx.layer_painter(egui::LayerId::new(egui::Order::Debug, egui::Id::new("window_border")));
+        let r = ctx.content_rect();
+        let p = ctx.layer_painter(egui::LayerId::new(egui::Order::Debug, egui::Id::unique("window_border")));
         if radius > 0.0 {
             p.add(egui::PaintCallback { rect: r, callback: std::sync::Arc::new(clear_corners(radius)) });
         }
         let light = self.hl.is_light();
         let edge = crate::icons::mix(crate::icons::mix(tc.bar, tc.text_inactive, if light { 0.45 } else { 0.7 }), tc.accent, 0.45);
-        p.rect_stroke(r.shrink(0.75), (radius - 0.75).max(0.0), Stroke::new(1.5_f32, edge));
+        p.rect_stroke(r.shrink(0.75), (radius - 0.75).max(0.0), Stroke::new(1.5_f32, edge), egui::StrokeKind::Middle);
         let inner = if light { Color32::from_white_alpha(170) } else { Color32::from_white_alpha(22) };
-        p.rect_stroke(r.shrink(2.0), (radius - 2.0).max(0.0), Stroke::new(1.0_f32, inner));
+        p.rect_stroke(r.shrink(2.0), (radius - 2.0).max(0.0), Stroke::new(1.0_f32, inner), egui::StrokeKind::Middle);
     }
 
     /// The window loses (or gets back) the system's title bar when the setting changes.
@@ -137,20 +137,21 @@ impl App {
 
     /// The bar: the menus at the left (unless hidden), ─ □ ✕ at the right (round ones at the left
     /// on macOS, none under a tiling window manager).
-    pub(super) fn title_bar(&mut self, ctx: &egui::Context) {
+    pub(super) fn title_bar(&mut self, ui: &mut egui::Ui) {
+        let ctx = &ui.ctx().clone();
         let mut pending = Vec::new();
         let panel = self.hl.surfaces().bar;
         let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
         let controls = os::window_controls();
-        egui::TopBottomPanel::top("menu")
-            .exact_height(TITLE_H)
-            .frame(egui::Frame::none().fill(panel).inner_margin(egui::Margin { left: 10.0, right: 0.0, top: 0.0, bottom: 0.0 }))
+        egui::Panel::top("menu")
+            .exact_size(TITLE_H)
+            .frame(egui::Frame::NONE.fill(panel).inner_margin(egui::Margin { left: 10, right: 0, top: 0, bottom: 0 }))
             .show_separator_line(false)
-            .show(ctx, |ui| {
+            .show(ui, |ui| {
                 let bar = ui.max_rect();
                 ui.painter().hline(bar.x_range(), bar.bottom() - 0.5, egui::Stroke::new(1.0_f32, self.hl.surfaces().border));
                 // under everything else of the bar: what is not a menu or a button moves the window
-                let drag = ui.interact(bar, egui::Id::new("title_drag"), Sense::click_and_drag());
+                let drag = ui.interact(bar, egui::Id::unique("title_drag"), Sense::click_and_drag());
                 drag_window(ctx, &drag, maximized);
                 ui.horizontal_centered(|ui| {
                     if controls == Controls::Mac {
@@ -158,7 +159,7 @@ impl App {
                         ui.add_space(6.0);
                     }
                     if self.settings.show_menu_bar {
-                        egui::menu::bar(ui, |ui| self.menus(ui, &mut pending));
+                        egui::MenuBar::new().ui(ui, |ui| self.menus(ui, &mut pending));
                     }
                     if controls == Controls::Side {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -178,7 +179,7 @@ impl App {
             return;
         }
         let Some(p) = ctx.input(|i| i.pointer.hover_pos()) else { return };
-        let Some(dir) = edge_at(ctx.screen_rect(), p) else { return };
+        let Some(dir) = edge_at(ctx.content_rect(), p) else { return };
         use egui::CursorIcon as C;
         let icon = match dir {
             ResizeDirection::North | ResizeDirection::South => C::ResizeVertical,
@@ -207,7 +208,7 @@ pub(super) fn strip_buttons(ui: &mut egui::Ui, bar: Rect, controls: Controls, ma
     match controls {
         Controls::Side => {
             let r = Rect::from_min_max(Pos2::new(bar.right() - WINDOW_BUTTONS_W, bar.top()), bar.right_bottom());
-            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(r), |ui| {
+            ui.scope_builder(egui::UiBuilder::new().max_rect(r), |ui| {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
                     window_buttons(ui, maximized);
@@ -217,7 +218,7 @@ pub(super) fn strip_buttons(ui: &mut egui::Ui, bar: Rect, controls: Controls, ma
         Controls::Mac => {
             let r = Rect::from_min_max(Pos2::new(bar.left() + 10.0, bar.top()), Pos2::new(bar.left() + MAC_BUTTONS_W, bar.bottom()));
             let ctx = ui.ctx().clone();
-            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(r), |ui| {
+            ui.scope_builder(egui::UiBuilder::new().max_rect(r), |ui| {
                 ui.horizontal_centered(|ui| mac_buttons(ui, &ctx, maximized));
             });
         }
@@ -315,14 +316,14 @@ fn paint_button(p: &egui::Painter, c: Pos2, kind: Button, maximized: bool, color
         Button::Maximize if maximized => {
             // two squares: the front one and the corner of the one behind
             let front = Rect::from_min_max(Pos2::new(c.x - r, c.y - r + 2.0), Pos2::new(c.x + r - 2.0, c.y + r));
-            p.rect_stroke(front, 1.0, s);
+            p.rect_stroke(front, 1.0, s, egui::StrokeKind::Middle);
             p.line_segment([Pos2::new(c.x - r + 2.0, c.y - r + 2.0), Pos2::new(c.x - r + 2.0, c.y - r)], s);
             p.line_segment([Pos2::new(c.x - r + 2.0, c.y - r), Pos2::new(c.x + r, c.y - r)], s);
             p.line_segment([Pos2::new(c.x + r, c.y - r), Pos2::new(c.x + r, c.y + r - 2.0)], s);
             p.line_segment([Pos2::new(c.x + r, c.y + r - 2.0), Pos2::new(c.x + r - 2.0, c.y + r - 2.0)], s);
         }
         Button::Maximize => {
-            p.rect_stroke(Rect::from_center_size(c, egui::vec2(2.0 * r, 2.0 * r)), 1.0, s);
+            p.rect_stroke(Rect::from_center_size(c, egui::vec2(2.0 * r, 2.0 * r)), 1.0, s, egui::StrokeKind::Middle);
         }
         Button::Close => {
             p.line_segment([Pos2::new(c.x - r, c.y - r), Pos2::new(c.x + r, c.y + r)], s);

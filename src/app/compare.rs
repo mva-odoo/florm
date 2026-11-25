@@ -103,7 +103,7 @@ impl App {
         let (mut compare, mut restore) = (None, None);
         let name = lh.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         egui::Window::new(tf!("Historique local — {name}", "Local history — {name}"))
-            .id(egui::Id::new("local_history"))
+            .id(egui::Id::unique("local_history"))
             .open(&mut open)
             .collapsible(false)
             .default_size([460.0, 380.0])

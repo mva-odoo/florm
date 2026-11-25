@@ -10,7 +10,7 @@ impl App {
     pub(super) fn update_symbol(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         let accent = self.hl.colors.accent;
         // a pill, not a link lost among the details of the bar
-        let pill = |text: String| egui::Button::new(RichText::new(text).size(12.0).color(text_on(accent)).strong()).fill(accent).rounding(9.0).min_size(egui::vec2(0.0, 18.0));
+        let pill = |text: String| egui::Button::new(RichText::new(text).size(12.0).color(text_on(accent)).strong()).fill(accent).corner_radius(9.0).min_size(egui::vec2(0.0, 18.0));
         if let (Some(u), true) = (&self.upd.found, self.upd.installing) {
             ui.label(RichText::new(tf!("Mise à jour vers Florm {}…", "Updating to Florm {}…", u.version)).weak());
             spinner(ui);
@@ -21,8 +21,8 @@ impl App {
         } else if let Some(u) = self.upd.found.clone() {
             ui.scope(|ui| {
                 ui.spacing_mut().button_padding = egui::vec2(9.0, 0.0);
-                egui::menu::menu_custom_button(ui, pill(tf!("⬆ Mise à jour {}", "⬆ Update {}", u.version)), |ui| self.update_card(ui, &u, accent))
-                    .response
+                egui::containers::menu::MenuButton::from_button(pill(tf!("⬆ Mise à jour {}", "⬆ Update {}", u.version))).ui(ui, |ui| self.update_card(ui, &u, accent))
+                    .0
                     .on_hover_text(t!("Une nouvelle version de Florm : clic pour voir ce qui change et l'installer", "A new version of Florm: click to see what changes and install it"));
             });
         }
@@ -40,7 +40,7 @@ impl App {
         let install = filled_button(t!("Installer et redémarrer", "Install and restart"), accent).min_size(egui::vec2(0.0, 28.0));
         if ui.add(install).on_hover_text(t!("Florm télécharge la nouvelle version, la vérifie et remplace celle-ci. Sous Linux, un paquet système demande le mot de passe.", "Florm downloads the new version, checks it and replaces this one. On Linux, a system package asks for the password.")).clicked() {
             self.install_update();
-            ui.close_menu();
+            ui.close();
         }
         if !u.news.is_empty() {
             ui.add_space(6.0);
@@ -53,7 +53,7 @@ impl App {
                         ui.allocate_ui_with_layout(egui::vec2(74.0, 18.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
                             ui.set_width(74.0);
                             if let Some((label, color)) = tag {
-                                egui::Frame::none().fill(color.gamma_multiply(0.18)).rounding(4.0).inner_margin(egui::Margin::symmetric(5.0, 1.0)).show(ui, |ui| {
+                                egui::Frame::NONE.fill(color.gamma_multiply(0.18)).corner_radius(4.0).inner_margin(egui::Margin::symmetric(5, 1)).show(ui, |ui| {
                                     ui.label(RichText::new(label).size(11.0).color(color).strong());
                                 });
                             }
@@ -70,31 +70,32 @@ impl App {
             let link = |ui: &mut egui::Ui, text: &str| ui.add(egui::Button::new(RichText::new(text).small()).frame(false));
             if link(ui, t!("Notes et fichiers ↗", "Notes and files ↗")).on_hover_text(t!("La page de la version sur GitHub", "The page of the version on GitHub")).clicked() {
                 ui.ctx().open_url(egui::OpenUrl::new_tab(&u.page));
-                ui.close_menu();
+                ui.close();
             }
             if let Some((name, url)) = &u.file {
                 let tip = tf!("{name}, dans le navigateur ; installez-le comme la première fois : il remplace l'ancienne version, les préférences sont gardées.", "{name}, in the browser; install it like the first time: it replaces the old version, the preferences are kept.");
                 if link(ui, t!("Télécharger le fichier ↗", "Download the file ↗")).on_hover_text(tip).clicked() {
                     ui.ctx().open_url(egui::OpenUrl::new_tab(url));
-                    ui.close_menu();
+                    ui.close();
                 }
             }
             if link(ui, t!("Plus tard", "Later")).on_hover_text(t!("Masquée jusqu'au prochain démarrage", "Hidden until the next start")).clicked() {
                 self.upd.found = None;
-                ui.close_menu();
+                ui.close();
             }
         });
     }
 
-    pub(in crate::app) fn status_bar(&mut self, ctx: &egui::Context) {
+    pub(in crate::app) fn status_bar(&mut self, ui: &mut egui::Ui) {
+        let ctx = &ui.ctx().clone();
         let (mut toggle_spaces, mut convert_utf8) = (false, false);
         // as in Zed: the bars a step beyond the panels, a line above
         let s = self.hl.surfaces();
-        egui::TopBottomPanel::bottom("status")
-            .exact_height(28.0)
+        egui::Panel::bottom("status")
+            .exact_size(28.0)
             .show_separator_line(false)
-            .frame(egui::Frame::none().fill(s.bar).inner_margin(egui::Margin::symmetric(8.0, 0.0)))
-            .show(ctx, |ui| {
+            .frame(egui::Frame::NONE.fill(s.bar).inner_margin(egui::Margin::symmetric(8, 0)))
+            .show(ui, |ui| {
             let edge = ui.max_rect();
             ui.painter().hline(edge.x_range(), edge.top() + 0.5, egui::Stroke::new(1.0_f32, s.border));
             ui.style_mut().text_styles.insert(egui::TextStyle::Body, egui::FontId::proportional(12.5));
@@ -203,12 +204,12 @@ impl App {
                         if let Some(d) = self.docs.get(self.active) {
                             if ui.button(tf!("Syntaxe : {}…", "Syntax: {}…", d.syntax)).clicked() {
                                 pending.push(Cmd::SetSyntax);
-                                ui.close_menu();
+                                ui.close();
                             }
                             let ind = if d.use_spaces { tf!("Espaces : {}", "Spaces: {}", d.tab_size) } else { tf!("Tabulations : {}", "Tabs: {}", d.tab_size) };
                             if ui.button(tf!("Indentation : {ind}", "Indentation: {ind}")).on_hover_text(t!("Clic : passer aux espaces / aux tabulations", "Click: switch to spaces / tabs")).clicked() {
                                 toggle_spaces = true;
-                                ui.close_menu();
+                                ui.close();
                             }
                             ui.label(tf!("Fin de ligne : {}", "Line ending: {}", if d.crlf { "CRLF (Windows)" } else { "LF" }));
                             ui.label(tf!("Encodage : {}", "Encoding: {}", d.encoding.label()));
@@ -219,7 +220,7 @@ impl App {
                             if *install {
                                 if ui.button(t).on_hover_text(t!("Installe python-lsp-server pour Florm (pip --target, sans toucher au Python système). Ou installe pyright.", "Installs python-lsp-server for Florm (pip --target, without touching the system Python). Or install pyright.")).clicked() {
                                     pending.push(Cmd::InstallPylsp);
-                                    ui.close_menu();
+                                    ui.close();
                                 }
                             } else {
                                 ui.label(t);
@@ -337,9 +338,10 @@ impl App {
         }
     }
 
-    pub(in crate::app) fn find_bar(&mut self, ctx: &egui::Context) {
+    pub(in crate::app) fn find_bar(&mut self, ui: &mut egui::Ui) {
+        let ctx = &ui.ctx().clone();
         let (mut action, mut scope_toggled) = (None, false);
-        egui::TopBottomPanel::bottom("find").show(ctx, |ui| {
+        egui::Panel::bottom("find").show(ui, |ui| {
             ui.add_space(2.0);
             ui.horizontal(|ui| {
                 let f = &mut self.find;

@@ -63,7 +63,7 @@ pub fn in_tab_notice(ui: &mut egui::Ui) -> bool {
 
 /// The repository (or folder) a view works on, large and tinted at the left of its header, so it is not
 /// mistaken for another. With several, a click lists them (filterable); returns the index chosen.
-pub fn repo_chip(ui: &mut egui::Ui, id_salt: impl std::hash::Hash, name: &str, items: &[String], current: Option<usize>) -> Option<usize> {
+pub fn repo_chip(ui: &mut egui::Ui, id_salt: impl std::hash::Hash + std::fmt::Debug, name: &str, items: &[String], current: Option<usize>) -> Option<usize> {
     let accent = ui.visuals().hyperlink_color;
     let text = RichText::new(name).strong().size(14.0).color(accent);
     if items.len() > 1 {
@@ -71,7 +71,7 @@ pub fn repo_chip(ui: &mut egui::Ui, id_salt: impl std::hash::Hash, name: &str, i
     }
     let fill = crate::icons::mix(ui.visuals().panel_fill, accent, 0.15);
     // a single repository: nothing to pick here, say where to go instead
-    egui::Frame::none().fill(fill).rounding(5.0).inner_margin(egui::Margin::symmetric(8.0, 2.0)).show(ui, |ui| ui.label(text)).response.on_hover_text(t!(
+    egui::Frame::NONE.fill(fill).corner_radius(5.0).inner_margin(egui::Margin::symmetric(8, 2)).show(ui, |ui| ui.label(text)).response.on_hover_text(t!(
         "Le seul dépôt du dossier ouvert. Pour un autre projet : Fichier → Changer de projet…",
         "The only repository of the opened folder. For another project: File → Switch project…"
     ));

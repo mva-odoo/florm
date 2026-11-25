@@ -20,9 +20,9 @@ impl App {
         let mut scrolled = None;
         let mut shown_rect = None;
         let mut strip = (egui::Rect::NOTHING, Vec::new());
-        let panel_id = egui::Id::new("tabs").with(pane);
+        let panel_id = egui::Id::unique("tabs").with(pane);
         // on the window's background, above the editor's card (its border runs under the tabs)
-        egui::TopBottomPanel::top(panel_id).exact_height(TAB_STRIP_H).show_separator_line(false).frame(egui::Frame::none().fill(tc.bar)).show_inside(ui, |ui| {
+        egui::Panel::top(panel_id).exact_size(TAB_STRIP_H).show_separator_line(false).frame(egui::Frame::NONE.fill(tc.bar)).show(ui, |ui| {
             let bar = ui.max_rect();
             strip.0 = bar;
             // as in Zed: a line under the strip but not under the active tab, which opens onto
@@ -48,7 +48,7 @@ impl App {
             const NEW_W: f32 = 58.0;
             let new_rect = egui::Rect::from_min_max(egui::pos2(scroll.max.x - NEW_W, bar.min.y), egui::pos2(scroll.max.x, bar.max.y));
             scroll.max.x -= NEW_W;
-            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(new_rect), |ui| {
+            ui.scope_builder(egui::UiBuilder::new().max_rect(new_rect), |ui| {
                 ui.horizontal_centered(|ui| {
                     ui.spacing_mut().item_spacing.x = 2.0;
                     ui.add_space(4.0);
@@ -76,7 +76,7 @@ impl App {
                                     };
                                     if r.clicked() {
                                         activate = Some(i);
-                                        ui.close_menu();
+                                        ui.close();
                                     }
                                 }
                             });
@@ -103,7 +103,7 @@ impl App {
                 }
             }
             if let Some(r) = arrows {
-                ui.allocate_new_ui(egui::UiBuilder::new().max_rect(r), |ui| {
+                ui.scope_builder(egui::UiBuilder::new().max_rect(r), |ui| {
                     ui.horizontal_centered(|ui| {
                         ui.spacing_mut().item_spacing.x = 2.0;
                         let page = (width * 0.75).max(120.0);
@@ -116,10 +116,10 @@ impl App {
                     });
                 });
             }
-            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(scroll), |ui| {
+            ui.scope_builder(egui::UiBuilder::new().max_rect(scroll), |ui| {
             let mut area = egui::ScrollArea::horizontal()
                 .id_salt(panel_id.with("scroll"))
-                .drag_to_scroll(false)
+                .scroll_source(egui::scroll_area::ScrollSource { drag: egui::scroll_area::DragScroll::Never, ..Default::default() })
                 .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden);
             if let Some(x) = goto {
                 area = area.horizontal_scroll_offset(x.max(0.0));
@@ -184,7 +184,7 @@ impl App {
             let needs = out.content_size.x > width + if over { ARROWS_W } else { 1.0 };
             ui.ctx().data_mut(|d| {
                 d.insert_temp(over_id, needs);
-                d.insert_temp(offset_id, (out.state.offset.x, width));
+                d.insert_temp(offset_id, (out.state.clamped_offset().x, width));
             });
             if needs != over {
                 ui.ctx().request_repaint();
@@ -243,7 +243,7 @@ impl App {
                 });
             }
             Some(TabAct::CopyPath(t)) => {
-                ui.ctx().output_mut(|o| o.copied_text = t.clone());
+                ui.ctx().copy_text(t.clone());
                 self.set_status(tf!("Copié : {t}", "Copied: {t}"));
             }
             Some(TabAct::Reveal(p)) => self.reveal(&p),

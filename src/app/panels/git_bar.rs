@@ -17,7 +17,7 @@ pub(super) fn stash_menu(ui: &mut egui::Ui, g: &mut GitUi, changes: bool, act: &
         let tip = t!("Range les changements non commités (indexés ou non) et remet les fichiers comme au dernier commit", "Stores the uncommitted changes (staged or not) and puts the files back as at the last commit");
         if ui.add_enabled(changes, egui::Button::new(t!("Mettre de côté", "Put aside"))).on_hover_text(tip).on_disabled_hover_text(t!("Aucun changement à mettre de côté", "No change to put aside")).clicked() {
             *act = Some(StashAct::Push);
-            ui.close_menu();
+            ui.close();
         }
     });
     ui.separator();
@@ -39,19 +39,19 @@ pub(super) fn stash_menu(ui: &mut egui::Ui, g: &mut GitUi, changes: bool, act: &
                 ui.add_space(12.0);
                 if ui.small_button(t!("Voir", "Show")).on_hover_text(t!("Ses changements dans la vue des commits (sans les nouveaux fichiers)", "Its changes in the commits view (without the new files)")).clicked() {
                     *act = Some(StashAct::Show(s.hash.clone(), what.to_string()));
-                    ui.close_menu();
+                    ui.close();
                 }
                 if ui.small_button(t!("Appliquer", "Apply")).on_hover_text(t!("Remet ses changements dans tes fichiers ; le stash reste (git stash apply)", "Puts its changes back in your files; the stash stays (git stash apply)")).clicked() {
                     *act = Some(StashAct::Apply(s.hash.clone()));
-                    ui.close_menu();
+                    ui.close();
                 }
                 if ui.small_button(t!("Reprendre", "Pop")).on_hover_text(t!("Remet ses changements et supprime le stash (git stash pop)", "Puts its changes back and deletes the stash (git stash pop)")).clicked() {
                     *act = Some(StashAct::Pop(s.hash.clone()));
-                    ui.close_menu();
+                    ui.close();
                 }
                 if ui.small_button(RichText::new(t!("Supprimer", "Delete")).color(err())).on_hover_text(t!("git stash drop (demande confirmation)", "git stash drop (asks for confirmation)")).clicked() {
                     *act = Some(StashAct::AskDrop(s.hash.clone(), what.to_string()));
-                    ui.close_menu();
+                    ui.close();
                 }
             });
             ui.add_space(4.0);
@@ -123,11 +123,11 @@ impl App {
                 ui.menu_button(RichText::new(format!("🔀 {} ▾", st.branch)).strong().size(15.0), |ui| {
                     if ui.button(t!("Changer de branche…", "Switch branch…")).clicked() {
                         cmds.push(Cmd::GitCheckout);
-                        ui.close_menu();
+                        ui.close();
                     }
                     if ui.button(t!("+ Nouvelle branche…", "+ New branch…")).clicked() {
                         cmds.push(Cmd::GitNewBranch);
-                        ui.close_menu();
+                        ui.close();
                     }
                     ui.separator();
                     let b = &st.branch;
@@ -141,7 +141,7 @@ impl App {
                     ] {
                         if ui.button(label).clicked() {
                             cmds.push(cmd);
-                            ui.close_menu();
+                            ui.close();
                         }
                     }
                 })
@@ -192,7 +192,7 @@ impl App {
                 ] {
                     if ui.button(label).on_hover_text(tip).clicked() {
                         cmds.push(cmd);
-                        ui.close_menu();
+                        ui.close();
                     }
                 }
             })
@@ -208,30 +208,30 @@ impl App {
                     let label = if n > 0 { format!("Stash ({n})…") } else { "Stash…".into() };
                     if ui.button(label).on_hover_text(t!("Mettre des changements de côté (git stash) et les reprendre plus tard", "Put changes aside (git stash) and take them back later")).clicked() {
                         stash_open = true;
-                        ui.close_menu();
+                        ui.close();
                     }
                     if crate::features::on(crate::features::Feature::GitHub) && ui.button(t!("Pull requests GitHub", "GitHub pull requests")).on_hover_text(t!("Commentaires, suggestions, commits", "Comments, suggestions, commits")).clicked() {
                         cmds.push(Cmd::PullRequests);
-                        ui.close_menu();
+                        ui.close();
                     }
                     ui.menu_button(t!("🔍 Rechercher dans l'historique", "🔍 Search the history"), |ui| {
                         for k in git::SearchKind::ALL {
                             if ui.button(format!("{}…", k.label())).clicked() {
                                 bar_act = Some(GitBarAct::Search(k));
-                                ui.close_menu();
+                                ui.close();
                             }
                         }
                     });
                     if ui.button(t!("Reflog : retrouver un commit perdu…", "Reflog: find a lost commit…")).on_hover_text(t!("Où HEAD est passée : commits, checkouts, resets, rebases. Un commit perdu (reset, rebase, branche supprimée) y est encore.", "Where HEAD has been: commits, checkouts, resets, rebases. A lost commit (reset, rebase, deleted branch) is still there.")).clicked() {
                         cmds.push(Cmd::GitReflog);
-                        ui.close_menu();
+                        ui.close();
                     }
                     ui.menu_button(tf!("Remotes ({})", "Remotes ({})", remotes.len()), |ui| {
                         for (name, url) in &remotes {
                             ui.horizontal(|ui| {
                                 if ui.small_button("×").on_hover_text(t!("Retirer ce remote (rien n'est supprimé sur le serveur)", "Remove this remote (nothing is deleted on the server)")).clicked() {
                                     bar_act = Some(GitBarAct::RemoveRemote(name.clone()));
-                                    ui.close_menu();
+                                    ui.close();
                                 }
                                 ui.label(RichText::new(name).strong());
                                 ui.label(RichText::new(url).weak().small());
@@ -239,7 +239,7 @@ impl App {
                         }
                         if ui.button(t!("+ Ajouter un remote…", "+ Add a remote…")).clicked() {
                             bar_act = Some(GitBarAct::AddRemote);
-                            ui.close_menu();
+                            ui.close();
                         }
                     });
                     ui.menu_button(t!("Sous-modules", "Submodules"), |ui| {
@@ -252,33 +252,33 @@ impl App {
                             ui.separator();
                             if ui.button(t!("Initialiser et mettre à jour (update --init --recursive)", "Init and update (update --init --recursive)")).clicked() {
                                 bar_act = Some(GitBarAct::Submodules(vec!["submodule".into(), "update".into(), "--init".into(), "--recursive".into()]));
-                                ui.close_menu();
+                                ui.close();
                             }
                             if ui.button(t!("Suivre leur branche distante (update --remote)", "Follow their remote branch (update --remote)")).clicked() {
                                 bar_act = Some(GitBarAct::Submodules(vec!["submodule".into(), "update".into(), "--remote".into(), "--recursive".into()]));
-                                ui.close_menu();
+                                ui.close();
                             }
                             if ui.button(t!("Reprendre les URL de .gitmodules (sync)", "Take the URLs of .gitmodules again (sync)")).clicked() {
                                 bar_act = Some(GitBarAct::Submodules(vec!["submodule".into(), "sync".into(), "--recursive".into()]));
-                                ui.close_menu();
+                                ui.close();
                             }
                         }
                         if ui.button(t!("+ Ajouter un sous-module…", "+ Add a submodule…")).clicked() {
                             bar_act = Some(GitBarAct::AddSubmodule);
-                            ui.close_menu();
+                            ui.close();
                         }
                     });
                     if ui.button(t!("Supprimer les fichiers non suivis…", "Delete the untracked files…")).on_hover_text(t!("git clean : la liste est montrée avant", "git clean: the list is shown first")).clicked() {
                         cmds.push(Cmd::GitClean);
-                        ui.close_menu();
+                        ui.close();
                     }
                     if crate::features::on(crate::features::Feature::Claude) && ui.button(t!("✨ Consignes des messages de commit (Claude)…", "✨ Commit message rules (Claude)…")).on_hover_text(t!("Ce que Claude doit suivre en écrivant les messages de ce projet (langue, préfixes…) : .florm/commit.md", "What Claude must follow when writing the messages of this project (language, prefixes…): .florm/commit.md")).clicked() {
                         cmds.push(Cmd::GitCommitRules);
-                        ui.close_menu();
+                        ui.close();
                     }
                     if crate::features::on(crate::features::Feature::Claude) && ui.button(t!("✨ Mes consignes des messages de commit (tous les dépôts)…", "✨ My commit message rules (every repository)…")).on_hover_text(t!("Tes consignes (langue, format…) pour les dépôts qui n'ont pas les leurs : rien à ajouter dans le dépôt", "Your rules (language, format…) for the repositories without their own: nothing to add to the repository")).clicked() {
                         cmds.push(Cmd::GitMyCommitRules);
-                        ui.close_menu();
+                        ui.close();
                     }
                     ui.separator();
                     if ui.checkbox(all, t!("Toutes les branches dans le graphe", "All branches in the graph")).changed() {
@@ -305,7 +305,7 @@ impl App {
             self.stash_reload();
         } else if self.git.stash_shown {
             let changes = self.git.status.as_ref().is_some_and(|s| !s.entries.is_empty());
-            let area = egui::Area::new(ui.id().with("stash_panel"))
+            let area = egui::Area::new(ui.scope_id().with("stash_panel"))
                 .order(egui::Order::Foreground)
                 .fixed_pos(row.response.rect.right_bottom())
                 .pivot(egui::Align2::RIGHT_TOP)
@@ -324,11 +324,11 @@ impl App {
         let mut cmds_after = Vec::new();
         // --- errors stay until dismissed (or until a later git command succeeds)
         if let Some((label, e)) = self.git.op_error.clone().or_else(|| self.git.error.clone().map(|e| ("status".into(), e))) {
-            egui::Frame::none()
+            egui::Frame::NONE
                 .fill(icons::mix(bg, err(), 0.14))
                 .stroke(egui::Stroke::new(1.0_f32, err()))
-                .rounding(6.0)
-                .inner_margin(egui::Margin::same(8.0))
+                .corner_radius(6.0)
+                .inner_margin(egui::Margin::same(8))
                 .show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     ui.horizontal(|ui| {
@@ -343,7 +343,7 @@ impl App {
                                 cmds_after.push(Cmd::GitForcePush);
                             }
                             if ui.small_button(t!("Copier", "Copy")).clicked() {
-                                ui.ctx().output_mut(|o| o.copied_text = e.clone());
+                                ui.ctx().copy_text(e.clone());
                             }
                         });
                     });

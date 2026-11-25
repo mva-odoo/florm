@@ -149,7 +149,7 @@ impl App {
         let filter_w = ((ui.available_width() - 200.0) / 2.0).clamp(160.0, 700.0);
 
         // the bar of the search: room around it and between its lines
-        egui::Frame::none().inner_margin(egui::Margin { left: 10.0, right: 10.0, top: 8.0, bottom: 4.0 }).show(ui, |ui| {
+        egui::Frame::NONE.inner_margin(egui::Margin { left: 10, right: 10, top: 8, bottom: 4 }).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 7.0;
             // --- search line: [▸ replace] [pattern] [Aa .* « »] [⏷] [Rechercher]
             ui.horizontal(|ui| {
@@ -167,7 +167,7 @@ impl App {
                         ui.spacing_mut().item_spacing.x = 2.0;
                         let te = ui.add(
                             egui::TextEdit::singleline(&mut s.q.pattern)
-                                .frame(false)
+                                .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(4, 2)))
                                 .desired_width(field_w)
                                 .hint_text(t!("Rechercher dans tous les fichiers… (Entrée)", "Search all files… (Enter)"))
                                 .font(egui::TextStyle::Monospace),
@@ -241,7 +241,7 @@ impl App {
             // --- filters line
             ui.horizontal(|ui| {
                 ui.add_space(22.0);
-                let inc_f = field_frame(ui).show(ui, |ui| ui.add(egui::TextEdit::singleline(&mut s.q.include).frame(false).desired_width(filter_w).hint_text(t!("Inclure : *.py, models/*.py, !tests", "Include: *.py, models/*.py, !tests"))));
+                let inc_f = field_frame(ui).show(ui, |ui| ui.add(egui::TextEdit::singleline(&mut s.q.include).frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(4, 2))).desired_width(filter_w).hint_text(t!("Inclure : *.py, models/*.py, !tests", "Include: *.py, models/*.py, !tests"))));
                 focus_ring(ui, inc_f.response.rect, inc_f.inner.has_focus());
                 let inc = inc_f.inner
                     .on_hover_text(t!(
@@ -265,7 +265,7 @@ impl App {
                 go |= history_menu(ui, &st.include_history, &mut s.q.include, t!("Filtres récents", "Recent filters"));
                 ui.add_space(8.0);
                 let exc_f = field_frame(ui).show(ui, |ui| ui.add(
-                    egui::TextEdit::singleline(&mut s.q.exclude).frame(false).desired_width(filter_w).hint_text(t!("Exclure : tests, *.min.js", "Exclude: tests, *.min.js")),
+                    egui::TextEdit::singleline(&mut s.q.exclude).frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(4, 2))).desired_width(filter_w).hint_text(t!("Exclure : tests, *.min.js", "Exclude: tests, *.min.js")),
                 ));
                 focus_ring(ui, exc_f.response.rect, exc_f.inner.has_focus());
                 let exc = exc_f.inner.on_hover_text(t!(
@@ -364,14 +364,14 @@ impl App {
             background: icons::mix(bg, ok(), 0.4),
             ..Default::default()
         };
-        let row_h = (ui.fonts(|f| f.row_height(&font)) + 7.0).round().max(22.0);
+        let row_h = (ui.fonts_mut(|f| f.row_height(&font)) + 7.0).round().max(22.0);
         ui.spacing_mut().item_spacing.y = 0.0; // show_rows positions rows with this spacing
         let mut area = egui::ScrollArea::both().id_salt("search_results").auto_shrink([false, false]);
         if std::mem::take(&mut s.scroll_to_cursor) {
             if let Some(i) = s.cursor.and_then(|(f, h)| s.rows.iter().position(|&r| r == (f, Some(h)))) {
                 let (y, view_h) = (i as f32 * row_h, ui.available_height());
                 let id = ui.make_persistent_id("search_results");
-                let top = egui::scroll_area::State::load(ui.ctx(), id).map_or(0.0, |st| st.offset.y);
+                let top = egui::scroll_area::State::load(ui.ctx(), id).map_or(0.0, |st| st.clamped_offset().y);
                 if y < top || y + row_h > top + view_h {
                     area = area.vertical_scroll_offset((y - view_h / 2.0).max(0.0));
                 }
@@ -467,7 +467,7 @@ impl App {
                                 let mut item = |ui: &mut egui::Ui, label: &str, a: SearchAct| {
                                     if ui.button(label).clicked() {
                                         act = Some(a);
-                                        ui.close_menu();
+                                        ui.close();
                                     }
                                 };
                                 item(ui, t!("Ouvrir le fichier", "Open the file"), SearchAct::Open(fi, 0));
@@ -500,7 +500,7 @@ impl App {
                                 None => job.append(matched, 0.0, match_fmt.clone()),
                             }
                             append_colored(&mut job, &hit.preview, hit.end, hit.preview.len(), spans, &font, fg);
-                            let galley = ui.fonts(|fo| fo.layout_job(job));
+                            let galley = ui.fonts_mut(|fo| fo.layout_job(job));
                             let text_x = 92.0;
                             let (rect, resp) = ui.allocate_exact_size(
                                 egui::vec2(width.max(text_x + galley.size().x + 16.0), row_h),
@@ -556,7 +556,7 @@ impl App {
                                 let mut item = |ui: &mut egui::Ui, label: &str, a: SearchAct| {
                                     if ui.button(label).clicked() {
                                         act = Some(a);
-                                        ui.close_menu();
+                                        ui.close();
                                     }
                                 };
                                 item(ui, t!("Ouvrir", "Open"), SearchAct::Open(fi, h));
@@ -597,7 +597,7 @@ impl App {
                 }
             }
             Some(SearchAct::Copy(t)) => {
-                ui.ctx().output_mut(|o| o.copied_text = t.clone());
+                ui.ctx().copy_text(t.clone());
                 self.set_status(tf!("Copié : {t}", "Copied: {t}"));
             }
             Some(SearchAct::Move(true)) => {
@@ -624,17 +624,17 @@ impl App {
 /// inside it has no frame of its own, its options sit beside it in the same frame).
 fn field_frame(ui: &egui::Ui) -> egui::Frame {
     let v = ui.visuals();
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(v.extreme_bg_color)
         .stroke(egui::Stroke::new(1.0_f32, v.widgets.noninteractive.bg_stroke.color))
-        .rounding(4.0)
-        .inner_margin(egui::Margin::symmetric(6.0, 3.0))
+        .corner_radius(4.0)
+        .inner_margin(egui::Margin::symmetric(6, 3))
 }
 
 /// The accent around a field of `field_frame` while it has the keyboard.
 fn focus_ring(ui: &egui::Ui, rect: egui::Rect, focused: bool) {
     if focused {
-        ui.painter().rect_stroke(rect, 4.0, egui::Stroke::new(1.0_f32, ui.visuals().selection.stroke.color));
+        ui.painter().rect_stroke(rect, 4.0, egui::Stroke::new(1.0_f32, ui.visuals().selection.stroke.color), egui::StrokeKind::Middle);
     }
 }
 

@@ -17,7 +17,7 @@ const CAPTURE: usize = 1 << 20;
 
 /// Base of the focus ids of the terminal grids (shortcuts other than a few global ones go to the shell).
 fn term_id() -> Id {
-    Id::new("florm_terminal")
+    Id::unique("florm_terminal")
 }
 
 fn default_shell() -> String {
@@ -797,7 +797,7 @@ impl Terminal {
         }
         let focus = std::mem::take(&mut self.want_focus);
         // a rounded block of the editor's color in the panel
-        let act = egui::Frame::none().fill(colors.bg).rounding(6.0).show(ui, |ui| self.grid(ui, i, focus, colors, light)).inner;
+        let act = egui::Frame::NONE.fill(colors.bg).corner_radius(6.0).show(ui, |ui| self.grid(ui, i, focus, colors, light)).inner;
         match act {
             Some(GridAct::Restart) => self.restart(i, &ctx, shell),
             Some(GridAct::NewTerminal) => self.open(&ctx, shell, None),
@@ -817,7 +817,7 @@ impl Terminal {
             self.focus_tab = None;
         }
         let mut back = false;
-        egui::TopBottomPanel::top(egui::Id::new("term_tab_bar").with(id)).show_inside(ui, |ui| {
+        egui::Panel::top(egui::Id::unique("term_tab_bar").with(id)).show(ui, |ui| {
             ui.horizontal(|ui| {
                 let s = &self.sessions[i];
                 ui.label(RichText::new(s.cwd.display().to_string()).small().weak());
@@ -834,7 +834,7 @@ impl Terminal {
             return;
         }
         let bg = colors.bg;
-        egui::CentralPanel::default().frame(egui::Frame::none().fill(bg)).show_inside(ui, |ui| match self.grid(ui, i, focus, colors, light) {
+        egui::CentralPanel::default().frame(egui::Frame::NONE.fill(bg)).show(ui, |ui| match self.grid(ui, i, focus, colors, light) {
             Some(GridAct::Restart) => self.restart(i, &ctx, shell),
             Some(GridAct::NewTerminal) => {
                 if let Ok((nid, _)) = self.open_tab(&ctx, shell, None) {
@@ -1035,7 +1035,7 @@ impl Terminal {
         let s = &mut self.sessions[i];
         s.drawn.store(pass, Ordering::Relaxed);
         let font = egui::TextStyle::Monospace.resolve(ui.style());
-        let (rh, cw) = ui.fonts(|f| (f.row_height(&font), crate::editor_view::char_width(f, &font)));
+        let (rh, cw) = ui.fonts_mut(|f| (f.row_height(&font), crate::editor_view::char_width(f, &font)));
         let (rect, resp) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
         let gid = Self::grid_id(s.id);
         let resp = ui.interact(rect, gid, Sense::click_and_drag()).union(resp);
@@ -1119,7 +1119,7 @@ impl Terminal {
         // mouse wheel: to the program when it asked for the mouse (it scrolls itself), else the
         // scrollback, or arrow keys for full-screen programs (less, vim…)
         if resp.hovered() {
-            let dy = ui.input(|i| i.raw_scroll_delta.y);
+            let dy = wheel_dy(ui);
             if dy != 0.0 {
                 let lines = ((dy.abs() / rh).ceil() as usize).max(1);
                 let (alt, wheel) = {
@@ -1171,7 +1171,7 @@ impl Terminal {
                     }
                     Event::Copy => match s.selected_text() {
                         Some(t) => {
-                            ui.ctx().output_mut(|o| o.copied_text = t);
+                            ui.ctx().copy_text(t);
                             s.sel = None;
                         }
                         None if !exited => s.write(b"\x03"),
@@ -1229,14 +1229,14 @@ impl Terminal {
             ] {
                 if ui.add_enabled(on, egui::Button::new(label)).clicked() {
                     action = Some(a);
-                    ui.close_menu();
+                    ui.close();
                 }
             }
         });
         match action {
             Some(0) => {
                 if let Some(t) = s.selected_text() {
-                    ui.ctx().output_mut(|o| o.copied_text = t);
+                    ui.ctx().copy_text(t);
                 }
             }
             Some(1) => {
@@ -1718,7 +1718,7 @@ fn paint(ui: &egui::Ui, rect: Rect, pad: f32, rh: f32, cw: f32, font: &FontId, s
             let text: String = (c0..c1).filter_map(|k| screen.cell(r, k)).map(|x| if x.contents().is_empty() { " " } else { x.contents() }).collect();
             painter.text(m.min, Align2::LEFT_TOP, text, font.clone(), c.bg);
         } else {
-            painter.rect_stroke(m, 2.0, Stroke::new(1.0_f32, c.find));
+            painter.rect_stroke(m, 2.0, Stroke::new(1.0_f32, c.find), egui::StrokeKind::Middle);
         }
     }
     // the link under the mouse while Ctrl (Cmd) is held: underlined in the accent color
@@ -1758,7 +1758,7 @@ fn paint(ui: &egui::Ui, rect: Rect, pad: f32, rh: f32, cw: f32, font: &FontId, s
                 }
             }
             _ => {
-                painter.rect_stroke(cell, 1.0, Stroke::new(1.0_f32, c.caret));
+                painter.rect_stroke(cell, 1.0, Stroke::new(1.0_f32, c.caret), egui::StrokeKind::Middle);
             }
         }
     }
@@ -1827,6 +1827,26 @@ fn color(c: vt100::Color, default: Color32, theme: Colors, light: bool) -> Color
         }
         vt100::Color::Rgb(r, g, b) => Color32::from_rgb(r, g, b),
     }
+}
+
+/// Vertical wheel movement of this frame in points, not smoothed (egui no longer gives it).
+/// With Shift the wheel scrolls sideways: left out.
+fn wheel_dy(ui: &egui::Ui) -> f32 {
+    let line = ui.ctx().options(|o| o.input_options.line_scroll_speed);
+    ui.input(|i| {
+        let page = i.viewport_rect().height();
+        i.events
+            .iter()
+            .map(|e| match e {
+                egui::Event::MouseWheel { unit, delta, modifiers, .. } if !modifiers.shift => match unit {
+                    egui::MouseWheelUnit::Point => delta.y,
+                    egui::MouseWheelUnit::Line => line * delta.y,
+                    egui::MouseWheelUnit::Page => page * delta.y,
+                },
+                _ => 0.0,
+            })
+            .sum()
+    })
 }
 
 fn cell_colors(cell: &vt100::Cell, c: Colors, light: bool) -> (Color32, Color32) {
@@ -2054,14 +2074,16 @@ mod tests {
         let frame = |t: &mut Terminal, events: Vec<Event>, command: bool| {
             let modifiers = Modifiers { ctrl: command, command, ..Default::default() };
             clock.set(clock.get() + 1.0);
-            ctx.run(egui::RawInput { screen_rect, events, modifiers, time: Some(clock.get()), ..Default::default() }, |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| t.embedded_ui(ui, id, false, colors, false));
+            // the modifiers come as an event
+            let events = std::iter::once(Event::ModifiersChanged(modifiers)).chain(events).collect();
+            crate::run_ui(&ctx, egui::RawInput { screen_rect, events, time: Some(clock.get()), ..Default::default() }, |ui| {
+                egui::CentralPanel::default().show(ui, |ui| t.embedded_ui(ui, id, false, colors, false));
             })
         };
         frame(&mut t, Vec::new(), false);
         // the middle of the cell of `text` on the screen
-        let font = egui::TextStyle::Monospace.resolve(&ctx.style());
-        let (rh, cw) = ctx.fonts(|f| (f.row_height(&font), crate::editor_view::char_width(f, &font)));
+        let font = egui::TextStyle::Monospace.resolve(&ctx.global_style());
+        let (rh, cw) = ctx.fonts_mut(|f| (f.row_height(&font), crate::editor_view::char_width(f, &font)));
         let grid = t.grids[&id].1;
         let at = |t: &Terminal, text: &str| {
             let contents = screen(t);
@@ -2080,7 +2102,7 @@ mod tests {
         let p = at(&t, "x.io");
         frame(&mut t, vec![Event::PointerMoved(p)], true);
         let out = frame(&mut t, click(p, true), true);
-        assert_eq!(out.platform_output.open_url.map(|u| u.url).as_deref(), Some("https://x.io/doc"));
+        assert_eq!(out.platform_output.commands.iter().find_map(|c| if let egui::OutputCommand::OpenUrl(u) = c { Some(u.url.clone()) } else { None }).as_deref(), Some("https://x.io/doc"));
         let p = at(&t, "app.rs");
         frame(&mut t, vec![Event::PointerMoved(p)], true);
         frame(&mut t, click(p, true), true);
@@ -2090,7 +2112,7 @@ mod tests {
         let mut twice = click(p, false);
         twice.extend(click(p, false));
         let out = frame(&mut t, twice, false);
-        assert!(out.platform_output.open_url.is_none());
+        assert!(out.platform_output.commands.iter().find_map(|c| if let egui::OutputCommand::OpenUrl(u) = c { Some(u.url.clone()) } else { None }).is_none());
         assert_eq!(t.sessions[0].selected_text().as_deref(), Some("https://x.io/doc"));
         t.close(id);
         let _ = std::fs::remove_dir_all(&dir);
@@ -2204,8 +2226,8 @@ mod tests {
         let first = std::cell::Cell::new(true);
         let frame = |t: &mut Terminal, events: Vec<Event>| {
             let mut asked = false;
-            let _ = ctx.run(egui::RawInput { screen_rect, events, ..Default::default() }, |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| asked = t.embedded_ui(ui, id, first.replace(false), colors, false));
+            let _ = crate::run_ui(&ctx, egui::RawInput { screen_rect, events, ..Default::default() }, |ui| {
+                egui::CentralPanel::default().show(ui, |ui| asked = t.embedded_ui(ui, id, first.replace(false), colors, false));
             });
             asked
         };
@@ -2244,8 +2266,9 @@ mod tests {
         // the keyboard given to the terminal once, as the Claude tab does
         let first = std::cell::Cell::new(true);
         let frame = |t: &mut Terminal, events: Vec<Event>, modifiers: Modifiers| {
-            let _ = ctx.run(egui::RawInput { screen_rect, events, modifiers, ..Default::default() }, |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| t.embedded_ui(ui, id, first.replace(false), colors, false));
+            let events = std::iter::once(Event::ModifiersChanged(modifiers)).chain(events).collect();
+            let _ = crate::run_ui(&ctx, egui::RawInput { screen_rect, events, ..Default::default() }, |ui| {
+                egui::CentralPanel::default().show(ui, |ui| t.embedded_ui(ui, id, first.replace(false), colors, false));
             });
         };
         frame(&mut t, Vec::new(), Modifiers::default());

@@ -81,9 +81,9 @@ impl App {
         let name = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| dir.display().to_string());
         let (mut trust, mut later) = (false, false);
         let bg = icons::mix(ui.visuals().panel_fill, warn(), 0.12);
-        egui::TopBottomPanel::top(egui::Id::new("trust_bar").with(pane))
-            .frame(egui::Frame::none().fill(bg).inner_margin(egui::Margin::symmetric(10.0, 4.0)))
-            .show_inside(ui, |ui| {
+        egui::Panel::top(egui::Id::unique("trust_bar").with(pane))
+            .frame(egui::Frame::NONE.fill(bg).inner_margin(egui::Margin::symmetric(10, 4)))
+            .show(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
                     ui.label(RichText::new(t!("🔒 Mode restreint", "🔒 Restricted mode")).color(warn()).strong()).on_hover_text(dir.display().to_string());
                     ui.label(t!(

@@ -455,12 +455,12 @@ impl App {
         let mut open_file = None;
         let mut explain = false;
         if side {
-            egui::SidePanel::right(egui::Id::new("claude_session").with(c.id)).resizable(true).default_width(230.0).width_range(200.0..=420.0).show_inside(ui, |ui| {
+            egui::Panel::right(egui::Id::unique("claude_session").with(c.id)).resizable(true).default_size(230.0).size_range(200.0..=420.0).show(ui, |ui| {
                 (open_file, explain) = session::session_ui(ui, c, &dir_name, branch.as_deref(), limits, accent);
             });
         }
         let mut paste_image = false;
-        egui::CentralPanel::default().frame(egui::Frame::none().fill(colors.bg)).show_inside(ui, |ui| match c.term {
+        egui::CentralPanel::default().frame(egui::Frame::NONE.fill(colors.bg)).show(ui, |ui| match c.term {
             Some(id) => paste_image = term.embedded_ui(ui, id, std::mem::take(&mut c.focus), colors, light),
             None => {
                 ui.add_space(20.0);
@@ -655,8 +655,8 @@ mod tests {
                 app.claude.cost = 1.25;
                 app.claude.context = (150_000, 200_000);
             }
-            let _ = ctx.run(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 700.0))), ..Default::default() }, |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            let _ = crate::run_ui(&ctx, egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 700.0))), ..Default::default() }, |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
                     app.claude_show(ui, 1);
                     right = ui.min_rect().right();
                 });

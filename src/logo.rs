@@ -170,7 +170,7 @@ pub fn paint(painter: &Painter, rect: Rect, detail: bool) {
     // the letter: a texture rendered at the pixel size shown, kept for the next frames
     let ctx = painter.ctx();
     let px = (s * ctx.pixels_per_point()).round().clamp(8.0, 1024.0) as usize;
-    let id = egui::Id::new(("florm_logo", px));
+    let id = egui::Id::unique(("florm_logo", px));
     let tex = ctx.data(|d| d.get_temp::<egui::TextureHandle>(id)).unwrap_or_else(|| {
         let image = egui::ColorImage::from_rgba_unmultiplied([px, px], &render(px, |u, v| Vec2::new(u, v)));
         let tex = ctx.load_texture("florm_logo", image, egui::TextureOptions::LINEAR);

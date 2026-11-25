@@ -9,7 +9,7 @@ use std::collections::HashMap;
 type Maxed = HashMap<Id, (&'static str, u64)>;
 
 fn key() -> Id {
-    Id::new("maximized_panels")
+    Id::unique("maximized_panels")
 }
 
 /// The panel of `view` taking all its room (to call once per frame the view is shown).

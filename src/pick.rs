@@ -38,7 +38,7 @@ pub fn list(ui: &mut egui::Ui, id: Id, items: &[String], current: Option<usize>)
     // as wide as the longest item (of all of them: the width stays while filtering), within
     // bounds; egui would otherwise keep the width of the button, long branch names on two lines
     let font = egui::TextStyle::Button.resolve(ui.style());
-    let longest = items.iter().take(500).map(|s| ui.fonts(|f| f.layout_no_wrap(s.clone(), font.clone(), egui::Color32::PLACEHOLDER).size().x)).fold(0.0, f32::max);
+    let longest = items.iter().take(500).map(|s| ui.fonts_mut(|f| f.layout_no_wrap(s.clone(), font.clone(), egui::Color32::PLACEHOLDER).size().x)).fold(0.0, f32::max);
     let width = (longest + 40.0).min(560.0);
     ui.set_min_width(width);
     ui.set_max_width(ui.min_rect().width().max(width));
@@ -89,24 +89,24 @@ pub fn list(ui: &mut egui::Ui, id: Id, items: &[String], current: Option<usize>)
 
 /// A button showing `selected` whose list, below it, can be filtered by typing; returns the index
 /// (in `items`) of the item chosen.
-pub fn combo(ui: &mut egui::Ui, id_salt: impl std::hash::Hash, selected: impl Into<egui::WidgetText>, items: &[String], current: Option<usize>) -> Option<usize> {
+pub fn combo(ui: &mut egui::Ui, id_salt: impl std::hash::Hash + std::fmt::Debug, selected: impl Into<egui::WidgetText>, items: &[String], current: Option<usize>) -> Option<usize> {
     let popup = ui.make_persistent_id(id_salt);
     let r = ui.add(egui::Button::new(selected).shortcut_text("▾"));
     if r.clicked() {
-        ui.memory_mut(|m| m.toggle_popup(popup));
+        egui::Popup::toggle_id(ui.ctx(), popup);
     }
     // wide enough for the longest item (560 at most), not only for the button
     let font = egui::TextStyle::Button.resolve(ui.style());
-    let longest = ui.fonts(|f| items.iter().take(500).map(|s| f.layout_no_wrap(format!("● {s}"), font.clone(), egui::Color32::WHITE).size().x).fold(0.0, f32::max));
+    let longest = ui.fonts_mut(|f| items.iter().take(500).map(|s| f.layout_no_wrap(format!("● {s}"), font.clone(), egui::Color32::WHITE).size().x).fold(0.0, f32::max));
     let width = r.rect.width().max(240.0).max((longest + 40.0).min(560.0));
     // clicks in the filter field must not close it
-    let shown = egui::popup_below_widget(ui, popup, &r, egui::PopupCloseBehavior::CloseOnClickOutside, |ui| {
+    let shown = egui::Popup::from_response(&r).id(popup).open_memory(None).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
         ui.set_min_width(width);
         list(ui, popup, items, current)
     });
-    let chosen = shown.flatten();
+    let chosen = shown.as_ref().and_then(|s| s.inner);
     if chosen.is_some() {
-        ui.memory_mut(|m| m.close_popup());
+        egui::Popup::close_id(ui.ctx(), popup);
     }
     if shown.is_none() || chosen.is_some() {
         closed(ui, popup);

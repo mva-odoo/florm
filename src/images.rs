@@ -60,7 +60,7 @@ impl BytesLoader for FileGuard {
 
 /// SVG options whose `<image>` only takes images written inside the file (`data:` PNG, JPEG,
 /// GIF): never a path, which usvg would read from the disk by default.
-fn svg_options() -> resvg::usvg::Options {
+fn svg_options() -> resvg::usvg::Options<'static> {
     use resvg::usvg::{ImageHrefResolver, ImageKind};
     let mut opt = resvg::usvg::Options::default();
     opt.image_href_resolver = ImageHrefResolver {
@@ -82,24 +82,9 @@ fn svg_options() -> resvg::usvg::Options {
     opt
 }
 
-/// An SVG drawn at the size asked (as egui_extras does, with `svg_options`).
+/// An SVG drawn at the size asked (by egui_extras, with `svg_options`).
 pub fn rasterize_svg(bytes: &[u8], size_hint: SizeHint) -> Result<egui::ColorImage, String> {
-    use resvg::tiny_skia::{IntSize, Pixmap};
-    use resvg::usvg::{Tree, TreeParsing};
-    let mut tree = Tree::from_data(bytes, &svg_options()).map_err(|e| e.to_string())?;
-    let size = tree.size.to_int_size();
-    let size = match size_hint {
-        SizeHint::Size(w, h) => IntSize::from_wh(w, h).map(|s| size.scale_to(s)),
-        SizeHint::Height(h) => size.scale_to_height(h),
-        SizeHint::Width(w) => size.scale_to_width(w),
-        SizeHint::Scale(z) => size.scale_by(z.into_inner()),
-    }
-    .ok_or_else(|| "SVG: size".to_string())?;
-    let (w, h) = (size.width(), size.height());
-    let mut pixmap = Pixmap::new(w, h).ok_or_else(|| format!("SVG: {w}x{h}"))?;
-    tree.size = size.to_size();
-    resvg::Tree::from_usvg(&tree).render(Default::default(), &mut pixmap.as_mut());
-    Ok(egui::ColorImage::from_rgba_unmultiplied([w as _, h as _], pixmap.data()))
+    egui_extras::image::load_svg_bytes_with_size(bytes, size_hint, &svg_options())
 }
 
 type Entry = Result<Arc<egui::ColorImage>, String>;

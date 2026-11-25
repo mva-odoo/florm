@@ -245,7 +245,7 @@ pub fn paint_refs(ui: &Ui, mut x: f32, y: f32, refs: &[String], font: &FontId) -
         let ink = if dark { crate::icons::mix(color, Color32::WHITE, 0.45) } else { color };
         let galley = p.layout_no_wrap(text, font.clone(), ink);
         let r = Rect::from_min_size(Pos2::new(x, y - galley.size().y / 2.0 - 2.0), galley.size() + egui::vec2(12.0, 4.0));
-        p.rect(r, 4.0, color.gamma_multiply(if dark { 0.25 } else { 0.10 }), egui::Stroke::new(1.0_f32, color.gamma_multiply(0.45)));
+        p.rect(r, 4.0, color.gamma_multiply(if dark { 0.25 } else { 0.10 }), egui::Stroke::new(1.0_f32, color.gamma_multiply(0.45)), egui::StrokeKind::Middle);
         p.galley(Pos2::new(x + 6.0, y - galley.size().y / 2.0), galley, ink);
         x = r.right() + 4.0;
     }
@@ -257,7 +257,7 @@ pub fn paint_refs(ui: &Ui, mut x: f32, y: f32, refs: &[String], font: &FontId) -
 pub fn elided(ui: &Ui, text: &str, font: FontId, color: egui::Color32, max_w: f32) -> std::sync::Arc<egui::Galley> {
     let mut job = egui::text::LayoutJob::single_section(text.to_string(), egui::TextFormat::simple(font, color));
     job.wrap = egui::text::TextWrapping { max_width: max_w.max(10.0), max_rows: 1, break_anywhere: true, overflow_character: Some('…') };
-    ui.fonts(|f| f.layout_job(job))
+    ui.fonts_mut(|f| f.layout_job(job))
 }
 
 /// Height of a row of the commit list.
@@ -521,7 +521,7 @@ pub fn stacked_diff_view(
     mut notes: Option<Notes>,
 ) -> Option<DiffClick> {
     let font = egui::TextStyle::Monospace.resolve(ui.style());
-    let (row_h, cw) = ui.fonts(|f| (f.row_height(&font) + 2.0, crate::editor_view::char_width(f, &font)));
+    let (row_h, cw) = ui.fonts_mut(|f| (f.row_height(&font) + 2.0, crate::editor_view::char_width(f, &font)));
     let row_h = row_h.max(24.0);
     let place = ui.available_rect_before_wrap();
     let side = side_by_side();
@@ -532,7 +532,7 @@ pub fn stacked_diff_view(
     let mut noted: Vec<usize> = notes.as_ref().map(|n| n.at.iter().copied().collect()).unwrap_or_default();
     noted.sort_unstable();
     let key = diff_key(lines, (files.len(), side, folded, noted));
-    let cache_id = egui::Id::new(id).with("stack_rows");
+    let cache_id = egui::Id::unique(id).with("stack_rows");
     let cached = ui.ctx().data(|d| d.get_temp::<(u64, std::sync::Arc<Vec<StackRow>>, usize, usize)>(cache_id)).filter(|c| c.0 == key);
     let (rows, max_len, side_len) = match cached {
         Some((_, rows, m, s)) => (rows, m, s),
@@ -586,7 +586,7 @@ pub fn stacked_diff_view(
         }
     };
     // the height of a block is the one it took at the last frame
-    let note_id = |i: usize| egui::Id::new(id).with(("note", i));
+    let note_id = |i: usize| egui::Id::unique(id).with(("note", i));
     let heights: Vec<f32> = rows
         .iter()
         .map(|row| match row {
@@ -611,7 +611,7 @@ pub fn stacked_diff_view(
     if let Some(j) = jump {
         let sid = ui.make_persistent_id(id);
         let st = egui::scroll_area::State::load(ui.ctx(), sid);
-        let top = st.map_or(0.0, |s| s.offset.y);
+        let top = st.map_or(0.0, |s| s.clamped_offset().y);
         let view_h = ui.available_height();
         let header_rows: Vec<(usize, usize)> =
             rows.iter().enumerate().filter_map(|(r, row)| if let StackRow::Header(k) = row { Some((r, *k)) } else { None }).collect();
@@ -644,7 +644,7 @@ pub fn stacked_diff_view(
                 let Some(n) = notes.as_mut() else { continue };
                 let inner = Rect::from_min_size(Pos2::new(visible.left() + nums_w * 0.5, rect.top()), egui::vec2((visible.width() - nums_w * 0.5 - 12.0).max(200.0), 10_000.0));
                 let used = ui
-                    .allocate_new_ui(egui::UiBuilder::new().max_rect(inner).id_salt(note_id(i)), |ui| {
+                    .scope_builder(egui::UiBuilder::new().max_rect(inner).id_salt(note_id(i)), |ui| {
                         ui.add_space(4.0);
                         (n.show)(ui, i);
                         ui.add_space(6.0);
@@ -658,7 +658,7 @@ pub fn stacked_diff_view(
                 }
                 continue;
             }
-            let resp = ui.interact(rect, egui::Id::new(id).with(("row", r)), Sense::click());
+            let resp = ui.interact(rect, egui::Id::unique(id).with(("row", r)), Sense::click());
             let p = ui.painter();
             match rows[r] {
                 StackRow::Note(_) => {}
@@ -666,7 +666,7 @@ pub fn stacked_diff_view(
                 StackRow::Pair(l, rt) => {
                     paint_pair(ui, rect, half, lines, l, rt, &font, cw);
                     if resp.hovered() {
-                        ui.painter().rect_stroke(rect, 0.0, Stroke::new(1.0_f32, weak.gamma_multiply(0.4)));
+                        ui.painter().rect_stroke(rect, 0.0, Stroke::new(1.0_f32, weak.gamma_multiply(0.4)), egui::StrokeKind::Middle);
                     }
                     if resp.on_hover_text_at_pointer(t!("Double-clic : ouvrir le fichier à cette ligne", "Double-click: open the file at this line")).double_clicked() {
                         click = rt.or(l).map(DiffClick::Line);
@@ -678,7 +678,7 @@ pub fn stacked_diff_view(
                     let bar = Rect::from_min_max(Pos2::new(visible.left(), rect.top() + 1.0), Pos2::new(visible.right() - 2.0, rect.bottom() - 1.0));
                     let fill = if resp.hovered() { v.widgets.hovered.bg_fill } else { v.faint_bg_color };
                     p.rect_filled(bar, 6.0, fill);
-                    p.rect_stroke(bar, 6.0, Stroke::new(1.0_f32, v.widgets.noninteractive.bg_stroke.color.gamma_multiply(2.0)));
+                    p.rect_stroke(bar, 6.0, Stroke::new(1.0_f32, v.widgets.noninteractive.bg_stroke.color.gamma_multiply(2.0)), egui::StrokeKind::Middle);
                     let cy = bar.center().y;
                     let folded = collapsed.contains(&f.start);
                     crate::icons::paint_chevron(p, Pos2::new(bar.left() + 12.0, cy), !folded, weak);
@@ -712,7 +712,7 @@ pub fn stacked_diff_view(
                         p.rect_filled(rect, 0.0, bg);
                     }
                     if resp.hovered() && l.kind != DiffKind::Hunk {
-                        p.rect_stroke(rect, 0.0, Stroke::new(1.0_f32, weak.gamma_multiply(0.4)));
+                        p.rect_stroke(rect, 0.0, Stroke::new(1.0_f32, weak.gamma_multiply(0.4)), egui::StrokeKind::Middle);
                     }
                     let y = rect.center().y;
                     let n = |v: Option<usize>| v.map(|v| v.to_string()).unwrap_or_default();
@@ -905,7 +905,7 @@ fn side_toggle(ui: &mut Ui, area: Rect) {
     let fill = ui.visuals().window_fill;
     let b = egui::Button::new(egui::RichText::new(label).size(12.5)).fill(fill).stroke(ui.visuals().window_stroke);
     let clicked = ui
-        .allocate_new_ui(egui::UiBuilder::new().max_rect(r).layout(egui::Layout::right_to_left(egui::Align::Center)), |ui| ui.add(b).on_hover_text(tip).clicked())
+        .scope_builder(egui::UiBuilder::new().max_rect(r).layout(egui::Layout::right_to_left(egui::Align::Center)), |ui| ui.add(b).on_hover_text(tip).clicked())
         .inner;
     if clicked {
         SIDE_BY_SIDE.store(!on, std::sync::atomic::Ordering::Relaxed);
@@ -917,7 +917,7 @@ fn side_toggle(ui: &mut Ui, area: Rect) {
 /// overlap): the one clicked, and whether the pointer is on one of them.
 fn right_buttons(ui: &mut Ui, area: Rect, buttons: &[DiffButton]) -> (Option<DiffAct>, bool) {
     let (mut clicked, mut hovered) = (None, false);
-    ui.allocate_new_ui(egui::UiBuilder::new().max_rect(area).layout(egui::Layout::right_to_left(egui::Align::Center)), |ui| {
+    ui.scope_builder(egui::UiBuilder::new().max_rect(area).layout(egui::Layout::right_to_left(egui::Align::Center)), |ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
         for (label, tip, act) in buttons.iter().rev() {
             let r = ui.add(egui::Button::new(egui::RichText::new(*label).size(12.5))).on_hover_text(*tip);
@@ -954,13 +954,13 @@ pub fn reflow(body: &str) -> String {
 /// (label, tooltip) are shown on every "@@" line; double-clicking a line reports it.
 pub fn diff_view(ui: &mut Ui, lines: &[DiffLine], id: &str, hunk_buttons: &[DiffButton]) -> Option<DiffClick> {
     let font = egui::TextStyle::Monospace.resolve(ui.style());
-    let (row_h, cw) = ui.fonts(|f| (f.row_height(&font) + 2.0, crate::editor_view::char_width(f, &font)));
+    let (row_h, cw) = ui.fonts_mut(|f| (f.row_height(&font) + 2.0, crate::editor_view::char_width(f, &font)));
     let row_h = if hunk_buttons.is_empty() { row_h } else { row_h.max(22.0) };
     let area = ui.available_rect_before_wrap();
     let side = side_by_side();
     // built again only when the diff or the layout change (not at each frame)
     let key = diff_key(lines, side);
-    let cache_id = egui::Id::new(id).with("diff_rows");
+    let cache_id = egui::Id::unique(id).with("diff_rows");
     let cached = ui.ctx().data(|d| d.get_temp::<(u64, std::sync::Arc<Vec<SideRow>>, usize, usize)>(cache_id)).filter(|c| c.0 == key);
     let (rows, max_len, side_len) = match cached {
         Some((_, rows, m, s)) => (rows, m, s),
@@ -987,7 +987,7 @@ pub fn diff_view(ui: &mut Ui, lines: &[DiffLine], id: &str, hunk_buttons: &[Diff
                 SideRow::Pair(l, r) => {
                     paint_pair(ui, rect, half, lines, l, r, &font, cw);
                     if resp.hovered() {
-                        ui.painter().rect_stroke(rect, 0.0, Stroke::new(1.0_f32, weak.gamma_multiply(0.4)));
+                        ui.painter().rect_stroke(rect, 0.0, Stroke::new(1.0_f32, weak.gamma_multiply(0.4)), egui::StrokeKind::Middle);
                     }
                     if resp.on_hover_text_at_pointer(t!("Double-clic : ouvrir le fichier à cette ligne", "Double-click: open the file at this line")).double_clicked() {
                         click = r.or(l).map(DiffClick::Line);
@@ -1003,7 +1003,7 @@ pub fn diff_view(ui: &mut Ui, lines: &[DiffLine], id: &str, hunk_buttons: &[Diff
                 p.rect_filled(rect, 0.0, bg);
             }
             if resp.hovered() && l.kind != DiffKind::Hunk {
-                p.rect_stroke(rect, 0.0, Stroke::new(1.0_f32, weak.gamma_multiply(0.4)));
+                p.rect_stroke(rect, 0.0, Stroke::new(1.0_f32, weak.gamma_multiply(0.4)), egui::StrokeKind::Middle);
             }
             let y = rect.center().y;
             let n = |v: Option<usize>| v.map(|v| v.to_string()).unwrap_or_default();
@@ -1141,8 +1141,8 @@ mod diff_tests {
         let files = diff_files(&lines);
         let mut folded = std::collections::HashSet::new();
         let ctx = egui::Context::default();
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        let _ = crate::run_ui(&ctx, Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 assert!(diff_view(ui, &lines, "d", &[]).is_none());
                 assert!(stacked_diff_view(ui, &lines, &files, &mut folded, "s", &[], &[], None, None).is_none());
             });
@@ -1159,8 +1159,8 @@ mod diff_tests {
         folded.insert(0);
         let ctx = egui::Context::default();
         for jump in [None, Some(FileJump::To(1)), Some(FileJump::Next), Some(FileJump::PageUp)] {
-            let _ = ctx.run(Default::default(), |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            let _ = crate::run_ui(&ctx, Default::default(), |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
                     let click = stacked_diff_view(ui, &lines, &files, &mut folded, "t", &[("+", "", DiffAct::Stage)], &[("Ouvrir", "", DiffAct::Open)], jump, None);
                     assert!(click.is_none());
                 });

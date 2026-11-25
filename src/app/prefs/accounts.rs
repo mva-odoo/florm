@@ -82,7 +82,7 @@ impl App {
         let a_ui = &mut self.prefs.accounts;
         let logging = a_ui.login.as_ref().map(|(_, n)| n.clone());
         for (k, a) in accounts.iter().enumerate() {
-            egui::Frame::none().fill(ui.visuals().faint_bg_color).rounding(6.0).inner_margin(egui::Margin::symmetric(10.0, 8.0)).show(ui, |ui| {
+            egui::Frame::NONE.fill(ui.visuals().faint_bg_color).corner_radius(6.0).inner_margin(egui::Margin::symmetric(10, 8)).show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.horizontal(|ui| {
                     match &mut a_ui.rename {

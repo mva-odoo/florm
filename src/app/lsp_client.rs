@@ -139,15 +139,15 @@ impl App {
         }
         let Some((x, bottom)) = d.caret_screen else { return };
         let font = egui::FontId::monospace(self.settings.font_size * 0.92);
-        let row = self.settings.font_size * 1.45;
+        let row = crate::editor_view::line_height(self.settings.font_size, 0.0);
         let (fg, accent) = (self.hl.colors.fg, self.hl.colors.accent);
-        egui::Area::new(egui::Id::new("signature"))
+        egui::Area::new(egui::Id::unique("signature"))
             .order(egui::Order::Foreground)
             .pivot(Align2::LEFT_BOTTOM)
             .fixed_pos(egui::pos2(x - 8.0, bottom - row - 2.0))
             .interactable(false)
             .show(ctx, |ui| {
-                egui::Frame::popup(ui.style()).inner_margin(egui::Margin::symmetric(8.0, 5.0)).show(ui, |ui| {
+                egui::Frame::popup(ui.style()).inner_margin(egui::Margin::symmetric(8, 5)).show(ui, |ui| {
                     ui.set_max_width(560.0);
                     let mut job = egui::text::LayoutJob::default();
                     let chars: Vec<char> = label.chars().collect();
@@ -735,12 +735,12 @@ impl App {
         let Some(d) = self.docs.get(self.active).filter(|d| d.uid == c.uid) else { return };
         let Some((x, y)) = d.caret_screen else { return };
         let mut clicked = None;
-        let font = egui::TextStyle::Monospace.resolve(&ctx.style());
-        egui::Area::new(egui::Id::new("completion"))
+        let font = egui::TextStyle::Monospace.resolve(&ctx.global_style());
+        egui::Area::new(egui::Id::unique("completion"))
             .order(egui::Order::Foreground)
             .fixed_pos(egui::pos2(x - 22.0, y + 2.0))
             .show(ctx, |ui| {
-                egui::Frame::popup(ui.style()).inner_margin(egui::Margin::same(4.0)).show(ui, |ui| {
+                egui::Frame::popup(ui.style()).inner_margin(egui::Margin::same(4)).show(ui, |ui| {
                     ui.set_width(440.0);
                     egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
                         ui.spacing_mut().item_spacing.y = 0.0;

@@ -10,7 +10,8 @@ mod status;
 mod tabs;
 
 impl App {
-    pub(super) fn central(&mut self, ctx: &egui::Context) {
+    pub(super) fn central(&mut self, ui: &mut egui::Ui) {
+        let ctx = &ui.ctx().clone();
         self.normalize_panes();
         self.panes.drop_zones = DropZones::default();
         if std::mem::take(&mut self.pending_focus) {
@@ -24,16 +25,16 @@ impl App {
         }
         let two = self.is_split() && !self.zen;
         // the editor flat on its own background, from edge to edge
-        let outer = egui::Frame::none().fill(self.hl.colors.bg);
+        let outer = egui::Frame::NONE.fill(self.hl.colors.bg);
         // distraction-free: the text alone, on the editor's background, about 100 columns wide
         if self.zen && self.active < self.docs.len() {
             let bg = self.hl.colors.bg;
-            egui::CentralPanel::default().frame(egui::Frame::none().fill(bg)).show(ctx, |ui| {
+            egui::CentralPanel::default().frame(egui::Frame::NONE.fill(bg)).show(ui, |ui| {
                 let full = ui.max_rect();
-                let cw = ui.fonts(|f| f.glyph_width(&egui::FontId::monospace(self.settings.font_size), '0'));
+                let cw = ui.fonts_mut(|f| f.glyph_width(&egui::FontId::monospace(self.settings.font_size), '0'));
                 let w = (cw * 110.0).min(full.width());
                 let rect = egui::Rect::from_min_size(egui::pos2(full.center().x - w / 2.0, full.top() + 24.0), egui::vec2(w, full.height() - 24.0));
-                ui.allocate_new_ui(egui::UiBuilder::new().max_rect(rect), |ui| {
+                ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
                     editor_resp = self.doc_body(ui, self.active, editor_id(), true);
                 });
             });
@@ -42,26 +43,26 @@ impl App {
             }
             return;
         }
-        egui::CentralPanel::default().frame(outer).show(ctx, |ui| {
+        egui::CentralPanel::default().frame(outer).show(ui, |ui| {
             if two {
-                let frame = egui::Frame::none();
+                let frame = egui::Frame::NONE;
                 match self.panes.split_dir {
                     SplitDir::Right => {
                         let w = ui.available_width() / 2.0;
-                        egui::SidePanel::right("pane_1").resizable(true).default_width(w).min_width(180.0).frame(frame).show_inside(ui, |ui| {
+                        egui::Panel::right("pane_1").resizable(true).default_size(w).min_size(180.0).frame(frame).show(ui, |ui| {
                             let r = self.pane_ui(ui, 1);
                             editor_resp = editor_resp.take().or(r);
                         });
                     }
                     SplitDir::Down => {
                         let h = ui.available_height() / 2.0;
-                        egui::TopBottomPanel::bottom("pane_1").resizable(true).default_height(h).min_height(120.0).frame(frame).show_inside(ui, |ui| {
+                        egui::Panel::bottom("pane_1").resizable(true).default_size(h).min_size(120.0).frame(frame).show(ui, |ui| {
                             let r = self.pane_ui(ui, 1);
                             editor_resp = editor_resp.take().or(r);
                         });
                     }
                 }
-                egui::CentralPanel::default().frame(frame).show_inside(ui, |ui| {
+                egui::CentralPanel::default().frame(frame).show(ui, |ui| {
                     let r = self.pane_ui(ui, 0);
                     editor_resp = editor_resp.take().or(r);
                 });
@@ -94,7 +95,7 @@ impl App {
         }
         self.resolve_tab_drag(ctx);
         if welcome {
-            egui::CentralPanel::default().frame(egui::Frame::none().fill(self.hl.colors.bg)).show(ctx, |ui| self.welcome_ui(ui));
+            egui::CentralPanel::default().frame(egui::Frame::NONE.fill(self.hl.colors.bg)).show(ui, |ui| self.welcome_ui(ui));
         }
     }
 
@@ -142,7 +143,7 @@ impl App {
             };
             if ui.add_enabled(enabled, egui::Button::new(label).shortcut_text(shortcut)).clicked() {
                 chosen = Some(cmd);
-                ui.close_menu();
+                ui.close();
             }
         };
         ui.label(RichText::new(tf!("Ligne {}", "Line {}", line + 1)).small().weak());
@@ -222,7 +223,7 @@ impl App {
         let rev = git::stdout(&repo, &["rev-parse", "HEAD"]).map(|s| s.trim().to_string()).unwrap_or_else(|_| "HEAD".into());
         let rel = path.strip_prefix(&repo).map(|r| r.to_string_lossy().replace('\\', "/")).unwrap_or_default();
         let link = format!("https://github.com/{owner}/{name}/blob/{rev}/{rel}#L{}", head_line + 1);
-        ctx.output_mut(|o| o.copied_text = link.clone());
+        ctx.copy_text(link.clone());
         self.set_status(tf!("Lien copié : {link}", "Link copied: {link}"));
     }
 
@@ -235,7 +236,7 @@ impl App {
         let inner = egui::Rect::from_min_max(egui::pos2(rect.center().x - width / 2.0, top), egui::pos2(rect.center().x + width / 2.0, rect.bottom() - 8.0));
         let mut cmd = None;
         let mut open = None;
-        ui.allocate_new_ui(egui::UiBuilder::new().max_rect(inner), |ui| {
+        ui.scope_builder(egui::UiBuilder::new().max_rect(inner), |ui| {
             let dim = ui.visuals().weak_text_color();
             ui.horizontal(|ui| {
                 let (r, _) = ui.allocate_exact_size(egui::Vec2::splat(44.0), Sense::hover());

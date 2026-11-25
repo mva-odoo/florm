@@ -87,7 +87,7 @@ impl App {
             };
             if tool_row(ui, icon, label, note, &self.keymap.label(tab.cmd()), current == Some(tab)).clicked() {
                 chosen = Some(Pick::View(tab));
-                ui.close_menu();
+                ui.close();
             }
             if tab == BottomTab::Terminal {
                 for (id, title, shown, ended) in self.term.panel_sessions() {
@@ -97,12 +97,12 @@ impl App {
                         chosen = Some(Pick::CloseTerm(id));
                     } else if open {
                         chosen = Some(Pick::Term(id));
-                        ui.close_menu();
+                        ui.close();
                     }
                 }
                 if sub_row(ui, t!("+ Nouveau terminal", "+ New terminal"), None, false, false, true).0 {
                     chosen = Some(Pick::NewTerm);
-                    ui.close_menu();
+                    ui.close();
                 }
             }
         }
@@ -134,15 +134,16 @@ impl App {
         self.bottom = Some(BottomTab::Terminal);
     }
 
-    pub(in crate::app) fn bottom_panel(&mut self, ctx: &egui::Context) {
+    pub(in crate::app) fn bottom_panel(&mut self, ui: &mut egui::Ui) {
+        let ctx = &ui.ctx().clone();
         if let Some(t) = self.bottom {
             self.last_bottom = t;
         }
         let min_h = 80.0;
         // room on the sides and under its content, so that it does not touch the status bar
-        let frame = egui::Frame::side_top_panel(&ctx.style()).inner_margin(egui::Margin { left: 8.0, right: 8.0, top: 2.0, bottom: 8.0 });
-        egui::TopBottomPanel::bottom("bottom").resizable(true).default_height(230.0).height_range(min_h..=900.0).frame(frame).show(
-            ctx,
+        let frame = egui::Frame::side_top_panel(&ctx.global_style()).inner_margin(egui::Margin { left: 8, right: 8, top: 2, bottom: 8 });
+        egui::Panel::bottom("bottom").resizable(true).default_size(230.0).size_range(min_h..=900.0).frame(frame).show(
+            ui,
             |ui| {
                 // one view at a time, no row of tabs: its name, ▾ for the others
                 ui.horizontal(|ui| {
@@ -276,7 +277,7 @@ impl App {
         for (tab, icon, label) in BottomTab::shown().filter(|(t, ..)| !matches!(t, BottomTab::Problems | BottomTab::Output | BottomTab::Terminal)) {
             if tool_row(ui, icon, label, None, &self.keymap.label(tab.cmd()), false).clicked() {
                 chosen = Some(NewTab::View(tab));
-                ui.close_menu();
+                ui.close();
             }
         }
         ui.separator();
@@ -287,7 +288,7 @@ impl App {
         ] {
             if tool_row(ui, icon, label, None, &self.keymap.label(cmd), false).clicked() {
                 chosen = Some(NewTab::Cmd(cmd));
-                ui.close_menu();
+                ui.close();
             }
         }
         chosen

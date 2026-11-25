@@ -163,12 +163,12 @@ impl App {
                 Event::Copy => {
                     let (t, lw) = doc.copy_text();
                     self.last_line_copy = lw.then(|| t.clone());
-                    ctx.output_mut(|o| o.copied_text = t);
+                    ctx.copy_text(t);
                 }
                 Event::Cut => {
                     let (t, lw) = doc.cut();
                     self.last_line_copy = lw.then(|| t.clone());
-                    ctx.output_mut(|o| o.copied_text = t);
+                    ctx.copy_text(t);
                 }
                 Event::Paste(t) => {
                     let lw = self.last_line_copy.as_deref() == Some(t.replace("\r\n", "\n").as_str());
@@ -547,7 +547,7 @@ impl App {
                 if let Some(d) = self.docs.get_mut(self.active) {
                     let (t, linewise) = if cmd == Cut && !d.read_only { d.cut() } else { d.copy_text() };
                     self.last_line_copy = linewise.then(|| t.clone());
-                    ctx.output_mut(|o| o.copied_text = t);
+                    ctx.copy_text(t);
                 }
             }
             Paste => match arboard::Clipboard::new().and_then(|mut c| c.get_text()) {
@@ -568,7 +568,7 @@ impl App {
                             let rel = self.root.as_ref().and_then(|r| p.strip_prefix(r).ok()).unwrap_or(p);
                             format!("{}:{}", rel.display(), d.rope.char_to_line(d.primary_sel().head) + 1)
                         };
-                        ctx.output_mut(|o| o.copied_text = text.clone());
+                        ctx.copy_text(text.clone());
                         self.set_status(tf!("Copié : {text}", "Copied: {text}"));
                     }
                 }
