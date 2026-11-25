@@ -9,10 +9,13 @@
 # module: a Python module whose presence is enough (debugpy: no program)
 # builtin: inside Florm, nothing to install
 # optional: not installed by « Installer » (another tool does the same)
+# tree_sitter (of a pack): the syntax whose tree-sitter grammar is compiled into Florm (a switch in
+# the pack turns it off)
 
 [[pack]]
 name = "Python"
 ext = ["py", "pyi"]
+tree_sitter = "Python"
 [[pack.tool]]
 kind = "lsp"
 bin = "pylsp"

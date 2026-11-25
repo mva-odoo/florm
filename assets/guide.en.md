@@ -332,6 +332,12 @@ each language with its tools: language server (LSP), linter, formatter, debugger
   types it in a terminal (Enter runs it), a right click copies it.
 - When a file of a language that misses tools opens, a bar proposes to install them; **Later** hides
   it until Florm is closed, **Don't ask again** for good.
+- **Syntax · tree-sitter** (Python for now): the highlighting comes from the file's **syntax tree**,
+  as in Zed, instead of regular expressions: it understands the code (calls, builtin functions,
+  strings and their escapes…), and Alt+Shift+→ grows the selection one logical block at a time. The
+  tree follows each key without reading everything again (under a millisecond on a 7,000-line
+  file). The grammar is built into Florm, on every system; a click on the pack's line turns it on
+  or off.
 - **+ New pack…**: a language Florm does not know, or other tools for a language, in a TOML file of
   `~/.config/florm/packs/` (a pack with the same name replaces Florm's). A pack can declare a
   language server (`cmd` of an `lsp` tool) and a linter (`cmd` of a `lint` tool, writing
@@ -724,7 +730,9 @@ requests, Claude, terminal) only open in the browser when they are `http` or `ht
   the first time, about 550 KB. Turned off in Preferences → Editor → Spelling.
 - **Alt+Shift+→** expands the selection step by step: the word, the inside of the string, the
   string with its quotes, the inside of the parentheses (brackets, braces), with them, the line,
-  the block of the same indentation, the whole file. **Alt+Shift+←** goes back one step.
+  the block of the same indentation, the whole file. **Alt+Shift+←** goes back one step. In a
+  language that has its **syntax tree** (Python for now), each step follows the code: the name,
+  the argument, the argument list, the call, the statement, the block, the function, the class.
 - **Edit → Case**: UPPERCASE, lowercase, **snake_case**, **camelCase**, **Title Case**, on the
   selection or the word at the cursor (`parseHTTPRequest` → `parse_http_request`).
   **Edit → Remove duplicate lines** keeps the first of each repeated line (the selection, or the

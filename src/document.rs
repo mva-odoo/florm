@@ -1241,6 +1241,10 @@ impl Document {
             let n = t.chars().count();
             if e2 > s2 || n > 0 {
                 min_line = min_line.min(self.rope.char_to_line(s2));
+                // the syntax tree follows the edit (parsed again incrementally)
+                if self.highlight.uses_tree() {
+                    self.highlight.tree_edit(crate::syntax_tree::input_edit(&self.rope, s2, e2, t));
+                }
                 if e2 > s2 {
                     self.rope.remove(s2..e2);
                 }
@@ -2219,8 +2223,16 @@ impl Document {
         }
     }
 
-    /// The smallest unit strictly larger than `a..b` (see `expand_selection`).
+    /// The smallest unit strictly larger than `a..b` (see `expand_selection`): the next syntax
+    /// node when the language has a tree (word, argument, call, statement, function…), else the
+    /// word, the string, the brackets, the block.
     fn expanded(&self, a: usize, b: usize) -> Option<(usize, usize)> {
+        if let Some(tree) = self.highlight.tree().filter(|t| t.root_node().end_byte() == self.rope.len_bytes()) {
+            let (ba, bb) = (self.rope.char_to_byte(a), self.rope.char_to_byte(b));
+            if let Some((x, y)) = crate::syntax_tree::grow(tree, ba, bb) {
+                return Some((self.rope.byte_to_char(x), self.rope.byte_to_char(y)));
+            }
+        }
         let mut cands: Vec<(usize, usize)> = Vec::new();
         let (ws, we) = self.word_at(a);
         if ws <= a && we >= b {

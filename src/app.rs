@@ -1225,6 +1225,7 @@ impl App {
         hl.prepare_on_thread(egui_ctx.clone());
         history::SIDE_BY_SIDE.store(settings.diff_side_by_side, Ordering::Relaxed);
         git::set_trusted(&settings.trusted_folders);
+        crate::syntax_tree::set_off(&settings.tree_sitter_off);
         profile::startup_mark("coloration (syntect)");
         apply_visuals(egui_ctx, hl.visuals());
         egui_ctx.set_fonts(crate::fonts::definitions(&settings.editor_font, &settings.ui_font));

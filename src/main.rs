@@ -55,6 +55,7 @@ mod stat_cache;
 mod update;
 mod view_bar;
 mod symbols;
+mod syntax_tree;
 mod templates;
 mod terminal;
 mod tools;

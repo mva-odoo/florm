@@ -343,6 +343,12 @@ liste chaque langage avec ses outils : serveur de langage (LSP), linter, formate
   un clic la tape dans un terminal (Entrée pour la lancer), un clic droit la copie.
 - En ouvrant un fichier d'un langage auquel il manque des outils, une barre propose de les
   installer ; **Plus tard** la cache jusqu'à la fermeture de Florm, **Ne plus proposer** pour de bon.
+- **Syntaxe · tree-sitter** (Python pour l'instant) : la coloration vient de l'**arbre de syntaxe**
+  du fichier, comme dans Zed, au lieu d'expressions régulières : elle comprend le code (appels,
+  fonctions intégrées, chaînes et leurs séquences d'échappement…), et Alt+Maj+→ élargit la sélection
+  bloc logique par bloc logique. L'arbre suit chaque frappe sans tout relire (moins d'une
+  milliseconde sur un fichier de 7 000 lignes). La grammaire est intégrée à Florm, sur tous les
+  systèmes ; un clic sur la ligne du pack l'active ou la désactive.
 - **+ Nouveau pack…** : un langage que Florm ne connaît pas, ou d'autres outils pour un langage, dans
   un fichier TOML de `~/.config/florm/packs/` (un pack du même nom remplace celui de Florm). Un pack
   peut déclarer un serveur de langage (`cmd` d'un outil `lsp`) et un linter (`cmd` d'un outil `lint`,
@@ -745,7 +751,9 @@ navigateur que s'ils sont en `http` ou `https`.
   Éditeur → Orthographe.
 - **Alt+Maj+→** élargit la sélection pas à pas : le mot, l'intérieur de la chaîne, la chaîne avec
   ses guillemets, l'intérieur des parenthèses (crochets, accolades), avec elles, la ligne, le bloc
-  de même indentation, tout le fichier. **Alt+Maj+←** revient au pas d'avant.
+  de même indentation, tout le fichier. **Alt+Maj+←** revient au pas d'avant. Dans un langage qui a
+  son **arbre de syntaxe** (Python pour l'instant), chaque pas suit le code : le nom, l'argument,
+  la liste des arguments, l'appel, l'instruction, le bloc, la fonction, la classe.
 - **Édition → Casse** : MAJUSCULES, minuscules, **snake_case**, **camelCase**, **Majuscule Au
   Début** des mots, sur la sélection ou le mot du curseur (`parseHTTPRequest` → `parse_http_request`).
   **Édition → Supprimer les lignes en double** garde la première de chaque ligne répétée (la

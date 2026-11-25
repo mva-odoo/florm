@@ -32,6 +32,11 @@ dunce = "1"
 ttf-parser = "0.25"
 # vérification des mises à jour téléchargées (SHA256SUMS de la release)
 sha2 = "0.10"
+# syntax trees (tree-sitter): precise highlighting and selection by syntax node; the grammars are
+# compiled into Florm (C, built by cc on every system), one per language pack
+tree-sitter = "0.27"
+streaming-iterator = "0.1"
+tree-sitter-python = "0.25"
 
 [profile.release]
 opt-level = 3
@@ -58,6 +63,8 @@ opt-level = 3
 [profile.release.package.epaint]
 opt-level = 3
 [profile.release.package.similar]
+opt-level = 3
+[profile.release.package.tree-sitter]
 opt-level = 3
 [profile.release.package.vt100]
 opt-level = 3

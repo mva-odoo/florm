@@ -606,10 +606,53 @@ pub struct HlCache {
     parsed: usize,
     syntax: String,
     generation: u64,
+    /// The syntax tree, for the languages with a grammar (tree-sitter): the colors come from it
+    /// instead of the regexes, line by line for the lines shown.
+    ts: Option<crate::syntax_tree::SyntaxTree>,
+    /// Colors read from the tree, per line (None: to read).
+    ts_lines: Vec<Option<Spans>>,
+    /// The first line changed since the colors were read.
+    ts_dirty: Option<usize>,
+    /// The edits since the last parse were told to the tree (else: parsed from scratch).
+    ts_told: bool,
+    ts_untold: bool,
+    /// Colors of the scopes of the grammar in the theme.
+    ts_colors: std::collections::HashMap<&'static str, Color32>,
+    /// The first line shown (set by the editor): the tree's colors are read from there.
+    pub view_from: usize,
+    /// The regexes even when the language has a grammar (the tests of the regex highlighting).
+    pub regex_only: bool,
 }
 
 impl HlCache {
+    /// The syntax tree, when the language has a grammar (as last parsed).
+    pub fn tree(&self) -> Option<&tree_sitter::Tree> {
+        self.ts.as_ref().and_then(|t| t.tree())
+    }
+
+    /// The text is about to change (`syntax_tree::input_edit`): told to the tree, if any.
+    pub fn tree_edit(&mut self, e: tree_sitter::InputEdit) {
+        if let Some(t) = self.ts.as_mut() {
+            t.edit(e);
+            self.ts_told = true;
+        }
+    }
+
+    /// The colors come from a syntax tree.
+    pub fn uses_tree(&self) -> bool {
+        self.ts.is_some()
+    }
+
     pub fn invalidate(&mut self, line: usize) {
+        if self.ts.is_some() {
+            self.ts_dirty = Some(self.ts_dirty.map_or(line, |d| d.min(line)));
+            // changed without its edits told (undo restores a whole text): parsed from scratch
+            if !self.ts_told {
+                self.ts_untold = true;
+            }
+            self.ts_told = false;
+            return;
+        }
         if line >= self.lines.len() {
             // not highlighted yet: only the state kept for a line after it is no longer right
             // (the lines kept aside are checked against the text when they are taken back)
@@ -656,14 +699,91 @@ impl HlCache {
     }
 
     pub fn spans(&self, line: usize) -> Option<&[(Color32, Range<usize>)]> {
+        if self.ts.is_some() {
+            return self.ts_lines.get(line).and_then(|l| l.as_deref());
+        }
         self.lines.get(line).map(|l| l.spans.as_slice())
+    }
+
+    /// With a syntax tree: the colors of some lines out of the ones shown (the pinned lines at
+    /// the top of the editor), after `ensure` (the tree is in sync).
+    pub fn ensure_lines(&mut self, hl: &Highlighting, rope: &Rope, lines: &[usize]) {
+        let Some(ts) = self.ts.as_ref() else { return };
+        if ts.tree().is_none_or(|t| t.root_node().end_byte() != rope.len_bytes()) {
+            return;
+        }
+        let colors = &self.ts_colors;
+        let color = |s: &'static str| -> Color32 { colors.get(s).copied().unwrap_or(hl.colors.fg) };
+        for &l in lines {
+            if l >= rope.len_lines() || self.ts_lines.get(l).is_some_and(|x| x.is_some()) {
+                continue;
+            }
+            if self.ts_lines.len() <= l {
+                self.ts_lines.resize(l + 1, None);
+            }
+            self.ts_lines[l] = ts.line_spans(rope, l..l + 1, &color).into_iter().next();
+        }
+    }
+
+    /// `ensure` with a syntax tree: parsed again if the text changed, the colors of the lines
+    /// from `view_from` to `upto` read from it.
+    fn ensure_tree(&mut self, hl: &Highlighting, rope: &Rope, upto: usize) -> bool {
+        let Some(ts) = self.ts.as_mut() else { return true };
+        if std::mem::take(&mut self.ts_untold) {
+            if let Some(g) = crate::syntax_tree::grammar_for(ts.syntax()) {
+                if let Some(fresh) = crate::syntax_tree::SyntaxTree::new(g) {
+                    *ts = fresh;
+                }
+            }
+            self.ts_lines.clear();
+        }
+        if ts.sync(rope).is_none() {
+            return true;
+        }
+        let changed = ts.changed_from.take();
+        let from = match (changed, self.ts_dirty.take()) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
+        if let Some(f) = from {
+            self.ts_lines.truncate(f);
+        }
+        let nlines = rope.len_lines();
+        let upto = upto.min(nlines.saturating_sub(1));
+        if self.ts_lines.len() <= upto {
+            self.ts_lines.resize(upto + 1, None);
+        }
+        // the lines to read: from the first one shown not read yet, at most 2000 at a time
+        let start = self.view_from.min(upto);
+        let Some(a) = (start..=upto).find(|&l| self.ts_lines[l].is_none()) else { return true };
+        let b = (a..=upto).rev().find(|&l| self.ts_lines[l].is_none()).unwrap_or(a).min(a + 2000);
+        let colors = &mut self.ts_colors;
+        // the colors of the scopes, once per theme
+        if colors.is_empty() {
+            for s in crate::syntax_tree::all_scopes() {
+                colors.insert(s, hl.code_color(hl.scope_style(s).0));
+            }
+        }
+        let colors = &self.ts_colors;
+        let color = |s: &'static str| -> Color32 { colors.get(s).copied().unwrap_or(hl.colors.fg) };
+        let spans = self.ts.as_ref().map(|t| t.line_spans(rope, a..b + 1, &color)).unwrap_or_default();
+        for (k, sp) in spans.into_iter().enumerate() {
+            self.ts_lines[a + k] = Some(sp);
+        }
+        (start..=upto).all(|l| self.ts_lines[l].is_some())
     }
 
     /// Highlights up to `upto` (inclusive), for at most `budget` of time (the UI thread: a frame
     /// must not freeze on a long file). Returns false when the budget ran out (caller should repaint).
     pub fn ensure(&mut self, hl: &Highlighting, syntax: &str, rope: &Rope, upto: usize, budget: Duration) -> bool {
-        if self.syntax != syntax || self.generation != hl.generation {
-            *self = HlCache { syntax: syntax.to_string(), generation: hl.generation, ..Default::default() };
+        let grammar = if rope.len_bytes() <= crate::syntax_tree::MAX_BYTES && !self.regex_only { crate::syntax_tree::grammar_for(syntax) } else { None };
+        if self.syntax != syntax || self.generation != hl.generation || grammar.is_some() != self.ts.is_some() {
+            let (view_from, regex_only) = (self.view_from, self.regex_only);
+            *self = HlCache { syntax: syntax.to_string(), generation: hl.generation, view_from, regex_only, ..Default::default() };
+            self.ts = grammar.and_then(crate::syntax_tree::SyntaxTree::new);
+        }
+        if self.ts.is_some() {
+            return self.ensure_tree(hl, rope, upto);
         }
         if rope.len_bytes() > 30_000_000 || !hl.ready(syntax, rope) {
             return true;
@@ -831,7 +951,7 @@ mod tests {
         assert_eq!(hl.colors.accent, Color32::from_rgb(0x09, 0x69, 0xda));
         // colors of a Python line, like in VS Code
         let rope = Rope::from_str("def f(x):  # note\n    return 'a'\n");
-        let mut cache = HlCache::default();
+        let mut cache = HlCache { regex_only: true, ..Default::default() };
         assert!(cache.ensure(&hl, "Python", &rope, 1, Duration::MAX));
         let color_of = |line: usize, word: &str| {
             let text = rope.line(line).to_string();
@@ -866,7 +986,7 @@ mod tests {
         let hl = Highlighting::new("Florm", Path::new("/nonexistent"));
         let text: String = (0..200).map(|i| format!("def f{i}(x):\n    '''doc {i}'''\n    return x + {i}  # c\n")).collect();
         let mut rope = Rope::from_str(&text);
-        let mut cache = HlCache::default();
+        let mut cache = HlCache { regex_only: true, ..Default::default() };
         assert!(cache.ensure(&hl, "Python", &rope, usize::MAX, Duration::MAX));
         // (line, text inserted at its start, lines removed after it): typing on one line, a quote
         // that changes all the lines after it, lines added and removed
@@ -880,7 +1000,7 @@ mod tests {
             }
             cache.invalidate(line);
             assert!(cache.ensure(&hl, "Python", &rope, usize::MAX, Duration::MAX));
-            let mut fresh = HlCache::default();
+            let mut fresh = HlCache { regex_only: true, ..Default::default() };
             assert!(fresh.ensure(&hl, "Python", &rope, usize::MAX, Duration::MAX));
             for l in 0..rope.len_lines() {
                 assert_eq!(cache.spans(l), fresh.spans(l), "line {l} after editing line {line}");
@@ -895,7 +1015,7 @@ mod tests {
         let hl = Highlighting::new("Florm", Path::new("/nonexistent"));
         let text: String = (0..120).map(|i| format!("def f{i}(x):\n    s = '''doc {i}\n    more'''\n    return x + {i}  # c\n")).collect();
         let mut rope = Rope::from_str(&text);
-        let mut cache = HlCache::default();
+        let mut cache = HlCache { regex_only: true, ..Default::default() };
         let mut seed = 7u64;
         let mut rand = |n: usize| {
             seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
@@ -917,12 +1037,86 @@ mod tests {
             // a screen somewhere, or the whole file
             let upto = if rand(3) == 0 { usize::MAX } else { rand(rope.len_lines()) + 40 };
             assert!(cache.ensure(&hl, "Python", &rope, upto, Duration::MAX));
-            let mut fresh = HlCache::default();
+            let mut fresh = HlCache { regex_only: true, ..Default::default() };
             assert!(fresh.ensure(&hl, "Python", &rope, usize::MAX, Duration::MAX));
             for l in 0..cache.lines.len() {
                 assert_eq!(cache.spans(l), fresh.spans(l), "line {l}, round {round}");
             }
         }
+    }
+
+    /// With a syntax tree (Python): random edits told to the cache as the document does, the
+    /// colors of the lines shown always those of a fresh parse.
+    #[test]
+    fn tree_colors_follow_the_edits() {
+        let hl = Highlighting::new("Florm", Path::new("/nonexistent"));
+        let text: String = (0..200).map(|i| format!("def f{i}(x):\n    return x + {i}  # c\n    s = 'a{i}'\n")).collect();
+        let mut rope = Rope::from_str(&text);
+        let mut cache = HlCache::default();
+        cache.view_from = 0;
+        assert!(cache.ensure(&hl, "Python", &rope, 80, Duration::MAX));
+        assert!(cache.uses_tree());
+        let mut seed = 7u64;
+        let mut rnd = |n: usize| {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (seed >> 33) as usize % n.max(1)
+        };
+        for round in 0..60 {
+            let len = rope.len_chars();
+            let a = rnd(len);
+            let b = (a + rnd(6)).min(len);
+            let ins = ["x", "\n", "'", "def ", "", "# ", "(", ")"][rnd(8)];
+            cache.tree_edit(crate::syntax_tree::input_edit(&rope, a, b, ins));
+            rope.remove(a..b);
+            rope.insert(a, ins);
+            cache.invalidate(rope.char_to_line(a));
+            let from = rnd(rope.len_lines().saturating_sub(40));
+            cache.view_from = from;
+            assert!(cache.ensure(&hl, "Python", &rope, from + 40, Duration::MAX));
+            let mut fresh = HlCache { view_from: from, ..Default::default() };
+            assert!(fresh.ensure(&hl, "Python", &rope, from + 40, Duration::MAX));
+            for l in from..from + 40 {
+                assert_eq!(cache.spans(l), fresh.spans(l), "line {l}, round {round}");
+            }
+        }
+    }
+
+    /// With a syntax tree, only the lines shown are colored; the pinned lines above them on demand.
+    #[test]
+    fn tree_colors_the_lines_shown_and_the_pinned_ones() {
+        let hl = Highlighting::new("Florm", Path::new("/nonexistent"));
+        let text: String = (0..300).map(|i| format!("def f{i}(x):\n    return x\n")).collect();
+        let rope = Rope::from_str(&text);
+        let mut cache = HlCache { view_from: 400, ..Default::default() };
+        assert!(cache.ensure(&hl, "Python", &rope, 450, Duration::MAX));
+        assert!(cache.spans(400).is_some() && cache.spans(10).is_none());
+        cache.ensure_lines(&hl, &rope, &[10]);
+        assert!(cache.spans(10).is_some_and(|s| !s.is_empty()));
+    }
+
+    /// `FLORM_BENCH_HL=<fichier> cargo test --release bench_tree_typing -- --nocapture`: keys typed
+    /// in the middle of a file highlighted by its syntax tree, the screen read again after each.
+    #[test]
+    fn bench_tree_typing() {
+        let Ok(file) = std::env::var("FLORM_BENCH_HL") else { return };
+        let hl = Highlighting::new("Florm", Path::new("/nonexistent"));
+        let mut rope = Rope::from_str(&std::fs::read_to_string(&file).unwrap());
+        let mut cache = HlCache::default();
+        let mid = rope.len_lines() / 2;
+        cache.view_from = mid;
+        let t = Instant::now();
+        assert!(cache.ensure(&hl, "Python", &rope, mid + 60, Duration::MAX));
+        println!("opening: {:?} ({} lines)", t.elapsed(), rope.len_lines());
+        let t = Instant::now();
+        let n = 50;
+        for k in 0..n {
+            let at = rope.line_to_char(mid + 10) + 4 + k;
+            cache.tree_edit(crate::syntax_tree::input_edit(&rope, at, at, "x"));
+            rope.insert(at, "x");
+            cache.invalidate(mid + 10);
+            assert!(cache.ensure(&hl, "Python", &rope, mid + 60, Duration::MAX));
+        }
+        println!("per key: {:?}", t.elapsed() / n as u32);
     }
 
     /// With a window, a language is first prepared on a thread: nothing highlighted until then
@@ -932,7 +1126,7 @@ mod tests {
         let mut hl = Highlighting::new("Florm", Path::new("/nonexistent"));
         hl.prepare_on_thread(egui::Context::default());
         let rope = Rope::from_str("def f(x):\n    return 'a'\n");
-        let mut cache = HlCache::default();
+        let mut cache = HlCache { regex_only: true, ..Default::default() };
         assert!(cache.ensure(&hl, "Python", &rope, 1, Duration::MAX));
         assert!(cache.spans(0).is_none());
         let t = Instant::now();
@@ -943,7 +1137,7 @@ mod tests {
         assert!(cache.ensure(&hl, "Python", &rope, 1, Duration::MAX));
         assert!(cache.spans(1).is_some_and(|s| s.len() > 1));
         // plain text needs no preparing
-        let mut plain = HlCache::default();
+        let mut plain = HlCache { regex_only: true, ..Default::default() };
         assert!(plain.ensure(&hl, "Plain Text", &rope, 1, Duration::MAX) && plain.spans(1).is_some());
     }
 
@@ -953,7 +1147,7 @@ mod tests {
         let hl = Highlighting::new("Florm", Path::new("/nonexistent"));
         let text: String = (0..500).map(|i| format!("def f{i}(x):\n    return x + {i}  # c\n")).collect();
         let mut rope = Rope::from_str(&text);
-        let mut cache = HlCache::default();
+        let mut cache = HlCache { regex_only: true, ..Default::default() };
         assert!(cache.ensure(&hl, "Python", &rope, usize::MAX, Duration::MAX));
         for (n, ins) in ["a", "\n", "b", "\n\n"].iter().enumerate() {
             let before = cache.parsed;
@@ -963,7 +1157,7 @@ mod tests {
             assert!(cache.ensure(&hl, "Python", &rope, usize::MAX, Duration::MAX));
             // at worst from the state before the line to the state after the lines typed
             assert!(cache.parsed - before <= 2 * CHECKPOINT + 3, "{} lines parsed for {ins:?}", cache.parsed - before);
-            let mut fresh = HlCache::default();
+            let mut fresh = HlCache { regex_only: true, ..Default::default() };
             assert!(fresh.ensure(&hl, "Python", &rope, usize::MAX, Duration::MAX));
             assert!((0..rope.len_lines()).all(|l| cache.spans(l) == fresh.spans(l)));
         }
@@ -983,7 +1177,7 @@ mod tests {
         let hl = Highlighting::new("Florm", Path::new("/nonexistent"));
         let syntax = crate::symbols::syntax_for(Path::new(&file)).unwrap_or("Plain Text");
         let mut rope = Rope::from_str(&std::fs::read_to_string(&file).unwrap());
-        let mut cache = HlCache::default();
+        let mut cache = HlCache { regex_only: true, ..Default::default() };
         cache.ensure(&hl, syntax, &rope, usize::MAX, Duration::MAX);
         let t = std::time::Instant::now();
         for k in 0..200 {
@@ -1006,7 +1200,7 @@ mod tests {
         let syntax = crate::symbols::syntax_for(Path::new(&file)).unwrap_or("Plain Text");
         let rope = Rope::from_str(&std::fs::read_to_string(&file).unwrap());
         let before = rss();
-        let mut cache = HlCache::default();
+        let mut cache = HlCache { regex_only: true, ..Default::default() };
         let t = std::time::Instant::now();
         cache.ensure(&hl, syntax, &rope, usize::MAX, Duration::MAX);
         eprintln!("{} lignes {syntax} : {:?}, cache {} Mo", rope.len_lines(), t.elapsed(), rss() - before);

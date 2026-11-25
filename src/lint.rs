@@ -617,7 +617,7 @@ pub enum Rewrite {
 /// applies). `lines`: first and last line (1-based) to format, None for the whole file.
 pub fn ruff_rewrite(path: &Path, text: &str, root: Option<&Path>, what: Rewrite, lines: Option<(usize, usize)>) -> Result<String, String> {
     let Some(Runner::Bin(ruff)) = find_runner("ruff") else {
-        return Err(t!("ruff n'est pas installé (paquet ruff de la distribution, ou pip install ruff)", "ruff is not installed (ruff package of the distribution, or pip install ruff)").into());
+        return Err(t!("ruff n'est pas installé : Préférences → Langages → Python → Installer (ou pip install ruff)", "ruff is not installed: Preferences → Languages → Python → Install (or pip install ruff)").into());
     };
     let cwd = root.or(path.parent()).unwrap_or(Path::new("."));
     let display = path.strip_prefix(cwd).unwrap_or(path).to_string_lossy().into_owned();

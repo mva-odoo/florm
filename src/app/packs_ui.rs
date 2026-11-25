@@ -24,6 +24,8 @@ enum PackAct {
     Folder,
     New,
     Check,
+    /// The tree-sitter grammar of a syntax turned on or off.
+    TreeSitter(String, bool),
 }
 
 impl App {
@@ -94,6 +96,20 @@ impl App {
                 self.set_status(t!("Nouveau pack : enregistre-le, puis ⟳ dans Préférences → Langages", "New pack: save it, then ⟳ in Preferences → Languages"));
             }
             PackAct::Check => self.packs_check(),
+            PackAct::TreeSitter(syntax, on) => {
+                self.settings.tree_sitter_off.retain(|s| *s != syntax);
+                if !on {
+                    self.settings.tree_sitter_off.push(syntax.clone());
+                }
+                crate::syntax_tree::set_off(&self.settings.tree_sitter_off);
+                let list = serde_json::to_string(&self.settings.tree_sitter_off).unwrap_or_else(|_| "[]".into());
+                self.persist("tree_sitter_off", list);
+                self.set_status(if on {
+                    tf!("{syntax} : coloration par l'arbre de syntaxe (tree-sitter)", "{syntax}: highlighting from the syntax tree (tree-sitter)")
+                } else {
+                    tf!("{syntax} : coloration par expressions régulières", "{syntax}: highlighting by regular expressions")
+                });
+            }
         }
     }
 
@@ -214,6 +230,22 @@ impl App {
                 });
                 // its tools: ✓ there, ✖ missing (a click installs one Florm can install)
                 ui.horizontal_wrapped(|ui| {
+                    // the syntax tree (tree-sitter), compiled in: on or off
+                    if !pack.tree_sitter.is_empty() {
+                        let on = !self.settings.tree_sitter_off.iter().any(|s| *s == pack.tree_sitter);
+                        let text = format!("{} {}", if on { "✓" } else { "○" }, t!("Syntaxe · tree-sitter", "Syntax · tree-sitter"));
+                        let rt = if on { RichText::new(text).small().color(ok()) } else { RichText::new(text).small().weak() };
+                        if ui
+                            .add(egui::Button::new(rt).small())
+                            .on_hover_text(t!(
+                                "Coloration précise et sélection par bloc logique (Alt+Maj+→), d'après l'arbre de syntaxe du fichier (intégré à Florm). Clic : activer / désactiver.",
+                                "Precise highlighting and selection by logical block (Alt+Shift+→), from the syntax tree of the file (built into Florm). Click: turn on / off."
+                            ))
+                            .clicked()
+                        {
+                            act = Some(PackAct::TreeSitter(pack.tree_sitter.clone(), !on));
+                        }
+                    }
                     for (t, there) in pack.tools.iter().zip(st.iter().copied().chain(std::iter::repeat(false))) {
                         let text = format!("{} {} · {}", if there { "✓" } else { "✖" }, t.kind_label(), if t.builtin { t!("intégré", "built in") } else { t.bin.as_str() });
                         let rt = if there { RichText::new(text).small().color(ok()) } else { RichText::new(text).small().weak() };
@@ -338,7 +370,7 @@ mod tests {
         texts(&mut app, true, Vec::new());
         let page = texts(&mut app, true, Vec::new());
         let names: Vec<&str> = page.iter().map(|(t, _)| t.as_str()).collect();
-        for want in ["Python", "Go", "XML", "Installer (3)", "✖ LSP · pylsp", "✓ Lint · intégré", "gdb :", "pacman -S gdb", "+ Nouveau pack…"] {
+        for want in ["Python", "Go", "XML", "Installer (3)", "✖ LSP · pylsp", "✓ Lint · intégré", "gdb :", "pacman -S gdb", "+ Nouveau pack…", "✓ Syntaxe · tree-sitter"] {
             assert!(names.contains(&want), "{want}: {names:?}");
         }
         // the bar of the Python file

@@ -29,6 +29,7 @@ impl App {
         let trust = s.trusted_folders != self.settings.trusted_folders;
         history::SIDE_BY_SIDE.store(s.diff_side_by_side, Ordering::Relaxed);
         self.settings = s;
+        crate::syntax_tree::set_off(&self.settings.tree_sitter_off);
         if trust {
             git::set_trusted(&self.settings.trusted_folders);
             self.git_refresh();

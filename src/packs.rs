@@ -65,6 +65,10 @@ pub struct Pack {
     pub ext: Vec<String>,
     #[serde(default, rename = "tool")]
     pub tools: Vec<Tool>,
+    /// The syntax (as Florm names it) of the tree-sitter grammar compiled into Florm for this
+    /// language: precise highlighting and selection by syntax node, turned off in the pack.
+    #[serde(default)]
+    pub tree_sitter: String,
     /// From ~/.config/florm/packs (not shipped with Florm).
     #[serde(skip)]
     pub own: bool,

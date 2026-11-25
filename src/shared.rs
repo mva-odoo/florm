@@ -267,7 +267,7 @@ mod tests {
         "git", "github", "claude", "claude_done_blink", "claude_done_sound", "markdown_toolbar", "tree_git_info", "inline_diff", "auto_pair",
         "keyboard_hints", "ai_complete", "lint_on_save", "lint_live", "lint_ignore_flake8", "lint_ignore_ruff", "lint_ignore_pylint", "lint_ignore_eslint",
         "trim_trailing_whitespace_on_save", "format_on_save", "hot_exit", "auto_save", "keys", "lsp", "exclude", "index_max_files", "check_updates",
-        "pr_default_state", "pr_default_who", "pr_show_resolved", "pr_draft", "packs_ignored",
+        "pr_default_state", "pr_default_who", "pr_show_resolved", "pr_draft", "packs_ignored", "tree_sitter_off",
     ];
 
     /// Each setting is either shared or local: a new one cannot be taken from a shared

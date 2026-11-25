@@ -60,6 +60,8 @@ pub struct Settings {
     pub claude_account_folders: Vec<String>,
     /// Language packs not proposed any more when one of their files opens.
     pub packs_ignored: Vec<String>,
+    /// Syntaxes whose tree-sitter grammar is turned off (their pack): the regex highlighting then.
+    pub tree_sitter_off: Vec<String>,
     /// Extensions turned off (their names).
     pub extensions_off: Vec<String>,
     /// Catalogue repositories of extensions and packs ("owner/repo" or a git address).
@@ -175,6 +177,7 @@ impl Default for Settings {
             claude_account: String::new(),
             claude_account_folders: Vec::new(),
             packs_ignored: Vec::new(),
+            tree_sitter_off: Vec::new(),
             extensions_off: Vec::new(),
             extension_catalogs: Vec::new(),
             markdown_toolbar: true,

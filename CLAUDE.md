@@ -7,6 +7,8 @@ lldb-dap, gdb), packs de langage (`src/packs.rs`, `assets/packs.toml` : installe
 langage), extensions (`src/ext.rs`, `src/app/extensions.rs`, bibliothèque `assets/florm_ext.py`) et leur
 catalogue (`src/catalog.rs` ; extensions livrées dans `assets/extensions/`, ex. Odoo). Ce qui manque
 (Python, Node.js, Go, binaires des releases GitHub) est téléchargé et vérifié par `src/runtimes.rs`.
+Coloration par arbre de syntaxe (tree-sitter, grammaires compilées dans Florm, `src/syntax_tree.rs`,
+branché dans `HlCache` de `src/highlight.rs`) pour les langages qui en ont une ; syntect pour les autres.
 
 ## Commandes
 

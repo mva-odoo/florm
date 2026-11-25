@@ -667,7 +667,13 @@ fn text_area(
         definitions_popup(ui, doc, id, defs_popup);
 
         // ---------------------------------------------------------------- highlighting
-        if !doc.highlight.ensure(hl, &doc.syntax, &doc.rope, last, crate::highlight::FRAME_BUDGET) {
+        doc.highlight.view_from = first;
+        let done = doc.highlight.ensure(hl, &doc.syntax, &doc.rope, last, crate::highlight::FRAME_BUDGET);
+        // a syntax tree colors the lines shown only: the pinned lines above them too
+        if doc.highlight.uses_tree() && !sticky.is_empty() {
+            doc.highlight.ensure_lines(hl, &doc.rope, &sticky);
+        }
+        if !done {
             ui.ctx().request_repaint();
         }
 
@@ -1447,7 +1453,12 @@ fn minimap_ui(ui: &mut Ui, doc: &mut Document, hl: &Highlighting, rh: f32) {
     let off = (total - rect.height()).max(0.0) * frac;
     let first = (off / lh) as usize;
     let last = (first + (rect.height() / lh) as usize + 1).min(nlines);
-    if last > 0 && !doc.highlight.ensure(hl, &doc.syntax, &doc.rope, last - 1, crate::highlight::FRAME_BUDGET) {
+    // a syntax tree colors from the first line asked: the minimap's, then the editor's again
+    let editor_from = doc.highlight.view_from;
+    doc.highlight.view_from = first;
+    let done = last == 0 || doc.highlight.ensure(hl, &doc.syntax, &doc.rope, last - 1, crate::highlight::FRAME_BUDGET);
+    doc.highlight.view_from = editor_from;
+    if !done {
         ui.ctx().request_repaint();
     }
     let painter = ui.painter_at(rect);
