@@ -153,6 +153,7 @@ pub(in crate::app) fn menus(ui: &mut egui::Ui, km: &crate::keymap::Keymap, pendi
         item(ui, t!("Créer une pull request…", "Create a pull request…"), Cmd::CreatePr);
         item(ui, t!("Diff dans l'éditeur (vert / rouge)", "Diff in the editor (green / red)"), Cmd::ToggleInlineDiff);
         item(ui, t!("Blame de la ligne", "Line blame"), Cmd::GitBlame);
+        item(ui, t!("Blame de chaque ligne (marge)", "Blame of every line (gutter)"), Cmd::GitBlameGutter);
         item(ui, t!("Historique de la ligne", "Line history"), Cmd::GitLineHistory);
         item(ui, t!("Historique du fichier", "File history"), Cmd::GitFileHistory);
         item(ui, t!("Rechercher dans l'historique…", "Search the history…"), Cmd::GitSearchHistory);

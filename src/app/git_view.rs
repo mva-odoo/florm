@@ -63,6 +63,7 @@ impl App {
     /// Requests the blame of the cursor line when it changed (blame mode).
     /// The cursor stays 150 ms on the line first: holding ↓ does not start a `git blame` per line.
     pub(super) fn update_blame(&mut self, ctx: &egui::Context) {
+        self.update_blame_lines(ctx);
         if !self.blame.on {
             return;
         }
@@ -90,6 +91,30 @@ impl App {
         // the text written on the thread (a copy of the rope costs nothing)
         let (uid, version, rope) = (d.uid, d.version, d.rope.clone());
         self.jobs.spawn(move || JobResult::Blame { uid, line, version, result: git::blame_line(&path, line + 1, &rope.to_string()) });
+    }
+
+    /// The blame of every line of the files shown (blame of the gutter): one `git blame` of the
+    /// file in HEAD, again only when HEAD's version changes (the edits are mapped by the editor).
+    fn update_blame_lines(&mut self, ctx: &egui::Context) {
+        if !self.blame.gutter {
+            return;
+        }
+        let shown: Vec<usize> = [0u8, 1].into_iter().filter_map(|p| self.pane_doc(p)).collect();
+        for i in shown {
+            let Some(d) = self.docs.get(i).filter(|d| d.view == document::View::Text) else { continue };
+            let Some(path) = d.path.clone() else { continue };
+            let key = d.base_key();
+            if d.git_base.is_none() || d.blame_lines.as_ref().is_some_and(|(k, _)| *k == key) || self.blame.lines_req.get(&d.uid) == Some(&key) {
+                continue;
+            }
+            if self.repo_for(&path).is_none() {
+                continue;
+            }
+            self.blame.lines_req.insert(d.uid, key);
+            let uid = d.uid;
+            let _ = ctx;
+            self.jobs.spawn(move || JobResult::BlameLines { uid, version: key, result: git::blame_file(&path, None) });
+        }
     }
 
     pub(super) fn open_line_history(&mut self) {

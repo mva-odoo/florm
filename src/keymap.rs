@@ -289,6 +289,7 @@ const CHORDS: &[(&str, &str)] = &[
     ("ctrl+shift+z", "git_revert_file"),
     ("v", "markdown_preview_side"),
     ("z", "toggle_zen"),
+    ("b", "git_blame_gutter"),
     ("ctrl+j", "unfold_all"),
 ];
 

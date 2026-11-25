@@ -670,6 +670,79 @@ pub fn blame_line(file: &Path, line: usize, contents: &str) -> Result<Blame, Str
     Ok(Blame { hash, author, time, summary })
 }
 
+/// The blame of every line of `file` as it is in HEAD (the editor maps its lines through the
+/// changes not committed: one `git blame` per commit, not per edit; it takes seconds on a long
+/// history). With `contents`: of that text instead (lines not committed: a hash of zeros).
+pub fn blame_file(file: &Path, contents: Option<&str>) -> Result<Vec<Blame>, String> {
+    let dir = file.parent().ok_or(t!("chemin invalide", "invalid path"))?;
+    let name = file.file_name().and_then(|n| n.to_str()).ok_or(t!("chemin invalide", "invalid path"))?;
+    if let Some(e) = untrusted(dir, &[]) {
+        return Err(e);
+    }
+    let args: Vec<&str> = match contents {
+        Some(_) => vec!["blame", "--porcelain", "--contents", "-", "--", name],
+        None => vec!["blame", "--porcelain", "HEAD", "--", name],
+    };
+    let mut child = git(&args)
+        .current_dir(dir)
+        .stdin(if contents.is_some() { Stdio::piped() } else { Stdio::null() })
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    if let (Some(mut stdin), Some(contents)) = (child.stdin.take(), contents) {
+        let contents = contents.to_string();
+        std::thread::spawn(move || {
+            let _ = stdin.write_all(contents.as_bytes());
+        });
+    }
+    let out = child.wait_with_output().map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+    }
+    Ok(parse_blame_porcelain(&String::from_utf8_lossy(&out.stdout)))
+}
+
+/// The lines of `git blame --porcelain`, in their order (a commit's details come once, at its
+/// first line).
+fn parse_blame_porcelain(text: &str) -> Vec<Blame> {
+    use std::collections::HashMap;
+    let mut known: HashMap<String, Blame> = HashMap::new();
+    let mut out: Vec<Blame> = Vec::new();
+    let mut cur: Option<(String, usize)> = None;
+    for l in text.lines() {
+        if let Some(code) = l.strip_prefix('\t') {
+            let _ = code;
+            if let Some((hash, line)) = cur.take() {
+                let b = known.get(&hash).cloned().unwrap_or(Blame { hash: hash.clone(), author: String::new(), time: 0, summary: String::new() });
+                if out.len() < line {
+                    out.resize(line, Blame { hash: String::new(), author: String::new(), time: 0, summary: String::new() });
+                }
+                out[line - 1] = b;
+            }
+            continue;
+        }
+        let mut parts = l.split(' ');
+        let first = parts.next().unwrap_or("");
+        if first.len() == 40 && first.chars().all(|c| c.is_ascii_hexdigit()) {
+            let line = parts.nth(1).and_then(|n| n.parse::<usize>().ok()).unwrap_or(out.len() + 1);
+            known.entry(first.to_string()).or_insert_with(|| Blame { hash: first.to_string(), author: String::new(), time: 0, summary: String::new() });
+            cur = Some((first.to_string(), line));
+            continue;
+        }
+        let Some((hash, _)) = &cur else { continue };
+        let Some(b) = known.get_mut(hash) else { continue };
+        if let Some(v) = l.strip_prefix("author ") {
+            b.author = v.to_string();
+        } else if let Some(v) = l.strip_prefix("author-time ") {
+            b.time = v.parse().unwrap_or(0);
+        } else if let Some(v) = l.strip_prefix("summary ") {
+            b.summary = v.to_string();
+        }
+    }
+    out
+}
+
 #[derive(Clone, Debug)]
 pub struct LineCommit {
     pub hash: String,
@@ -792,6 +865,30 @@ pub fn parse_github(url: &str) -> Option<(String, String)> {
 #[cfg(test)]
 mod status_tests {
     use super::*;
+
+    /// The blame of every line of a real repository, with a line not committed yet.
+    #[test]
+    fn blame_of_every_line() {
+        let dir = std::env::temp_dir().join(format!("florm_blame_all_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let g = |args: &[&str]| assert!(std::process::Command::new("git").args(args).current_dir(&dir).output().unwrap().status.success(), "{args:?}");
+        g(&["init", "-q"]);
+        g(&["config", "user.email", "a@b.c"]);
+        g(&["config", "user.name", "Alice"]);
+        std::fs::write(dir.join("f.txt"), "one\ntwo\n").unwrap();
+        g(&["add", "f.txt"]);
+        g(&["commit", "-q", "-m", "first"]);
+        let b = blame_file(&dir.join("f.txt"), Some("one\nnew\ntwo\n")).unwrap();
+        assert_eq!(b.len(), 3);
+        assert_eq!((b[0].author.as_str(), b[0].summary.as_str(), b[2].author.as_str()), ("Alice", "first", "Alice"));
+        assert!(b[1].uncommitted() && !b[0].uncommitted() && b[0].hash == b[2].hash);
+        // HEAD's lines, whatever the file on the disk
+        std::fs::write(dir.join("f.txt"), "changed\n").unwrap();
+        let h = blame_file(&dir.join("f.txt"), None).unwrap();
+        assert!(h.len() == 2 && !h[1].uncommitted());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// git only in a trusted folder (and those inside), except to make a new repository.
     #[test]

@@ -646,6 +646,20 @@ impl App {
                 project::save_state(&self.state);
                 self.set_status(t!("Historique de recherche effacé", "Search history cleared"));
             }
+            GitBlameGutter => {
+                self.blame.gutter = !self.blame.gutter;
+                self.blame.lines_req.clear();
+                if !self.blame.gutter {
+                    for d in self.docs.iter_mut() {
+                        d.blame_lines = None;
+                    }
+                }
+                self.set_status(if self.blame.gutter {
+                    t!("Blame de chaque ligne dans la marge (Ctrl+K B pour le masquer) ; clic : voir le commit", "Blame of every line in the gutter (Ctrl+K B to hide it); click: see the commit")
+                } else {
+                    t!("Blame de la marge masqué", "Gutter blame hidden")
+                });
+            }
             GitBlame => {
                 self.blame.on = !self.blame.on;
                 self.blame.req = None;

@@ -127,7 +127,7 @@ impl App {
         let is_python = d.path.as_deref().and_then(lint::lang_of) == Some("python");
         let has_selection = !d.primary_sel().is_empty();
         let in_repo = d.path.as_deref().and_then(|p| self.repo_for(p)).is_some();
-        let (km, blame_on, has_root) = (&self.keymap, self.blame.on, self.root.is_some());
+        let (km, blame_on, blame_gutter, has_root) = (&self.keymap, self.blame.on, self.blame.gutter, self.root.is_some());
         let mut chosen = None;
         let mut item = |ui: &mut egui::Ui, label: &str, cmd: Cmd, enabled: bool| {
             if !crate::features::cmd_on(cmd) {
@@ -188,6 +188,7 @@ impl App {
         if in_repo {
             ui.separator();
             item(ui, if blame_on { t!("Masquer le blame", "Hide the blame") } else { t!("Blame de la ligne", "Line blame") }, Cmd::GitBlame, true);
+            item(ui, if blame_gutter { t!("Masquer le blame de la marge", "Hide the gutter blame") } else { t!("Blame de chaque ligne", "Blame of every line") }, Cmd::GitBlameGutter, true);
             item(ui, t!("Historique de la ligne", "Line history"), Cmd::GitLineHistory, true);
             item(ui, t!("Historique du fichier", "File history"), Cmd::GitFileHistory, true);
             if has_change {

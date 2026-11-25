@@ -165,8 +165,9 @@ d'habitude.
 
 - **Les changements dans l'éditeur** : une marque colorée dans la marge montre chaque bloc changé
   depuis le dernier commit. **Un clic sur la marque** (ou **Ctrl+K Ctrl+D** sur la ligne) affiche
-  ce changement seul, dans le texte : les lignes supprimées en rouge au-dessus, les nouvelles en
-  vert, et une petite barre (précédent, suivant, ↺ annuler, Tous, ×). Un nouveau clic, Échap ou
+  ce changement seul, dans le texte, comme dans Zed : les lignes supprimées sur fond rouge au-dessus,
+  les nouvelles sur fond vert (marge comprise), les mots qui ont changé sur un fond plus fort, et une
+  petite barre (précédent, suivant, ↺ annuler, Tous, ×). Un nouveau clic, Échap ou
   Ctrl+K Ctrl+D le masque. **Alt+F5 / Alt+Maj+F5** passent au changement suivant / précédent en
   l'affichant ; **Ctrl+K Ctrl+Z** annule celui de la ligne. **Ctrl+Alt+D** (ou la préférence
   « Diff dans l'éditeur ») les affiche tous en permanence.
@@ -204,6 +205,11 @@ d'habitude.
   avec le précédent (avec ou sans son message) ou le supprimer, et ↑ ↓ pour changer l'ordre.
 - **Blame** (**Ctrl+Maj+B**) : l'auteur, la date et le message du dernier commit de la ligne, en
   gris au bout de celle-ci ; à nouveau pour le masquer.
+- **Blame de chaque ligne** (**Ctrl+K B**, ou clic droit → Blame de chaque ligne), comme dans Zed :
+  une colonne de la marge donne l'auteur et l'ancienneté de chaque bloc de lignes du même commit ;
+  au survol, le commit et son message, un clic l'ouvre dans la vue Git. Les lignes changées depuis
+  le dernier commit disent « pas encore commité ». Un seul `git blame` par fichier et par commit
+  (quelques secondes sur un très long historique, en arrière-plan) : la frappe ne le relance pas.
 - **Modifier le dernier commit** (case sous le message, ou menu de la branche) : le message du
   dernier commit revient dans la zone ; le bouton le remplace (avec les fichiers indexés en plus).
   S'il était déjà poussé, il faudra un push --force-with-lease.

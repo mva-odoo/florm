@@ -104,6 +104,8 @@ pub enum JobResult {
     PackStatus(Vec<crate::packs::Pack>, Vec<Vec<bool>>),
     /// Tools of a language pack installed (or the log of what failed).
     PackInstalled(Result<String, String>),
+    /// The blame of every line of a document (for its version).
+    BlameLines { uid: u64, version: u64, result: Result<Vec<crate::git::Blame>, String> },
     /// Python downloaded for the extensions (or why not).
     PythonReady(Result<(), String>),
     /// The catalogue repositories cloned again (the errors).

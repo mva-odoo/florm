@@ -107,9 +107,18 @@ impl App {
                     whitespace: s.show_whitespace,
                     debug,
                     exec_line,
+                    blame_gutter: self.blame.gutter && doc.path.is_some(),
                 };
                 let r = editor_view::show(ui, doc, &self.hl, &opts, matches, id);
-                if let Some(t) = doc.test_pick.take() {
+                // a commit clicked in the blame of the gutter: in the Git view
+                let open = doc.blame_open.take().zip(doc.path.clone());
+                let test = doc.test_pick.take();
+                if let Some((hash, path)) = open {
+                    if let Some(repo) = self.repo_for(&path) {
+                        self.git_show_commit(repo, hash);
+                    }
+                }
+                if let Some(t) = test {
                     self.run_tests(t);
                 }
                 self.conflict_picked(i);

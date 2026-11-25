@@ -161,8 +161,9 @@ opening the folder or showing a diff does not run them. The hooks of commits and
 
 - **The changes in the editor**: a colored mark in the gutter shows each block changed since the
   last commit. **A click on the mark** (or **Ctrl+K Ctrl+D** on the line) shows that change
-  alone, in the text: the removed lines in red above, the new ones in green, and a small bar
-  (previous, next, ↺ revert, All, ×). Another click, Escape or Ctrl+K Ctrl+D hides it.
+  alone, in the text, as in Zed: the removed lines on red above, the new ones on green (gutter
+  included), the words that changed on a stronger background, and a small bar (previous, next,
+  ↺ revert, All, ×). Another click, Escape or Ctrl+K Ctrl+D hides it.
   **Alt+F5 / Alt+Shift+F5** go to the next / previous change and show it; **Ctrl+K Ctrl+Z**
   reverts the one of the line. **Ctrl+Alt+D** (or the “Diff in the editor” preference) shows
   all of them all the time.
@@ -196,6 +197,11 @@ opening the folder or showing a diff does not run them. The hooks of commits and
   one (with or without its message) or drop it, and ↑ ↓ to change the order.
 - **Blame** (**Ctrl+Shift+B**): the author, date and message of the last commit of the line, in
   grey at its end; again to hide it.
+- **Blame of every line** (**Ctrl+K B**, or right click → Blame of every line), as in Zed: a column
+  of the gutter gives the author and age of each block of lines of the same commit; on hover, the
+  commit and its message, a click opens it in the Git view. The lines changed since the last commit
+  say “not committed yet”. One `git blame` per file and per commit (a few seconds on a very long
+  history, in the background): typing does not run it again.
 - **Amend the last commit** (box under the message, or branch menu): the message of the last
   commit comes back in the field; the button replaces it (with the staged files added). If it
   was already pushed, a push --force-with-lease will be needed.

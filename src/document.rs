@@ -173,6 +173,11 @@ pub struct Document {
     pub quick_fix_request: bool,
     /// Inline blame annotation: (line, document version, text).
     pub blame: Option<(usize, u64, String)>,
+    /// The blame of the lines of HEAD (blame of the gutter): (key of the `git_base` it was read
+    /// for, lines). The editor maps the lines of the buffer through `hunks`.
+    pub blame_lines: Option<(u64, std::sync::Arc<Vec<crate::git::Blame>>)>,
+    /// A commit clicked in the blame of the gutter: shown in the Git view by the app.
+    pub blame_open: Option<String>,
     pub mtime: Option<SystemTime>,
     /// The file was changed or deleted by another program while this one had unsaved changes:
     /// saving would lose the other version, the editor asks first.
@@ -732,6 +737,8 @@ impl Document {
             goto_request: None,
             quick_fix_request: false,
             blame: None,
+            blame_lines: None,
+            blame_open: None,
             mtime: None,
             disk_change: None,
             crlf: false,
@@ -2361,6 +2368,20 @@ impl Document {
 
     // ------------------------------------------------------------------ git diff
 
+    /// A key of the HEAD version of the file (`git_base`): the blame of the gutter is read again
+    /// when it changes (after a commit), not at each edit.
+    pub fn base_key(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        self.git_base.hash(&mut h);
+        h.finish()
+    }
+
+    /// The hunks as (new_start, new_end, old_start, old count), for `committed_line_in`.
+    pub fn hunk_spans(&self) -> Vec<(usize, usize, usize, usize)> {
+        self.hunks.iter().map(|h| (h.new_start, h.new_end, h.old_start, h.old_lines.len())).collect()
+    }
+
     pub fn refresh_diff(&mut self) {
         let hunks = match &self.git_base {
             Some(base) => diff::compute(base, &self.rope.to_string()),
@@ -2885,6 +2906,21 @@ impl Document {
     }
 }
 
+/// `Document::committed_line` on hunk spans (the editor keeps them while it borrows the document).
+pub fn committed_line_in(spans: &[(usize, usize, usize, usize)], l: usize) -> Option<usize> {
+    let mut old = l;
+    for &(new_start, new_end, old_start, old_len) in spans {
+        if l < new_start {
+            break;
+        }
+        if l < new_end {
+            return None;
+        }
+        old = old_start + old_len + (l - new_end);
+    }
+    Some(old)
+}
+
 /// What another program did to the file of a document with unsaved changes.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum DiskChange {
@@ -3384,6 +3420,10 @@ mod tests {
         del.refresh_diff();
         assert_eq!(del.head_line(0), Some(0));
         assert_eq!(del.head_line(1), Some(3));
+        // for the blame: a changed line is not committed, the others are HEAD's lines
+        assert_eq!(committed_line_in(&d.hunk_spans(), 1), None);
+        assert_eq!(committed_line_in(&d.hunk_spans(), 4), Some(3));
+        assert_eq!(committed_line_in(&del.hunk_spans(), 1), Some(3));
         d.revert_hunk(1);
         assert_eq!(d.rope.to_string(), "a\nB\nc\nd");
         d.revert_hunk(0);

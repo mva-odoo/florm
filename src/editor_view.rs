@@ -74,6 +74,83 @@ pub struct ViewOpts<'a> {
     pub debug: bool,
     /// The line where the debugger is stopped in this file (a yellow band and an arrow).
     pub exec_line: Option<usize>,
+    /// The blame of every line in a column of the gutter (author, how long ago), as in Zed.
+    pub blame_gutter: bool,
+}
+
+/// Columns of the blame of the gutter.
+const BLAME_COLS: usize = 22;
+
+/// « 3 mois », « 2 h »: how long ago, short, for the blame of the gutter.
+fn short_ago(t: i64) -> String {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(t);
+    let d = (now - t).max(0);
+    match d {
+        0..=3599 => tf!("{} min", "{} min", (d / 60).max(1)),
+        3600..=86_399 => tf!("{} h", "{} h", d / 3600),
+        86_400..=2_591_999 => tf!("{} j", "{} d", d / 86_400),
+        2_592_000..=31_535_999 => tf!("{} mois", "{} mo", d / 2_592_000),
+        _ => {
+            let n = d / 31_536_000;
+            if crate::i18n::en() { format!("{n} y") } else { format!("{n} an{}", if n > 1 { "s" } else { "" }) }
+        }
+    }
+}
+
+/// The text of the blame of a line in the gutter: author (cut) and how long ago.
+fn blame_label(b: &crate::git::Blame) -> String {
+    if b.uncommitted() {
+        return t!("pas encore commité", "not committed yet").to_string();
+    }
+    let when = short_ago(b.time);
+    let room = BLAME_COLS.saturating_sub(when.chars().count() + 1);
+    let mut who: String = b.author.chars().take(room).collect();
+    if b.author.chars().count() > room && room > 1 {
+        who.pop();
+        who.push('…');
+    }
+    format!("{who:<room$} {when}")
+}
+
+/// Changed words between an old and a new line: (char ranges in the old, in the new), words only
+/// (the spaces between them are not marked, as in Zed).
+fn changed_words(old: &str, new: &str) -> (Vec<(usize, usize)>, Vec<(usize, usize)>) {
+    use similar::{ChangeTag, TextDiff};
+    let diff = TextDiff::from_words(old, new);
+    let (mut a, mut b) = (Vec::new(), Vec::new());
+    let (mut ia, mut ib) = (0usize, 0usize);
+    for ch in diff.iter_all_changes() {
+        let v = ch.value();
+        let n = v.chars().count();
+        let word = !v.trim().is_empty();
+        match ch.tag() {
+            ChangeTag::Equal => {
+                ia += n;
+                ib += n;
+            }
+            ChangeTag::Delete => {
+                if word {
+                    a.push((ia, ia + n));
+                }
+                ia += n;
+            }
+            ChangeTag::Insert => {
+                if word {
+                    b.push((ib, ib + n));
+                }
+                ib += n;
+            }
+        }
+    }
+    (a, b)
+}
+
+fn added_strong(light: bool) -> Color32 {
+    if light { Color32::from_rgba_unmultiplied(0x2e, 0xa0, 0x43, 0x55) } else { Color32::from_rgba_unmultiplied(0x3f, 0xb9, 0x50, 0x50) }
+}
+
+fn removed_strong(light: bool) -> Color32 {
+    if light { Color32::from_rgba_unmultiplied(0xd0, 0x3a, 0x4c, 0x5a) } else { Color32::from_rgba_unmultiplied(0xf8, 0x51, 0x49, 0x55) }
 }
 
 pub fn show(ui: &mut Ui, doc: &mut Document, hl: &Highlighting, opts: &ViewOpts, matches: &[(usize, usize)], id: Id) -> egui::Response {
@@ -254,7 +331,23 @@ fn text_area(
     let test_x = claude_w();
     let bp_w = if opts.debug { BP_W } else { 0.0 };
     let bp_x = test_x + test_w;
-    let gutter_w = (digits as f32 + 1.0) * cw + 30.0 + test_w + bp_w;
+    // the blame of each line (as in Zed): read by the app with one `git blame` (it may lag
+    // behind the text while typing: asked again once the typing stops)
+    let blame_rows = if opts.blame_gutter { doc.blame_lines.as_ref().map(|(_, a)| a.clone()) } else { None };
+    let blame_w = if opts.blame_gutter { BLAME_COLS as f32 * cw * 0.9 + 12.0 } else { 0.0 };
+    let blame_x = bp_x + bp_w;
+    // a line changed since HEAD is « not committed yet », the others are their line in HEAD
+    let not_yet = crate::git::Blame { hash: "0".repeat(40), author: String::new(), time: 0, summary: String::new() };
+    let spans = if blame_rows.is_some() { doc.hunk_spans() } else { Vec::new() };
+    let blame_at = |l: usize| {
+        let rows = blame_rows.as_ref()?;
+        match (l < nlines).then(|| crate::document::committed_line_in(&spans, l)).flatten() {
+            Some(old) => rows.get(old).filter(|b| !b.hash.is_empty()),
+            None if l < nlines && !rows.is_empty() => Some(&not_yet),
+            None => None,
+        }
+    };
+    let gutter_w = (digits as f32 + 1.0) * cw + 30.0 + test_w + bp_w + blame_w;
     let test_at = |l: usize| opts.tests.iter().find(|(t, _)| *t == l).map(|(_, tags)| tags);
     doc.update_max_cols();
     doc.reveal_cursors(); // whatever placed a cursor in a folded block, open it
@@ -371,10 +464,11 @@ fn text_area(
                 resp.request_focus();
                 let pos = hit(doc, p);
                 let line = doc.rope.char_to_line(pos);
-                let on_marker = in_gutter && p.x >= gx + gutter_w - 8.0 && doc.hunks.iter().any(|h| h.contains(line));
+                let on_marker = in_gutter && p.x >= gx + gutter_w - 12.0 && doc.hunks.iter().any(|h| h.contains(line));
+                let on_blame = in_gutter && pressed && blame_w > 0.0 && p.x >= gx + blame_x && p.x < gx + blame_x + blame_w;
                 let on_fold = in_gutter
                     && p.x >= gx + gutter_w - 21.0
-                    && p.x < gx + gutter_w - 8.0
+                    && p.x < gx + gutter_w - 12.0
                     && (folded.contains(&line) || doc.can_fold(line));
                 let end = at(line, doc.vcol(line, doc.line_len(line)));
                 let on_pill = !in_gutter && folded.contains(&line) && p.x >= end.x + cw && p.y >= end.y;
@@ -382,7 +476,10 @@ fn text_area(
                 let on_claude = in_gutter && pressed && p.x < gx + claude_w();
                 let on_test = in_gutter && pressed && p.x >= gx + test_x && p.x < gx + test_x + test_w && test_at(line).is_some();
                 let on_bp = in_gutter && pressed && p.x >= gx + bp_x && p.x < gx + bp_x + bp_w;
-                if on_bp {
+                if on_blame {
+                    // its commit, in the Git view
+                    doc.blame_open = blame_at(line).filter(|b| !b.uncommitted()).map(|b| b.hash.clone());
+                } else if on_bp {
                     doc.toggle_breakpoint(line);
                 } else if on_test {
                     doc.test_pick = test_at(line).cloned();
@@ -539,9 +636,23 @@ fn text_area(
                         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
                         msgs.push(tf!("▶ Clic : lancer « {tags} » (Ctrl+F6 : relancer)", "▶ Click: run “{tags}” (Ctrl+F6: run again)"));
                     }
-                    if p.x >= gx + gutter_w - 8.0 && doc.hunks.iter().any(|h| h.contains(l)) {
+                    if p.x >= gx + gutter_w - 12.0 && doc.hunks.iter().any(|h| h.contains(l)) {
                         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
-                        msgs.push(t!("Modifié depuis le dernier commit — clic pour voir le diff", "Changed since the last commit — click to see the diff").into());
+                        msgs.push(t!(
+                            "Modifié depuis le dernier commit — clic : voir le changement (Ctrl+K Ctrl+D), Alt+F5 / Maj+Alt+F5 : le suivant / le précédent",
+                            "Changed since the last commit — click: see the change (Ctrl+K Ctrl+D), Alt+F5 / Shift+Alt+F5: the next / previous one"
+                        )
+                        .into());
+                    }
+                    if blame_w > 0.0 && p.x >= gx + blame_x && p.x < gx + blame_x + blame_w {
+                        if let Some(b) = blame_at(l) {
+                            if b.uncommitted() {
+                                msgs.push(t!("Pas encore commité", "Not committed yet").into());
+                            } else {
+                                ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+                                msgs.push(format!("{} · {} · {}\n{}\n{}", &b.hash[..b.hash.len().min(8)], b.author, crate::git::ago(b.time), b.summary, t!("Clic : voir le commit", "Click: see the commit")));
+                            }
+                        }
                     }
                     if !msgs.is_empty() {
                         let at = tip_at(p.x, origin.y + ((p.y - origin.y) / rh).floor() * rh, rh, l, caret);
@@ -634,12 +745,52 @@ fn text_area(
                 }
                 let n_old = h.old_lines.len();
                 let top_row = rm.row(h.new_start) - n_old;
+                // the words that changed, line by line (the old line k against the new line k), on
+                // a stronger background
+                let pairs = n_old.min(h.new_end.saturating_sub(h.new_start));
+                let words: Vec<(Vec<(usize, usize)>, Vec<(usize, usize)>)> = (0..pairs)
+                    .map(|k| {
+                        let old = h.old_lines[k].trim_end_matches(['\n', '\r']);
+                        let l = h.new_start + k;
+                        let new = doc.rope.line(l).to_string();
+                        changed_words(old, new.trim_end_matches(['\n', '\r']))
+                    })
+                    .collect();
+                for (k, (_, new_words)) in words.iter().enumerate() {
+                    let l = h.new_start + k;
+                    if l < first || l > last || rm.is_hidden(l) {
+                        continue;
+                    }
+                    for &(a, b) in new_words {
+                        let (pa, pb) = (at(l, doc.vcol(l, a)), at(l, doc.vcol(l, b)));
+                        if (pa.y - pb.y).abs() < 1.0 {
+                            painter.rect_filled(Rect::from_min_max(pa, Pos2::new(pb.x, pb.y + rh)), 2.0, added_strong(hl.is_light()));
+                        }
+                    }
+                }
                 for (k, old) in h.old_lines.iter().enumerate() {
                     let y = origin.y + (top_row + k) as f32 * rh;
                     if y + rh < origin.y + vp.min.y || y > origin.y + vp.max.y {
                         continue;
                     }
                     painter.rect_filled(Rect::from_min_size(Pos2::new(gx, y), egui::vec2(text_w, rh)), 0.0, removed_bg(hl.is_light()));
+                    if let Some((old_words, _)) = words.get(k) {
+                        // visual columns of the old line's characters (tabs widen)
+                        let mut cols = Vec::new();
+                        let mut v = 0;
+                        for ch in old.chars().take_while(|c| *c != '\n' && *c != '\r') {
+                            cols.push(v);
+                            v += if ch == '\t' { doc.tab_size - v % doc.tab_size } else { 1 };
+                        }
+                        cols.push(v);
+                        for &(a, b) in old_words {
+                            let (va, vb) = (cols.get(a).copied().unwrap_or(v), cols.get(b).copied().unwrap_or(v));
+                            if vb > vstart && va < vend {
+                                let (va, vb) = (va.max(vstart), vb.min(vend));
+                                painter.rect_filled(Rect::from_min_size(Pos2::new(text_x + va as f32 * cw, y), egui::vec2((vb - va) as f32 * cw, rh)), 2.0, removed_strong(hl.is_light()));
+                            }
+                        }
+                    }
                     let mut shown = String::new();
                     let mut v = 0;
                     for ch in old.chars().take_while(|c| *c != '\n' && *c != '\r') {
@@ -658,7 +809,7 @@ fn text_area(
                         Align2::LEFT_TOP,
                         shown,
                         font.clone(),
-                        c.fg.gamma_multiply(0.75),
+                        c.fg,
                     );
                 }
                 // small "revert" button at the right of the hunk's first row
@@ -1029,6 +1180,24 @@ fn text_area(
         // gutter
         let gutter = Rect::from_min_size(Pos2::new(gx, origin.y + vp.min.y), egui::vec2(gutter_w, vp.height()));
         painter.rect_filled(gutter, 0.0, c.bg);
+        // the change shown (or all of them): its rows tinted in the gutter too, as in Zed
+        if inline_diff || peek_hunk.is_some() {
+            for (hi, h) in doc.hunks.iter().enumerate() {
+                if !inline_diff && Some(hi) != peek_hunk {
+                    continue;
+                }
+                for l in (h.new_start.max(first)..h.new_end.min(last + 1)).filter(|&l| !rm.is_hidden(l)) {
+                    painter.rect_filled(Rect::from_min_size(Pos2::new(gx, line_y(l)), egui::vec2(gutter_w, line_h(l))), 0.0, added_bg(hl.is_light()));
+                }
+                if h.new_start <= last + 1 && !rm.is_hidden(h.new_start) {
+                    let top_row = rm.row(h.new_start) - h.old_lines.len();
+                    for k in 0..h.old_lines.len() {
+                        let y = origin.y + (top_row + k) as f32 * rh;
+                        painter.rect_filled(Rect::from_min_size(Pos2::new(gx, y), egui::vec2(gutter_w, rh)), 0.0, removed_bg(hl.is_light()));
+                    }
+                }
+            }
+        }
         let cursor_lines: HashSet<usize> = doc.sels.iter().map(|s| doc.rope.char_to_line(s.head)).collect();
         let bookmarks: HashSet<usize> = doc.bookmark_lines().into_iter().collect();
         let breakpoints: HashSet<usize> = if opts.debug { doc.breakpoint_lines().into_iter().collect() } else { HashSet::new() };
@@ -1058,6 +1227,13 @@ fn text_area(
                 None => c.gutter_fg.gamma_multiply(0.75),
             };
             painter.text(Pos2::new(gx + gutter_w - 22.0, line_y(l)), Align2::RIGHT_TOP, (l + 1).to_string(), font.clone(), color);
+            // the blame, on the first line of each run of lines of the same commit
+            if let Some(b) = blame_at(l) {
+                if l == first || blame_at(l - 1).map(|p| &p.hash) != Some(&b.hash) {
+                    let col = if b.uncommitted() { c.gutter_fg.gamma_multiply(0.45) } else { c.gutter_fg.gamma_multiply(0.9) };
+                    painter.text(Pos2::new(gx + blame_x + 4.0, line_y(l) + rh * 0.5), Align2::LEFT_CENTER, blame_label(b), FontId::monospace(opts.font_size * 0.9), col);
+                }
+            }
             if hover_line == Some(l) {
                 painter.text(Pos2::new(gx + 2.0, line_y(l) + rh * 0.5), Align2::LEFT_CENTER, "✳", FontId::proportional(opts.font_size * 0.85), c.accent);
             }
@@ -1394,7 +1570,7 @@ mod tests {
         let ctx = egui::Context::default();
         let hl = Highlighting::new("Florm", std::path::Path::new("/nonexistent"));
         let mut doc = Document::from_text(1, "a = 1\nb = 2\nc = 3\nd = 4\n", 4, true);
-        let opts = |debug| ViewOpts { font_size: 14.0, minimap: false, wrap: false, inline_diff: false, sticky: false, rulers: &[], notes: &[], tests: &[], rainbow: false, whitespace: false, debug, exec_line: Some(1) };
+        let opts = |debug| ViewOpts { font_size: 14.0, minimap: false, wrap: false, inline_diff: false, sticky: false, rulers: &[], notes: &[], tests: &[], rainbow: false, whitespace: false, debug, exec_line: Some(1), blame_gutter: false };
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 400.0));
         let _ = ctx.run(Default::default(), |_| {});
         let rh = ctx.fonts(|f| f.row_height(&FontId::monospace(14.0)));
@@ -1417,6 +1593,60 @@ mod tests {
         frame(&mut doc, vec![egui::Event::PointerMoved(at), click(true)], false);
         frame(&mut doc, vec![click(false)], false);
         assert!(doc.breakpoint_lines().is_empty());
+    }
+
+    /// The words that changed, without the spaces between them.
+    #[test]
+    fn changed_words_of_two_lines() {
+        let (a, b) = changed_words("\"syndic transfer wizard\",crud", "\"truc machin\", \"coucou\",");
+        assert!(!a.is_empty() && !b.is_empty());
+        let old: Vec<char> = "\"syndic transfer wizard\",crud".chars().collect();
+        for (x, y) in &a {
+            let w: String = old[*x..*y].iter().collect();
+            assert!(!w.trim().is_empty() && !w.contains(' '), "{w:?}");
+        }
+        assert_eq!(changed_words("same line", "same line"), (vec![], vec![]));
+    }
+
+    /// The change shown as in Zed: the old line on red, the words changed on a stronger red, the
+    /// new on green; the blame of each line in the gutter, once per run of the same commit.
+    #[test]
+    fn a_change_and_the_blame_drawn_as_in_zed() {
+        let ctx = egui::Context::default();
+        let hl = Highlighting::new("Florm", std::path::Path::new("/nonexistent"));
+        let mut doc = Document::from_text(1, "a = 1\nb = 22\nc = 3\n", 4, true);
+        doc.git_base = Some("a = 1\nb = 2\nc = 3\n".into());
+        doc.refresh_diff();
+        doc.peek = Some(1);
+        let commit = |h: &str, who: &str| crate::git::Blame { hash: h.repeat(40), author: who.into(), time: 0, summary: "s".into() };
+        // HEAD's 3 lines (line 2 of the buffer changed: not committed yet)
+        doc.blame_lines = Some((doc.base_key(), std::sync::Arc::new(vec![commit("a", "Alice"), commit("b", "Bob"), commit("a", "Alice")])));
+        let opts = ViewOpts { font_size: 14.0, minimap: false, wrap: false, inline_diff: false, sticky: false, rulers: &[], notes: &[], tests: &[], rainbow: false, whitespace: false, debug: false, exec_line: None, blame_gutter: true };
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 400.0));
+        let mut texts = Vec::new();
+        let mut fills = Vec::new();
+        for _ in 0..2 {
+            let out = ctx.run(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ctx| {
+                egui::CentralPanel::default().frame(egui::Frame::none()).show(ctx, |ui| show(ui, &mut doc, &hl, &opts, &[], Id::new("ed")));
+            });
+            texts.clear();
+            fills.clear();
+            fn walk(s: &egui::Shape, t: &mut Vec<String>, f: &mut Vec<Color32>) {
+                match s {
+                    egui::Shape::Text(x) => t.push(x.galley.text().to_string()),
+                    egui::Shape::Rect(r) => f.push(r.fill),
+                    egui::Shape::Vec(v) => v.iter().for_each(|x| walk(x, t, f)),
+                    _ => {}
+                }
+            }
+            out.shapes.iter().for_each(|c| walk(&c.shape, &mut texts, &mut fills));
+        }
+        let light = hl.is_light();
+        assert!(texts.iter().any(|t| t == "b = 2"), "the old line: {texts:?}");
+        assert!(fills.contains(&removed_strong(light)) && fills.contains(&added_strong(light)), "the changed words");
+        let alice: Vec<&String> = texts.iter().filter(|t| t.starts_with("Alice")).collect();
+        assert_eq!(alice.len(), 2, "once per run: {texts:?}");
+        assert!(texts.iter().any(|t| t == "pas encore commité" || t == "not committed yet"));
     }
 
     #[test]

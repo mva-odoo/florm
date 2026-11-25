@@ -78,6 +78,18 @@ impl App {
                 JobResult::Compare(title, r) => self.compare_loaded(title, r),
                 JobResult::History(repo, gen, r) => self.on_history(repo, gen, r),
                 JobResult::Blame { uid, line, version, result } => self.on_blame(uid, line, version, result),
+                JobResult::BlameLines { uid, version, result } => {
+                    if let Some(d) = self.docs.iter_mut().find(|d| d.uid == uid) {
+                        match result {
+                            Ok(lines) => d.blame_lines = Some((version, std::sync::Arc::new(lines))),
+                            // not in git (or not tracked): nothing in the column, not asked again
+                            Err(e) => {
+                                d.blame_lines = Some((version, std::sync::Arc::new(Vec::new())));
+                                self.log(tf!("Blame : {e}", "Blame: {e}"));
+                            }
+                        }
+                    }
+                }
                 JobResult::LineHistory(result) => self.on_line_history(result),
                 JobResult::LineHistoryDiff(hash, result) => self.on_line_history_diff(hash, result),
                 JobResult::HistoryDiff { hash, path, result } => self.on_history_diff(hash, path, result),

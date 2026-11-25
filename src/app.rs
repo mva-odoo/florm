@@ -1023,6 +1023,9 @@ struct BlameState {
     req: Option<(u64, usize, u64)>,
     /// The line of the cursor (as `req`) and since when it is there.
     seen: Option<((u64, usize, u64), Instant)>,
+    /// The blame of every line in the gutter (as in Zed), and the version asked per document.
+    gutter: bool,
+    lines_req: HashMap<u64, u64>,
 }
 
 /// Closing Florm: what was confirmed, and « Fermer quand il aura fini ».
@@ -1306,7 +1309,7 @@ impl App {
             goto_select: false,
             drop_alt_text: None,
             dialog_open: false,
-            blame: BlameState { on: false, req: None, seen: None },
+            blame: BlameState { on: false, req: None, seen: None, gutter: false, lines_req: HashMap::new() },
             line_history: None,
             local_history: None,
             state: project::load_state(),
