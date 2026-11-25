@@ -204,7 +204,9 @@ d'habitude.
   interactif à partir d'ici…**. Pour chaque commit : le garder, changer son message, le fusionner
   avec le précédent (avec ou sans son message) ou le supprimer, et ↑ ↓ pour changer l'ordre.
 - **Blame** (**Ctrl+Maj+B**) : l'auteur, la date et le message du dernier commit de la ligne, en
-  gris au bout de celle-ci ; à nouveau pour le masquer.
+  gris au bout de celle-ci ; à nouveau pour le masquer. Au survol de ce texte, une petite fenêtre
+  donne le message entier du commit, avec **Voir dans Florm (Git)**, **Ouvrir sur GitHub ↗** et
+  **Copier le hash**.
 - **Blame de chaque ligne** (**Ctrl+K B**, ou clic droit → Blame de chaque ligne), comme dans Zed :
   une colonne de la marge donne l'auteur et l'ancienneté de chaque bloc de lignes du même commit ;
   au survol, une petite fenêtre donne le commit, son auteur, sa date et **son message entier**, avec

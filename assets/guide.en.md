@@ -196,7 +196,8 @@ opening the folder or showing a diff does not run them. The hooks of commits and
   rebase from here…**. For each commit: keep it, change its message, merge it with the previous
   one (with or without its message) or drop it, and ↑ ↓ to change the order.
 - **Blame** (**Ctrl+Shift+B**): the author, date and message of the last commit of the line, in
-  grey at its end; again to hide it.
+  grey at its end; again to hide it. Hovering that text opens a small window with the commit's
+  whole message, **See in Florm (Git)**, **Open on GitHub ↗** and **Copy the hash**.
 - **Blame of every line** (**Ctrl+K B**, or right click → Blame of every line), as in Zed: a column
   of the gutter gives the author and age of each block of lines of the same commit; on hover, a
   small window gives the commit, its author, its date and **its whole message**, with **See in Florm

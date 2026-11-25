@@ -178,8 +178,11 @@ pub struct Document {
     pub blame_lines: Option<(u64, std::sync::Arc<Vec<crate::git::Blame>>)>,
     /// A commit clicked in the blame of the gutter: shown in the Git view by the app.
     pub blame_open: Option<String>,
-    /// The commit of the blame cell under the pointer, and the cell (the app shows its window).
-    pub blame_hover: Option<(crate::git::Blame, eframe::egui::Rect)>,
+    /// The commit of the line blame (`blame`, Ctrl+Shift+B) when it is committed: its window on hover.
+    pub blame_commit: Option<crate::git::Blame>,
+    /// The commit of the blame under the pointer, where it is, and whether its window opens under
+    /// it (the line blame at the end of a line) or at its right (the column of the gutter).
+    pub blame_hover: Option<(crate::git::Blame, eframe::egui::Rect, bool)>,
     pub mtime: Option<SystemTime>,
     /// The file was changed or deleted by another program while this one had unsaved changes:
     /// saving would lose the other version, the editor asks first.
@@ -741,6 +744,7 @@ impl Document {
             blame: None,
             blame_lines: None,
             blame_open: None,
+            blame_commit: None,
             blame_hover: None,
             mtime: None,
             disk_change: None,

@@ -657,7 +657,7 @@ fn text_area(
                                 // the commit's window (its whole message, its links): drawn by the app
                                 ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
                                 let cell = Rect::from_min_size(Pos2::new(gx + blame_x, line_y(l)), egui::vec2(blame_w, rh));
-                                doc.blame_hover = Some((b.clone(), cell));
+                                doc.blame_hover = Some((b.clone(), cell, false));
                             }
                         }
                     }
@@ -1074,16 +1074,21 @@ fn text_area(
         }
 
         // inline blame at the end of its line
-        if let Some((bl, _, text)) = &doc.blame {
-            if (first..=last).contains(bl) {
-                let end = at(*bl, doc.vcol(*bl, doc.line_len(*bl)));
-                painter.text(
+        if let Some((bl, text)) = doc.blame.as_ref().map(|(l, _, t)| (*l, t.clone())) {
+            if (first..=last).contains(&bl) {
+                let end = at(bl, doc.vcol(bl, doc.line_len(bl)));
+                let r = painter.text(
                     Pos2::new(end.x + 4.0 * cw, end.y + rh / 2.0),
                     Align2::LEFT_CENTER,
-                    text,
+                    &text,
                     FontId::proportional(font.size * 0.9),
                     c.gutter_fg.gamma_multiply(1.2),
                 );
+                // hovered: the commit's window (its whole message, its links), drawn by the app
+                if let Some(b) = doc.blame_commit.clone().filter(|_| ui.ctx().pointer_hover_pos().is_some_and(|p| r.expand(2.0).contains(p))) {
+                    ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+                    doc.blame_hover = Some((b, r, true));
+                }
             }
         }
 
@@ -1665,6 +1670,45 @@ mod tests {
         let alice: Vec<&String> = texts.iter().filter(|t| t.starts_with("Alice")).collect();
         assert_eq!(alice.len(), 2, "once per run: {texts:?}");
         assert!(texts.iter().any(|t| t == "pas encore commité" || t == "not committed yet"));
+    }
+
+    /// The line blame at the end of a line (Ctrl+Shift+B), hovered: its commit for the app's window,
+    /// opening under it; a line not committed has none.
+    #[test]
+    fn hovering_the_line_blame_gives_its_commit() {
+        let ctx = egui::Context::default();
+        let hl = Highlighting::new("Florm", std::path::Path::new("/nonexistent"));
+        let mut doc = Document::from_text(1, "a = 1\nb = 2\n", 4, true);
+        let text = "Alice · il y a 3 mois · First line (abcdef1)".to_string();
+        doc.blame = Some((0, doc.version, text.clone()));
+        doc.blame_commit = Some(crate::git::Blame { hash: "abcdef1".repeat(6), author: "Alice".into(), time: 0, summary: "First line".into() });
+        let opts = ViewOpts { font_size: 14.0, minimap: false, wrap: false, inline_diff: false, sticky: false, rulers: &[], notes: &[], tests: &[], rainbow: false, whitespace: false, debug: false, exec_line: None, blame_gutter: false };
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 400.0));
+        let frame = |doc: &mut Document, pointer: Option<Pos2>| {
+            let events = pointer.map(|p| vec![egui::Event::PointerMoved(p)]).unwrap_or_default();
+            let out = ctx.run(egui::RawInput { screen_rect: Some(screen), events, ..Default::default() }, |ctx| {
+                egui::CentralPanel::default().frame(egui::Frame::none()).show(ctx, |ui| show(ui, doc, &hl, &opts, &[], Id::new("ed")));
+            });
+            let mut found = None;
+            fn walk(s: &egui::Shape, want: &str, out: &mut Option<Rect>) {
+                match s {
+                    egui::Shape::Text(t) if t.galley.text() == want => *out = Some(t.galley.rect.translate(t.pos.to_vec2())),
+                    egui::Shape::Vec(v) => v.iter().for_each(|x| walk(x, want, out)),
+                    _ => {}
+                }
+            }
+            out.shapes.iter().for_each(|c| walk(&c.shape, &text, &mut found));
+            found
+        };
+        frame(&mut doc, None);
+        let r = frame(&mut doc, None).expect("the line blame drawn");
+        frame(&mut doc, Some(r.center()));
+        let (b, at, below) = doc.blame_hover.take().expect("hovered");
+        assert!(below && b.summary == "First line" && at.contains(r.center()));
+        // not committed: no window
+        doc.blame_commit = None;
+        frame(&mut doc, Some(r.center()));
+        assert!(doc.blame_hover.is_none());
     }
 
     #[test]

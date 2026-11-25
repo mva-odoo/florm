@@ -11,8 +11,10 @@ pub(super) struct BlamePop {
     pub uid: u64,
     pub blame: git::Blame,
     pub repo: PathBuf,
-    /// The blame cell it was opened from (it opens at its right).
+    /// The blame it was opened from: a cell of the gutter (it opens at its right) or the line
+    /// blame at the end of a line (under it).
     pub cell: egui::Rect,
+    pub below: bool,
     /// When the pointer left it and its cell (None: on one of them).
     pub left: Option<f64>,
     pub rect: Option<egui::Rect>,
@@ -36,7 +38,7 @@ impl App {
         let now = ctx.input(|inp| inp.time);
         // a cell hovered: its commit (a new one replaces the window)
         let mut on_cell = false;
-        if let Some((b, cell)) = hovered {
+        if let Some((b, cell, below)) = hovered {
             let same = self.blame_pop.as_ref().is_some_and(|p| p.uid == uid && p.blame.hash == b.hash);
             on_cell = true;
             if !same {
@@ -50,9 +52,9 @@ impl App {
                         JobResult::CommitInfo(h, message.map(|message| CommitInfo { message, github }))
                     });
                 }
-                self.blame_pop = Some(BlamePop { uid, blame: b, repo, cell, left: None, rect: None });
+                self.blame_pop = Some(BlamePop { uid, blame: b, repo, cell, below, left: None, rect: None });
             } else if let Some(p) = self.blame_pop.as_mut() {
-                p.cell = cell;
+                (p.cell, p.below) = (cell, below);
             }
         }
         let Some(pop) = self.blame_pop.as_mut().filter(|p| p.uid == uid) else { return };
@@ -73,7 +75,7 @@ impl App {
         let repo = pop.repo.clone();
         let info = self.commit_info.get(&b.hash).cloned().flatten();
         let mut act: Option<u8> = None;
-        let area = egui::Area::new(egui::Id::new(("blame_pop", uid))).fixed_pos(pop.cell.right_top() + egui::vec2(4.0, 0.0)).order(egui::Order::Foreground).show(ctx, |ui| {
+        let area = egui::Area::new(egui::Id::new(("blame_pop", uid))).fixed_pos(if pop.below { pop.cell.left_bottom() + egui::vec2(0.0, 2.0) } else { pop.cell.right_top() + egui::vec2(4.0, 0.0) }).order(egui::Order::Foreground).show(ctx, |ui| {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
                 ui.set_max_width(520.0);
                 ui.horizontal_wrapped(|ui| {
@@ -185,7 +187,7 @@ mod tests {
             let input = egui::RawInput { time: Some(time), events: vec![egui::Event::PointerMoved(pointer)], ..Default::default() };
             let out = ctx.run(input, |ctx| {
                 if hover {
-                    app.docs[i].blame_hover = Some((blame.clone(), cell));
+                    app.docs[i].blame_hover = Some((blame.clone(), cell, false));
                 }
                 app.blame_popup(ctx, i);
             });
