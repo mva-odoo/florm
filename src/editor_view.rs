@@ -654,8 +654,10 @@ fn text_area(
                             if b.uncommitted() {
                                 msgs.push(t!("Pas encore commité", "Not committed yet").into());
                             } else {
+                                // the commit's window (its whole message, its links): drawn by the app
                                 ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
-                                msgs.push(format!("{} · {} · {}\n{}\n{}", &b.hash[..b.hash.len().min(8)], b.author, crate::git::ago(b.time), b.summary, t!("Clic : voir le commit", "Click: see the commit")));
+                                let cell = Rect::from_min_size(Pos2::new(gx + blame_x, line_y(l)), egui::vec2(blame_w, rh));
+                                doc.blame_hover = Some((b.clone(), cell));
                             }
                         }
                     }

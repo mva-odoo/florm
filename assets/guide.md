@@ -207,7 +207,9 @@ d'habitude.
   gris au bout de celle-ci ; à nouveau pour le masquer.
 - **Blame de chaque ligne** (**Ctrl+K B**, ou clic droit → Blame de chaque ligne), comme dans Zed :
   une colonne de la marge donne l'auteur et l'ancienneté de chaque bloc de lignes du même commit ;
-  au survol, le commit et son message, un clic l'ouvre dans la vue Git. Les lignes changées depuis
+  au survol, une petite fenêtre donne le commit, son auteur, sa date et **son message entier**, avec
+  **Voir dans Florm (Git)**, **Ouvrir sur GitHub ↗** (si le dépôt y est) et **Copier le hash** ; elle
+  reste tant que la souris va vers elle. Un clic sur la colonne ouvre aussi le commit dans la vue Git. Les lignes changées depuis
   le dernier commit disent « pas encore commité ». Un seul `git blame` par fichier et par commit
   (quelques secondes sur un très long historique, en arrière-plan) : la frappe ne le relance pas.
 - **Modifier le dernier commit** (case sous le message, ou menu de la branche) : le message du

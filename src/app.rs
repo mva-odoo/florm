@@ -51,8 +51,10 @@ mod compare;
 mod lsp_client;
 mod debugger;
 mod packs_ui;
+mod blame_popup;
 mod extensions;
 pub(crate) use debugger::DebugStart;
+pub(crate) use blame_popup::CommitInfo;
 mod maximize;
 mod navigation;
 mod projects;
@@ -943,6 +945,9 @@ pub struct App {
     trust_later: HashSet<PathBuf>,
     /// Language packs: their tools there or not, the one being installed.
     packs: packs_ui::PacksUi,
+    /// The window of a commit hovered in the blame of the gutter, and the commits' details read.
+    blame_pop: Option<blame_popup::BlamePop>,
+    commit_info: HashMap<String, Option<Result<blame_popup::CommitInfo, String>>>,
     /// Extensions: their processes, what they wait for.
     ext: extensions::ExtUi,
     last_line_copy: Option<String>,
@@ -1282,6 +1287,8 @@ impl App {
             watch: WatchState { last_check: Instant::now(), busy: false, git_stamps: HashMap::new(), term_enter: None, was_focused: true },
             trust_later: HashSet::new(),
             packs: packs_ui::PacksUi::default(),
+            blame_pop: None,
+            commit_info: HashMap::new(),
             ext: extensions::ExtUi::default(),
             last_line_copy: None,
             quit: QuitState { confirmed: false, claude_ok: false, when_idle: false },

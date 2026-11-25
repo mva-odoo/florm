@@ -78,6 +78,7 @@ impl App {
                 JobResult::Compare(title, r) => self.compare_loaded(title, r),
                 JobResult::History(repo, gen, r) => self.on_history(repo, gen, r),
                 JobResult::Blame { uid, line, version, result } => self.on_blame(uid, line, version, result),
+                JobResult::CommitInfo(hash, r) => self.on_commit_info(hash, r),
                 JobResult::BlameLines { uid, version, result } => {
                     if let Some(d) = self.docs.iter_mut().find(|d| d.uid == uid) {
                         match result {

@@ -113,6 +113,7 @@ impl App {
                 // a commit clicked in the blame of the gutter: in the Git view
                 let open = doc.blame_open.take().zip(doc.path.clone());
                 let test = doc.test_pick.take();
+                self.blame_popup(ui.ctx(), i);
                 if let Some((hash, path)) = open {
                     if let Some(repo) = self.repo_for(&path) {
                         self.git_show_commit(repo, hash);

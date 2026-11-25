@@ -198,8 +198,10 @@ opening the folder or showing a diff does not run them. The hooks of commits and
 - **Blame** (**Ctrl+Shift+B**): the author, date and message of the last commit of the line, in
   grey at its end; again to hide it.
 - **Blame of every line** (**Ctrl+K B**, or right click → Blame of every line), as in Zed: a column
-  of the gutter gives the author and age of each block of lines of the same commit; on hover, the
-  commit and its message, a click opens it in the Git view. The lines changed since the last commit
+  of the gutter gives the author and age of each block of lines of the same commit; on hover, a
+  small window gives the commit, its author, its date and **its whole message**, with **See in Florm
+  (Git)**, **Open on GitHub ↗** (if the repository is there) and **Copy the hash**; it stays while
+  the pointer goes to it. A click on the column also opens the commit in the Git view. The lines changed since the last commit
   say “not committed yet”. One `git blame` per file and per commit (a few seconds on a very long
   history, in the background): typing does not run it again.
 - **Amend the last commit** (box under the message, or branch menu): the message of the last
