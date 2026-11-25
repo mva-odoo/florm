@@ -176,6 +176,15 @@ impl DebugUi {
 }
 
 impl App {
+    /// The session for the status bar: None without one, Some(true) stopped, Some(false) running.
+    pub(in crate::app) fn debug_status(&self) -> Option<bool> {
+        match self.debug.phase {
+            Phase::Idle => None,
+            Phase::Stopped => Some(true),
+            Phase::Running | Phase::Starting => Some(false),
+        }
+    }
+
     /// (the file can be debugged, the line where the debugger stopped in it), for the editor.
     pub(super) fn debug_marks(&self, i: usize) -> (bool, Option<usize>) {
         let Some(path) = self.docs.get(i).and_then(|d| d.path.as_deref()) else { return (false, None) };

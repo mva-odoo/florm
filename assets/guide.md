@@ -92,7 +92,8 @@ côte, divise l'éditeur.
   ensuite au même endroit. Une vue qui a déjà son onglet s'y affiche, jamais à deux endroits.
 - **La barre d'état ne montre que ce qui se passe** : à gauche l'icône des **Préférences**, puis celles de **Claude**, **Git**,
   **Pull requests** (un clic ouvre son onglet, un autre revient à l'onglet d'avant ; en couleur quand
-  il est affiché) et **Terminal** (le terminal du panneau du bas) ; à droite la branche (**↑** commits à
+  il est affiché), **Terminal** (le terminal du panneau du bas) et **Débogueur** (sa vue dans le
+  panneau du bas ; verte pendant une session, orange quand le programme est en pause) ; à droite la branche (**↑** commits à
   pousser, **↓** à récupérer, **●** fichiers modifiés) du dépôt du fichier affiché (il suit les
   onglets ; un dépôt choisi dans la vue Git reste jusqu'au prochain fichier affiché), puis, seulement quand c'est le cas, Claude
   (**au travail**, ou **✔** quand il a fini : un clic montre la réponse), et les problèmes. Au repos, elle est presque vide.

@@ -142,6 +142,24 @@ impl App {
                         }
                     }
                 }
+                // the debugger, beside the terminal: in color while a session runs (green) or is
+                // paused (orange); a click shows its view, or hides it when shown
+                let shown = self.bottom == Some(BottomTab::Debug);
+                let (color, state) = match self.debug_status() {
+                    Some(true) => (warn(), t!(" — en pause", " — paused")),
+                    Some(false) => (ok(), t!(" — en cours", " — running")),
+                    None if shown => (accent, ""),
+                    None => (muted, ""),
+                };
+                let keys = self.keymap.label(Cmd::DebugStart);
+                let tip = tf!("Débogueur{state} ({keys} : lancer, continuer)", "Debugger{state} ({keys}: start, continue)");
+                if view_button(ui, icons::ViewIcon::Debug, color).on_hover_text(tip).clicked() {
+                    if shown {
+                        self.bottom = None;
+                    } else {
+                        self.pending.push(Cmd::DebugShow);
+                    }
+                }
                 ui.separator();
                 // only for a text (not on the welcome page, a diff, the preferences…)
                 if let Some(d) = self.docs.get(self.active).filter(|d| d.view == crate::document::View::Text) {

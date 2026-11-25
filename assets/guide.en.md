@@ -89,7 +89,8 @@ also the search if you want. To see two tabs side by side, split the editor.
   the same place. A view that already has its tab is shown there, never in two places.
 - **The status bar only shows what is going on**: on the left the icon of the **Preferences**, then those of **Claude**, **Git**,
   **Pull requests** (a click opens its tab, another one goes back to the tab before; coloured when
-  it is shown) and **Terminal** (the terminal of the bottom panel); on the right the branch (**↑** commits to
+  it is shown), **Terminal** (the terminal of the bottom panel) and **Debugger** (its view in the
+  bottom panel; green during a session, orange when the program is paused); on the right the branch (**↑** commits to
   push, **↓** to pull, **●** changed files) of the repository of the file shown (it follows the
   tabs; a repository chosen in the Git view stays until the next file shown), then, only when it is the case, Claude (**working**,
   or **✔** when it has finished: a click shows the answer), and the problems. At rest, it is almost empty.
