@@ -2,7 +2,7 @@
 name = "Odoo"
 description = "Tests Odoo sous le curseur (--test-tags), mise à jour du module, aller au modèle ou au record ('sale.order', 'module.xml_id'), records du fichier, __manifest__.py"
 cmd = "python3 main.py"
-version = "1.0"
+version = "1.1"
 
 [[command]]
 id = "test"

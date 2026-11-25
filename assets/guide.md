@@ -329,10 +329,12 @@ liste chaque langage avec ses outils : serveur de langage (LSP), linter, formate
 - **Installer** met ce qui manque dans le dossier des outils de Florm, sans toucher au système :
   `pip` dans un environnement virtuel à lui (pylsp, ruff, debugpy, yamllint, clangd…), `npm`
   (typescript-language-server, eslint, les serveurs YAML, Bash, HTML, CSS, Dockerfile…),
-  `go install` (gopls, dlv), `rustup` (rust-analyzer). Il faut que Python, Node.js, Go ou rustup
-  soient là pour ceux qui en dépendent. Un clic sur un outil ✖ installe celui-là seul.
-- Ce que seul le système installe (gdb, marksman, hadolint…) est donné en commandes : un clic la
-  tape dans un terminal (Entrée pour la lancer), un clic droit la copie.
+  `go install` (gopls, dlv), ou le programme tout prêt de leur release GitHub (rust-analyzer,
+  marksman, hadolint, lua-language-server). **Rien d'autre à installer** : sans Python, Node.js ou
+  Go sur l'ordinateur, Florm télécharge le sien la première fois (dans son dossier, vérifié par sa
+  somme SHA-256). Un clic sur un outil ✖ installe celui-là seul.
+- Ce que seul le système installe (gdb, Ruby, luacheck) est donné en commandes pour ton système :
+  un clic la tape dans un terminal (Entrée pour la lancer), un clic droit la copie.
 - En ouvrant un fichier d'un langage auquel il manque des outils, une barre propose de les
   installer ; **Plus tard** la cache jusqu'à la fermeture de Florm, **Ne plus proposer** pour de bon.
 - **+ Nouveau pack…** : un langage que Florm ne connaît pas, ou d'autres outils pour un langage, dans
@@ -473,7 +475,8 @@ modèles et l'ouvre. S'il y avait une sélection, elle devient le texte du modè
 Une extension ajoute des commandes à la palette (avec un raccourci si elle veut) et réagit quand un
 fichier s'ouvre, s'enregistre, se ferme ou s'affiche. C'est un programme, en Python ou dans n'importe
 quel langage, dans un dossier de `~/.config/florm/extensions/` avec son `extension.toml`. Elle tourne
-avec tes droits : n'en installe que de sources sûres.
+avec tes droits : n'en installe que de sources sûres. Sans Python sur l'ordinateur, Florm télécharge
+le sien à la première commande d'une extension Python (une seule fois, ~30 Mo).
 
 - **Préférences → Extensions** : la liste (une case les coupe), **+ Nouvelle extension…** crée un
   exemple en Python et l'ouvre, **⟳ Recharger** après un changement, **📁** le dossier.

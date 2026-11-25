@@ -8,6 +8,10 @@ use std::process::{Command, Stdio};
 pub fn command(program: impl AsRef<std::ffi::OsStr>) -> Command {
     #[allow(unused_mut)]
     let mut c = Command::new(program);
+    // what Florm downloaded (Node.js, Python, rust-analyzer…) is found by the programs it runs
+    if let Some(path) = crate::runtimes::path_env() {
+        c.env("PATH", path);
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;

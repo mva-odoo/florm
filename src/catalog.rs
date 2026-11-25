@@ -229,7 +229,7 @@ mod tests {
         std::env::set_var("FLORM_CONFIG", &dir);
         let all = all(&[]);
         let odoo = all.iter().find(|e| e.name == "Odoo").expect("odoo").clone();
-        assert!(odoo.builtin && odoo.kind == Kind::Extension && odoo.version == "1.0");
+        assert!(odoo.builtin && odoo.kind == Kind::Extension && odoo.version == "1.1");
         assert_eq!(state(&odoo), State::Missing);
         let t = install(&odoo).unwrap();
         assert!(t.join("odoo_lib.py").is_file());

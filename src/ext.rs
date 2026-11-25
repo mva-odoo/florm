@@ -78,6 +78,11 @@ pub fn load_all(dir: &Path) -> (Vec<Manifest>, Vec<String>) {
     (out, errors)
 }
 
+/// The extension runs with Python (`cmd` starts with python or python3).
+pub fn needs_python(m: &Manifest) -> bool {
+    matches!(crate::test_cmd::split(&m.cmd).first().map(String::as_str), Some("python" | "python3" | "python.exe"))
+}
+
 /// The folder where Florm puts its library for the extensions (`florm.py`).
 pub fn lib_dir() -> PathBuf {
     crate::config::data_dir().join("extensions-lib")
@@ -150,9 +155,9 @@ impl Host {
         if argv.is_empty() {
             return Err(crate::tf!("{} : cmd est vide dans extension.toml", "{}: cmd is empty in extension.toml", m.name));
         }
-        // "python3" is "python" on Windows
-        if matches!(argv[0].as_str(), "python" | "python3") {
-            argv[0] = crate::lint::python().to_string();
+        // "python3": a real Python of the system, else the one Florm downloaded
+        if needs_python(&m) {
+            argv[0] = crate::runtimes::python_ready().ok_or_else(|| crate::t!("Python n'est pas encore là", "Python is not there yet").to_string())?;
         }
         let lib = write_lib();
         let pythonpath = match std::env::var_os("PYTHONPATH") {

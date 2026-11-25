@@ -145,7 +145,8 @@ def find_odoo_bin(root):
         for d in level:
             if os.path.isfile(os.path.join(d, "odoo-bin")):
                 rel = os.path.relpath(os.path.join(d, "odoo-bin"), root).replace("\\", "/")
-                return "./" + rel
+                # Windows does not run a script by its #! line: through Python
+                return ("python " if os.name == "nt" else "") + "./" + rel
         nxt = []
         for d in level:
             try:

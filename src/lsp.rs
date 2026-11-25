@@ -180,6 +180,7 @@ fn tool_dirs() -> Vec<PathBuf> {
     }
     // what Florm installed itself (language packs)
     out.extend(crate::packs::bin_dirs());
+    out.extend(crate::runtimes::bin_dirs());
     out
 }
 

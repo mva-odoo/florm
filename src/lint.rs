@@ -556,12 +556,10 @@ pub fn tools_dir() -> PathBuf {
 
 pub fn python() -> &'static str {
     static PY: OnceLock<&'static str> = OnceLock::new();
-    PY.get_or_init(|| {
-        if crate::os::command("python3").arg("--version").output().is_ok() {
-            "python3"
-        } else {
-            "python"
-        }
+    // a real Python 3 (not the Microsoft Store's alias), else the one Florm downloaded
+    PY.get_or_init(|| match crate::runtimes::python_ready() {
+        Some(p) => Box::leak(p.into_boxed_str()),
+        None => "python3",
     })
 }
 

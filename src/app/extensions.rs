@@ -25,6 +25,9 @@ pub(super) struct ExtUi {
     pub catalog_input: String,
     /// An extension from elsewhere about to be installed: its folder (asks to confirm).
     pub confirm: Option<PathBuf>,
+    /// Python being downloaded for the extensions, and the commands waiting for it.
+    pub py_downloading: bool,
+    pub waiting_python: Vec<(usize, String)>,
 }
 
 impl App {
@@ -77,8 +80,44 @@ impl App {
         v
     }
 
+    /// Python is needed by extension `k` and not there: downloaded (once, on a thread). True
+    /// while it is not there.
+    fn ext_python_missing(&mut self, k: usize) -> bool {
+        if !self.ext.host.list.get(k).is_some_and(ext::needs_python) || self.ext.host.running(k) || crate::runtimes::python_ready().is_some() {
+            return false;
+        }
+        if !self.ext.py_downloading {
+            self.ext.py_downloading = true;
+            self.set_status(t!("Téléchargement de Python pour les extensions (une seule fois, ~30 Mo)…", "Downloading Python for the extensions (only once, ~30 MB)…"));
+            self.jobs.spawn(|| JobResult::PythonReady(crate::runtimes::python().map(|_| ())));
+        }
+        true
+    }
+
+    /// Python downloaded (or not): the commands that waited for it run.
+    pub(super) fn on_python_ready(&mut self, r: Result<(), String>) {
+        self.ext.py_downloading = false;
+        let waiting = std::mem::take(&mut self.ext.waiting_python);
+        match r {
+            Ok(()) => {
+                self.set_status(t!("Python est prêt pour les extensions", "Python is ready for the extensions"));
+                for (k, id) in waiting {
+                    self.ext_command(k, id);
+                }
+            }
+            Err(e) => {
+                self.log(e.clone());
+                self.set_error(tf!("Python pas téléchargé : {}", "Python not downloaded: {}", e.lines().next().unwrap_or("")));
+            }
+        }
+    }
+
     /// Runs command `id` of extension `k`.
     pub(super) fn ext_command(&mut self, k: usize, id: String) {
+        if self.ext_python_missing(k) {
+            self.ext.waiting_python.push((k, id));
+            return;
+        }
         let ctx = self.egui_ctx.clone();
         if let Err(e) = self.ext.host.ensure(k, &ctx) {
             self.log(e.clone());
@@ -104,6 +143,10 @@ impl App {
         let context = self.ext_context(idx);
         let ctx = self.egui_ctx.clone();
         for k in wants {
+            // without Python yet: downloaded, this event is missed
+            if self.ext_python_missing(k) {
+                continue;
+            }
             match self.ext.host.ensure(k, &ctx) {
                 Ok(()) => self.ext.host.notify(k, "event", json!({"name": name, "context": context})),
                 Err(e) => {
@@ -812,7 +855,7 @@ florm.main()
             }
             out.shapes.iter().for_each(|c| walk(&c.shape, &mut names));
         }
-        for want in ["Catalogue", "Odoo", "extension", "Florm · 1.0", "Installer", "+ Ajouter un catalogue", "+ Nouvelle extension…"] {
+        for want in ["Catalogue", "Odoo", "extension", "Florm · 1.1", "Installer", "+ Ajouter un catalogue", "+ Nouvelle extension…"] {
             assert!(names.iter().any(|n| n == want), "{want}: {names:?}");
         }
         let _ = std::fs::remove_dir_all(&dir);

@@ -318,10 +318,12 @@ each language with its tools: language server (LSP), linter, formatter, debugger
 - **Install** puts what is missing in Florm's tools folder, without touching the system: `pip` in a
   virtual environment of its own (pylsp, ruff, debugpy, yamllint, clangd…), `npm`
   (typescript-language-server, eslint, the YAML, Bash, HTML, CSS, Dockerfile servers…), `go install`
-  (gopls, dlv), `rustup` (rust-analyzer). Python, Node.js, Go or rustup must be there for those that
-  need them. A click on a ✖ tool installs that one alone.
-- What only the system installs (gdb, marksman, hadolint…) is given as commands: a click types it in
-  a terminal (Enter runs it), a right click copies it.
+  (gopls, dlv), or the ready-made program of their GitHub release (rust-analyzer, marksman, hadolint,
+  lua-language-server). **Nothing else to install**: without Python, Node.js or Go on the computer,
+  Florm downloads its own the first time (in its folder, checked by its SHA-256 sum). A click on a
+  ✖ tool installs that one alone.
+- What only the system installs (gdb, Ruby, luacheck) is given as commands for your system: a click
+  types it in a terminal (Enter runs it), a right click copies it.
 - When a file of a language that misses tools opens, a bar proposes to install them; **Later** hides
   it until Florm is closed, **Don't ask again** for good.
 - **+ New pack…**: a language Florm does not know, or other tools for a language, in a TOML file of
@@ -459,7 +461,8 @@ it. If there was a selection, it becomes the text of the template.
 An extension adds commands to the palette (with a shortcut if it wants) and reacts when a file
 opens, is saved, closes or is shown. It is a program, in Python or any language, in a folder of
 `~/.config/florm/extensions/` with its `extension.toml`. It runs with your rights: only install
-some from sources you trust.
+some from sources you trust. Without Python on the computer, Florm downloads its own at the first
+command of a Python extension (only once, ~30 MB).
 
 - **Preferences → Extensions**: the list (a checkbox turns one off), **+ New extension…** makes a
   Python example and opens it, **⟳ Reload** after a change, **📁** the folder.

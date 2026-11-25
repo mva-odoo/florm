@@ -104,6 +104,8 @@ pub enum JobResult {
     PackStatus(Vec<crate::packs::Pack>, Vec<Vec<bool>>),
     /// Tools of a language pack installed (or the log of what failed).
     PackInstalled(Result<String, String>),
+    /// Python downloaded for the extensions (or why not).
+    PythonReady(Result<(), String>),
     /// The catalogue repositories cloned again (the errors).
     CatalogFetched(Vec<String>),
     /// A debug session started on a thread (its adapter found, the program built): the session

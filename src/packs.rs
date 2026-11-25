@@ -24,9 +24,23 @@ pub struct Tool {
     pub go: String,
     #[serde(default)]
     pub rustup: String,
-    /// The command to copy when Florm cannot install it.
+    /// A GitHub repository whose latest release has the program ("rust-lang/rust-analyzer")…
+    #[serde(default)]
+    pub github: String,
+    /// …in the file named for each platform (linux-x64, linux-arm64, macos-x64, macos-arm64,
+    /// windows-x64, windows-arm64; `{version}`: the tag without « v »).
+    #[serde(default)]
+    pub asset: std::collections::BTreeMap<String, String>,
+    /// The command to copy when Florm cannot install it (hint_linux, hint_macos, hint_windows:
+    /// for one system).
     #[serde(default)]
     pub hint: String,
+    #[serde(default)]
+    pub hint_linux: String,
+    #[serde(default)]
+    pub hint_macos: String,
+    #[serde(default)]
+    pub hint_windows: String,
     /// A Python module whose presence is enough (debugpy).
     #[serde(default)]
     pub module: String,
@@ -64,10 +78,19 @@ struct Shipped {
 impl Tool {
     /// How Florm installs it: ("pip", "ruff"); None: by hand (hint) or nothing to do.
     pub fn method(&self) -> Option<(&'static str, &str)> {
-        [("pip", &self.pip), ("npm", &self.npm), ("go", &self.go), ("rustup", &self.rustup)]
-            .into_iter()
-            .find(|(_, v)| !v.trim().is_empty())
-            .map(|(m, v)| (m, v.trim()))
+        let github = !self.github.trim().is_empty() && self.asset.contains_key(&crate::runtimes::platform());
+        for (m, v, ok) in [("pip", &self.pip, true), ("npm", &self.npm, true), ("go", &self.go, true), ("github", &self.github, github), ("rustup", &self.rustup, true)] {
+            if ok && !v.trim().is_empty() {
+                return Some((m, v.trim()));
+            }
+        }
+        None
+    }
+
+    /// The command to copy for this system.
+    pub fn hint(&self) -> &str {
+        let own = if cfg!(windows) { &self.hint_windows } else if cfg!(target_os = "macos") { &self.hint_macos } else { &self.hint_linux };
+        if own.trim().is_empty() { &self.hint } else { own }
     }
 
     /// The kind as shown: LSP, Lint, Format, Debug.
@@ -271,15 +294,20 @@ fn run(mut c: std::process::Command, what: &str, log: &mut String) -> Result<(),
     }
 }
 
-/// The virtual environment of the Python tools, made when missing. Err: why (no venv module…).
+/// The virtual environment of the Python tools, made when missing (or broken: the Python it was
+/// made with was updated or removed). Python is downloaded if the system has none. Err: why.
 fn ensure_venv(log: &mut String) -> Result<PathBuf, String> {
     if let Some(p) = py_venv_python() {
-        return Ok(p);
+        if crate::os::command(&p).arg("--version").stdin(Stdio::null()).output().is_ok_and(|o| o.status.success()) {
+            return Ok(p);
+        }
+        let _ = std::fs::remove_dir_all(py_venv());
     }
     let _ = std::fs::create_dir_all(tools_root());
-    let mut c = crate::os::command(crate::lint::python());
+    let py = crate::runtimes::python()?;
+    let mut c = crate::os::command(&py);
     c.args(["-m", "venv"]).arg(py_venv());
-    run(c, &format!("{} -m venv {}", crate::lint::python(), py_venv().display()), log)?;
+    run(c, &format!("{py} -m venv {}", py_venv().display()), log)?;
     py_venv_python().ok_or_else(|| crate::t!("l'environnement virtuel n'a pas de Python", "the virtual environment has no Python").to_string())
 }
 
@@ -297,6 +325,7 @@ pub fn install(tools: &[Tool]) -> Result<String, String> {
     let npm = by("npm");
     let go = by("go");
     let rustup = by("rustup");
+    let github: Vec<&Tool> = tools.iter().filter(|t| t.method().is_some_and(|(m, _)| m == "github")).collect();
     if !pip.is_empty() {
         let r = match ensure_venv(&mut log) {
             Ok(py) => {
@@ -313,9 +342,10 @@ pub fn install(tools: &[Tool]) -> Result<String, String> {
         }
     }
     if !npm.is_empty() {
-        match crate::lsp::in_path("npm") {
-            None => failed.push(crate::tf!("npm introuvable (installe Node.js) pour : {}", "npm not found (install Node.js) for: {}", npm.join(", "))),
-            Some(bin) => {
+        // the system's npm, else Florm's Node.js (downloaded once)
+        match crate::runtimes::npm() {
+            Err(e) => failed.push(crate::tf!("Node.js pas disponible ({e}) pour : {}", "Node.js not available ({e}) for: {}", npm.join(", "))),
+            Ok(bin) => {
                 let _ = std::fs::create_dir_all(node_dir());
                 let mut c = crate::os::command(bin.to_str().unwrap_or("npm"));
                 c.args(["install", "--no-fund", "--no-audit", "--prefix"]).arg(node_dir()).args(&npm);
@@ -327,9 +357,9 @@ pub fn install(tools: &[Tool]) -> Result<String, String> {
         }
     }
     for g in go {
-        match crate::lsp::in_path("go") {
-            None => failed.push(crate::tf!("go introuvable (installe Go) pour : {g}", "go not found (install Go) for: {g}")),
-            Some(bin) => {
+        match crate::runtimes::go() {
+            Err(e) => failed.push(crate::tf!("Go pas disponible ({e}) pour : {g}", "Go not available ({e}) for: {g}")),
+            Ok(bin) => {
                 let _ = std::fs::create_dir_all(tools_root().join("bin"));
                 let mut c = crate::os::command(bin.to_str().unwrap_or("go"));
                 c.args(["install", &g]).env("GOBIN", tools_root().join("bin"));
@@ -353,6 +383,15 @@ pub fn install(tools: &[Tool]) -> Result<String, String> {
             }
         }
     }
+    for t in github {
+        let asset = t.asset.get(&crate::runtimes::platform()).cloned().unwrap_or_default();
+        log.push_str(&format!("$ github {} {asset}\n", t.github));
+        match crate::runtimes::install_github(&t.github, &asset, &t.bin) {
+            Ok(()) => done.push(t.bin.clone()),
+            Err(e) => failed.push(e),
+        }
+    }
+    crate::runtimes::refresh();
     crate::lint::reset_linter_cache();
     if failed.is_empty() {
         Ok(crate::tf!("Installé : {}", "Installed: {}", done.join(", ")))
@@ -374,7 +413,13 @@ mod tests {
             assert!(!p.ext.is_empty(), "{}", p.name);
             for t in &p.tools {
                 assert!(["lsp", "lint", "format", "debug"].contains(&t.kind.as_str()), "{} {}", p.name, t.kind);
-                assert!(t.builtin || t.method().is_some() || !t.hint.is_empty(), "{} {}", p.name, t.bin);
+                assert!(t.builtin || t.method().is_some() || !t.hint().is_empty(), "{} {}", p.name, t.bin);
+                // a GitHub program has its file for each platform
+                if !t.github.is_empty() {
+                    for plat in ["linux-x64", "linux-arm64", "macos-x64", "macos-arm64", "windows-x64"] {
+                        assert!(t.asset.contains_key(plat) || !t.hint().is_empty(), "{} {plat}", t.bin);
+                    }
+                }
             }
         }
         let py = packs.iter().find(|p| p.name == "Python").unwrap();

@@ -3,7 +3,9 @@
 #
 # kind: lsp, lint, format, debug (what the tool is for)
 # bin: the program looked for (PATH, ~/.local/bin, ~/go/bin, ~/.cargo/bin, Florm's tools folder)
-# how it installs (one of): pip, npm, go, rustup; else hint (the command shown to copy)
+# how it installs (one of): pip, npm, go (Florm downloads Python, Node.js or Go when the system has
+# none), github = "owner/repo" with asset.<platform> (the file of its latest release), rustup;
+# else hint (the command shown to copy; hint_linux, hint_macos, hint_windows for one system)
 # module: a Python module whose presence is enough (debugpy: no program)
 # builtin: inside Florm, nothing to install
 # optional: not installed by « Installer » (another tool does the same)
@@ -64,11 +66,19 @@ ext = ["rs"]
 [[pack.tool]]
 kind = "lsp"
 bin = "rust-analyzer"
-rustup = "rust-analyzer"
+github = "rust-lang/rust-analyzer"
+asset.linux-x64 = "rust-analyzer-x86_64-unknown-linux-gnu.gz"
+asset.linux-arm64 = "rust-analyzer-aarch64-unknown-linux-gnu.gz"
+asset.macos-x64 = "rust-analyzer-x86_64-apple-darwin.gz"
+asset.macos-arm64 = "rust-analyzer-aarch64-apple-darwin.gz"
+asset.windows-x64 = "rust-analyzer-x86_64-pc-windows-msvc.zip"
+asset.windows-arm64 = "rust-analyzer-aarch64-pc-windows-msvc.zip"
 [[pack.tool]]
 kind = "debug"
 bin = "gdb"
-hint = "pacman -S gdb · apt install gdb · brew install gdb"
+hint = "pacman -S gdb · apt install gdb · dnf install gdb"
+hint_macos = "brew install gdb"
+hint_windows = "winget install -e --id LLVM.LLVM · scoop install gdb"
 
 [[pack]]
 name = "C / C++"
@@ -80,7 +90,9 @@ pip = "clangd"
 [[pack.tool]]
 kind = "debug"
 bin = "gdb"
-hint = "pacman -S gdb · apt install gdb · brew install gdb"
+hint = "pacman -S gdb · apt install gdb · dnf install gdb"
+hint_macos = "brew install gdb"
+hint_windows = "winget install -e --id LLVM.LLVM · scoop install gdb"
 
 [[pack]]
 name = "XML"
@@ -128,7 +140,12 @@ ext = ["md", "markdown"]
 [[pack.tool]]
 kind = "lsp"
 bin = "marksman"
-hint = "pacman -S marksman · brew install marksman · github.com/artempyanykh/marksman/releases"
+github = "artempyanykh/marksman"
+asset.linux-x64 = "marksman-linux-x64"
+asset.linux-arm64 = "marksman-linux-arm64"
+asset.macos-x64 = "marksman-macos"
+asset.macos-arm64 = "marksman-macos"
+asset.windows-x64 = "marksman.exe"
 [[pack.tool]]
 kind = "lint"
 bin = "markdownlint"
@@ -160,7 +177,12 @@ npm = "dockerfile-language-server-nodejs"
 [[pack.tool]]
 kind = "lint"
 bin = "hadolint"
-hint = "pacman -S hadolint · brew install hadolint · github.com/hadolint/hadolint/releases"
+github = "hadolint/hadolint"
+asset.linux-x64 = "hadolint-linux-x86_64"
+asset.linux-arm64 = "hadolint-linux-arm64"
+asset.macos-x64 = "hadolint-macos-x86_64"
+asset.macos-arm64 = "hadolint-macos-arm64"
+asset.windows-x64 = "hadolint-windows-x86_64.exe"
 
 [[pack]]
 name = "TOML"
@@ -184,7 +206,12 @@ ext = ["lua"]
 [[pack.tool]]
 kind = "lsp"
 bin = "lua-language-server"
-hint = "pacman -S lua-language-server · brew install lua-language-server"
+github = "LuaLS/lua-language-server"
+asset.linux-x64 = "lua-language-server-{version}-linux-x64.tar.gz"
+asset.linux-arm64 = "lua-language-server-{version}-linux-arm64.tar.gz"
+asset.macos-x64 = "lua-language-server-{version}-darwin-x64.tar.gz"
+asset.macos-arm64 = "lua-language-server-{version}-darwin-arm64.tar.gz"
+asset.windows-x64 = "lua-language-server-{version}-win32-x64.zip"
 [[pack.tool]]
 kind = "lint"
 bin = "luacheck"

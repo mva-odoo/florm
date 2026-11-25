@@ -222,7 +222,7 @@ impl App {
                         } else if let Some((m, p)) = t.method() {
                             tf!("{m} : {p}{}", "{m}: {p}{}", if t.optional { t!(" (facultatif)", " (optional)") } else { "" })
                         } else {
-                            t.hint.clone()
+                            t.hint().to_string()
                         };
                         if !there && t.method().is_some() && !busy && self.packs.busy.is_none() {
                             if ui.add(egui::Button::new(rt).small()).on_hover_text(tf!("Installer — {how}", "Install — {how}")).clicked() {
@@ -234,10 +234,10 @@ impl App {
                     }
                 });
                 // what only the system installs: its commands, to copy or type in a terminal
-                for (t, _) in pack.tools.iter().zip(st.iter()).filter(|(t, ok)| !**ok && t.method().is_none() && !t.hint.is_empty()) {
+                for (t, _) in pack.tools.iter().zip(st.iter()).filter(|(t, ok)| !**ok && t.method().is_none() && !t.hint().is_empty()) {
                     ui.horizontal_wrapped(|ui| {
                         ui.label(RichText::new(format!("{} :", t.bin)).small().weak());
-                        for cmd in t.hint.split(" · ").map(str::trim).filter(|c| !c.is_empty()) {
+                        for cmd in t.hint().split(" · ").map(str::trim).filter(|c| !c.is_empty()) {
                             let is_url = cmd.contains("://") || cmd.starts_with("github.com");
                             let r = ui.add(egui::Label::new(RichText::new(cmd).small().monospace()).sense(Sense::click()));
                             if is_url {

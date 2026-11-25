@@ -317,9 +317,11 @@ trusted_folders = ["/home/moi/src/mon-projet"]
 C / C++, YAML, Shell, Markdown, HTML / CSS, Dockerfile, TOML, PHP, Lua, Ruby, XML, JSON), ses outils
 installés ou non, et **Installer** met ce qui manque dans `~/.local/share/florm/tools/`
 (`%LOCALAPPDATA%\florm\tools` sous Windows) : `pip` dans un environnement virtuel propre à Florm,
-`npm`, `go install`, `rustup`. Rien n'est installé dans le système ; il faut seulement Python,
-Node.js, Go ou rustup pour les outils qui en dépendent. Ce que seul le système fournit (gdb,
-marksman, hadolint…) est donné en commandes à copier. Un pack perso (`~/.config/florm/packs/*.toml`)
+`npm`, `go install`, ou le programme de leur release GitHub (rust-analyzer, marksman, hadolint…).
+**Rien d'autre à installer** : sans Python, Node.js ou Go sur l'ordinateur, Florm télécharge les
+siens la première fois (`~/.local/share/florm/runtimes/`, chaque archive vérifiée par sa somme
+SHA-256, avec le `curl` et le `tar` du système, présents sous Linux, macOS et Windows 10+). Ce que
+seul le système fournit (gdb, Ruby) est donné en commandes à copier pour ton système. Un pack perso (`~/.config/florm/packs/*.toml`)
 ajoute un langage, ses outils, son serveur de langage et son linter.
 
 ### Terminal intégré
