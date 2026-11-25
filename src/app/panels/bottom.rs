@@ -23,7 +23,7 @@ impl App {
         match tab {
             BottomTab::Search => self.search.focus = true,
             BottomTab::Terminal => self.term.want_focus = true,
-            BottomTab::Problems | BottomTab::Output => {}
+            BottomTab::Problems | BottomTab::Output | BottomTab::Debug => {}
         }
     }
 
@@ -32,7 +32,7 @@ impl App {
         match tab {
             BottomTab::Search => self.open_search_tab(),
             BottomTab::Terminal => self.open_terminal_tab(),
-            BottomTab::Problems | BottomTab::Output => self.show_bottom(tab, false),
+            BottomTab::Problems | BottomTab::Output | BottomTab::Debug => self.show_bottom(tab, false),
         }
     }
 
@@ -41,7 +41,7 @@ impl App {
         let tab_of = |v: document::View| self.docs.iter().any(|d| d.view == v);
         match tab {
             BottomTab::Search => tab_of(document::View::Search),
-            BottomTab::Terminal | BottomTab::Problems | BottomTab::Output => false,
+            BottomTab::Terminal | BottomTab::Problems | BottomTab::Output | BottomTab::Debug => false,
         }
     }
 
@@ -188,6 +188,7 @@ impl App {
                     }
                     Some(BottomTab::Search) => self.search_ui(ui, false),
                     Some(BottomTab::Problems) => self.problems_ui(ui),
+                    Some(BottomTab::Debug) => self.debug_panel(ui),
                     Some(BottomTab::Terminal) => {
                         if self.term.cwd.is_none() {
                             self.term.cwd = self.root.clone();

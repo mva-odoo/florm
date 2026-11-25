@@ -33,6 +33,7 @@ mod keymap;
 mod lint;
 mod local_history;
 mod logo;
+mod dap;
 mod lsp;
 mod npm;
 mod test_cmd;

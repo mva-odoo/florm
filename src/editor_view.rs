@@ -47,6 +47,8 @@ fn claude_w() -> f32 {
 }
 /// Width of the ▶ of the tests (right of the ✳), in test files only.
 const TEST_W: f32 = 14.0;
+/// Width of the column of the breakpoints (right of the ▶), in the files that can be debugged.
+const BP_W: f32 = 14.0;
 
 /// How the editor shows a document (from the settings).
 pub struct ViewOpts<'a> {
@@ -68,6 +70,10 @@ pub struct ViewOpts<'a> {
     pub rainbow: bool,
     /// Spaces and tabs shown (· and →).
     pub whitespace: bool,
+    /// The file can be debugged: a column of breakpoints in the gutter (a click puts one).
+    pub debug: bool,
+    /// The line where the debugger is stopped in this file (a yellow band and an arrow).
+    pub exec_line: Option<usize>,
 }
 
 pub fn show(ui: &mut Ui, doc: &mut Document, hl: &Highlighting, opts: &ViewOpts, matches: &[(usize, usize)], id: Id) -> egui::Response {
@@ -246,7 +252,9 @@ fn text_area(
     // numbers, then the fold arrows, then the git marks
     let test_w = if opts.tests.is_empty() { 0.0 } else { TEST_W };
     let test_x = claude_w();
-    let gutter_w = (digits as f32 + 1.0) * cw + 30.0 + test_w;
+    let bp_w = if opts.debug { BP_W } else { 0.0 };
+    let bp_x = test_x + test_w;
+    let gutter_w = (digits as f32 + 1.0) * cw + 30.0 + test_w + bp_w;
     let test_at = |l: usize| opts.tests.iter().find(|(t, _)| *t == l).map(|(_, tags)| tags);
     doc.update_max_cols();
     doc.reveal_cursors(); // whatever placed a cursor in a folded block, open it
@@ -373,7 +381,10 @@ fn text_area(
                 // ✳ on the left of the numbers: the line, or the lines selected around it, for Claude
                 let on_claude = in_gutter && pressed && p.x < gx + claude_w();
                 let on_test = in_gutter && pressed && p.x >= gx + test_x && p.x < gx + test_x + test_w && test_at(line).is_some();
-                if on_test {
+                let on_bp = in_gutter && pressed && p.x >= gx + bp_x && p.x < gx + bp_x + bp_w;
+                if on_bp {
+                    doc.toggle_breakpoint(line);
+                } else if on_test {
                     doc.test_pick = test_at(line).cloned();
                 } else if on_claude {
                     let s = doc.primary_sel();
@@ -521,6 +532,9 @@ fn text_area(
                     msgs.extend(opts.notes.iter().filter(|(n, _)| *n == l).map(|(_, t)| t.clone()));
                     if p.x < gx + claude_w() {
                         msgs.push(t!("✳ Clic : ajouter cette ligne (ou les lignes sélectionnées) au contexte de Claude", "✳ Click: add this line (or the selected lines) to Claude's context").into());
+                    } else if opts.debug && p.x >= gx + bp_x && p.x < gx + bp_x + bp_w {
+                        ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+                        msgs.push(t!("● Clic : mettre ou enlever un point d'arrêt (F9) ; F5 lance le débogueur", "● Click: put or take away a breakpoint (F9); F5 starts the debugger").into());
                     } else if let Some(tags) = test_at(l).filter(|_| p.x >= gx + test_x && p.x < gx + test_x + test_w) {
                         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
                         msgs.push(tf!("▶ Clic : lancer « {tags} » (Ctrl+F6 : relancer)", "▶ Click: run “{tags}” (Ctrl+F6: run again)"));
@@ -549,6 +563,12 @@ fn text_area(
         let painter = ui.painter();
         let vis_start = doc.rope.line_to_char(first);
         let vis_end = doc.line_end_incl(last);
+
+        // the line where the debugger is stopped: a yellow band under the text
+        if let Some(l) = opts.exec_line.filter(|l| (first..=last).contains(l) && !rm.is_hidden(*l)) {
+            let r = Rect::from_min_size(Pos2::new(gx, line_y(l)), egui::vec2(vp.width(), line_h(l)));
+            painter.rect_filled(r, 0.0, mix(c.bg, highlight::yellow(), 0.22));
+        }
 
         // current line(s)
         for s in &doc.sels {
@@ -1011,6 +1031,8 @@ fn text_area(
         painter.rect_filled(gutter, 0.0, c.bg);
         let cursor_lines: HashSet<usize> = doc.sels.iter().map(|s| doc.rope.char_to_line(s.head)).collect();
         let bookmarks: HashSet<usize> = doc.bookmark_lines().into_iter().collect();
+        let breakpoints: HashSet<usize> = if opts.debug { doc.breakpoint_lines().into_iter().collect() } else { HashSet::new() };
+        let bp_hover = ui.ctx().pointer_hover_pos().filter(|p| p.x >= gx + bp_x && p.x < gx + bp_x + bp_w);
         let mut problems: HashMap<usize, Severity> = HashMap::new();
         for d in &doc.diagnostics {
             let e = problems.entry(d.line).or_insert(d.severity);
@@ -1058,6 +1080,25 @@ fn text_area(
                     c.accent,
                     egui::Stroke::NONE,
                 ));
+            }
+            if opts.debug {
+                // breakpoint: a red dot; on the hovered line, a faint one (where to click)
+                let m = Pos2::new(gx + bp_x + BP_W / 2.0, line_y(l) + rh * 0.5);
+                let rad = (rh * 0.28).min(5.0);
+                if breakpoints.contains(&l) {
+                    painter.circle_filled(m, rad, highlight::red());
+                } else if bp_hover.is_some() && hover_line == Some(l) {
+                    painter.circle_filled(m, rad, highlight::red().gamma_multiply(0.35));
+                }
+                if opts.exec_line == Some(l) {
+                    // where it is stopped: a yellow arrow over the dot
+                    let s = rad * 1.1;
+                    painter.add(egui::Shape::convex_polygon(
+                        vec![m + egui::vec2(-s, -s * 0.7), m + egui::vec2(s * 0.2, -s * 0.7), m + egui::vec2(s, 0.0), m + egui::vec2(s * 0.2, s * 0.7), m + egui::vec2(-s, s * 0.7)],
+                        highlight::yellow(),
+                        egui::Stroke::new(1.0_f32, c.bg),
+                    ));
+                }
             }
             if bookmarks.contains(&l) {
                 // bookmark: a small ribbon on the left of the number
@@ -1344,6 +1385,38 @@ mod tests {
         assert!(shown(&ctx).is_some());
         frame(&mut doc, 2.1 + DEFS_GRACE + 0.05, egui::pos2(600.0, 600.0), None);
         assert!(shown(&ctx).is_none());
+    }
+
+    /// A click in the column of the breakpoints puts one on its line, a second one takes it away;
+    /// the line where the debugger stopped gets its band, the other files no column.
+    #[test]
+    fn a_click_in_the_gutter_puts_a_breakpoint() {
+        let ctx = egui::Context::default();
+        let hl = Highlighting::new("Florm", std::path::Path::new("/nonexistent"));
+        let mut doc = Document::from_text(1, "a = 1\nb = 2\nc = 3\nd = 4\n", 4, true);
+        let opts = |debug| ViewOpts { font_size: 14.0, minimap: false, wrap: false, inline_diff: false, sticky: false, rulers: &[], notes: &[], tests: &[], rainbow: false, whitespace: false, debug, exec_line: Some(1) };
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 400.0));
+        let _ = ctx.run(Default::default(), |_| {});
+        let rh = ctx.fonts(|f| f.row_height(&FontId::monospace(14.0)));
+        let frame = |doc: &mut Document, events: Vec<egui::Event>, debug: bool| {
+            let _ = ctx.run(egui::RawInput { screen_rect: Some(screen), events, ..Default::default() }, |ctx| {
+                egui::CentralPanel::default().frame(egui::Frame::none()).show(ctx, |ui| show(ui, doc, &hl, &opts(debug), &[], Id::new("ed")));
+            });
+        };
+        frame(&mut doc, Vec::new(), true);
+        // the column right of the ✳: line 3 (index 2)
+        let at = egui::pos2(claude_w() + BP_W / 2.0, rh * 2.5);
+        let click = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+        for (expect, changed) in [(vec![2], true), (vec![], true)] {
+            frame(&mut doc, vec![egui::Event::PointerMoved(at), click(true)], true);
+            frame(&mut doc, vec![click(false)], true);
+            assert_eq!(doc.breakpoint_lines(), expect);
+            assert_eq!(std::mem::take(&mut doc.breakpoints_changed), changed);
+        }
+        // no column: the same click selects the line instead
+        frame(&mut doc, vec![egui::Event::PointerMoved(at), click(true)], false);
+        frame(&mut doc, vec![click(false)], false);
+        assert!(doc.breakpoint_lines().is_empty());
     }
 
     #[test]

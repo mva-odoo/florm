@@ -49,6 +49,8 @@ mod trust;
 mod panes;
 mod compare;
 mod lsp_client;
+mod debugger;
+pub(crate) use debugger::DebugStart;
 mod maximize;
 mod navigation;
 mod projects;
@@ -205,6 +207,7 @@ enum BottomTab {
     Problems,
     Terminal,
     Output,
+    Debug,
 }
 
 impl BottomTab {
@@ -214,11 +217,12 @@ impl BottomTab {
     }
 
     /// The views of the bottom panel, in the order of its ▾ menu.
-    const ALL: [(BottomTab, icons::ViewIcon, &'static str); 4] = [
+    const ALL: [(BottomTab, icons::ViewIcon, &'static str); 5] = [
         (BottomTab::Search, icons::ViewIcon::Search, "Recherche"),
         (BottomTab::Problems, icons::ViewIcon::Problems, "Problèmes"),
         (BottomTab::Terminal, icons::ViewIcon::Terminal, "Terminal"),
         (BottomTab::Output, icons::ViewIcon::Output, "Sortie"),
+        (BottomTab::Debug, icons::ViewIcon::Debug, "Débogueur"),
     ];
 
     /// The views offered: those of the parts turned on.
@@ -228,6 +232,7 @@ impl BottomTab {
                 "Recherche" => t!(l, "Search"),
                 "Problèmes" => t!(l, "Problems"),
                 "Sortie" => t!(l, "Output"),
+                "Débogueur" => t!(l, "Debugger"),
                 _ => l,
             };
             (t, i, l)
@@ -246,6 +251,7 @@ impl BottomTab {
             BottomTab::Problems => Cmd::ShowProblems,
             BottomTab::Terminal => Cmd::ToggleTerminal,
             BottomTab::Output => Cmd::ShowOutput,
+            BottomTab::Debug => Cmd::DebugShow,
         }
     }
 }
@@ -998,6 +1004,7 @@ pub struct App {
     nav: NavState,
     index: Indexes,
     lsp: LspUi,
+    debug: debugger::DebugUi,
 }
 
 /// Blame mode: the author of the cursor line, asked as the cursor moves.
@@ -1295,6 +1302,7 @@ impl App {
             nav: NavState::default(),
             index: Indexes::default(),
             lsp: LspUi::default(),
+            debug: debugger::DebugUi::default(),
             templates: Vec::new(),
             settings,
         };
@@ -1617,6 +1625,7 @@ impl eframe::App for App {
         }
         self.prof.mark("début");
         self.lsp_frame(ctx);
+        self.debug_frame(ctx);
         self.update_hover(ctx);
         self.completion_keys(ctx);
         self.ai_complete_keys(ctx);

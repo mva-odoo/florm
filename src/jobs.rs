@@ -100,6 +100,9 @@ pub enum JobResult {
     /// Live lint of the buffer while typing.
     Lint { uid: u64, version: u64, diags: Vec<Diagnostic>, linter: String },
     ToolInstalled(Result<String, String>),
+    /// A debug session started on a thread (its adapter found, the program built): the session
+    /// and its `launch` / `attach` request, or why it could not.
+    DebugStarted(Result<crate::app::DebugStart, String>),
     GitStatus {
         selected: PathBuf,
         /// Of the repositories looked at (all of them, or those asked).

@@ -40,6 +40,7 @@ impl App {
                     }
                 }
                 JobResult::ToolInstalled(r) => self.on_tool_installed(r),
+                JobResult::DebugStarted(r) => self.debug_started(r),
                 JobResult::FileMatches { gen, query, matched, top } => self.on_file_matches(gen, query, matched, top),
                 JobResult::FileIndex(root, list) => self.on_file_index(root, list),
                 JobResult::GitStatus { selected, statuses, remotes, stashes } => self.on_git_status(selected, statuses, remotes, stashes),

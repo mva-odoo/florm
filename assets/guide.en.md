@@ -367,6 +367,32 @@ The tests of any project run in the terminal of the bottom panel:
 - The output shows in the bottom panel, the summary (✔ or ⚠, passed and failed) in the status bar.
 - An `ipdb` in a test stops in that terminal, where it is typed as usual.
 
+## Debugging (F5)
+
+Florm's debugger speaks the protocol of debuggers (DAP), like Zed and VS Code: **debugpy** for
+Python, **dlv** for Go, **lldb-dap** or **gdb** (14 or later) for Rust, C and C++.
+
+- **Breakpoint**: a click in the column on the left of the line numbers (a faint red dot shows it
+  on hover), or **F9** on the line. They follow the lines when the text changes.
+- **F5** starts what is chosen in the **Debugger** view (bottom panel): the **open file**, the
+  **test under the cursor** (pytest, go test, cargo test; also “Debugger: debug the test under the
+  cursor” in the palette) or a configuration of the project. The changed files are saved first.
+  Rust: `cargo build` first, then the binary of the package.
+- Stopped, the line is on a yellow background with an arrow in the gutter. **F5** goes on, **F10**
+  goes to the next line, **F11** steps into the function, **Shift+F11** out of it, **Shift+F5**
+  stops, **Ctrl+Shift+F5** restarts (also the buttons ▶ ⏸ ↷ ↓ ↑ ⟳ ■ of the panel).
+- The **Debugger** view: the **call stack** (a click shows the line of a call and its variables),
+  the **variables** (▸ opens a list, an object), the **console**: the output of the program, and an
+  expression typed at the bottom (Enter) is evaluated where it is stopped.
+- **Configurations of the project**: “Debugger: configurations of the project” creates and opens
+  `.florm/debug.toml`, with examples. One per `[[config]]`: `adapter` (python, go, lldb, gdb),
+  `program` or `module` (Python), `args`, `cwd`, `env`, `build` (a command before, like
+  `cargo build`); `{file}`, `{dir}` and `{root}` are replaced. **Attach** to a Python program
+  already running, in a container for instance (`python -m debugpy --listen 0.0.0.0:5678 …`):
+  `request = "attach"`, `port = 5678`, `path_mappings = { "/app" = "{root}" }`.
+- debugpy missing: “Debugger: install debugpy” (palette) installs it for Florm only. Like the
+  language servers, the debugger only runs in a trusted folder.
+
 **Ctrl+click** on a `File "…", line N` line of a traceback opens the file.
 
 ## Templates

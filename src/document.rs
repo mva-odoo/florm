@@ -208,6 +208,12 @@ pub struct Document {
     hidden_cache: std::cell::RefCell<Option<(u64, Vec<usize>, usize, Vec<(usize, usize)>)>>,
     /// Bookmarked lines, as the char position of their start (moved by the edits, like folds).
     pub bookmarks: Vec<usize>,
+    /// Breakpoints of the debugger, kept like the bookmarks (char position of their line start).
+    pub breakpoints: Vec<usize>,
+    /// A breakpoint was put or taken away in the gutter: the debugger tells its adapter.
+    pub breakpoints_changed: bool,
+    /// The breakpoints kept for this file (closed and opened again) were given back.
+    pub breakpoints_loaded: bool,
     /// Range searched by Ctrl+F "dans la sélection" (tinted in the editor).
     pub find_scope: Option<(usize, usize)>,
     conflicts_cache: Option<(u64, Vec<Conflict>)>,
@@ -748,6 +754,9 @@ impl Document {
             folds: Vec::new(),
             hidden_cache: Default::default(),
             bookmarks: Vec::new(),
+            breakpoints: Vec::new(),
+            breakpoints_changed: false,
+            breakpoints_loaded: false,
             find_scope: None,
             conflicts_cache: None,
             had_conflicts: false,
@@ -1251,17 +1260,16 @@ impl Document {
             f.dedup();
             self.folds = f;
         }
-        if !self.bookmarks.is_empty() {
+        for marks in [&mut self.bookmarks, &mut self.breakpoints] {
+            if marks.is_empty() {
+                continue;
+            }
             let spans: Vec<(usize, usize, usize)> = edits.iter().map(|(s, e, t)| (*s, *e, t.chars().count())).collect();
             let len = self.rope.len_chars();
-            let mut b: Vec<usize> = self
-                .bookmarks
-                .iter()
-                .map(|&p| self.rope.line_to_char(self.rope.char_to_line(map_pos(p, &spans).min(len))))
-                .collect();
+            let mut b: Vec<usize> = marks.iter().map(|&p| self.rope.line_to_char(self.rope.char_to_line(map_pos(p, &spans).min(len)))).collect();
             b.sort_unstable();
             b.dedup();
-            self.bookmarks = b;
+            *marks = b;
         }
         starts
     }
@@ -2512,6 +2520,39 @@ impl Document {
         self.bookmarks = lines.iter().filter(|&&l| l < n).map(|&l| self.rope.line_to_char(l)).collect();
         self.bookmarks.sort_unstable();
         self.bookmarks.dedup();
+    }
+
+    pub fn breakpoint_lines(&self) -> Vec<usize> {
+        let len = self.len();
+        let mut v: Vec<usize> = self.breakpoints.iter().map(|&p| self.rope.char_to_line(p.min(len))).collect();
+        v.dedup();
+        v
+    }
+
+    pub fn set_breakpoint_lines(&mut self, lines: &[usize]) {
+        let n = self.rope.len_lines();
+        self.breakpoints = lines.iter().filter(|&&l| l < n).map(|&l| self.rope.line_to_char(l)).collect();
+        self.breakpoints.sort_unstable();
+        self.breakpoints.dedup();
+    }
+
+    /// Puts or takes away the breakpoint of `line`; true when there is one now.
+    pub fn toggle_breakpoint(&mut self, line: usize) -> bool {
+        let mut lines = self.breakpoint_lines();
+        let on = match lines.iter().position(|&l| l == line) {
+            Some(i) => {
+                lines.remove(i);
+                false
+            }
+            None => {
+                lines.push(line);
+                true
+            }
+        };
+        lines.sort_unstable();
+        self.set_breakpoint_lines(&lines);
+        self.breakpoints_changed = true;
+        on
     }
 
     /// Adds or removes the bookmark of the cursor line; true when it is now bookmarked.

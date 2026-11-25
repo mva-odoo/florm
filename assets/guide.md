@@ -378,6 +378,32 @@ Les tests de n'importe quel projet se lancent dans le terminal du panneau du bas
 - La sortie s'affiche dans le panneau du bas, le résumé (✔ ou ⚠, réussis et en échec) dans la barre d'état.
 - Un `ipdb` dans un test s'arrête dans ce terminal, où il se tape comme d'habitude.
 
+## Déboguer (F5)
+
+Le débogueur de Florm parle le protocole des débogueurs (DAP), comme Zed et VS Code : **debugpy**
+pour Python, **dlv** pour Go, **lldb-dap** ou **gdb** (14 ou plus) pour Rust, C et C++.
+
+- **Point d'arrêt** : un clic dans la colonne à gauche des numéros de ligne (un point rouge pâle
+  la montre au survol), ou **F9** sur la ligne. Ils suivent les lignes quand le texte change.
+- **F5** lance ce qui est choisi dans la vue **Débogueur** (panneau du bas) : le **fichier
+  ouvert**, le **test sous le curseur** (pytest, go test, cargo test ; aussi « Débogueur : déboguer
+  le test sous le curseur » dans la palette) ou une configuration du projet. Les fichiers modifiés
+  sont enregistrés avant. Rust : `cargo build` d'abord, puis le binaire du paquet.
+- Arrêté, la ligne est sur fond jaune avec une flèche dans la marge. **F5** continue, **F10** passe à
+  la ligne suivante, **F11** entre dans la fonction, **Maj+F11** en sort, **Maj+F5** arrête,
+  **Ctrl+Maj+F5** relance (aussi les boutons ▶ ⏸ ↷ ↓ ↑ ⟳ ■ du panneau).
+- La vue **Débogueur** : la **pile d'appels** (un clic montre la ligne d'un appel et ses variables),
+  les **variables** (▸ ouvre une liste, un objet), la **console** : la sortie du programme, et une
+  expression tapée en bas (Entrée) est évaluée là où il est arrêté.
+- **Configurations du projet** : « Débogueur : configurations du projet » crée et ouvre
+  `.florm/debug.toml`, avec des exemples. Une par `[[config]]` : `adapter` (python, go, lldb, gdb),
+  `program` ou `module` (Python), `args`, `cwd`, `env`, `build` (une commande avant, comme
+  `cargo build`) ; `{file}`, `{dir}` et `{root}` sont remplacés. **Attacher** à un programme Python
+  qui tourne déjà, dans un conteneur par exemple (`python -m debugpy --listen 0.0.0.0:5678 …`) :
+  `request = "attach"`, `port = 5678`, `path_mappings = { "/app" = "{root}" }`.
+- debugpy manquant : « Débogueur : installer debugpy » (palette) l'installe pour Florm seul. Comme
+  les serveurs de langage, le débogueur ne tourne que dans un dossier de confiance.
+
 **Ctrl+clic** sur une ligne `File "…", line N` d'une trace d'erreur ouvre le fichier.
 
 ## Modèles

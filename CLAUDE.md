@@ -2,7 +2,8 @@
 
 Florm : éditeur de texte en Rust (egui/eframe 0.29), inspiré de Sublime Text, un seul binaire.
 Intègre Git, GitHub (pull requests), Claude Code, terminal, LSP, linters, orthographe, tests (pytest,
-jest, cargo, go, dans le terminal). Pas de débogueur : un `ipdb` tapé dans le code s'arrête dans le terminal.
+jest, cargo, go, dans le terminal), débogueur DAP (`src/dap.rs`, `src/app/debugger.rs` : debugpy, dlv,
+lldb-dap, gdb).
 
 ## Commandes
 
@@ -10,7 +11,7 @@ jest, cargo, go, dans le terminal). Pas de débogueur : un `ipdb` tapé dans le 
 cargo build                 # debug (les dépendances sont optimisées même en debug, voir Cargo.toml)
 cargo run -- .              # lancer sur le dossier courant
 cargo test                  # tests unitaires (#[cfg(test)] dans les modules)
-cargo test -- --ignored     # tests qui lancent des outils installés (ruff, flake8, clangd, gopls, go)
+cargo test -- --ignored     # tests qui lancent des outils installés (ruff, flake8, clangd, gopls, go, debugpy, gdb)
 cargo build --release       # LTO fat, long : seulement si nécessaire
 scripts/build-windows.sh    # binaire Windows depuis Linux/WSL
 FLORM_PROFILE=1 cargo run -- .                              # temps de démarrage, temps par image et causes des redessins (coin + stderr)

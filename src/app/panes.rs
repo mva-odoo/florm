@@ -89,6 +89,7 @@ impl App {
         match self.docs.get(i)?.view {
             document::View::Text => {
                 let tests = self.test_marks(i);
+                let (debug, exec_line) = self.debug_marks(i);
                 let matches: &[(usize, usize)] = if focused && self.find.open { &self.find.matches } else { &[] };
                 let doc = self.docs.get_mut(i)?;
                 let s = &self.settings;
@@ -103,6 +104,8 @@ impl App {
                     tests: &tests,
                     rainbow: s.rainbow_brackets,
                     whitespace: s.show_whitespace,
+                    debug,
+                    exec_line,
                 };
                 let r = editor_view::show(ui, doc, &self.hl, &opts, matches, id);
                 if let Some(t) = doc.test_pick.take() {
@@ -793,6 +796,7 @@ impl App {
         }
         let was_active = idx == self.active;
         let d = self.docs.remove(idx);
+        self.debug_keep_breakpoints(&d);
         if d.view == document::View::History {
             self.line_history = None;
         }

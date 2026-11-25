@@ -175,6 +175,7 @@ pub enum ViewIcon {
     Settings,
     Problems,
     Output,
+    Debug,
 }
 
 /// Claude's color (its asterisk), whatever the theme.
@@ -250,6 +251,18 @@ pub fn paint_view(painter: &Painter, center: Pos2, icon: ViewIcon, color: Color3
             for (k, w) in [7.0_f32, 5.0, 6.0].into_iter().enumerate() {
                 let y = r.top() + 3.5 + k as f32 * 3.0;
                 painter.line_segment([Pos2::new(r.left() + 2.5, y), Pos2::new(r.left() + 2.5 + w * 0.85, y)], Stroke::new(1.1_f32, color));
+            }
+        }
+        ViewIcon::Debug => {
+            // a bug: its body, its head, three legs on each side
+            let body = Rect::from_center_size(center + Vec2::new(0.0, 1.5), Vec2::new(8.0, 10.0));
+            painter.rect_stroke(body, 4.0, st);
+            painter.circle_stroke(center + Vec2::new(0.0, -5.0), 2.2, st);
+            painter.line_segment([Pos2::new(body.left(), center.y + 1.5), Pos2::new(body.right(), center.y + 1.5)], Stroke::new(1.1_f32, color));
+            for dy in [-1.5_f32, 1.5, 4.5] {
+                let y = center.y + dy;
+                painter.line_segment([Pos2::new(body.left(), y), Pos2::new(body.left() - 3.0, y - 1.0)], Stroke::new(1.1_f32, color));
+                painter.line_segment([Pos2::new(body.right(), y), Pos2::new(body.right() + 3.0, y - 1.0)], Stroke::new(1.1_f32, color));
             }
         }
     }
