@@ -169,10 +169,13 @@ fn pref_row_wide(ui: &mut egui::Ui, rc: &mut RowCtx, title: &str, desc: &str, co
 
 impl App {
     pub(super) fn prefs_ui(&mut self, ui: &mut egui::Ui) {
-        let panel = ui.visuals().panel_fill;
+        // the list of sections on the page's background (white with a light theme), a thin line
+        // between them and the settings
+        let panel = self.hl.colors.bg;
         egui::SidePanel::left("prefs_nav")
             .exact_width(210.0)
             .resizable(false)
+            .show_separator_line(true)
             .frame(egui::Frame::none().fill(panel).inner_margin(egui::Margin::symmetric(12.0, 16.0)))
             .show_inside(ui, |ui| {
                 ui.label(RichText::new(t!("Préférences", "Preferences")).size(19.0).strong());
