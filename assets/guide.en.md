@@ -402,7 +402,8 @@ linters of the other languages do not run, and flake8 ignores the configuration 
 the Git view says so too, with the same button. **Trust “folder”** starts them, for that folder and those inside it
 (`trusted_folders` key of `settings.toml`); **Later** hides the bar until Florm is closed.
 **Preferences → Lint → Trusted folders** lists them; × takes the trust of a folder back, and it
-goes back to restricted mode.
+goes back to restricted mode. The repositories Florm clones itself (the shared
+configuration, the extension catalogues) do not need to be in it.
 
 ## Tests (pytest, jest, cargo, go)
 

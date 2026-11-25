@@ -415,7 +415,8 @@ serveurs de langage, eslint et les linters des autres langages ne tournent pas, 
 (`node --check` et le lint Python restent) ; la vue Git le dit aussi, avec le même bouton. **Faire confiance à « dossier »** les lance, pour
 ce dossier et ceux qu'il contient (clé `trusted_folders` de `settings.toml`) ; **Plus tard** cache la
 barre jusqu'à la fermeture de Florm. **Préférences → Lint → Dossiers de confiance** les liste ; × retire
-la confiance d'un dossier, qui repasse en mode restreint.
+la confiance d'un dossier, qui repasse en mode restreint. Les dépôts que Florm clone lui-même (la
+configuration partagée, les catalogues d'extensions) n'ont pas besoin d'y être.
 
 ## Tests (pytest, jest, cargo, go)
 

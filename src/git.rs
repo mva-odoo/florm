@@ -77,11 +77,18 @@ pub fn trusted(dir: &Path) -> bool {
     allowed(TRUSTED.read().unwrap_or_else(|e| e.into_inner()).as_deref(), dir, &[])
 }
 
-/// git may run `args` in `dir`: inside a trusted folder, or a command that reads no repository
-/// configuration (`clone` and `init` make a new one).
+/// git may run `args` in `dir`: inside a trusted folder, in a repository Florm cloned itself, or a
+/// command that reads no repository configuration (`clone` and `init` make a new one).
 fn allowed(trusted: Option<&[PathBuf]>, dir: &Path, args: &[&str]) -> bool {
     let Some(list) = trusted else { return true };
-    matches!(subcommand(args), Some("clone" | "init")) || list.iter().any(|t| dir.starts_with(t))
+    matches!(subcommand(args), Some("clone" | "init")) || list.iter().any(|t| dir.starts_with(t)) || florm_clone(dir)
+}
+
+/// A repository Florm cloned itself: the shared configuration, the catalogues of extensions. A
+/// clone has no configuration that runs commands (that only comes from .git/config, which `git
+/// clone` writes without any), so git runs there whatever the trusted folders.
+fn florm_clone(dir: &Path) -> bool {
+    dir.starts_with(crate::config::config_dir().join("shared")) || dir.starts_with(crate::config::data_dir().join("catalog"))
 }
 
 /// Why git does not run in `dir` (not a trusted folder), if so.
@@ -888,6 +895,17 @@ mod status_tests {
         let h = blame_file(&dir.join("f.txt"), None).unwrap();
         assert!(h.len() == 2 && !h[1].uncommitted());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The shared configuration and the catalogues, cloned by Florm: git runs there even when
+    /// they are in no trusted folder (its sync at startup failed: « 🔒 Dossier pas de confiance »).
+    #[test]
+    fn git_runs_in_the_repositories_florm_cloned() {
+        let list = vec![PathBuf::from("/home/a/projet")];
+        let shared = crate::config::config_dir().join("shared").join("me-florm-config");
+        assert!(allowed(Some(&list), &shared, &["pull", "--rebase", "--autostash"]));
+        assert!(allowed(Some(&list), &crate::config::data_dir().join("catalog").join("repos").join("x"), &["status"]));
+        assert!(!allowed(Some(&list), &crate::config::config_dir().join("other"), &["status"]));
     }
 
     /// git only in a trusted folder (and those inside), except to make a new repository.
