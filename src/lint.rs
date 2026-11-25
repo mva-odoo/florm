@@ -78,7 +78,7 @@ pub struct LinterCfg {
 }
 
 /// The linters Florm runs when they are installed: (name, files, command).
-const KNOWN_LINTERS: &[(&str, &[&str], &str)] = &[
+pub const KNOWN_LINTERS: &[(&str, &[&str], &str)] = &[
     ("shellcheck", &["sh", "bash"], "shellcheck -f gcc -"),
     ("yamllint", &["yml", "yaml"], "yamllint -f parsable -"),
     ("markdownlint", &["md", "markdown"], "markdownlint --stdin"),

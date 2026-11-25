@@ -534,7 +534,7 @@ impl App {
                 pref_row(ui, rc, t!("Supprimer les espaces en fin de ligne", "Trim trailing whitespace"), t!("À chaque enregistrement.", "On every save."), |ui| {
                     toggle_switch(ui, &mut s.trim_trailing_whitespace_on_save);
                 });
-                pref_row(ui, rc, t!("Serveurs de langage (LSP)", "Language servers (LSP)"), t!("Complétion (Ctrl+Espace), aller à la définition (F12), renommer (F2), leurs erreurs soulignées, et le formatage des fichiers autres que Python. Serveurs détectés : pyright / pylsp, typescript-language-server, rust-analyzer, gopls, clangd.", "Completion (Ctrl+Space), go to definition (F12), rename (F2), their errors underlined, and the formatting of files other than Python. Servers detected: pyright / pylsp, typescript-language-server, rust-analyzer, gopls, clangd."), |ui| {
+                pref_row(ui, rc, t!("Serveurs de langage (LSP)", "Language servers (LSP)"), t!("Complétion (Ctrl+Espace), aller à la définition (F12), renommer (F2), leurs erreurs soulignées, et le formatage des fichiers autres que Python. Serveurs détectés : pyright / pylsp, typescript-language-server, rust-analyzer, gopls, clangd, et ceux de YAML, Bash, CSS, HTML, Lua, Ruby, PHP, Markdown, TOML, Java… quand ils sont installés (la barre d'état dit lequel installer). Un autre langage : [lsp_servers] dans settings.toml.", "Completion (Ctrl+Space), go to definition (F12), rename (F2), their errors underlined, and the formatting of files other than Python. Servers detected: pyright / pylsp, typescript-language-server, rust-analyzer, gopls, clangd, and those of YAML, Bash, CSS, HTML, Lua, Ruby, PHP, Markdown, TOML, Java… when they are installed (the status bar says which one to install). Another language: [lsp_servers] in settings.toml."), |ui| {
                     toggle_switch(ui, &mut s.lsp);
                 });
                 pref_row(ui, rc, t!("Recherche dans le dossier en onglet", "Find in folder in a tab"), t!("Ctrl+Shift+F ouvre la recherche dans un onglet de l'éditeur plutôt que dans le panneau du bas (boutons « en onglet » / « en bas » de son en-tête pour changer).", "Ctrl+Shift+F opens the search in an editor tab rather than in the bottom panel (“in a tab” / “at the bottom” buttons of its header to switch)."), |ui| {
@@ -562,10 +562,10 @@ impl App {
             PrefSection::Lint => {
                 let accent = self.hl.colors.accent;
                 pref_group(ui, rc, t!("Quand vérifier", "When to check"), accent);
-                pref_row(ui, rc, t!("Vérifier pendant la frappe", "Check while typing"), t!("Les fichiers Python sont vérifiés une demi-seconde après la dernière touche, sans enregistrer.", "Python files are checked half a second after the last key, without saving."), |ui| {
+                pref_row(ui, rc, t!("Vérifier pendant la frappe", "Check while typing"), t!("Les fichiers Python et ceux des autres langages qui ont un linter (shell, YAML, Markdown…) sont vérifiés une demi-seconde après la dernière touche, sans enregistrer.", "Python files and those of the other languages with a linter (shell, YAML, Markdown…) are checked half a second after the last key, without saving."), |ui| {
                     toggle_switch(ui, &mut s.lint_live);
                 });
-                pref_row(ui, rc, t!("Vérifier à l'enregistrement", "Check on save"), t!("Lance le linter (Python, JavaScript) à chaque enregistrement.", "Runs the linter (Python, JavaScript) on every save."), |ui| {
+                pref_row(ui, rc, t!("Vérifier à l'enregistrement", "Check on save"), t!("Lance le linter du fichier (Python, JavaScript, les autres langages) à chaque enregistrement.", "Runs the linter of the file (Python, JavaScript, the other languages) on every save."), |ui| {
                     toggle_switch(ui, &mut s.lint_on_save);
                 });
                 let status: Vec<(&str, bool)> =
@@ -630,6 +630,37 @@ impl App {
                 pref_group(ui, rc, t!("XML et JSON", "XML and JSON"), accent);
                 pref_row(ui, rc, t!("XML et JSON", "XML and JSON"), t!("La syntaxe est vérifiée par Florm lui-même, sans rien installer.", "The syntax is checked by Florm itself, with nothing to install."), |ui| {
                     ui.label(RichText::new(t!("Intégré", "Built in")).color(ok()));
+                });
+
+                // the other languages: the linters Florm knows, then those of settings.toml
+                pref_group(ui, rc, t!("Autres langages", "Other languages"), accent);
+                let files = |f: &[&str]| f.iter().map(|x| if x.chars().next().is_some_and(char::is_uppercase) { x.to_string() } else { format!(".{x}") }).collect::<Vec<_>>().join(", ");
+                for (name, exts, cmd) in lint::KNOWN_LINTERS {
+                    let mine = s.linters.get(*name);
+                    let desc = tf!("Fichiers {} : `{}`, pendant la frappe, dans un dossier de confiance.", "Files {}: `{}`, while typing, in a trusted folder.", files(exts), mine.filter(|c| !c.cmd.trim().is_empty()).map_or(*cmd, |c| c.cmd.as_str()));
+                    pref_row(ui, rc, name, &desc, |ui| match mine {
+                        Some(c) if c.cmd.trim().is_empty() => {
+                            ui.label(RichText::new(t!("Coupé (settings.toml)", "Off (settings.toml)")).weak());
+                        }
+                        _ => {
+                            let prog = mine.map_or(*cmd, |c| c.cmd.as_str()).split_whitespace().next().unwrap_or("");
+                            install_state(ui, crate::lsp::in_path(prog).is_some());
+                        }
+                    });
+                }
+                let mut others: Vec<(&String, &lint::LinterCfg)> = s.linters.iter().filter(|(n, c)| !c.cmd.trim().is_empty() && !lint::KNOWN_LINTERS.iter().any(|(k, ..)| k == n)).collect();
+                others.sort_by_key(|(n, _)| n.as_str());
+                for (name, c) in others {
+                    let ext: Vec<&str> = c.ext.iter().map(String::as_str).collect();
+                    let desc = tf!("Déclaré dans settings.toml. Fichiers {} : `{}`.", "Declared in settings.toml. Files {}: `{}`.", files(&ext), c.cmd);
+                    pref_row(ui, rc, name, &desc, |ui| {
+                        install_state(ui, c.cmd.split_whitespace().next().is_some_and(|p| crate::lsp::in_path(p).is_some()));
+                    });
+                }
+                pref_row(ui, rc, t!("Un autre linter", "Another linter"), t!("Dans settings.toml, [linters.nom] avec cmd (une commande qui écrit fichier:ligne:col: message ; le texte arrive sur son entrée standard, {file} est son chemin) et ext (les extensions). La même clé remplace un linter de Florm, cmd = \"\" le coupe.", "In settings.toml, [linters.name] with cmd (a command writing file:line:col: message; the text comes on its standard input, {file} is its path) and ext (the extensions). The same key replaces a linter of Florm, cmd = \"\" turns it off."), |ui| {
+                    if ui.button(t!("Ouvrir settings.toml", "Open settings.toml")).clicked() {
+                        actions.push(Cmd::OpenSettingsFile);
+                    }
                 });
             }
             PrefSection::Git => {
@@ -1325,4 +1356,48 @@ enum CopilotAct {
     SignIn,
     SignOut,
     Check,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The Lint page lists the linters of the other languages: those Florm knows (one turned off in
+    /// settings.toml), one declared there, and how to add another.
+    #[test]
+    fn lint_page_shows_the_other_languages() {
+        let dir = std::env::temp_dir().join(format!("florm_prefs_lint_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let text = "check_updates = false\nlsp = false\n[linters.nimcheck]\ncmd = \"nim check --stdin\"\next = [\"nim\"]\n[linters.markdownlint]\ncmd = \"\"\n";
+        std::fs::write(dir.join("settings.toml"), text).unwrap();
+        let _lock = config::TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("FLORM_CONFIG", &dir);
+        let ctx = egui::Context::default();
+        let mut app = App::with_ctx(&ctx, None);
+        app.prefs.section = PrefSection::Lint;
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 4000.0));
+        let mut texts = String::new();
+        for _ in 0..2 {
+            let out = ctx.run(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| app.prefs_ui(ui));
+            });
+            fn walk(s: &egui::Shape, out: &mut String) {
+                match s {
+                    egui::Shape::Text(t) => {
+                        out.push_str(t.galley.text());
+                        out.push('|');
+                    }
+                    egui::Shape::Vec(v) => v.iter().for_each(|x| walk(x, out)),
+                    _ => {}
+                }
+            }
+            texts.clear();
+            out.shapes.iter().for_each(|c| walk(&c.shape, &mut texts));
+        }
+        for want in ["Autres langages", "shellcheck", "yamllint", "stylelint", "Coupé (settings.toml)", "nimcheck", "Un autre linter", "Ouvrir settings.toml"] {
+            assert!(texts.contains(want), "{want}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
