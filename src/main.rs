@@ -60,6 +60,7 @@ use eframe::egui;
 use std::path::PathBuf;
 
 fn main() -> eframe::Result<()> {
+    let _ = app::profile::PROCESS_START.set(std::time::Instant::now());
     // Called by `git rebase -i` as sequence editor for an interactive rebase prepared in the UI.
     if std::env::args().nth(1).as_deref() == Some(rebase::PLAN_FLAG) {
         let (plan, todo) = (std::env::args().nth(2), std::env::args().nth(3));
@@ -77,6 +78,7 @@ fn main() -> eframe::Result<()> {
     let arg = std::env::args().nth(1).map(PathBuf::from);
     // Florm's own title bar (menus and ─ □ ✕ in the window), see app/title_bar.rs
     let settings = config::load().0;
+    app::profile::startup_mark("main : préférences");
     let own_title_bar = os::draws_title_bar(settings.show_menu_bar);
     os::TRANSPARENT_WINDOW.store(os::rounded_window(settings.show_menu_bar), std::sync::atomic::Ordering::Relaxed);
     let options = eframe::NativeOptions {
@@ -102,6 +104,7 @@ fn main() -> eframe::Result<()> {
         })),
         ..Default::default()
     };
+    app::profile::startup_mark("main : icône");
     eframe::run_native(
         "Florm",
         options,

@@ -98,16 +98,21 @@ fn bracket_color(level: u32, light: bool) -> Color32 {
 }
 
 /// `brackets`: the brackets of the line with their color (char index in the line, color).
-fn line_job(doc: &Document, l: usize, font: &FontId, fg: Color32, vstart: usize, vend: usize, brackets: &[(usize, Color32)]) -> (Option<usize>, LayoutJob) {
+/// `from`: (char of the line, its visual column) to start reading at, before `vstart` (a row of a
+/// wrapped line: not the whole line before it).
+#[allow(clippy::too_many_arguments)]
+fn line_job(doc: &Document, l: usize, font: &FontId, fg: Color32, vstart: usize, vend: usize, brackets: &[(usize, Color32)], from: (usize, usize)) -> (Option<usize>, LayoutJob) {
     let ts = doc.tab_size;
     let spans = doc.highlight.spans(l);
     let mut job = LayoutJob::default();
     let mut buf = String::new();
     let mut cur = fg;
-    let (mut v, mut byte, mut si) = (0usize, 0usize, 0usize);
-    let (mut idx, mut bi) = (0usize, 0usize);
+    let line = doc.rope.line(l);
+    let byte = if from.0 > 0 && spans.is_some() { line.char_to_byte(from.0) } else { 0 };
+    let (mut v, mut byte, mut si) = (from.1, byte, 0usize);
+    let (mut idx, mut bi) = (from.0, 0usize);
     let mut start_v = None;
-    for ch in doc.rope.line(l).chars() {
+    for ch in line.chars_at(from.0) {
         if ch == '\n' || ch == '\r' {
             break;
         }
@@ -149,6 +154,16 @@ fn line_job(doc: &Document, l: usize, font: &FontId, fg: Color32, vstart: usize,
         job.append(&buf, 0.0, TextFormat::simple(font.clone(), cur));
     }
     (start_v, job)
+}
+
+/// (char, visual column) to read line `l` from to draw it from visual column `vstart`: at the
+/// start, unless the view is scrolled far to the right (the end of a long minified line).
+fn line_from(doc: &Document, l: usize, vstart: usize) -> (usize, usize) {
+    if vstart < 512 {
+        return (0, 0);
+    }
+    let c = doc.col_at_vcol(l, vstart);
+    (c, doc.vcol(l, c))
 }
 
 /// Lines of the classes / functions enclosing `top` whose header is above it (at most 3, the
@@ -779,8 +794,8 @@ fn text_area(
         if opts.whitespace {
             let ws = c.fg.gamma_multiply(0.28);
             for l in (first..=last).filter(|&l| !rm.is_hidden(l)) {
-                let mut v = 0usize;
-                for ch in doc.rope.line(l).chars() {
+                let (c0, mut v) = line_from(doc, l, vstart);
+                for ch in doc.rope.line(l).chars_at(c0) {
                     if ch == '\n' || ch == '\r' {
                         break;
                     }
@@ -824,17 +839,21 @@ fn text_area(
             }
             match wraps.of(l) {
                 None => {
-                    let (start_v, job) = line_job(doc, l, font, c.fg, vstart, vend, &brackets);
+                    let (start_v, job) = line_job(doc, l, font, c.fg, vstart, vend, &brackets, line_from(doc, l, vstart));
                     if let Some(sv) = start_v {
                         let galley = ui.fonts(|f| f.layout_job(job));
                         painter.galley(Pos2::new(text_x + sv as f32 * cw, line_y(l)), galley, c.fg);
                     }
                 }
-                // one row after the other, each with its part of the line
+                // one row after the other, each with its part of the line (the rows on the screen:
+                // a minified line has thousands)
                 Some(w) => {
-                    for k in 0..=w.starts.len() {
+                    let top = rm.row(l) as f32;
+                    let k0 = ((vp.min.y / rh - top).floor().max(0.0) as usize).min(w.starts.len());
+                    let k1 = ((vp.max.y / rh - top).ceil().max(0.0) as usize).min(w.starts.len());
+                    for k in k0..=k1 {
                         let (a, b) = w.row_span(k);
-                        let (start_v, job) = line_job(doc, l, font, c.fg, a, b, &brackets);
+                        let (start_v, job) = line_job(doc, l, font, c.fg, a, b, &brackets, w.row_start(k));
                         if let Some(sv) = start_v {
                             let galley = ui.fonts(|f| f.layout_job(job));
                             let x = (sv.saturating_sub(a) + if k > 0 { w.indent } else { 0 }) as f32 * cw;
@@ -851,8 +870,9 @@ fn text_area(
             let fade = (3.0 * cw).min(36.0);
             let mut mesh = egui::Mesh::default();
             let clear = Color32::from_rgba_premultiplied(0, 0, 0, 0);
+            let cols = ((right - text_x) / cw).max(0.0).floor() as usize;
             for l in (first..=last).filter(|&l| !rm.is_hidden(l)) {
-                if doc.vcol(l, doc.line_len(l)) as f32 * cw + text_x <= right {
+                if !doc.wider_than(l, cols) {
                     continue;
                 }
                 let r = Rect::from_min_max(Pos2::new(right - fade, line_y(l)), Pos2::new(right, line_y(l) + rh));
@@ -1088,7 +1108,7 @@ fn text_area(
             painter.rect_filled(band, 0.0, c.bg);
             for (k, &l) in sticky.iter().enumerate() {
                 let y = sticky_top + k as f32 * rh;
-                let (start_v, job) = line_job(doc, l, font, c.fg, vstart, vend, &[]);
+                let (start_v, job) = line_job(doc, l, font, c.fg, vstart, vend, &[], (0, 0));
                 if let Some(sv) = start_v {
                     let galley = ui.fonts(|f| f.layout_job(job));
                     painter.galley(Pos2::new(text_x + sv as f32 * cw, y), galley, c.fg);

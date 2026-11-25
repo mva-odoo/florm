@@ -9,6 +9,9 @@ use crate::document::Document;
 pub struct Wrap {
     /// Visual column (tabs expanded) where each row after the first starts.
     pub starts: Vec<usize>,
+    /// The char of the line where each of these rows starts: drawn from there, not from the start
+    /// of the line (a minified line of millions of chars has thousands of rows).
+    pub chars: Vec<usize>,
     /// Columns of indentation in front of the continuation rows.
     pub indent: usize,
 }
@@ -38,6 +41,15 @@ impl Wrap {
     fn row_width(&self, k: usize) -> usize {
         let (start, end) = self.row_span(k);
         end.saturating_sub(start) + if k > 0 { self.indent } else { 0 }
+    }
+
+    /// (char of the line, visual column) where row `k` starts.
+    pub fn row_start(&self, k: usize) -> (usize, usize) {
+        if k == 0 {
+            (0, 0)
+        } else {
+            (self.chars[k - 1], self.starts[k - 1])
+        }
     }
 
     /// (first visual column, end) of row `k`.
@@ -125,25 +137,26 @@ fn cut(doc: &Document, l: usize, width: usize) -> Option<Wrap> {
     let lead = doc.vcol(l, doc.indent_len(l));
     // a deep indentation would leave no room: the continuation rows start at the left then
     let indent = if lead <= width / 2 { lead } else { 0 };
-    let (mut starts, mut start, mut room) = (Vec::new(), 0usize, width);
-    // visual column just after the last space of the row being filled
+    let (mut starts, mut chars, mut start, mut room) = (Vec::new(), Vec::new(), 0usize, width);
+    // (visual column, char) just after the last space of the row being filled
     let mut after_space = None;
     let mut v = 0;
-    for ch in doc.rope.line(l).chars().take(doc.line_len(l)) {
+    for (i, ch) in doc.rope.line(l).chars().take(doc.line_len(l)).enumerate() {
         let w = if ch == '\t' { ts - v % ts } else { 1 };
         while v + w - start > room && v > start {
-            let at = after_space.filter(|a| *a > start && *a <= v).unwrap_or(v);
+            let (at, c) = after_space.filter(|(a, _)| *a > start && *a <= v).unwrap_or((v, i));
             starts.push(at);
+            chars.push(c);
             start = at;
             room = width - indent;
             after_space = None;
         }
         v += w;
         if ch == ' ' || ch == '\t' {
-            after_space = Some(v);
+            after_space = Some((v, i + 1));
         }
     }
-    (!starts.is_empty()).then_some(Wrap { starts, indent })
+    (!starts.is_empty()).then_some(Wrap { starts, chars, indent })
 }
 
 #[cfg(test)]
@@ -164,9 +177,9 @@ mod tests {
         w.update(&d, 16);
         assert_eq!(w.of(0), None);
         // "    aaaa bbbb " fits in 16, then "cccc dddd" on a row indented by 4
-        assert_eq!(w.of(1), Some(&Wrap { starts: vec![14], indent: 4 }));
+        assert_eq!(w.of(1), Some(&Wrap { starts: vec![14], chars: vec![14], indent: 4 }));
         // no space: cut at the width, then every 16 columns
-        assert_eq!(w.of(2), Some(&Wrap { starts: vec![16], indent: 0 }));
+        assert_eq!(w.of(2), Some(&Wrap { starts: vec![16], chars: vec![16], indent: 0 }));
         assert_eq!(w.extra_rows(), vec![(1, 1), (2, 1)]);
         assert_eq!(w.rows(1), 2);
         let line = w.of(1).unwrap();
@@ -199,6 +212,19 @@ mod tests {
         d.move_sels(crate::document::Motion::Up, false);
         d.move_sels(crate::document::Motion::Up, false);
         assert_eq!(d.sels[0].head, 10);
+    }
+
+    /// With tabs the visual columns and the chars of a row start differ: both are kept.
+    #[test]
+    fn rows_know_their_first_char() {
+        let d = doc("\taaaa bbbb\tcccc dddd eeee\n");
+        let mut w = Wraps::default();
+        w.update(&d, 16);
+        let line = w.of(0).unwrap();
+        for k in 1..=line.starts.len() {
+            let (c, v) = line.row_start(k);
+            assert_eq!(d.vcol(0, c), v, "row {k}: {line:?}");
+        }
     }
 
     #[test]

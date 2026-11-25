@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 mod git_view;
-mod profile;
+pub(crate) mod profile;
 mod ai_review;
 mod ai_complete;
 mod hints;
@@ -1154,6 +1154,7 @@ impl Default for PrefsUi {
 
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, arg: Option<PathBuf>) -> Self {
+        profile::startup_mark("fenêtre");
         Self::with_ctx(&cc.egui_ctx, arg)
     }
 
@@ -1183,19 +1184,23 @@ impl App {
             s.text_styles.insert(TextStyle::Heading, FontId::proportional(19.0));
             s.text_styles.insert(TextStyle::Monospace, FontId::monospace(13.5));
         });
+        profile::startup_mark("préférences");
         let mut hl = Highlighting::new(&settings.theme, &config::config_dir().join("themes"));
         if let Some(d) = crate::shared::sub("themes") {
             hl.add_folder(&d);
             hl.set_theme(&settings.theme);
         }
         hl.set_overrides(highlight::parse_hex(&settings.accent_color), settings.text_softness);
+        hl.prepare_on_thread(egui_ctx.clone());
         history::SIDE_BY_SIDE.store(settings.diff_side_by_side, Ordering::Relaxed);
         git::set_trusted(&settings.trusted_folders);
+        profile::startup_mark("coloration (syntect)");
         apply_visuals(egui_ctx, hl.visuals());
         egui_ctx.set_fonts(crate::fonts::definitions(&settings.editor_font, &settings.ui_font));
         egui_extras::install_image_loaders(egui_ctx);
         crate::images::install(egui_ctx);
         install_link_opener(egui_ctx);
+        profile::startup_mark("polices, images");
         let (keymap, _) = Keymap::new(&settings.keys);
         let mut app = App {
             hl,
@@ -1235,7 +1240,11 @@ impl App {
             status: None,
             status_log: Default::default(),
             upd: UpdateState { found: None, installing: false, ready: None, restart: None, shared_busy: false, shared_op: None },
-            paced_frame: std::env::var_os("WAYLAND_DISPLAY").is_some().then(Instant::now),
+            // as if the last frame was long ago: the window has no focus yet at startup, and the first
+            // frame must not wait the 250 ms of a window in the background
+            paced_frame: std::env::var_os("WAYLAND_DISPLAY")
+                .is_some()
+                .then(|| Instant::now().checked_sub(BACKGROUND_FRAME).unwrap_or_else(Instant::now)),
             prof: profile::Profiler::new(),
             pending: Vec::new(),
             watch: WatchState { last_check: Instant::now(), busy: false, git_stamps: HashMap::new(), term_enter: None, was_focused: true },
@@ -1292,6 +1301,7 @@ impl App {
         if let Some(e) = settings_err {
             app.log(e);
         }
+        profile::startup_mark("état (projets, Claude…)");
         app.search = app.fresh_search();
         crate::update::cleanup();
         if app.settings.check_updates {
@@ -1323,6 +1333,7 @@ impl App {
         if app.root.is_none() {
             app.restore_loose();
         }
+        profile::startup_mark("projet et fichiers");
         if crate::crash::take_pending() {
             let log = crate::crash::log_path();
             app.log(tf!("Florm s'est fermé à cause d'une erreur. Détails : {}", "Florm closed because of an error. Details: {}", log.display()));
@@ -2723,6 +2734,11 @@ mod font_tests {
             let t = Instant::now();
             app.process_jobs();
             let out = ctx.run(egui::RawInput { screen_rect: screen, events, ..Default::default() }, |ctx| {
+                // the keys and the work that follows an edit, as in `update`
+                app.handle_keys(ctx);
+                app.editor_input(ctx);
+                app.update_live_lint(ctx);
+                app.update_find();
                 app.menu_bar(ctx);
                 app.status_bar(ctx);
                 app.sidebar(ctx);
@@ -2759,6 +2775,8 @@ mod font_tests {
             }
         };
         let none = |_: usize| Vec::new();
+        let key = |k: egui::Key| egui::Event::Key { key: k, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() };
+        let key_mod = |k: egui::Key, modifiers| egui::Event::Key { key: k, physical_key: None, pressed: true, repeat: false, modifiers };
         let editor_at = egui::pos2(900.0, 500.0);
         let wheel = move |k: usize| {
             let dy = if (k / 40) % 2 == 0 { -120.0 } else { 120.0 };
@@ -2777,6 +2795,39 @@ mod font_tests {
         app.file_history(root.clone(), "src/app.rs".into());
         wait(&mut app, &|a| a.line_history.as_ref().is_some_and(|l| !l.loading));
         run(&mut app, "historique du fichier", 60, &hover);
+        // extreme files: a minified line of 2 MB (as it is, then wrapped), a log of 40 MB
+        let typing = move |k: usize| {
+            let e = if k % 2 == 0 { egui::Event::Text("a".into()) } else { key(egui::Key::Backspace) };
+            vec![egui::Event::PointerMoved(editor_at), e]
+        };
+        let key_end = vec![key_mod(egui::Key::End, egui::Modifiers::COMMAND)];
+        let min = dir.join("min.js");
+        std::fs::write(&min, "var a={b:1,c:[2,3]};function f(x){return x*2+a.b}".repeat(40_000)).unwrap();
+        app.open_path(min);
+        app.focus_editor(&ctx);
+        run(&mut app, "minifié 2 Mo, début", 60, &none);
+        let v = app.docs[app.active].version;
+        run(&mut app, "minifié 2 Mo, frappe début", 60, &typing);
+        assert!(app.docs[app.active].version > v, "the typing reached the editor");
+        frame(&mut app, key_end.clone());
+        assert!(app.docs[app.active].primary_sel().head > 1_000_000, "at the end of the line");
+        run(&mut app, "minifié 2 Mo, fin", 60, &none);
+        run(&mut app, "minifié 2 Mo, frappe fin", 60, &typing);
+        app.settings.word_wrap = true;
+        run(&mut app, "minifié 2 Mo, à la ligne, fin", 60, &none);
+        run(&mut app, "minifié, à la ligne, frappe", 60, &typing);
+        app.settings.word_wrap = false;
+        let log = dir.join("big.log");
+        let line = "2026-11-25 14:03:12,345 INFO odoo.modules.loading: 42 modules loaded in 0.12s, 0 queries\n";
+        std::fs::write(&log, line.repeat(40_000_000 / line.len())).unwrap();
+        let t = Instant::now();
+        app.open_path(log);
+        app.focus_editor(&ctx);
+        eprintln!("{:<28} {:>6.0} ms", "ouvrir un journal de 40 Mo", t.elapsed().as_secs_f64() * 1000.0);
+        run(&mut app, "journal 40 Mo, défilement", 160, &wheel);
+        run(&mut app, "journal 40 Mo, frappe début", 60, &typing);
+        frame(&mut app, key_end);
+        run(&mut app, "journal 40 Mo, frappe fin", 60, &typing);
         app.output = (0..5000).map(|k| format!("ligne de sortie numéro {k} : quelque chose s'est passé dans un outil")).collect();
         app.bottom = Some(BottomTab::Output);
         run(&mut app, "sortie, 5000 lignes", 60, &hover);

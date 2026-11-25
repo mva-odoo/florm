@@ -107,6 +107,9 @@ struct Snapshot {
     content: u64,
 }
 
+/// Chars between two visual columns kept for a long line (see `Document::vcol_marks`).
+const VCOL_STEP: usize = 1024;
+
 /// Pause in typing after which the symbols drawn at each frame are computed again.
 const SYMBOLS_PAUSE: Duration = Duration::from_millis(300);
 
@@ -189,6 +192,10 @@ pub struct Document {
     pub drag: Option<Drag>,
     pub max_cols: usize,
     max_cols_version: u64,
+    /// Visual columns of the long lines every `VCOL_STEP` chars, for the text as it was at
+    /// (version, length): `vcol` and `col_at_vcol` do not count from the start of a minified line
+    /// of millions of chars at each call (the cursor, the brackets, the text drawn at its end).
+    vcol_marks: std::cell::RefCell<((u64, usize), HashMap<usize, Vec<usize>>)>,
     /// Char range picked in the search results, highlighted while it stays selected.
     pub flash: Option<(usize, usize, Instant)>,
     /// Editor panel showing the document (0 or 1 when split), `NO_PANE` until the app places it.
@@ -734,6 +741,7 @@ impl Document {
             drag: None,
             max_cols: 0,
             max_cols_version: u64::MAX,
+            vcol_marks: Default::default(),
             flash: None,
             pane: NO_PANE,
             symbols_cache: None,
@@ -937,22 +945,75 @@ impl Document {
     /// Visual column (tabs expanded) of `col` in `line`.
     pub fn vcol(&self, line: usize, col: usize) -> usize {
         let ts = self.tab_size;
-        let mut v = 0;
-        for c in self.rope.line(line).chars().take(col) {
+        // on a long line, from the mark before `col`
+        let (from, mut v) = if col > VCOL_STEP {
+            self.with_vcol_marks(line, |m| {
+                let k = (col / VCOL_STEP).min(m.len() - 1);
+                (k * VCOL_STEP, m[k])
+            })
+        } else {
+            (0, 0)
+        };
+        for c in self.rope.line(line).chars_at(from).take(col - from) {
             v = if c == '\t' { (v / ts + 1) * ts } else { v + 1 };
         }
         v
+    }
+
+    /// `f` given the visual columns of `line` at chars 0, `VCOL_STEP`, 2 × `VCOL_STEP`… (counted
+    /// once per version of the text).
+    fn with_vcol_marks<R>(&self, line: usize, f: impl FnOnce(&[usize]) -> R) -> R {
+        let mut cache = self.vcol_marks.borrow_mut();
+        let key = (self.version, self.rope.len_chars());
+        if cache.0 != key {
+            *cache = (key, HashMap::new());
+        }
+        let ts = self.tab_size;
+        let marks = cache.1.entry(line).or_insert_with(|| {
+            let mut marks = Vec::new();
+            let mut v = 0;
+            for (i, c) in self.rope.line(line).chars().enumerate() {
+                if i % VCOL_STEP == 0 {
+                    marks.push(v);
+                }
+                v = if c == '\t' { (v / ts + 1) * ts } else { v + 1 };
+            }
+            if marks.is_empty() {
+                marks.push(0);
+            }
+            marks
+        });
+        f(marks)
+    }
+
+    /// Whether line `line` takes more than `cols` visual columns: counted only up to there (a line
+    /// of a minified file has millions of chars).
+    pub fn wider_than(&self, line: usize, cols: usize) -> bool {
+        let ts = self.tab_size;
+        // at least one column per char, at most a tab's
+        let n = self.line_len(line);
+        if n > cols || n * ts.max(1) <= cols {
+            return n > cols;
+        }
+        self.vcol(line, n) > cols
     }
 
     /// Char column whose visual position contains `target`.
     pub fn col_at_vcol(&self, line: usize, target: usize) -> usize {
         let ts = self.tab_size;
         let len = self.line_len(line);
-        let mut v = 0;
-        for (i, c) in self.rope.line(line).chars().take(len).enumerate() {
+        let (from, mut v) = if target > VCOL_STEP && len > VCOL_STEP {
+            self.with_vcol_marks(line, |m| {
+                let k = m.partition_point(|&mv| mv <= target).saturating_sub(1);
+                (k * VCOL_STEP, m[k])
+            })
+        } else {
+            (0, 0)
+        };
+        for (i, c) in self.rope.line(line).chars_at(from).take(len.saturating_sub(from)).enumerate() {
             let nv = if c == '\t' { (v / ts + 1) * ts } else { v + 1 };
             if nv > target {
-                return i;
+                return from + i;
             }
             v = nv;
         }
@@ -2109,6 +2170,10 @@ impl Document {
     /// Empty before `ensure_bracket_depths`, or for a very large file.
     pub fn bracket_levels(&self, l: usize) -> Vec<(usize, u32)> {
         let Some(d0) = self.bracket_depths.1.get(l).copied() else { return Vec::new() };
+        // not on a very long line (a minified file), like the syntax colors: read again each frame
+        if self.rope.line(l).len_bytes() > 10_000 {
+            return Vec::new();
+        }
         let mut out = Vec::new();
         scan_brackets(self.rope.line(l).chars(), d0, &BracketRules::of(&self.syntax), Some(&mut out));
         out
@@ -2894,6 +2959,47 @@ fn read_text(path: &Path) -> Result<(String, Encoding), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// On long lines `vcol` and `col_at_vcol` start from kept marks: the same answers as counting
+    /// from the start of the line, also after an edit.
+    #[test]
+    fn visual_columns_of_long_lines() {
+        let naive_vcol = |d: &Document, l: usize, col: usize| {
+            let mut v = 0;
+            for c in d.rope.line(l).chars().take(col) {
+                v = if c == '\t' { (v / d.tab_size + 1) * d.tab_size } else { v + 1 };
+            }
+            v
+        };
+        let naive_col = |d: &Document, l: usize, target: usize| {
+            let (len, mut v) = (d.line_len(l), 0);
+            for (i, c) in d.rope.line(l).chars().take(len).enumerate() {
+                let nv = if c == '\t' { (v / d.tab_size + 1) * d.tab_size } else { v + 1 };
+                if nv > target {
+                    return i;
+                }
+                v = nv;
+            }
+            len
+        };
+        let line: String = (0..900).map(|i| if i % 7 == 0 { "\tab" } else { "é x " }).collect();
+        let mut d = Document::from_text(1, &format!("short\n{line}\n{line}"), 4, true);
+        for round in 0..2 {
+            for l in 0..3 {
+                for col in (0..d.line_len(l) + 3).step_by(97) {
+                    assert_eq!(d.vcol(l, col), naive_vcol(&d, l, col), "vcol line {l} col {col} round {round}");
+                }
+                let width = naive_vcol(&d, l, d.line_len(l));
+                for target in (0..width + 20).step_by(89) {
+                    assert_eq!(d.col_at_vcol(l, target), naive_col(&d, l, target), "col line {l} at {target} round {round}");
+                }
+                assert!(!d.wider_than(l, width) && (width == 0 || d.wider_than(l, width - 1)));
+            }
+            // an edit near the start of the long line moves everything after it
+            d.goto_line(1, 0);
+            d.insert_text("\t\tzz", false);
+        }
+    }
 
     #[test]
     fn bookmarks_follow_the_edits() {

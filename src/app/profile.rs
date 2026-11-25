@@ -4,7 +4,21 @@
 
 use eframe::egui;
 use std::collections::{HashMap, VecDeque};
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
+
+/// When the process started (set first thing in `main`), for the startup times.
+pub static PROCESS_START: OnceLock<Instant> = OnceLock::new();
+
+/// The steps of the startup and when each ended, written to stderr after the first frame.
+static STARTUP: Mutex<Vec<(&'static str, Instant)>> = Mutex::new(Vec::new());
+
+/// The startup step `name` ends here (kept only with `FLORM_PROFILE`, see `Profiler::end`).
+pub(crate) fn startup_mark(name: &'static str) {
+    if let Ok(mut v) = STARTUP.lock() {
+        v.push((name, Instant::now()));
+    }
+}
 
 /// How far back the numbers go.
 const WINDOW: Duration = Duration::from_secs(2);
@@ -21,6 +35,8 @@ pub(super) struct Profiler {
     frames: VecDeque<Frame>,
     /// When the numbers were last written to stderr.
     logged: Option<Instant>,
+    /// The startup times were written (after the first frame).
+    startup_done: bool,
 }
 
 struct Frame {
@@ -38,6 +54,9 @@ impl Profiler {
     /// A frame starts (after the pacing sleep: only the work is counted).
     pub(super) fn begin(&mut self) {
         if self.on {
+            if !self.startup_done {
+                startup_mark("attente de la 1re image");
+            }
             let now = Instant::now();
             self.start = Some(now);
             self.part = Some(now);
@@ -58,6 +77,11 @@ impl Profiler {
     pub(super) fn end(&mut self, ctx: &egui::Context) {
         let Some(start) = self.start.take().filter(|_| self.on) else { return };
         let now = Instant::now();
+        if !self.startup_done {
+            self.startup_done = true;
+            startup_mark("1re image (update)");
+            eprintln!("{}", startup_summary());
+        }
         let causes = ctx.repaint_causes().iter().map(|c| format!("{}:{} {}", short(c.file), c.line, c.reason)).collect();
         self.frames.push_back(Frame { at: now, took: now - start, parts: std::mem::take(&mut self.parts), causes });
         while self.frames.front().is_some_and(|f| now - f.at > WINDOW) {
@@ -115,6 +139,21 @@ impl Profiler {
         }
         lines.join("\n")
     }
+}
+
+/// The steps of the startup: how long each took, and the total since the process started.
+fn startup_summary() -> String {
+    let steps = STARTUP.lock().map(|v| v.clone()).unwrap_or_default();
+    let Some(&t0) = PROCESS_START.get() else { return String::new() };
+    let ms = |d: Duration| d.as_secs_f32() * 1000.0;
+    let mut lines = vec!["[florm startup]".to_string()];
+    let mut prev = t0;
+    for (name, at) in &steps {
+        lines.push(format!("  {name:<22} {:>7.1} ms", ms(at.saturating_duration_since(prev))));
+        prev = *at;
+    }
+    lines.push(format!("  {:<22} {:>7.1} ms", "total", ms(prev.saturating_duration_since(t0))));
+    lines.join("\n")
 }
 
 fn paint(ctx: &egui::Context, text: String) {
