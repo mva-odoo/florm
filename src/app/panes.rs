@@ -150,7 +150,7 @@ impl App {
                 egui::TopBottomPanel::top(egui::Id::new("git_bar").with(self.docs[i].uid))
                     .frame(egui::Frame::none().fill(fill).inner_margin(egui::Margin { left: 10.0, right: 10.0, top: 8.0, bottom: 4.0 }))
                     .show_inside(ui, |ui| self.git_bar(ui));
-                egui::CentralPanel::default().show_inside(ui, |ui| self.history_ui(ui));
+                crate::app::work_panel(ui).show_inside(ui, |ui| self.history_ui(ui));
                 None
             }
             document::View::Settings => {
@@ -158,7 +158,7 @@ impl App {
                 None
             }
             document::View::History => {
-                egui::CentralPanel::default().show_inside(ui, |ui| self.line_history_ui(ui));
+                crate::app::work_panel(ui).show_inside(ui, |ui| self.line_history_ui(ui));
                 None
             }
             document::View::Help => {
@@ -171,7 +171,8 @@ impl App {
                 None
             }
             document::View::Search => {
-                let bg = ui.visuals().panel_fill;
+                // on the editor's background, as in Zed
+                let bg = ui.visuals().extreme_bg_color;
                 egui::CentralPanel::default()
                     .frame(egui::Frame::none().fill(bg).inner_margin(egui::Margin { left: 12.0, right: 12.0, top: 10.0, bottom: 4.0 }))
                     .show_inside(ui, |ui| self.search_ui(ui, true));

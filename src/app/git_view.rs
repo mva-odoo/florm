@@ -848,7 +848,7 @@ impl App {
             maximize::restore(ui.ctx(), view);
         }
         if !has_detail || maxed == Some("list") {
-            egui::CentralPanel::default().show_inside(ui, |ui| {
+            crate::app::work_panel(ui).show_inside(ui, |ui| {
                 list(ui);
                 if has_detail {
                     maximize::corner(ui, view, "list");
@@ -868,7 +868,7 @@ impl App {
             }
 
             // ------------------------------------------------ below: what is selected, then its changes (like a pull request)
-            egui::CentralPanel::default().show_inside(ui, |ui| {
+            crate::app::work_panel(ui).show_inside(ui, |ui| {
                 ui.add_space(4.0);
                 let r = ui.max_rect();
                 if h.rebase.is_none() {

@@ -86,6 +86,12 @@ fn install_link_opener(ctx: &egui::Context) {
 }
 
 /// The same colors whatever egui thinks the system theme is.
+/// The central part of a view (Git, pull requests, preferences…) on the editor's background, as in
+/// Zed: its bars and side lists stay on the panels' surface.
+pub(crate) fn work_panel(ui: &egui::Ui) -> egui::CentralPanel {
+    egui::CentralPanel::default().frame(egui::Frame::central_panel(ui.style()).fill(ui.visuals().extreme_bg_color))
+}
+
 fn apply_visuals(ctx: &egui::Context, v: egui::Visuals) {
     ctx.set_visuals_of(egui::Theme::Dark, v.clone());
     ctx.set_visuals_of(egui::Theme::Light, v);
@@ -188,7 +194,7 @@ fn filled_button(text: impl Into<String>, fill: Color32) -> egui::Button<'static
     egui::Button::new(RichText::new(text.into()).color(text_on(fill)).strong()).fill(fill)
 }
 
-const TAB_STRIP_H: f32 = 32.0;
+const TAB_STRIP_H: f32 = 34.0;
 
 #[derive(PartialEq, Clone, Copy, Debug)]
 enum BottomTab {
@@ -1178,8 +1184,8 @@ impl App {
             s.spacing.tooltip_width = 540.0;
             s.spacing.window_margin = egui::Margin::same(12.0);
             s.spacing.scroll = egui::style::ScrollStyle::floating();
-            s.text_styles.insert(TextStyle::Body, FontId::proportional(14.0));
-            s.text_styles.insert(TextStyle::Button, FontId::proportional(14.0));
+            s.text_styles.insert(TextStyle::Body, FontId::proportional(15.0));
+            s.text_styles.insert(TextStyle::Button, FontId::proportional(15.0));
             s.text_styles.insert(TextStyle::Small, FontId::proportional(11.5));
             s.text_styles.insert(TextStyle::Heading, FontId::proportional(19.0));
             s.text_styles.insert(TextStyle::Monospace, FontId::monospace(13.5));
@@ -1773,8 +1779,8 @@ fn tab_widget(
     errors: usize,
     tc: &crate::highlight::TabColors,
 ) -> (egui::Response, bool) {
-    let font = egui::FontId::proportional(13.0);
-    let small = egui::FontId::proportional(12.0);
+    let font = egui::FontId::proportional(14.0);
+    let small = egui::FontId::proportional(12.5);
     let text_color = tint.unwrap_or(if active { tc.text_active } else { tc.text_inactive });
     let dim = tc.text_inactive.gamma_multiply(0.75);
     // a long title (a conversation, a pull request) is cut: every tab stays a reasonable width

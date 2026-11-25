@@ -62,7 +62,7 @@ pub struct Nav {
 }
 
 /// Focus id of the tree (arrows, Enter… move in it instead of the editor).
-const ROW_H: f32 = 23.0;
+const ROW_H: f32 = 26.0;
 
 pub fn tree_id() -> Id {
     Id::new("florm_tree")
@@ -337,7 +337,7 @@ fn git_color(c: char) -> Option<Color32> {
 pub fn fit_width(ctx: &egui::Context, root: &Node) -> f32 {
     let mut rows = Vec::new();
     root.visible(&mut rows);
-    let font = FontId::proportional(13.5);
+    let font = FontId::proportional(14.0);
     let longest = ctx.fonts(|f| {
         rows.iter()
             .map(|(path, _, _)| {
@@ -664,7 +664,7 @@ fn node_ui(
         .unwrap_or(if selected { v.strong_text_color() } else { v.text_color() });
     // the name first; a git repository's branch at the right of the row, in the room left
     // (shortened with "…", or not shown when there is too little)
-    let name = painter.layout_no_wrap(node.name.clone(), FontId::proportional(13.5), color);
+    let name = painter.layout_no_wrap(node.name.clone(), FontId::proportional(14.0), color);
     let mut name_end = x + name.size().x;
     painter.galley(Pos2::new(x, cy - name.size().y / 2.0), name, color);
     // the other versions are already dimmed and marked WT: no eye on them
@@ -921,7 +921,7 @@ fn sticky(ui: &mut Ui, root: &Node, rows_top: f32, act: &mut Option<TreeAction>)
         let icon = Rect::from_center_size(Pos2::new(x + 22.0, cy), egui::vec2(16.0, 16.0));
         icons::paint_folder(&painter, icon, true, folder, bg);
         let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        let g = painter.layout_no_wrap(name, FontId::proportional(13.5), v.text_color());
+        let g = painter.layout_no_wrap(name, FontId::proportional(14.0), v.text_color());
         painter.galley(Pos2::new(x + 37.0, cy - g.size().y / 2.0), g, v.text_color());
         let r = r.on_hover_text_at_pointer(path.display().to_string());
         if r.clicked() {

@@ -139,13 +139,15 @@ impl App {
     pub(super) fn search_ui(&mut self, ui: &mut egui::Ui, in_tab: bool) {
         let (mut go, mut act) = (false, None);
         let accent = self.hl.colors.accent;
+        // the results at the size of the code, as excerpts of the editor (Zed)
+        let code_size = self.settings.font_size;
         let st = &self.state;
         let hl = &self.hl;
         let version = &self.version;
         let s = &mut self.search;
         let enter =|r: &egui::Response, ui: &egui::Ui| r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
         // the fields take the width there is (minus the buttons around them)
-        let field_w = (ui.available_width() - 420.0).clamp(240.0, 1200.0);
+        let field_w = (ui.available_width() - 520.0).clamp(240.0, 1200.0);
         let filter_w = ((ui.available_width() - 200.0) / 2.0).clamp(160.0, 700.0);
 
         // the bar of the search: room around it and between its lines
@@ -342,9 +344,9 @@ impl App {
 
         // --- results
         let v = ui.visuals().clone();
-        let bg = v.panel_fill;
+        let bg = v.extreme_bg_color;
         let light = bg.r() as u32 + bg.g() as u32 + bg.b() as u32 > 384;
-        let font = egui::TextStyle::Monospace.resolve(ui.style());
+        let font = egui::FontId::monospace(code_size);
         let fg = v.text_color();
         let preview_re = if s.show_replace {
             let q = &s.done;
@@ -352,10 +354,11 @@ impl App {
         } else {
             None
         };
+        // a match: the accent, faint behind the text (as Zed marks them)
         let match_fmt = TextFormat {
             font_id: font.clone(),
-            color: if light { Color32::BLACK } else { v.strong_text_color() },
-            background: icons::mix(bg, warn(), if light { 0.65 } else { 0.45 }),
+            color: fg,
+            background: icons::mix(bg, accent, if light { 0.28 } else { 0.38 }),
             ..Default::default()
         };
         let old_fmt = TextFormat {
@@ -371,7 +374,7 @@ impl App {
             background: icons::mix(bg, ok(), 0.4),
             ..Default::default()
         };
-        let row_h = 22.0;
+        let row_h = (ui.fonts(|f| f.row_height(&font)) + 7.0).round().max(22.0);
         ui.spacing_mut().item_spacing.y = 0.0; // show_rows positions rows with this spacing
         let mut area = egui::ScrollArea::both().id_salt("search_results").auto_shrink([false, false]);
         if std::mem::take(&mut s.scroll_to_cursor) {
@@ -399,8 +402,12 @@ impl App {
                         None => {
                             let (rect, resp) = ui.allocate_exact_size(egui::vec2(width, row_h), Sense::click());
                             let hovered = ui.rect_contains_pointer(rect);
-                            let fill = if hovered { v.widgets.hovered.weak_bg_fill } else { v.faint_bg_color };
-                            ui.painter().rect_filled(rect.shrink2(egui::vec2(0.0, 1.0)), 4.0, fill);
+                            // a file: a bar on the panels' surface, lines above and below (Zed)
+                            let fill = if hovered { v.widgets.hovered.weak_bg_fill } else { v.panel_fill };
+                            ui.painter().rect_filled(rect, 0.0, fill);
+                            let edge = egui::Stroke::new(1.0_f32, v.widgets.noninteractive.bg_stroke.color);
+                            ui.painter().hline(rect.x_range(), rect.top() + 0.5, edge);
+                            ui.painter().hline(rect.x_range(), rect.bottom() - 0.5, edge);
                             let p = ui.painter().with_clip_rect(rect);
                             let cy = rect.center().y;
                             let collapsed = s.collapsed.contains(&fi);
@@ -413,7 +420,7 @@ impl App {
                                 egui::pos2(x, cy),
                                 Align2::LEFT_CENTER,
                                 &name,
-                                egui::FontId::proportional(13.5),
+                                egui::FontId::proportional(14.5),
                                 v.strong_text_color(),
                             );
                             x = name_r.right() + 8.0;
@@ -423,7 +430,7 @@ impl App {
                                     egui::pos2(x, cy),
                                     Align2::LEFT_CENTER,
                                     dir,
-                                    egui::FontId::proportional(12.0),
+                                    egui::FontId::proportional(13.0),
                                     v.weak_text_color(),
                                 );
                                 x = r.right() + 8.0;
@@ -512,9 +519,9 @@ impl App {
                             let hovered = ui.rect_contains_pointer(rect);
                             let current = s.cursor == Some((fi, h));
                             if current {
-                                ui.painter().rect_filled(rect, 4.0, v.selection.bg_fill);
+                                ui.painter().rect_filled(rect, 0.0, v.selection.bg_fill);
                             } else if hovered {
-                                ui.painter().rect_filled(rect, 4.0, v.widgets.hovered.weak_bg_fill);
+                                ui.painter().rect_filled(rect, 0.0, v.widgets.hovered.weak_bg_fill);
                             }
                             let p = ui.painter().with_clip_rect(rect);
                             let cy = rect.center().y;
@@ -530,7 +537,7 @@ impl App {
                                 Align2::RIGHT_CENTER,
                                 (hit.line + 1).to_string(),
                                 font.clone(),
-                                icons::mix(bg, accent, 0.75),
+                                self.hl.colors.gutter_fg,
                             );
                             p.galley(egui::pos2(rect.left() + text_x, cy - galley.size().y / 2.0), galley, fg);
                             let mut clicked_button = false;

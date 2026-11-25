@@ -460,7 +460,7 @@ impl App {
         };
         match maxed {
             Some("list") => {
-                egui::CentralPanel::default().show_inside(ui, |ui| {
+                crate::app::work_panel(ui).show_inside(ui, |ui| {
                     list_ui(ui);
                     maximize::corner(ui, view, "list");
                 });
@@ -478,7 +478,7 @@ impl App {
 
         // ------------------------------------------------ the selected pull request
         if maxed != Some("list") {
-            egui::CentralPanel::default().show_inside(ui, |ui| {
+            crate::app::work_panel(ui).show_inside(ui, |ui| {
                 let d = match &p.detail {
                     None if p.detail_loading => {
                         spinner(ui);
