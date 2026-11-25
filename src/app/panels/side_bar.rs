@@ -69,7 +69,10 @@ impl App {
                         self.tree_ex = Some((tree.path.clone(), pats, ex));
                     }
                     let ex = &self.tree_ex.as_ref().expect("just set").2;
-                    tree_action = sidebar::show(ui, tree, &projects, ex, active.as_deref(), &self.git.map, info, &marks, title_at, &mut self.tree_scroll, &mut self.tree_nav);
+                    let (km, pending) = (&self.keymap, &mut self.pending);
+                    let mut menus = |ui: &mut egui::Ui| super::menus::menus(ui, km, pending);
+                    let app_menu = (!self.settings.show_menu_bar).then_some(&mut menus as &mut dyn FnMut(&mut egui::Ui));
+                    tree_action = sidebar::show(ui, tree, &projects, ex, active.as_deref(), &self.git.map, info, &marks, title_at, &mut self.tree_scroll, &mut self.tree_nav, app_menu);
                 }
                 None => {
                     ui.label(t!("Aucun dossier ouvert.", "No folder open."));

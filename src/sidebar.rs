@@ -372,6 +372,7 @@ pub fn show(
     title_at: Option<Rect>,
     scroll_to: &mut Option<PathBuf>,
     nav: &mut Nav,
+    app_menu: Option<&mut dyn FnMut(&mut Ui)>,
 ) -> Option<TreeAction> {
     let mut act = None;
     if root.children.is_none() {
@@ -440,8 +441,20 @@ pub fn show(
                 // the name on the left (the projects), the actions of the tree on the right
                 ui.horizontal(|ui| {
                     ui.add_space(2.0);
-                    // the logo, small, before the name of the project
-                    let (logo, _) = ui.allocate_exact_size(egui::vec2(16.0, 16.0), Sense::hover());
+                    // the logo, small, before the name of the project; the menus under it when the
+                    // menu bar is hidden (as Zed's ☰)
+                    let logo = match app_menu {
+                        Some(menus) => {
+                            let b = egui::Button::new("").frame(false).min_size(egui::vec2(16.0, 16.0));
+                            let r = egui::menu::menu_custom_button(ui, b, |ui| menus(ui)).response;
+                            let r = r.on_hover_cursor(CursorIcon::PointingHand).on_hover_text(t!("Menus (Fichier, Édition, Git…)", "Menus (File, Edit, Git…)"));
+                            if r.hovered() {
+                                ui.painter().rect_filled(r.rect.expand(3.0), 4.0, ui.visuals().widgets.hovered.weak_bg_fill);
+                            }
+                            r.rect
+                        }
+                        None => ui.allocate_exact_size(egui::vec2(16.0, 16.0), Sense::hover()).0,
+                    };
                     crate::logo::paint(ui.painter(), logo, false);
                     ui.add_space(2.0);
                     let r = ui.add(egui::Label::new(folder_name(root)).sense(Sense::click()).truncate());

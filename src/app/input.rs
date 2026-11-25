@@ -424,7 +424,7 @@ impl App {
                 self.settings.show_menu_bar = !self.settings.show_menu_bar;
                 self.persist("show_menu_bar", self.settings.show_menu_bar.to_string());
                 if !self.settings.show_menu_bar {
-                    self.set_status(t!("Barre de menus masquée : les menus restent dans ☰ en bas à gauche", "Menu bar hidden: the menus are still under ☰ at the bottom left"));
+                    self.set_status(t!("Barre de menus masquée : les menus restent sous le logo F en haut de la barre latérale", "Menu bar hidden: the menus are still under the F logo at the top of the sidebar"));
                 }
             }
             LocalHistory => self.open_local_history(),
