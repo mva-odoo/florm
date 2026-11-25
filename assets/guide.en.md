@@ -765,6 +765,10 @@ light theme) than the editor, the title bar and the status bar a step beyond, th
 parts, the active tab on the editor's background. These shades come from the chosen theme: they follow
 every theme.
 
+The text is in IBM Plex, built into Florm: the same font on Linux, Windows and macOS. On a screen of
+low density (a 1080p laptop at 100 %), Florm takes its « Text » weight, a little fuller, so that the
+text does not look thinner and greyer than on a Mac's Retina screen.
+
 **Preferences → Appearance**: language (Français / English), theme (clickable previews: Florm and
 Florm Light, Florm Minimal and Florm Minimal Light, more sober (a deep or cream background, a
 soft palette), and Florm Monokai, One Dark, Dracula, GitHub Light after the usual themes of other editors),

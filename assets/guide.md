@@ -788,6 +788,10 @@ L'interface suit le design de Zed : les panneaux, la barre d'onglets et les menu
 fines lignes entre les parties, l'onglet actif sur le fond de l'éditeur. Ces teintes viennent du thème
 choisi : elles suivent tous les thèmes.
 
+Le texte est en IBM Plex, intégrée à Florm : la même police sur Linux, Windows et macOS. Sur un écran
+peu dense (un portable 1080p à 100 %), Florm prend sa graisse « Text », un peu plus pleine, pour que
+le texte ne paraisse pas plus fin et plus gris que sur l'écran Retina d'un Mac.
+
 **Préférences → Apparence** : langue (Français / English), thème (aperçus cliquables : Florm et
 Florm Light, Florm Minimal et Florm Minimal Light, plus sobres (un fond profond ou crème, une
 palette douce), et Florm Monokai, One Dark, Dracula, GitHub Light d'après les thèmes habituels des autres

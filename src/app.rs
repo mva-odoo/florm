@@ -107,12 +107,20 @@ fn apply_visuals(ctx: &egui::Context, v: egui::Visuals) {
 /// IBM Plex, Zed's fonts (assets/fonts, SIL Open Font License): Sans for the interface, Mono for
 /// the code; then egui's fonts, and Hack as a fallback for the interface text (the arrows and
 /// triangles → ↑ ▾ ● … that Plex Sans lacks).
+/// The screen has fewer than 1.5 pixels per point (a 1080p laptop at 100 %, unlike a Retina Mac):
+/// the text is drawn with the « Text » weight of IBM Plex, a little fuller. With 4 times fewer
+/// pixels per letter, the regular weight looks thin and grey next to the same text on a Mac.
+pub static LOW_DENSITY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 pub fn font_definitions() -> egui::FontDefinitions {
     let mut fonts = egui::FontDefinitions::default();
-    for (name, bytes, family) in [
-        ("plex_sans", &include_bytes!("../assets/fonts/IBMPlexSans-Regular.ttf")[..], egui::FontFamily::Proportional),
-        ("plex_mono", &include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf")[..], egui::FontFamily::Monospace),
-    ] {
+    let low = LOW_DENSITY.load(std::sync::atomic::Ordering::Relaxed);
+    let (sans, mono): (&'static [u8], &'static [u8]) = if low {
+        (include_bytes!("../assets/fonts/IBMPlexSans-Text.ttf"), include_bytes!("../assets/fonts/IBMPlexMono-Text.ttf"))
+    } else {
+        (include_bytes!("../assets/fonts/IBMPlexSans-Regular.ttf"), include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf"))
+    };
+    for (name, bytes, family) in [("plex_sans", sans, egui::FontFamily::Proportional), ("plex_mono", mono, egui::FontFamily::Monospace)] {
         fonts.font_data.insert(name.into(), egui::FontData::from_static(bytes));
         fonts.families.entry(family).or_default().insert(0, name.into());
     }
@@ -1596,6 +1604,12 @@ impl eframe::App for App {
             self.paced_frame = Some(Instant::now());
         }
         self.prof.begin();
+        // the weight of the text follows the density of the screen (a window moved to another
+        // screen too): « Text » under 1.5 pixels per point, regular on a Retina screen
+        let low = ctx.pixels_per_point() < 1.5;
+        if low != LOW_DENSITY.swap(low, std::sync::atomic::Ordering::Relaxed) {
+            ctx.set_fonts(crate::fonts::definitions(&self.settings.editor_font, &self.settings.ui_font));
+        }
         crate::view_bar::set_font_size(self.settings.font_size);
         if std::mem::take(&mut self.visuals_dirty) {
             apply_visuals(ctx, self.hl.visuals());
