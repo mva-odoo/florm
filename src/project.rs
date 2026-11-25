@@ -89,9 +89,30 @@ pub struct UiState {
     pub include_history: Vec<String>,
     #[serde(default)]
     pub exclude_history: Vec<String>,
+    /// The commands run in the debugger, the last first (all projects: shown for theirs).
+    #[serde(default)]
+    pub debug_history: Vec<DebugRun>,
+}
+
+/// A command run in the debugger: as typed, its folder, its project.
+#[derive(Serialize, Deserialize, Default, Clone, PartialEq, Debug)]
+pub struct DebugRun {
+    pub cmd: String,
+    pub dir: String,
+    pub project: String,
 }
 
 impl UiState {
+    /// `run` first in the debugger's history (once), bounded.
+    pub fn remember_debug(&mut self, run: DebugRun) {
+        if run.cmd.trim().is_empty() {
+            return;
+        }
+        self.debug_history.retain(|r| *r != run);
+        self.debug_history.insert(0, run);
+        self.debug_history.truncate(80);
+    }
+
     /// Most recent first, without duplicates, bounded.
     pub fn remember(list: &mut Vec<String>, value: &str) {
         let v = value.trim();

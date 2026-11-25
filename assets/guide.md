@@ -386,7 +386,14 @@ pour Python, **dlv** pour Go, **lldb-dap** ou **gdb** (14 ou plus) pour Rust, C 
 
 - **Point d'arrêt** : un clic dans la colonne à gauche des numéros de ligne (un point rouge pâle
   la montre au survol), ou **F9** sur la ligne. Ils suivent les lignes quand le texte change.
-- **F5** lance ce qui est choisi dans la vue **Débogueur** (panneau du bas) : le **fichier
+- **Une commande, comme dans un terminal** : dans la vue **Débogueur**, choisis **Commande**, tape
+  la ligne qui lance ton programme (`./odoo-bin -d ma_base -u mon_module`, `python -m flask run`,
+  `pytest tests/test_a.py`, `go run .`, `./mon_programme --port 8000`, des variables devant comme
+  `PGHOST=db ./odoo-bin …`) et son **dossier** (vide : le projet), puis **Entrée** ou **F5**. Florm
+  choisit le débogueur d'après la commande. Chaque commande lancée reste dans **🕘**, par projet ;
+  la dernière revient à la réouverture. Une commande enveloppée (`make`, `docker`…) ne se débogue
+  pas directement : lance le programme avec `debugpy --listen` et attache-toi (voir plus bas).
+- **F5** lance ce qui est choisi dans la vue **Débogueur** (panneau du bas) : la **commande**, le **fichier
   ouvert**, le **test sous le curseur** (pytest, go test, cargo test ; aussi « Débogueur : déboguer
   le test sous le curseur » dans la palette) ou une configuration du projet. Les fichiers modifiés
   sont enregistrés avant. Rust : `cargo build` d'abord, puis le binaire du paquet.

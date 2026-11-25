@@ -394,6 +394,121 @@ pub fn cargo_test_executable(cwd: &Path, filter: &[String]) -> Result<PathBuf, S
     Err(format!("cargo test --no-run : {}", String::from_utf8_lossy(&out.stderr).lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("")))
 }
 
+/// A Python interpreter named like one: `python`, `python3`, `python3.12`, `.venv/bin/python`.
+fn is_python(word: &str) -> bool {
+    let name = Path::new(word).file_name().and_then(|n| n.to_str()).unwrap_or("").trim_end_matches(".exe");
+    name == "python" || name.strip_prefix("python").is_some_and(|v| !v.is_empty() && v.chars().all(|c| c.is_ascii_digit() || c == '.'))
+}
+
+/// `word` in `dir` when it is a path (`./odoo-bin`, `bin/x`), else as typed (looked for in the PATH).
+fn resolve(word: &str, dir: &Path) -> String {
+    if word.contains('/') || word.contains('\\') {
+        let p = Path::new(word);
+        let p = if p.is_absolute() { p.to_path_buf() } else { dir.join(p) };
+        p.display().to_string()
+    } else {
+        word.to_string()
+    }
+}
+
+/// The first line of the file says it is a Python script (`#!/usr/bin/env python3`).
+fn python_script(path: &Path) -> bool {
+    let Ok(f) = std::fs::File::open(path) else { return false };
+    let mut first = String::new();
+    let _ = std::io::BufRead::read_line(&mut std::io::BufReader::new(f).take(200), &mut first);
+    first.starts_with("#!") && first.contains("python")
+}
+
+/// The configuration that debugs a command line typed as in a terminal, run in `dir`:
+/// `./odoo-bin -d test -u sale`, `python -m flask run`, `pytest tests/x.py`, `PGHOST=db python a.py`,
+/// `go run .`, `go test ./pkg -run TestX`, `./target/debug/app --port 8000`. Err: why it cannot.
+pub fn from_command(cmd: &str, dir: &Path) -> Result<LaunchCfg, String> {
+    let mut words = crate::test_cmd::split(cmd);
+    let mut env = BTreeMap::new();
+    // the variables in front (`PGHOST=db ./odoo-bin`)
+    while let Some(w) = words.first() {
+        match w.split_once('=') {
+            Some((k, v)) if !k.is_empty() && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') && !k.starts_with(|c: char| c.is_ascii_digit()) => {
+                env.insert(k.to_string(), v.to_string());
+                words.remove(0);
+            }
+            _ => break,
+        }
+    }
+    let Some(first) = words.first().cloned() else { return Err(t!("Tape la commande qui lance le programme", "Type the command that starts the program").into()) };
+    let rest: Vec<String> = words[1..].to_vec();
+    let base = LaunchCfg { name: cmd.trim().to_string(), cwd: dir.display().to_string(), env, ..Default::default() };
+    let python = |interpreter: Option<String>, mut cfg: LaunchCfg| {
+        cfg.adapter = "python".into();
+        if let Some(py) = interpreter {
+            cfg.extra.insert("python".into(), Value::String(py));
+        }
+        cfg
+    };
+    let name = Path::new(&first).file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+    if is_python(&first) {
+        let interpreter = Some(resolve(&first, dir));
+        // the options of Python itself (-u, -X dev) are left out
+        let mut it = rest.into_iter().skip_while(|a| a.starts_with('-') && a != "-m");
+        return match it.next() {
+            Some(m) if m == "-m" => {
+                let module = it.next().ok_or_else(|| t!("python -m : le module manque", "python -m: the module is missing").to_string())?;
+                Ok(python(interpreter, LaunchCfg { module, args: it.collect(), ..base }))
+            }
+            Some(script) => Ok(python(interpreter, LaunchCfg { program: resolve(&script, dir), args: it.collect(), ..base })),
+            None => Err(t!("Quel script Python lancer ? (python script.py, python -m module)", "Which Python script to run? (python script.py, python -m module)").into()),
+        };
+    }
+    if name == "pytest" || name == "py.test" {
+        // a pytest of a virtual environment: the Python next to it
+        let interpreter = (first.contains('/') || first.contains('\\')).then(|| Path::new(&resolve(&first, dir)).with_file_name(if cfg!(windows) { "python.exe" } else { "python" })).filter(|p| p.is_file()).map(|p| p.display().to_string());
+        return Ok(python(interpreter, LaunchCfg { module: "pytest".into(), args: rest, ..base }));
+    }
+    if name == "go" {
+        let mut extra = serde_json::Map::new();
+        return match rest.first().map(String::as_str) {
+            Some("run") => {
+                let target = rest.get(1).cloned().unwrap_or_else(|| ".".into());
+                extra.insert("mode".into(), "debug".into());
+                Ok(LaunchCfg { adapter: "go".into(), program: resolve(&target, dir), args: rest[2.min(rest.len())..].to_vec(), extra, ..base })
+            }
+            Some("test") => {
+                // its flags become those of the test binary (-run X -> -test.run X)
+                let mut target = None;
+                let mut args = Vec::new();
+                let mut it = rest[1..].iter();
+                while let Some(a) = it.next() {
+                    match a.as_str() {
+                        "-run" | "-count" | "-timeout" => {
+                            args.push(format!("-test.{}", &a[1..]));
+                            args.extend(it.next().cloned());
+                        }
+                        "-v" => args.push("-test.v".into()),
+                        a if !a.starts_with('-') && target.is_none() => target = Some(a.to_string()),
+                        _ => {}
+                    }
+                }
+                extra.insert("mode".into(), "test".into());
+                Ok(LaunchCfg { adapter: "go".into(), program: resolve(&target.unwrap_or_else(|| ".".into()), dir), args, extra, ..base })
+            }
+            _ => Err(t!("go : seulement go run et go test se déboguent", "go: only go run and go test can be debugged").into()),
+        };
+    }
+    let path = Path::new(&resolve(&first, dir)).to_path_buf();
+    let found = if path.is_file() { Some(path.clone()) } else { crate::lsp::in_path(&first) };
+    match found {
+        // a Python script (odoo-bin, manage.py): run by the Python of the project
+        Some(p) if p.extension().is_some_and(|e| e == "py") || python_script(&p) => Ok(python(None, LaunchCfg { program: p.display().to_string(), args: rest, ..base })),
+        Some(p) if !matches!(name.as_str(), "make" | "docker" | "docker-compose" | "npm" | "npx" | "yarn" | "sh" | "bash" | "cargo") => {
+            Ok(LaunchCfg { adapter: "native".into(), program: p.display().to_string(), args: rest, ..base })
+        }
+        _ => Err(tf!(
+            "Florm ne sait pas déboguer « {name} » : une commande Python, go run / go test ou un programme compilé. Pour un programme lancé autrement (make, docker…), démarre-le avec debugpy --listen et attache-toi (.florm/debug.toml).",
+            "Florm cannot debug “{name}”: a Python command, go run / go test or a compiled program. For a program started otherwise (make, docker…), start it with debugpy --listen and attach to it (.florm/debug.toml)."
+        )),
+    }
+}
+
 /// Runs `cmd` (a `build` of a configuration) in `cwd`: its output when it failed.
 pub fn run_build(cmd: &str, cwd: &Path) -> Result<(), String> {
     let argv = crate::test_cmd::split(cmd);
@@ -480,6 +595,34 @@ mod tests {
         assert!(names.iter().any(|n| n == var), "{names:?}");
         s.request("continue", json!({"threadId": thread}));
         wait_for(&rx, |m| matches!(m, Msg::Event { event, .. } if event == "terminated" || event == "exited").then_some(()));
+    }
+
+    /// Command lines typed as in a terminal, read into configurations.
+    #[test]
+    fn commands_typed_as_in_a_terminal() {
+        let dir = std::env::temp_dir().join(format!("florm_dap_cmd_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("odoo-bin"), "#!/usr/bin/env python3\nimport odoo\n").unwrap();
+        let c = from_command("PGHOST=db ./odoo-bin -d test -u sale_stock", &dir).unwrap();
+        assert_eq!((c.adapter.as_str(), c.args.as_slice(), c.env.get("PGHOST").map(String::as_str)), ("python", &["-d", "test", "-u", "sale_stock"].map(String::from)[..], Some("db")));
+        assert_eq!(c.program, dir.join("./odoo-bin").display().to_string());
+        let c = from_command(".venv/bin/python -u -m flask run --debug", &dir).unwrap();
+        assert_eq!((c.module.as_str(), c.args.as_slice()), ("flask", &["run", "--debug"].map(String::from)[..]));
+        assert_eq!(c.extra["python"], json!(dir.join(".venv/bin/python").display().to_string()));
+        let c = from_command("python3 manage.py runserver", &dir).unwrap();
+        assert!(c.program.ends_with("manage.py") && c.args == ["runserver"]);
+        let c = from_command("pytest tests/test_a.py::test_x -x", &dir).unwrap();
+        assert_eq!((c.module.as_str(), c.args.len()), ("pytest", 2));
+        let c = from_command("go test ./pkg -run TestX -v", &dir).unwrap();
+        assert_eq!((c.extra["mode"].as_str(), c.args.as_slice()), (Some("test"), &["-test.run", "TestX", "-test.v"].map(String::from)[..]));
+        assert!(c.program.ends_with("pkg"));
+        let c = from_command("go run . --port 8000", &dir).unwrap();
+        assert_eq!((c.extra["mode"].as_str(), c.args.as_slice()), (Some("debug"), &["--port", "8000"].map(String::from)[..]));
+        // a compiled program (here: a file of the folder); what cannot be read says so
+        std::fs::write(dir.join("app"), "\x7fELF").unwrap();
+        assert_eq!(from_command("./app --x", &dir).unwrap().adapter, "native");
+        assert!(from_command("make run", &dir).is_err() && from_command("  ", &dir).is_err() && from_command("python", &dir).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// `cargo test -- --ignored`: Python with debugpy.

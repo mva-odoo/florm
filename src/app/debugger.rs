@@ -90,9 +90,14 @@ pub(super) struct DebugUi {
     console: Vec<(Line, String)>,
     input: String,
     reason: String,
-    /// The configuration chosen in the panel: "" the file, "test" the test under the cursor, else
-    /// the name of one of `.florm/debug.toml`.
+    /// The configuration chosen in the panel: "cmd" the command typed, "" the file, "test" the test
+    /// under the cursor, else the name of one of `.florm/debug.toml`.
     choice: String,
+    /// The command typed (as in a terminal) and the folder it runs in (relative to the project).
+    cmd: String,
+    cmd_dir: String,
+    /// The project whose last command was put in the fields.
+    cmd_for: Option<PathBuf>,
     /// `.florm/debug.toml` of the project, read when the panel shows or F5 is pressed.
     configs: Vec<LaunchCfg>,
     configs_err: Option<String>,
@@ -126,6 +131,9 @@ impl Default for DebugUi {
             input: String::new(),
             reason: String::new(),
             choice: String::new(),
+            cmd: String::new(),
+            cmd_dir: String::new(),
+            cmd_for: None,
             configs: Vec::new(),
             configs_err: None,
             saved: HashMap::new(),
@@ -462,6 +470,50 @@ impl App {
         Ok((cfg, path))
     }
 
+    /// The folder of the command: the field, relative to the project (empty: the project).
+    fn debug_cmd_dir(&self) -> PathBuf {
+        let root = self.root.clone().unwrap_or_else(|| PathBuf::from("."));
+        let d = self.debug.cmd_dir.trim();
+        if d.is_empty() || d == "." {
+            root
+        } else if Path::new(d).is_absolute() {
+            PathBuf::from(d)
+        } else {
+            root.join(d)
+        }
+    }
+
+    /// The command typed, read into a configuration and kept in the history of the project.
+    fn debug_command_config(&mut self) -> Result<LaunchCfg, String> {
+        let dir = self.debug_cmd_dir();
+        let cfg = dap::from_command(&self.debug.cmd, &dir)?;
+        let project = self.root.as_ref().map(|r| r.display().to_string()).unwrap_or_default();
+        self.state.remember_debug(project::DebugRun { cmd: self.debug.cmd.trim().to_string(), dir: self.debug.cmd_dir.trim().to_string(), project });
+        project::save_state(&self.state);
+        Ok(cfg)
+    }
+
+    /// The commands of the history run in this project: (command, folder), the last first.
+    fn debug_history(&self) -> Vec<(String, String)> {
+        let project = self.root.as_ref().map(|r| r.display().to_string()).unwrap_or_default();
+        self.state.debug_history.iter().filter(|r| r.project == project).map(|r| (r.cmd.clone(), r.dir.clone())).collect()
+    }
+
+    /// Once per project: its last command in the fields, chosen when there is one.
+    fn debug_prefill(&mut self) {
+        if self.debug.cmd_for == self.root {
+            return;
+        }
+        self.debug.cmd_for = self.root.clone();
+        match self.debug_history().into_iter().next() {
+            Some((cmd, dir)) => {
+                (self.debug.cmd, self.debug.cmd_dir) = (cmd, dir);
+                self.debug.choice = "cmd".into();
+            }
+            None => (self.debug.cmd, self.debug.cmd_dir) = (String::new(), String::new()),
+        }
+    }
+
     /// The configuration of the test under the cursor (pytest, go test, cargo test).
     fn debug_test_config(&self) -> Result<(LaunchCfg, PathBuf), String> {
         let d = self.docs.get(self.active).ok_or("")?;
@@ -566,8 +618,10 @@ impl App {
             Phase::Running | Phase::Starting => self.set_status(t!("Le débogueur tourne déjà (Maj+F5 pour l'arrêter)", "The debugger is already running (Shift+F5 to stop it)")),
             Phase::Idle => {
                 self.debug_read_configs();
+                self.debug_prefill();
                 let choice = self.debug.choice.clone();
                 let r = match choice.as_str() {
+                    "cmd" => self.debug_command_config().map(|c| (c, self.docs.get(self.active).and_then(|d| d.path.clone()))),
                     "" => self.debug_file_config().map(|(c, f)| (c, Some(f))),
                     "test" => self.debug_test_config().map(|(c, f)| (c, Some(f))),
                     name => match self.debug.configs.iter().find(|c| c.name == name).cloned() {
@@ -723,6 +777,12 @@ mod tests {
         app.open_path(file.clone());
         let i = app.active;
         app.docs[i].toggle_breakpoint(2);
+        // started by a command typed as in a terminal (an empty one first: said, not started)
+        app.debug.cmd_for = app.root.clone();
+        app.debug.choice = "cmd".into();
+        app.debug_command(Cmd::DebugStart);
+        assert!(app.debug.session.is_none() && app.debug.phase == Phase::Idle);
+        app.debug.cmd = "python3 prog.py".into();
         let pump = |app: &mut App, until: &dyn Fn(&App) -> bool| {
             let t = Instant::now();
             while !until(app) {
@@ -742,6 +802,42 @@ mod tests {
         app.debug_command(Cmd::DebugStart);
         pump(&mut app, &|a| a.debug.session.is_none());
         assert!(app.debug.console.iter().any(|(_, l)| l == "42"), "{:?}", app.debug.console);
+        assert_eq!(app.debug_history(), [("python3 prog.py".to_string(), String::new())]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The commands run stay in the history of their project: the last one is in the fields
+    /// when the project opens again, the commands of another project are not shown.
+    #[test]
+    fn commands_are_remembered_per_project() {
+        let dir = std::env::temp_dir().join(format!("florm_debug_hist_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (a, b) = (dir.join("a"), dir.join("b"));
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        std::fs::write(a.join("odoo-bin"), "#!/usr/bin/env python3\n").unwrap();
+        std::fs::write(dir.join("settings.toml"), "check_updates = false\nlsp = false\n").unwrap();
+        let _lock = config::TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("FLORM_CONFIG", &dir);
+        let ctx = egui::Context::default();
+        let mut app = App::with_ctx(&ctx, Some(a.clone()));
+        app.debug_prefill();
+        assert!(app.debug.cmd.is_empty());
+        for c in ["./odoo-bin -d test -u sale", "./odoo-bin -d test -u stock"] {
+            app.debug.cmd = c.into();
+            let cfg = app.debug_command_config().unwrap();
+            assert_eq!(cfg.adapter, "python");
+        }
+        // another project: not its commands
+        app.root = Some(b.clone());
+        app.debug_prefill();
+        assert!(app.debug.cmd.is_empty() && app.debug_history().is_empty());
+        // back (as after a restart: the state read again from the disk)
+        app.state = project::load_state();
+        app.root = Some(a.clone());
+        app.debug_prefill();
+        assert_eq!((app.debug.cmd.as_str(), app.debug.choice.as_str()), ("./odoo-bin -d test -u stock", "cmd"));
+        assert_eq!(app.debug_history().len(), 2);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

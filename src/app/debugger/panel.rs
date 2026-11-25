@@ -7,6 +7,8 @@ use super::*;
 enum Act {
     Cmd(Cmd),
     Choose(String),
+    /// A command of the history picked: (command, folder).
+    Recall(String, String),
     Frame(usize),
     Toggle(i64),
     Evaluate(String),
@@ -22,35 +24,41 @@ impl App {
                 self.debug.configs_err = Some(String::new());
             }
         }
+        self.debug_prefill();
+        let history = self.debug_history();
         let mut act: Option<Act> = None;
         let accent = self.hl.colors.accent;
         let keys = |c: Cmd| self.keymap.label(c);
-        // the field of the console, out of the state while it is drawn
+        // the fields (console, command), out of the state while they are drawn
         let mut input = std::mem::take(&mut self.debug.input);
+        let mut cmd = std::mem::take(&mut self.debug.cmd);
+        let mut cmd_dir = std::mem::take(&mut self.debug.cmd_dir);
         let d = &self.debug;
         // --- the bar: what to run, the buttons, where it is
         ui.horizontal(|ui| {
-            let mut labels: Vec<String> = vec![t!("Fichier ouvert", "Open file").into(), t!("Test sous le curseur", "Test under the cursor").into()];
+            let mut labels: Vec<String> = vec![t!("Commande", "Command").into(), t!("Fichier ouvert", "Open file").into(), t!("Test sous le curseur", "Test under the cursor").into()];
             labels.extend(d.configs.iter().map(|c| c.name.clone()));
             labels.push(t!("⚙ Modifier .florm/debug.toml…", "⚙ Edit .florm/debug.toml…").into());
             let current = match d.choice.as_str() {
-                "" => 0,
-                "test" => 1,
-                n => d.configs.iter().position(|c| c.name == n).map_or(0, |k| k + 2),
+                "cmd" => 0,
+                "" => 1,
+                "test" => 2,
+                n => d.configs.iter().position(|c| c.name == n).map_or(1, |k| k + 3),
             };
             let enabled = d.phase == Phase::Idle;
             ui.add_enabled_ui(enabled, |ui| {
                 if let Some(k) = crate::pick::combo(ui, "debug_choice", RichText::new(&labels[current]), &labels, Some(current)) {
                     act = Some(match k {
-                        0 => Act::Choose(String::new()),
-                        1 => Act::Choose("test".into()),
+                        0 => Act::Choose("cmd".into()),
+                        1 => Act::Choose(String::new()),
+                        2 => Act::Choose("test".into()),
                         k if k == labels.len() - 1 => Act::Cmd(Cmd::DebugConfigs),
-                        k => Act::Choose(d.configs[k - 2].name.clone()),
+                        k => Act::Choose(d.configs[k - 3].name.clone()),
                     });
                 }
             })
             .response
-            .on_hover_text(t!("Ce que F5 lance : le fichier ouvert, le test sous le curseur, ou une configuration du projet (.florm/debug.toml)", "What F5 starts: the open file, the test under the cursor, or a configuration of the project (.florm/debug.toml)"));
+            .on_hover_text(t!("Ce que F5 lance : une commande tapée comme dans un terminal, le fichier ouvert, le test sous le curseur, ou une configuration du projet (.florm/debug.toml)", "What F5 starts: a command typed as in a terminal, the open file, the test under the cursor, or a configuration of the project (.florm/debug.toml)"));
             let stopped = d.phase == Phase::Stopped;
             let running = d.phase == Phase::Running;
             let mut button = |ui: &mut egui::Ui, text: &str, on: bool, tip: String, cmd: Cmd| {
@@ -90,12 +98,42 @@ impl App {
                 ui.label(RichText::new(format!("⚠ {e}")).small().color(err()));
             }
         });
+        // --- the command, as in a terminal: its folder, the line, its history
+        if d.choice == "cmd" {
+            ui.add_enabled_ui(d.phase == Phase::Idle, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(t!("Dossier", "Folder")).small().weak());
+                    ui.add(egui::TextEdit::singleline(&mut cmd_dir).desired_width(130.0).font(egui::TextStyle::Monospace).hint_text("."))
+                        .on_hover_text(t!("Où la commande est lancée, depuis le dossier du projet (vide : le projet)", "Where the command runs, from the folder of the project (empty: the project)"));
+                    let mut picked = String::new();
+                    let cmds: Vec<String> = history.iter().map(|(c, _)| c.clone()).collect();
+                    if crate::app::history_menu(ui, &cmds, &mut picked, t!("Commandes récentes", "Recent commands")) {
+                        if let Some((c, dir)) = history.iter().find(|(c, _)| *c == picked) {
+                            act = Some(Act::Recall(c.clone(), dir.clone()));
+                        }
+                    }
+                    let r = ui.add(
+                        egui::TextEdit::singleline(&mut cmd)
+                            .desired_width(f32::INFINITY)
+                            .font(egui::TextStyle::Monospace)
+                            .hint_text(t!("./odoo-bin -d ma_base -u mon_module   (Entrée ou F5)", "./odoo-bin -d my_db -u my_module   (Enter or F5)")),
+                    );
+                    let r = r.on_hover_text(t!("Comme dans un terminal : python script.py, python -m module, pytest …, go run ., go test ./pkg -run X, ./mon_programme…, des variables devant (PGHOST=db ./odoo-bin …). Chaque commande lancée reste dans 🕘.", "As in a terminal: python script.py, python -m module, pytest …, go run ., go test ./pkg -run X, ./my_program…, variables in front (PGHOST=db ./odoo-bin …). Each command run stays in 🕘."));
+                    if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !cmd.trim().is_empty() {
+                        act = Some(Act::Cmd(Cmd::DebugStart));
+                    }
+                });
+            });
+        }
         ui.separator();
+        // the three parts on the editor's background (white with a light theme)
+        let fill = ui.visuals().extreme_bg_color;
+        let part = |m: egui::Margin| egui::Frame::none().fill(fill).rounding(6.0).inner_margin(m);
         // --- the stack on the left, the console on the right, the variables in the middle (each
         // side 40 % at most: the variables keep room in a narrow window)
         let id = ui.id();
         let side_max = (ui.available_width() * 0.4).max(100.0);
-        egui::SidePanel::left(id.with("debug_stack")).resizable(true).default_width((ui.available_width() * 0.25).min(260.0)).width_range(90.0..=side_max).frame(egui::Frame::none().inner_margin(egui::Margin { right: 6.0, ..Default::default() })).show_inside(ui, |ui| {
+        egui::SidePanel::left(id.with("debug_stack")).resizable(true).default_width((ui.available_width() * 0.25).min(260.0)).width_range(90.0..=side_max).show_separator_line(false).frame(part(egui::Margin::same(8.0))).show_inside(ui, |ui| {
             ui.label(RichText::new(t!("PILE D'APPELS", "CALL STACK")).small().strong().color(ui.visuals().weak_text_color()));
             egui::ScrollArea::vertical().id_salt("debug_stack_scroll").auto_shrink([false, false]).show(ui, |ui| {
                 if d.frames.is_empty() {
@@ -116,7 +154,7 @@ impl App {
                 }
             });
         });
-        egui::SidePanel::right(id.with("debug_console")).resizable(true).default_width((ui.available_width() * 0.35).min(420.0)).width_range(90.0..=side_max).frame(egui::Frame::none().inner_margin(egui::Margin { left: 6.0, ..Default::default() })).show_inside(ui, |ui| {
+        egui::SidePanel::right(id.with("debug_console")).resizable(true).default_width((ui.available_width() * 0.35).min(420.0)).width_range(90.0..=side_max).show_separator_line(false).frame(part(egui::Margin::same(8.0))).show_inside(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(RichText::new(t!("CONSOLE", "CONSOLE")).small().strong().color(ui.visuals().weak_text_color()));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -148,7 +186,8 @@ impl App {
                 }
             });
         });
-        egui::CentralPanel::default().frame(egui::Frame::none().inner_margin(egui::Margin::symmetric(6.0, 0.0))).show_inside(ui, |ui| {
+        // a gap on each side of the variables, between the three white parts
+        egui::CentralPanel::default().frame(egui::Frame::none().outer_margin(egui::Margin::symmetric(6.0, 0.0)).fill(fill).rounding(6.0).inner_margin(egui::Margin::same(8.0))).show_inside(ui, |ui| {
             ui.label(RichText::new(t!("VARIABLES", "VARIABLES")).small().strong().color(ui.visuals().weak_text_color()));
             egui::ScrollArea::both().id_salt("debug_vars_scroll").auto_shrink([false, false]).show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 1.0;
@@ -168,8 +207,14 @@ impl App {
             });
         });
         self.debug.input = input;
+        self.debug.cmd = cmd;
+        self.debug.cmd_dir = cmd_dir;
         let Some(a) = act else { return };
         match a {
+            Act::Recall(c, dir) => {
+                self.debug.cmd = c;
+                self.debug.cmd_dir = dir;
+            }
             Act::Cmd(c) => self.debug_command(c),
             Act::Choose(c) => self.debug.choice = c,
             Act::Frame(k) => self.debug_select_frame(k),
@@ -245,6 +290,9 @@ mod tests {
         d.vars.insert(7, vec![Var { name: "total".into(), value: "42".into(), kind: "int".into(), reference: 0 }, Var { name: "items".into(), value: "[1, 2]".into(), kind: "list".into(), reference: 8 }]);
         d.vars.insert(8, vec![Var { name: "0".into(), value: "1".into(), kind: "int".into(), reference: 0 }]);
         d.log(Line::Out, "hello\nworld");
+        d.cmd_for = app.root.clone();
+        d.choice = "cmd".into();
+        d.cmd = "./odoo-bin -d test".into();
         for w in [500.0, 1600.0] {
             let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(w, 400.0));
             let mut texts = String::new();
@@ -265,7 +313,7 @@ mod tests {
                 texts.clear();
                 out.shapes.iter().for_each(|c| walk(&c.shape, &mut texts));
             }
-            for want in ["PILE D'APPELS", "prog.py:3", "total = 42", "items = [1, 2]", "0 = 1", "hello", "world", "point d'arrêt"] {
+            for want in ["PILE D'APPELS", "prog.py:3", "total = 42", "items = [1, 2]", "0 = 1", "hello", "world", "point d'arrêt", "Commande", "Dossier", "./odoo-bin -d test"] {
                 assert!(texts.contains(want), "{w}: {want} in {texts}");
             }
         }
