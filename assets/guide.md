@@ -15,6 +15,7 @@ Tous les raccourcis se changent dans **Préférences → Raccourcis** (Ctrl+,).
 | **Ctrl+R** | Aller à une classe, une fonction du fichier |
 | **Ctrl+O** / **Ctrl+Shift+S** | Ouvrir / enregistrer sous : **Tab complète le chemin** comme dans un terminal |
 | **F12** | Aller à la définition |
+| **Ctrl + souris sur un nom** | Le nom souligné comme un lien et la liste de ses définitions dans le projet (un clic y va) ; sans Ctrl, le survol ne montre que la documentation et les erreurs |
 | **Ctrl+.** | Corrections rapides du problème sous le curseur (aussi l'ampoule en bout de ligne) : importer un nom du projet, ignorer (`# noqa`), `ruff --fix`, corriger avec Claude, et les corrections du serveur de langage dans tous les langages (importer un nom en Go, Rust, TypeScript…), en tête de liste ; le curseur peut être n'importe où sur la ligne |
 | **Alt+Z** | Retour à la ligne automatique des lignes trop longues (l'affichage seulement ; ↑ ↓ suivent les rangées) |
 | **Maj+F12** | Les usages du symbole (serveur de langage, sinon le mot entier dans le dossier) |

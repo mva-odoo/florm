@@ -15,6 +15,7 @@ Every shortcut can be changed in **Preferences → Shortcuts** (Ctrl+,).
 | **Ctrl+R** | Go to a class, a function of the file |
 | **Ctrl+O** / **Ctrl+Shift+S** | Open / save as: **Tab completes the path** like in a terminal |
 | **F12** | Go to definition |
+| **Ctrl + mouse over a name** | The name underlined like a link and the list of its definitions in the project (a click goes there); without Ctrl, hovering only shows the documentation and the errors |
 | **Ctrl+.** | Quick fixes for the problem under the cursor (also the light bulb at the end of the line): import a name of the project, ignore (`# noqa`), `ruff --fix`, fix with Claude, and the fixes of the language server in every language (import a name in Go, Rust, TypeScript…), at the top of the list; the cursor can be anywhere on the line |
 | **Alt+Z** | Word wrap of the lines that are too long (display only; ↑ ↓ follow the rows) |
 | **Shift+F12** | Usages of the symbol (language server, else the whole word in the folder) |

@@ -456,6 +456,8 @@ fn text_area(
         let (pressed, middle_pressed) = (pressed && !on_sticky, middle_pressed && !on_sticky);
         // the popup of the definitions of the hovered symbol, opened this frame: (where, text above them)
         let mut defs_popup: Option<(TipAt, String)> = None;
+        // the symbol under the pointer with Ctrl held, underlined like a link (drawn over the text)
+        let mut link_line: Option<(Pos2, Pos2)> = None;
         // the mouse has not moved since the text changed: no tooltip over what is being typed
         let typed_id = id.with("hover_version");
         if ui.ctx().input(|i| i.pointer.delta() != egui::Vec2::ZERO) {
@@ -610,20 +612,28 @@ fn text_area(
                         }
                         tip.push_str(info);
                     }
-                    // the symbol is defined in the project: a popup the mouse can go into, to click
+                    // the symbol is defined in the project: with Ctrl held (as in Sublime, VS Code),
+                    // underlined like a link, and a popup of its definitions the mouse can go into
                     let ready = doc.hover_info.as_ref().is_some_and(|(r, _)| Some(*r) == doc.hover_word);
                     let has_defs = doc.hover_defs.as_ref().is_some_and(|(r, d, _)| Some(*r) == doc.hover_word && !d.is_empty());
+                    let ctrl = ui.ctx().input(|i| i.modifiers.command);
+                    let place = at;
                     let at = tip_at(p.x, origin.y + ((p.y - origin.y) / rh).floor() * rh, rh, l, caret);
                     if typing {
                         // nothing until the mouse moves again
-                    } else if ready && has_defs {
-                        let delay = ui.style().interaction.tooltip_delay;
-                        let still = ui.ctx().input(|i| i.pointer.time_since_last_movement());
-                        if still < delay {
-                            ui.ctx().request_repaint_after(std::time::Duration::from_secs_f32(delay - still + 0.01));
-                        } else {
-                            defs_popup = Some((at, tip));
+                    } else if ready && has_defs && ctrl {
+                        ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+                        if let Some((a, b)) = doc.hover_word {
+                            let (la, lb) = (doc.rope.char_to_line(a), doc.rope.char_to_line(b));
+                            if la == lb {
+                                let ls = doc.rope.line_to_char(la);
+                                let (pa, pb) = (place(la, doc.vcol(la, a - ls)), place(la, doc.vcol(la, b - ls)));
+                                if (pa.y - pb.y).abs() < 1.0 {
+                                    link_line = Some((Pos2::new(pa.x, pa.y + rh - 2.0), Pos2::new(pb.x, pa.y + rh - 2.0)));
+                                }
+                            }
                         }
+                        defs_popup = Some((at, tip));
                     } else if !tip.is_empty() {
                         tooltip_by_line(ui, &resp, at, tip);
                     }
@@ -1071,6 +1081,10 @@ fn text_area(
             if !mesh.is_empty() {
                 painter.add(Shape::mesh(mesh));
             }
+        }
+
+        if let Some((a, b)) = link_line {
+            painter.line_segment([a, b], Stroke::new(1.0_f32, c.accent));
         }
 
         // inline blame at the end of its line
@@ -1709,6 +1723,54 @@ mod tests {
         doc.blame_commit = None;
         frame(&mut doc, Some(r.center()));
         assert!(doc.blame_hover.is_none());
+    }
+
+    /// The definitions of a symbol open only with Ctrl held over it (as in Sublime), not on a plain
+    /// hover, however long the mouse stays.
+    #[test]
+    fn definitions_only_with_ctrl() {
+        let ctx = egui::Context::default();
+        let hl = Highlighting::new("Florm", std::path::Path::new("/nonexistent"));
+        let mut doc = Document::from_text(1, "x = foo()\n", 4, true);
+        let opts = ViewOpts { font_size: 14.0, minimap: false, wrap: false, inline_diff: false, sticky: false, rulers: &[], notes: &[], tests: &[], rainbow: false, whitespace: false, debug: false, exec_line: None, blame_gutter: false };
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 400.0));
+        let id = Id::new("ed");
+        let frame = |doc: &mut Document, time: f64, pointer: Option<Pos2>, ctrl: bool| {
+            let events = pointer.map(|p| vec![egui::Event::PointerMoved(p)]).unwrap_or_default();
+            let modifiers = if ctrl { egui::Modifiers::COMMAND } else { egui::Modifiers::NONE };
+            let out = ctx.run(egui::RawInput { screen_rect: Some(screen), time: Some(time), events, modifiers, ..Default::default() }, |ctx| {
+                egui::CentralPanel::default().frame(egui::Frame::none()).show(ctx, |ui| show(ui, doc, &hl, &opts, &[], id));
+            });
+            let mut line = None;
+            fn walk(s: &egui::Shape, out: &mut Option<Rect>) {
+                match s {
+                    egui::Shape::Text(t) if t.galley.text().starts_with("x = foo") => *out = Some(t.galley.rect.translate(t.pos.to_vec2())),
+                    egui::Shape::Vec(v) => v.iter().for_each(|x| walk(x, out)),
+                    _ => {}
+                }
+            }
+            out.shapes.iter().for_each(|c| walk(&c.shape, &mut line));
+            line
+        };
+        frame(&mut doc, 0.0, None, false);
+        let r = frame(&mut doc, 0.1, None, false).expect("the line drawn");
+        let cw = r.width() / "x = foo()".chars().count() as f32;
+        let on_foo = Pos2::new(r.left() + 5.5 * cw, r.center().y);
+        // what the app looked up for the word under the pointer
+        let word = (4, 7);
+        doc.hover_info = Some((word, String::new()));
+        doc.hover_defs = Some((word, vec![(PathBuf::from("/p/a.py"), 3, "def foo".into(), "a.py:4".into())], 0));
+        let shown = |ctx: &egui::Context| ctx.data(|d| d.get_temp::<DefsPopup>(id.with("defs_popup"))).is_some();
+        // the mouse moves a little over the word (a pointer that never moved shows nothing)
+        let wiggle = |k: usize| on_foo + egui::vec2((k % 2) as f32, 0.0);
+        for k in 0..6 {
+            frame(&mut doc, 0.2 + k as f64 * 0.5, Some(wiggle(k)), false);
+        }
+        assert_eq!(doc.hover_word, Some(word));
+        assert!(!shown(&ctx), "no popup without Ctrl");
+        frame(&mut doc, 4.0, Some(wiggle(1)), true);
+        frame(&mut doc, 4.1, Some(wiggle(2)), true);
+        assert!(shown(&ctx), "Ctrl over the word: its definitions");
     }
 
     #[test]
