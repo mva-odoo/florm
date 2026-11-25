@@ -336,16 +336,15 @@ impl App {
         let checked_out = self.pr_checked_out();
         let repo_name = self.pr.repo.as_deref().map(|r| self.repo_label(r)).unwrap_or_default();
         let repo_choices: Vec<(PathBuf, String)> = self.repos.iter().map(|r| (r.clone(), self.repo_label(r))).collect();
-        let fill = ui.visuals().panel_fill;
         let p = &mut self.pr;
         let cache = &mut self.md_cache;
 
         // ------------------------------------------------ filters
-        egui::TopBottomPanel::top("pr_bar")
-            .frame(egui::Frame::none().fill(fill).inner_margin(egui::Margin { left: 10.0, right: 10.0, top: 8.0, bottom: 6.0 }))
+        crate::view_bar::header("pr_bar", ui)
             .show_inside(ui, |ui| {
                 ui.horizontal(|ui| {
                     crate::view_bar::title(ui, "Pull requests");
+                    crate::view_bar::sep(ui);
                     let labels: Vec<String> = repo_choices.iter().map(|(_, l)| l.clone()).collect();
                     let current = repo_choices.iter().position(|(r, _)| p.repo.as_ref() == Some(r));
                     if let Some(k) = crate::view_bar::repo_chip(ui, "pr_repo", &repo_name, &labels, current).filter(|k| Some(*k) != current) {
@@ -440,7 +439,7 @@ impl App {
             }
             Some("detail") => {}
             _ => {
-                egui::SidePanel::left("pr_list").resizable(true).default_width(380.0).width_range(240.0..=700.0).show_inside(ui, |ui| {
+                egui::SidePanel::left("pr_list").frame(crate::app::work_side(ui)).resizable(true).default_width(380.0).width_range(240.0..=700.0).show_inside(ui, |ui| {
                     list_ui(ui);
                     if shown {
                         maximize::corner(ui, view, "list");
@@ -565,7 +564,7 @@ impl App {
                 match p.section {
                     PrSection::Conversation => {
                         // reviewers and assignees on the right, like on GitHub
-                        egui::SidePanel::right("pr_side").resizable(true).default_width(230.0).width_range(170.0..=420.0).show_inside(ui, |ui| {
+                        egui::SidePanel::right("pr_side").frame(crate::app::work_side(ui)).resizable(true).default_width(230.0).width_range(170.0..=420.0).show_inside(ui, |ui| {
                             egui::ScrollArea::vertical().id_salt("pr_side_scroll").auto_shrink([false, false]).show(ui, |ui| {
                                 side_info(ui, d);
                             });
@@ -664,6 +663,7 @@ impl App {
                         // the commits on top, the changes of the one chosen below
                         let avail = ui.available_height();
                         egui::TopBottomPanel::top("pr_commit_list")
+                            .frame(crate::app::work_side(ui))
                             .resizable(true)
                             .default_height((avail * 0.3).max(90.0))
                             .height_range(60.0..=(avail - 120.0).max(80.0))
@@ -991,7 +991,7 @@ fn diff_area(ui: &mut egui::Ui, id: &str, pd: &mut PrDiff, threads: &[github::Th
         }
         return None;
     };
-    egui::SidePanel::left(egui::Id::new(id).with("files")).resizable(true).default_width(300.0).width_range(180.0..=600.0).show_inside(ui, |ui| {
+    egui::SidePanel::left(egui::Id::new(id).with("files")).frame(crate::app::work_side(ui)).resizable(true).default_width(300.0).width_range(180.0..=600.0).show_inside(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 0.0;
         // only the rows in sight (a big pull request has hundreds of files)
         egui::ScrollArea::vertical().id_salt((id, "files_scroll")).auto_shrink([false, false]).show_rows(ui, 24.0, diff.files.len(), |ui, range| {

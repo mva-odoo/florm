@@ -212,8 +212,10 @@ impl App {
         rows.sort_by_key(|r| std::cmp::Reverse(r.id));
         let dark = ui.visuals().dark_mode;
         let mut act = None;
-        ui.add_space(6.0);
-        ui.horizontal(|ui| {
+        // its header as high as the bar of the conversation, a line under both
+        let size = egui::vec2(ui.available_width(), crate::app::TAB_STRIP_H);
+        ui.allocate_ui_with_layout(size, egui::Layout::left_to_right(egui::Align::Center), |ui| {
+            ui.set_min_size(size);
             ui.label(RichText::new(tf!("CONVERSATIONS ({})", "CONVERSATIONS ({})", rows.len())).small().strong().color(weak));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button("+").on_hover_text(t!("Nouvelle conversation : celle-ci continue dans la liste", "New conversation: this one goes on in the list")).clicked() {
@@ -221,7 +223,9 @@ impl App {
                 }
             });
         });
-        ui.add_space(4.0);
+        let line = ui.visuals().widgets.noninteractive.bg_stroke;
+        ui.painter().hline(ui.clip_rect().x_range(), ui.cursor().top() + 0.5, line);
+        ui.add_space(6.0);
         egui::ScrollArea::vertical().id_salt(("claude_list", hub)).auto_shrink([false, false]).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 2.0;
             for r in &rows {
@@ -245,7 +249,7 @@ impl App {
                 let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 48.0), Sense::click());
                 let v = ui.visuals();
                 if shown {
-                    ui.painter().rect_filled(rect, 6.0, crate::icons::mix(v.panel_fill, accent, 0.16));
+                    ui.painter().rect_filled(rect, 6.0, crate::icons::mix(v.extreme_bg_color, accent, 0.12));
                 } else if resp.hovered() {
                     ui.painter().rect_filled(rect, 6.0, v.widgets.hovered.weak_bg_fill);
                 }

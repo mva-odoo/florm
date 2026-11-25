@@ -369,11 +369,10 @@ impl Highlighting {
         let shadow = Color32::from_black_alpha(if light { 22 } else { 80 });
         v.window_shadow = egui::epaint::Shadow { offset: egui::vec2(0.0, 6.0), blur: 20.0, spread: 0.0, color: shadow };
         v.popup_shadow = egui::epaint::Shadow { offset: egui::vec2(0.0, 3.0), blur: 10.0, spread: 0.0, color: shadow };
-        // UI text a bit brighter than code text, for readability on panels.
-        // on light themes, pure black text looks bold with egui's rendering: a dark grey instead
-        // the text softness already lightens c.fg: no more fading on top, or menus and lists turn pale
-        let fade = (0.18 - self.softness).max(0.0);
-        let text = if light { mix(c.fg, c.bg, 0.06 + fade) } else { mix(c.fg, Color32::WHITE, 0.3) };
+        // UI text: on light themes the code's text color (a dark grey, not black: the text softness
+        // already lightens it), else panels and lists on white lack contrast; on dark themes a bit
+        // brighter than the code
+        let text = if light { c.fg } else { mix(c.fg, Color32::WHITE, 0.3) };
         v.widgets.noninteractive.bg_fill = v.panel_fill;
         v.widgets.noninteractive.weak_bg_fill = v.panel_fill;
         v.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, s.border); // separators: Zed's lines
@@ -392,7 +391,9 @@ impl Highlighting {
             w.rounding = Rounding::same(4.0);
             w.expansion = 0.0;
         }
-        v.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, mix(text, c.bg, (0.12 - self.softness / 2.0).max(0.0)));
+        if !light {
+            v.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, mix(text, c.bg, (0.12 - self.softness / 2.0).max(0.0)));
+        }
         v
     }
 

@@ -455,7 +455,7 @@ impl App {
         let mut open_file = None;
         let mut explain = false;
         if side {
-            egui::SidePanel::right(egui::Id::new("claude_session").with(c.id)).resizable(true).default_width(230.0).width_range(200.0..=420.0).show_inside(ui, |ui| {
+            egui::SidePanel::right(egui::Id::new("claude_session").with(c.id)).frame(crate::app::work_side(ui)).resizable(true).default_width(230.0).width_range(200.0..=420.0).show_inside(ui, |ui| {
                 (open_file, explain) = session::session_ui(ui, c, &dir_name, branch.as_deref(), limits, accent);
             });
         }
