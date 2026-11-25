@@ -992,9 +992,10 @@ fn diff_area(ui: &mut egui::Ui, id: &str, pd: &mut PrDiff, threads: &[github::Th
         return None;
     };
     egui::SidePanel::left(egui::Id::new(id).with("files")).resizable(true).default_width(300.0).width_range(180.0..=600.0).show_inside(ui, |ui| {
-        egui::ScrollArea::vertical().id_salt((id, "files_scroll")).auto_shrink([false, false]).show(ui, |ui| {
-            ui.spacing_mut().item_spacing.y = 0.0;
-            for (k, f) in diff.files.iter().enumerate() {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        // only the rows in sight (a big pull request has hundreds of files)
+        egui::ScrollArea::vertical().id_salt((id, "files_scroll")).auto_shrink([false, false]).show_rows(ui, 24.0, diff.files.len(), |ui, range| {
+            for (k, f) in diff.files.iter().enumerate().skip(range.start).take(range.len()) {
                 let n = threads.iter().filter(|t| !t.resolved && t.path == f.path).count();
                 let label = if n > 0 { format!("{}  💬{n}", f.path) } else { f.path.clone() };
                 let row = |ui: &mut egui::Ui| super::git_view::file_row(ui, f.status, &label, Some((Some(f.adds as u32), Some(f.dels as u32))));

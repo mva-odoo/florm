@@ -13,6 +13,8 @@ cargo test                  # tests unitaires (#[cfg(test)] dans les modules)
 cargo test -- --ignored     # tests qui lancent des outils installés (ruff, flake8, clangd, gopls, go)
 cargo build --release       # LTO fat, long : seulement si nécessaire
 scripts/build-windows.sh    # binaire Windows depuis Linux/WSL
+FLORM_PROFILE=1 cargo run -- .                              # temps par image et causes des redessins (coin + stderr)
+FLORM_BENCH=1 cargo test --release bench_views -- --nocapture # temps d'une image des vues lourdes, sans fenêtre
 ```
 
 - Ne pas lancer `cargo fmt` sur tout le projet : le code n'est pas formaté par rustfmt

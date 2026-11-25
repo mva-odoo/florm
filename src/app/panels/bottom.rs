@@ -199,8 +199,11 @@ impl App {
                         if ui.small_button(t!("Effacer", "Clear")).clicked() {
                             self.output.clear();
                         }
-                        egui::ScrollArea::both().auto_shrink([false, false]).stick_to_bottom(true).show(ui, |ui| {
-                            for l in &self.output {
+                        // only the lines in sight are laid out (up to 5000 kept)
+                        let row_h = ui.text_style_height(&egui::TextStyle::Monospace);
+                        ui.spacing_mut().item_spacing.y = 0.0;
+                        egui::ScrollArea::both().auto_shrink([false, false]).stick_to_bottom(true).show_rows(ui, row_h, self.output.len(), |ui, range| {
+                            for l in &self.output[range] {
                                 ui.add(egui::Label::new(RichText::new(l).monospace()).extend());
                             }
                         });

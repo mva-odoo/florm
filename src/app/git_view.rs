@@ -222,8 +222,9 @@ impl App {
                 ui.set_width(360.0);
                 let head = if lh.reflog { tf!("{} ENTRÉE(S), LA PLUS RÉCENTE EN HAUT", "{} ENTRIES, THE NEWEST AT THE TOP", lh.commits.len()) } else { tf!("{} COMMIT(S)", "{} COMMIT(S)", lh.commits.len()) };
                 ui.label(RichText::new(head).small().strong());
-                egui::ScrollArea::vertical().id_salt("lh_list").max_height(height - 24.0).auto_shrink([false, false]).show(ui, |ui| {
-                    for (i, c) in lh.commits.iter().enumerate() {
+                // only the rows in sight are drawn (a file history has hundreds of commits)
+                egui::ScrollArea::vertical().id_salt("lh_list").max_height(height - 24.0).auto_shrink([false, false]).show_rows(ui, 44.0, lh.commits.len(), |ui, range| {
+                    for (i, c) in lh.commits.iter().enumerate().skip(range.start).take(range.len()) {
                         let (rect, r) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 44.0), Sense::click());
                         let v = ui.visuals();
                         if i == lh.selected {
@@ -1133,9 +1134,9 @@ impl App {
                             }
                         });
                         ui.add_space(2.0);
-                        egui::ScrollArea::vertical().id_salt("diff_files").auto_shrink([false, false]).show(ui, |ui| {
-                            ui.spacing_mut().item_spacing.y = 0.0;
-                            for (letter, path, stats) in &chips {
+                        ui.spacing_mut().item_spacing.y = 0.0;
+                        egui::ScrollArea::vertical().id_salt("diff_files").auto_shrink([false, false]).show_rows(ui, 24.0, chips.len(), |ui, range| {
+                            for (letter, path, stats) in &chips[range] {
                                 if file_row(ui, *letter, path, *stats).clicked() {
                                     if let Some(k) = h.diff.as_ref().and_then(|d| d.files.iter().position(|f| f.path == *path)) {
                                         if let Some(start) = h.diff.as_ref().map(|d| d.files[k].start) {

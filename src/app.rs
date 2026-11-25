@@ -915,6 +915,8 @@ pub struct App {
     upd: UpdateState,
     /// Start of the last frame, when there is no vsync to pace the frames (Wayland).
     paced_frame: Option<Instant>,
+    /// Frame times in a corner, with `FLORM_PROFILE=1`.
+    prof: profile::Profiler,
     pending: Vec<Cmd>,
     /// What changes on the disk without Florm: files open, repositories (checked every 2 s).
     watch: WatchState,
@@ -1242,6 +1244,7 @@ impl App {
             status_log: Default::default(),
             upd: UpdateState { found: None, installing: false, ready: None, restart: None, shared_busy: false, shared_op: None },
             paced_frame: std::env::var_os("WAYLAND_DISPLAY").is_some().then(Instant::now),
+            prof: profile::Profiler::new(),
             pending: Vec::new(),
             watch: WatchState { last_check: Instant::now(), busy: false, git_stamps: HashMap::new(), term_enter: None, was_focused: true },
             trust_later: HashSet::new(),
@@ -1574,10 +1577,12 @@ impl eframe::App for App {
             }
             self.paced_frame = Some(Instant::now());
         }
+        self.prof.begin();
         if std::mem::take(&mut self.visuals_dirty) {
             apply_visuals(ctx, self.hl.visuals());
         }
         self.process_jobs();
+        self.prof.mark("jobs");
         if let Some(e) = ctx.data_mut(|d| d.remove_temp::<String>(egui::Id::new(LINK_ERROR))) {
             self.set_error(e);
         }
@@ -1618,6 +1623,7 @@ impl eframe::App for App {
             }
             self.last_active_path = cur;
         }
+        self.prof.mark("début");
         self.lsp_frame(ctx);
         self.update_hover(ctx);
         self.completion_keys(ctx);
@@ -1631,6 +1637,7 @@ impl eframe::App for App {
         self.update_live_lint(ctx);
         self.update_find();
         self.periodic(ctx);
+        self.prof.mark("entrées");
 
         // Order matters: the sidebar takes the full height, the bottom panels and the
         // tab strip only span the editor area.
@@ -1638,19 +1645,23 @@ impl eframe::App for App {
         if !self.zen {
             self.menu_bar(ctx);
             self.status_bar(ctx);
+            self.prof.mark("barres");
             if self.show_sidebar {
                 self.sidebar(ctx);
             } else {
                 self.sidebar_strip(ctx);
             }
+            self.prof.mark("barre latérale");
             if self.bottom.is_some() {
                 self.bottom_panel(ctx);
+                self.prof.mark("panneau du bas");
             }
         }
         if self.find.open {
             self.find_bar(ctx);
         }
         self.central(ctx);
+        self.prof.mark("centre");
         self.sync_terminal_tabs();
         // Ctrl+clic on a traceback in a terminal
         if let Some((p, line)) = self.term.open_request.take() {
@@ -1707,6 +1718,8 @@ impl eframe::App for App {
         if self.title_bar_on {
             self.resize_edges(ctx);
         }
+        self.prof.mark("fin");
+        self.prof.end(ctx);
     }
 }
 
@@ -2689,6 +2702,88 @@ mod font_tests {
         let abs = format!("{}/", dir.display());
         assert!(complete_path(&abs, Path::new("/"), false).1.iter().all(|(n, _)| !n.starts_with('.')));
         assert_eq!(complete_path(&format!("{abs}.h"), Path::new("/"), false).0, format!("{abs}.hidden"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Time of a frame in the heavy views, without a window, on Florm's own repository:
+    /// `FLORM_BENCH=1 cargo test --release bench_views -- --nocapture`.
+    #[test]
+    fn bench_views() {
+        if std::env::var_os("FLORM_BENCH").is_none() {
+            return;
+        }
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let dir = std::env::temp_dir().join(format!("florm_bench_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("settings.toml"), "check_updates = false\nlsp = false\n").unwrap();
+        let _lock = config::TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("FLORM_CONFIG", &dir);
+        let ctx = egui::Context::default();
+        let mut app = App::with_ctx(&ctx, Some(root.clone()));
+        let screen = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1600.0, 1000.0)));
+        // one frame as `update` draws it, then its tessellation: (draw, tessellate)
+        let frame = |app: &mut App, events: Vec<egui::Event>| {
+            let t = Instant::now();
+            app.process_jobs();
+            let out = ctx.run(egui::RawInput { screen_rect: screen, events, ..Default::default() }, |ctx| {
+                app.menu_bar(ctx);
+                app.status_bar(ctx);
+                app.sidebar(ctx);
+                if app.bottom.is_some() {
+                    app.bottom_panel(ctx);
+                }
+                app.central(ctx);
+            });
+            let drawn = t.elapsed();
+            let t = Instant::now();
+            let _ = ctx.tessellate(out.shapes, out.pixels_per_point);
+            (drawn, t.elapsed())
+        };
+        let run = |app: &mut App, name: &str, n: usize, events: &dyn Fn(usize) -> Vec<egui::Event>| {
+            // warm up: caches, jobs
+            for k in 0..5 {
+                frame(app, events(k));
+            }
+            let (mut d, mut t, mut worst) = (Duration::ZERO, Duration::ZERO, Duration::ZERO);
+            for k in 0..n {
+                let (a, b) = frame(app, events(k));
+                d += a;
+                t += b;
+                worst = worst.max(a + b);
+            }
+            let ms = |x: Duration| x.as_secs_f64() * 1000.0 / n as f64;
+            eprintln!("{name:<28} dessin {:>6.2} ms  tessellation {:>5.2} ms  pire {:>6.2} ms", ms(d), ms(t), worst.as_secs_f64() * 1000.0);
+        };
+        let wait = |app: &mut App, done: &dyn Fn(&App) -> bool| {
+            let t = Instant::now();
+            while !done(app) && t.elapsed() < Duration::from_secs(20) {
+                frame(app, Vec::new());
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        };
+        let none = |_: usize| Vec::new();
+        let editor_at = egui::pos2(900.0, 500.0);
+        let wheel = move |k: usize| {
+            let dy = if (k / 40) % 2 == 0 { -120.0 } else { 120.0 };
+            vec![egui::Event::PointerMoved(editor_at), egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: egui::vec2(0.0, dy), modifiers: Default::default() }]
+        };
+        let hover = move |k: usize| vec![egui::Event::PointerMoved(egui::pos2(300.0 + (k % 50) as f32 * 10.0, 300.0))];
+        run(&mut app, "accueil", 60, &none);
+        app.open_path(root.join("src/app/pulls.rs"));
+        run(&mut app, "éditeur, immobile", 60, &none);
+        run(&mut app, "éditeur, défilement", 160, &wheel);
+        run(&mut app, "éditeur, souris qui bouge", 60, &hover);
+        app.open_git_view();
+        wait(&mut app, &|a| a.history.graph.is_some() && !a.history.loading);
+        eprintln!("graphe : {} commits, vue {:?}", app.history.graph.as_ref().map_or(0, |g| g.commits.len()), app.docs[app.active].view);
+        run(&mut app, "vue Git (graphe)", 60, &hover);
+        app.file_history(root.clone(), "src/app.rs".into());
+        wait(&mut app, &|a| a.line_history.as_ref().is_some_and(|l| !l.loading));
+        run(&mut app, "historique du fichier", 60, &hover);
+        app.output = (0..5000).map(|k| format!("ligne de sortie numéro {k} : quelque chose s'est passé dans un outil")).collect();
+        app.bottom = Some(BottomTab::Output);
+        run(&mut app, "sortie, 5000 lignes", 60, &hover);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
