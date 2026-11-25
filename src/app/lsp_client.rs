@@ -13,7 +13,7 @@ impl App {
             return None;
         }
         let path = d.path.clone()?;
-        let (family, lang) = lsp::language_of(&path)?;
+        let (family, lang) = lsp::language_of(&path, &self.settings.lsp_servers)?;
         // a language server may run the code of the project (build.rs, macros, its own tsserver)
         if !self.trusted(&path) {
             return None;

@@ -322,11 +322,32 @@ Problems are underlined in the code and listed in **Problems** (bottom panel):
   for Python, through the language server for the others. To format every Python file on save:
   Preferences → Editor.
 - **XML and JSON**: a badly formed file (unclosed or badly nested tag, missing quote), live.
+- **The other languages**, while typing, with their linter when it is installed: `shellcheck`
+  (shell), `yamllint`, `markdownlint`, `hadolint` (Dockerfile), `luacheck`, `rubocop`, `stylelint`
+  (CSS). Any other one is declared in `settings.toml`: a command writing `file:line:col: message`
+  lines (the text of the file comes on its standard input, `{file}` is replaced by its path). An
+  empty command turns off a linter of Florm, the same key replaces it:
+  ```toml
+  [linters.nimcheck]
+  cmd = "nim check --stdin"
+  ext = ["nim"]
+  [linters.markdownlint]
+  cmd = ""
+  ```
+  For another output, `pattern`: a regex with the groups `line`, `col`, `msg`, `severity`.
+- **Language servers of every language**: Florm finds by itself those of YAML, Bash, CSS, HTML,
+  Lua, Ruby, PHP, Markdown (`marksman`), TOML (`taplo`), Dockerfile, Terraform, Java, Kotlin, Swift,
+  Zig, C#, Haskell, OCaml, Elixir when they are installed (the status bar says which one to
+  install). Another language is declared with the extensions of its files:
+  ```toml
+  [lsp_servers]
+  nim = { cmd = "nimlangserver", ext = ["nim", "nims"] }
+  ```
 
 **🔒 Restricted mode.** A language server, eslint, the flake8 plugins declared by a project or the
 configuration of a git repository (`.git/config`, filters of `.gitattributes`) may run its code. In
-a folder not trusted yet, a bar above the file says so: Git, the language servers and eslint do not
-run, and flake8 ignores the configuration of the project (`node --check` and the Python lint stay);
+a folder not trusted yet, a bar above the file says so: Git, the language servers, eslint and the
+linters of the other languages do not run, and flake8 ignores the configuration of the project (`node --check` and the Python lint stay);
 the Git view says so too, with the same button. **Trust “folder”** starts them, for that folder and those inside it
 (`trusted_folders` key of `settings.toml`); **Later** hides the bar until Florm is closed.
 **Preferences → Lint → Trusted folders** lists them; × takes the trust of a folder back, and it

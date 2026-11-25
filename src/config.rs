@@ -97,7 +97,9 @@ pub struct Settings {
     /// Language servers: completion, go to definition, rename.
     pub lsp: bool,
     /// Server command per language family ("python", "typescript", "rust", "go", "c"); else detected.
-    pub lsp_servers: HashMap<String, String>,
+    pub lsp_servers: HashMap<String, crate::lsp::ServerCfg>,
+    /// Linters of the other languages (`[linters.<name>]`), added to the ones Florm knows.
+    pub linters: HashMap<String, crate::lint::LinterCfg>,
     /// Folders trusted (with those inside): git, their language servers and the linters set up by the
     /// project run there (they may run its code). Elsewhere Florm is in restricted mode.
     pub trusted_folders: Vec<String>,
@@ -190,6 +192,7 @@ impl Default for Settings {
             keys: HashMap::new(),
             lsp: true,
             lsp_servers: HashMap::new(),
+            linters: HashMap::new(),
             trusted_folders: Vec::new(),
             exclude: ["__pycache__/", "*.pyc", "node_modules/", ".venv/", "*.egg-info/"].map(String::from).to_vec(),
             index_max_files: 150_000,
@@ -322,8 +325,19 @@ skills_dir = ""
 
 [lsp_servers]
 # Commande du serveur par langage (sinon détectée : pyright ou pylsp, typescript-language-server,
-# rust-analyzer, gopls, clangd)
+# rust-analyzer, gopls, clangd, yaml-language-server, marksman, taplo…)
 # python = "pyright-langserver --stdio"
+# un autre langage, avec les extensions de ses fichiers (id : son nom LSP s'il diffère) :
+# nim = { cmd = "nimlangserver", ext = ["nim", "nims"] }
+
+[linters]
+# Linters des autres langages (en plus de shellcheck, yamllint, markdownlint, hadolint, luacheck,
+# rubocop, stylelint quand ils sont installés). Le texte arrive sur l'entrée standard, {file} est
+# remplacé par le chemin ; la sortie : des lignes fichier:ligne:col: message (sinon pattern = regex
+# avec les groupes line, col, msg, severity). cmd = "" coupe un linter de Florm.
+# [linters.nimcheck]
+# cmd = "nim check --stdin"
+# ext = ["nim"]
 "#;
 
 pub fn home() -> PathBuf {

@@ -122,7 +122,7 @@ impl App {
         let noqa = noqa_codes(d, line);
         let has_path = d.path.is_some();
         let has_folds = !d.folds.is_empty();
-        let has_lsp = self.settings.lsp && d.path.as_deref().and_then(lsp::language_of).is_some();
+        let has_lsp = self.settings.lsp && d.path.as_deref().and_then(|p| lsp::language_of(p, &self.settings.lsp_servers)).is_some();
         let is_python = d.path.as_deref().and_then(lint::lang_of) == Some("python");
         let has_selection = !d.primary_sel().is_empty();
         let in_repo = d.path.as_deref().and_then(|p| self.repo_for(p)).is_some();

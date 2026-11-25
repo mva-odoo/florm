@@ -149,7 +149,7 @@ impl App {
                     let word = |c: char| c.is_alphanumeric() || c == '_';
                     let head = doc.primary_sel().head;
                     let typed = (head.saturating_sub(2)..head).all(|p| doc.char_at(p).is_some_and(word));
-                    let has_server = self.settings.lsp && doc.path.as_deref().and_then(lsp::language_of).is_some();
+                    let has_server = self.settings.lsp && doc.path.as_deref().and_then(|p| lsp::language_of(p, &self.settings.lsp_servers)).is_some();
                     if self.lsp.completion.is_none() && ((has_server && last == Some('.')) || (last.is_some_and(word) && typed)) {
                         self.lsp.complete_at = Some(Instant::now() + Duration::from_millis(120));
                     }

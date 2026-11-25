@@ -244,6 +244,36 @@ Le **formatage** (Ctrl+Alt+F, `format_on_save`) et « Corriger automatiquement �
 
 `eslint` du projet (`node_modules/.bin/eslint`) ou du `PATH`. Sans eslint, Florm vérifie la syntaxe avec `node --check`.
 
+### Autres langages
+
+Florm lance pendant la frappe le linter du fichier s'il est installé :
+
+| Fichiers | Linter |
+|---|---|
+| Shell (`.sh`, `.bash`) | `shellcheck` |
+| YAML | `yamllint` |
+| Markdown | `markdownlint` (`npm i -g markdownlint-cli`) |
+| Dockerfile | `hadolint` |
+| Lua | `luacheck` |
+| Ruby | `rubocop` |
+| CSS, SCSS, Less | `stylelint` |
+
+N'importe quel autre se déclare dans `settings.toml` : une commande qui écrit des lignes `fichier:ligne:col: message`
+(le texte du fichier arrive sur son entrée standard, `{file}` est remplacé par le chemin du fichier). La même clé
+remplace un linter de Florm, une commande vide le coupe :
+
+```toml
+[linters.nimcheck]
+cmd = "nim check --stdin"
+ext = ["nim"]
+
+[linters.markdownlint]
+cmd = ""
+```
+
+Pour une autre sortie, `pattern` lit chaque ligne avec une regex (groupes `line`, `col`, `msg`, `severity`, `code`).
+Comme eslint, ces linters ne tournent que dans un dossier de confiance : leur configuration peut charger du code.
+
 ### Serveurs de langage (LSP)
 
 Sans serveur de langage, Florm complète et va à la définition grâce à son propre index. Un serveur ajoute la complétion exacte, la documentation au survol, les usages (Maj+F12) et le renommage dans tout le projet (F2). Florm détecte automatiquement :
@@ -256,11 +286,18 @@ Sans serveur de langage, Florm complète et va à la définition grâce à son p
 | Go | `gopls` | `go install golang.org/x/tools/gopls@latest` |
 | C / C++ | `clangd` | paquet `clangd` (Linux), `brew install llvm` (macOS), LLVM (Windows) |
 
-Pour choisir une autre commande, dans `settings.toml` :
+Et quand ils sont installés : `yaml-language-server`, `bash-language-server`, `vscode-css-language-server` et
+`vscode-html-language-server` (`npm i -g vscode-langservers-extracted`), `lua-language-server`, `ruby-lsp` ou `solargraph`,
+`intelephense` (PHP), `marksman` (Markdown), `taplo` (TOML), `docker-langserver`, `terraform-ls`, `jdtls` (Java),
+`kotlin-language-server`, `sourcekit-lsp` (Swift), `zls` (Zig), `csharp-ls`, `haskell-language-server`, `ocamllsp`,
+`elixir-ls`. La barre d'état dit lequel installer pour le fichier ouvert.
+
+Pour choisir une autre commande, ou ajouter un langage avec les extensions de ses fichiers, dans `settings.toml` :
 
 ```toml
 [lsp_servers]
 python = "pyright-langserver --stdio"
+nim = { cmd = "nimlangserver", ext = ["nim", "nims"] }
 ```
 
 Un serveur de langage, eslint, les plugins flake8 d'un projet ou la configuration d'un dépôt git

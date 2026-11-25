@@ -24,7 +24,7 @@ pub const DEFAULT_REPO: &str = "florm-config";
 /// in `tests::SHARED` (a test checks that each one is in one of the two).
 pub const LOCAL_KEYS: &[&str] = &[
     "shared_config", "skills_dir", "test_history", "shell",
-    "lsp_servers", "python_linter", "python_lint_args", "trusted_folders", "claude_accounts", "claude_account", "claude_account_folders",
+    "lsp_servers", "linters", "python_linter", "python_lint_args", "trusted_folders", "claude_accounts", "claude_account", "claude_account_folders",
     "claude_sandbox",
 ];
 
@@ -176,7 +176,8 @@ pub fn portable_settings(text: &str) -> String {
                 section = Some(t.trim_start_matches('[').split(']').next().unwrap_or("").trim().trim_matches('"').to_string());
             }
             match &section {
-                Some(name) => !LOCAL_KEYS.contains(&name.as_str()),
+                // [linters.shellcheck] is in [linters]
+                Some(name) => !LOCAL_KEYS.contains(&name.split('.').next().unwrap_or("").trim().trim_matches('"')),
                 None => !LOCAL_KEYS.iter().any(|k| t.strip_prefix(k).is_some_and(|r| r.trim_start().starts_with('='))),
             }
         })
@@ -287,6 +288,9 @@ mod tests {
     #[test]
     fn local_settings_are_not_exported() {
         let text = "theme = \"x\"\nclaude_accounts = [\"a=/tmp\"]\nclaude_sandbox = false\n[lsp_servers]\npython = \"evil\"\n[keys]\n\"ctrl+k\" = \"save\"\n";
+        assert_eq!(portable_settings(text), "theme = \"x\"\n[keys]\n\"ctrl+k\" = \"save\"\n");
+        // the linters and servers of this computer, in sections of their own, stay here too
+        let text = "theme = \"x\"\n[linters.evil]\ncmd = \"rm -rf ~\"\n[lsp_servers.nim]\ncmd = \"x\"\n[keys]\n\"ctrl+k\" = \"save\"\n";
         assert_eq!(portable_settings(text), "theme = \"x\"\n[keys]\n\"ctrl+k\" = \"save\"\n");
     }
 

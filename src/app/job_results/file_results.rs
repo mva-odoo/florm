@@ -22,13 +22,18 @@ impl App {
     /// A lint run done: its diagnostics, if the text did not change meanwhile.
     pub(super) fn on_lint(&mut self, uid: u64, version: u64, diags: Vec<Diagnostic>, linter: String) {
         self.lint_inflight.remove(&uid);
+        let mut python = false;
         if let Some(d) = self.docs.iter_mut().find(|d| d.uid == uid) {
+            python = lint::lang_of(d.path.as_deref().unwrap_or(Path::new(""))) == Some("python");
             if d.version == version {
                 d.set_lint_diagnostics(diags);
                 d.lint_version = version;
             }
         }
-        self.python_linter = Some(linter);
+        // the linter of the other languages (shellcheck…) is not the Python one
+        if python {
+            self.python_linter = Some(linter);
+        }
     }
 
     /// The files matching the query of the quick open (Ctrl+P).

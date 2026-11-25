@@ -1,5 +1,7 @@
 //! Linters: XML/JSON in-process, Python and JavaScript through external tools
-//! (flake8 → ruff → pyflakes → ast, eslint → node --check).
+//! (flake8 → ruff → pyflakes → ast, eslint → node --check), and for the other languages the
+//! linters of `[linters]` in settings.toml or the ones Florm knows (shellcheck, yamllint…), any
+//! command writing `file:line:col: message` lines.
 
 use std::collections::HashMap;
 use std::io::Write;
@@ -58,6 +60,185 @@ pub struct LintConfig {
     /// The folder is trusted: the configuration of the project may load code (flake8 plugins,
     /// eslint.config.js, the eslint of node_modules). Else flake8 ignores it and eslint does not run.
     pub trusted: bool,
+    /// `[linters]` of the settings (added to the ones Florm knows, or replacing them).
+    pub linters: HashMap<String, LinterCfg>,
+}
+
+/// A linter of `[linters.<name>]` in settings.toml: its command (the text of the file on its
+/// standard input, `{file}` replaced by the path of the file; empty: the linter is off), the
+/// extensions or whole names of its files, and a regex reading its lines when they are not
+/// `file:line:col: message` (named groups `line`, `col`, `msg`, `severity`, `code`).
+#[derive(Clone, Debug, Default, PartialEq, serde::Deserialize)]
+#[cfg_attr(test, derive(serde::Serialize))]
+#[serde(default)]
+pub struct LinterCfg {
+    pub cmd: String,
+    pub ext: Vec<String>,
+    pub pattern: String,
+}
+
+/// The linters Florm runs when they are installed: (name, files, command).
+const KNOWN_LINTERS: &[(&str, &[&str], &str)] = &[
+    ("shellcheck", &["sh", "bash"], "shellcheck -f gcc -"),
+    ("yamllint", &["yml", "yaml"], "yamllint -f parsable -"),
+    ("markdownlint", &["md", "markdown"], "markdownlint --stdin"),
+    ("hadolint", &["Dockerfile", "Containerfile", "dockerfile"], "hadolint --no-color -"),
+    ("luacheck", &["lua"], "luacheck --formatter plain --filename {file} -"),
+    ("rubocop", &["rb", "rake", "gemspec", "Gemfile", "Rakefile"], "rubocop --format emacs --stdin {file}"),
+    ("stylelint", &["css", "scss", "less"], "stylelint --formatter unix --stdin --stdin-filename {file}"),
+];
+
+/// `files` (extensions, or whole names) has the file `path`.
+fn file_matches(files: &[impl AsRef<str>], path: &Path) -> bool {
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    files.iter().map(|f| f.as_ref().trim().trim_start_matches('.')).any(|f| f == name || (!ext.is_empty() && f.eq_ignore_ascii_case(ext)))
+}
+
+/// The linters of the settings and the known ones for `path`: (name, command, pattern). A known
+/// one is replaced by the entry of the settings with its name (an empty command turns it off).
+pub fn generic_linters(path: &Path, cfg: &HashMap<String, LinterCfg>) -> Vec<(String, String, String)> {
+    let mut out: Vec<(String, String, String)> = Vec::new();
+    for (name, files, cmd) in KNOWN_LINTERS {
+        if !cfg.contains_key(*name) && file_matches(files, path) {
+            out.push((name.to_string(), cmd.to_string(), String::new()));
+        }
+    }
+    let mut mine: Vec<(&String, &LinterCfg)> = cfg.iter().filter(|(_, c)| !c.cmd.trim().is_empty()).collect();
+    mine.sort_by_key(|(n, _)| n.as_str());
+    for (name, c) in mine {
+        let files: Vec<&str> = if c.ext.is_empty() { KNOWN_LINTERS.iter().find(|(n, ..)| n == name).map(|(_, f, _)| f.to_vec()).unwrap_or_default() } else { c.ext.iter().map(String::as_str).collect() };
+        if file_matches(&files, path) {
+            out.push((name.clone(), c.cmd.clone(), c.pattern.clone()));
+        }
+    }
+    out
+}
+
+/// Runs the linters of `generic_linters` on `text` (those installed): their problems, and their
+/// names. A command is split on spaces (quotes keep a part whole).
+pub fn lint_generic(path: &Path, text: &str, root: Option<&Path>, linters: &[(String, String, String)]) -> (Vec<Diagnostic>, String) {
+    let (mut all, mut names) = (Vec::new(), Vec::new());
+    let cwd = root.or_else(|| path.parent()).unwrap_or(Path::new("."));
+    for (name, cmd, pattern) in linters {
+        let file = path.display().to_string();
+        let argv: Vec<String> = split_command(cmd).into_iter().map(|a| a.replace("{file}", &file)).collect();
+        let Some(prog) = argv.first().and_then(|p| crate::lsp::in_path(p).or_else(|| Path::new(p).is_file().then(|| PathBuf::from(p)))) else { continue };
+        let Some(out) = run_with_stdin(&Runner::Bin(prog), &argv[1..], text, cwd) else { continue };
+        let diags = if pattern.trim().is_empty() { parse_generic(&out, name) } else { parse_pattern(&out, pattern, name) };
+        all.extend(diags);
+        names.push(name.clone());
+    }
+    all.sort_by_key(|d| (d.line, d.col));
+    (all, names.join(", "))
+}
+
+/// "a 'b c' d" -> ["a", "b c", "d"].
+fn split_command(cmd: &str) -> Vec<String> {
+    let (mut out, mut cur, mut quote) = (Vec::new(), String::new(), None);
+    for ch in cmd.chars() {
+        match (ch, quote) {
+            ('"' | '\'', None) => quote = Some(ch),
+            (c, Some(q)) if c == q => quote = None,
+            (c, None) if c.is_whitespace() => {
+                if !cur.is_empty() {
+                    out.push(std::mem::take(&mut cur));
+                }
+            }
+            (c, _) => cur.push(c),
+        }
+    }
+    if !cur.is_empty() {
+        out.push(cur);
+    }
+    out
+}
+
+/// The severity said in a message ("error:", "[warning]", "E:"…), and the message without it.
+fn severity_word(msg: &str) -> (Severity, String) {
+    let m = msg.trim();
+    let lower = m.to_lowercase();
+    for (word, sev) in [("error", Severity::Error), ("fatal", Severity::Error), ("warning", Severity::Warning), ("note", Severity::Warning), ("info", Severity::Warning), ("style", Severity::Warning)] {
+        for form in [format!("{word}:"), format!("[{word}]")] {
+            if lower.starts_with(&form) {
+                return (sev, m[form.len()..].trim().to_string());
+            }
+        }
+    }
+    // rubocop: "C: ", "W: ", "E: ", "F: "
+    match m.get(..3) {
+        Some("E: " | "F: ") => (Severity::Error, m[3..].to_string()),
+        Some("C: " | "W: " | "R: ") => (Severity::Warning, m[3..].to_string()),
+        _ => {
+            // stylelint (unix): the severity at the end, "[error]"
+            let sev = if lower.ends_with("[error]") || lower.contains(" error:") { Severity::Error } else { Severity::Warning };
+            (sev, m.to_string())
+        }
+    }
+}
+
+/// The code of a rule in a message: at its start ("DL3008 …", "(W211) …") or at its end
+/// ("… [SC2086]", "… (document-start)").
+fn rule_code(msg: &str) -> Option<String> {
+    if let Some(c) = code_of(msg) {
+        return Some(c);
+    }
+    let first = msg.split_whitespace().next()?;
+    if first.starts_with('(') && first.ends_with(')') && first.len() > 2 {
+        return Some(first[1..first.len() - 1].to_string());
+    }
+    // markdownlint: "MD022/blanks-around-headings"
+    if let Some((head, _)) = first.split_once('/') {
+        if code_of(head).is_some() {
+            return Some(first.to_string());
+        }
+    }
+    let last = msg.trim_end().trim_end_matches("[error]").trim_end_matches("[warning]").trim_end().split_whitespace().last()?;
+    let inner = last.strip_prefix('[').and_then(|l| l.strip_suffix(']')).or_else(|| last.strip_prefix('(').and_then(|l| l.strip_suffix(')')))?;
+    (!inner.is_empty() && inner.chars().all(|c| c.is_alphanumeric() || "-_/.".contains(c))).then(|| inner.to_string())
+}
+
+/// `file:line:col: message` lines, the column optional (`file:line message` too): the output
+/// of most linters (gcc format, parsable, emacs, unix).
+fn parse_generic(out: &str, source: &str) -> Vec<Diagnostic> {
+    let re = regex::Regex::new(r"^(.*?):(\d+)(?::(\d+))?:?\s+(.*)$").unwrap();
+    out.lines()
+        .filter_map(|l| {
+            let c = re.captures(l.trim_end())?;
+            let line: usize = c[2].parse().ok()?;
+            let col: usize = c.get(3).and_then(|m| m.as_str().parse().ok()).unwrap_or(1);
+            let (severity, message) = severity_word(&c[4]);
+            let code = rule_code(&message);
+            Some(Diagnostic { line: line.saturating_sub(1), col: col.saturating_sub(1), severity, message, source: source.into(), code })
+        })
+        .collect()
+}
+
+/// The lines read by the regex of the settings (named groups `line`, `col`, `msg`, `severity`,
+/// `code`). A wrong regex gives one problem saying so.
+fn parse_pattern(out: &str, pattern: &str, source: &str) -> Vec<Diagnostic> {
+    let re = match regex::Regex::new(pattern) {
+        Ok(r) => r,
+        Err(e) => {
+            return vec![Diagnostic { line: 0, col: 0, severity: Severity::Error, message: tf!("[linters.{source}] pattern : {e}", "[linters.{source}] pattern: {e}"), source: source.into(), code: None }];
+        }
+    };
+    out.lines()
+        .filter_map(|l| {
+            let c = re.captures(l)?;
+            let line: usize = c.name("line")?.as_str().parse().ok()?;
+            let col: usize = c.name("col").and_then(|m| m.as_str().parse().ok()).unwrap_or(1);
+            let msg = c.name("msg").map_or(l, |m| m.as_str());
+            let (word, message) = severity_word(msg);
+            let severity = match c.name("severity").map(|m| m.as_str().to_lowercase()) {
+                Some(s) if s.starts_with('e') || s.starts_with('f') => Severity::Error,
+                Some(_) => Severity::Warning,
+                None => word,
+            };
+            let code = c.name("code").map(|m| m.as_str().to_string()).or_else(|| rule_code(&message));
+            Some(Diagnostic { line: line.saturating_sub(1), col: col.saturating_sub(1), severity, message, source: source.into(), code })
+        })
+        .collect()
 }
 
 /// The linters whose problems have a code that can be ignored: (name, example of codes).
@@ -89,10 +270,14 @@ impl LintConfig {
 /// Runs an external linter. Python gets the buffer on stdin (unsaved changes are checked);
 /// JavaScript runs on the saved file. `None` when no linter applies.
 pub fn lint_external(path: &Path, text: &str, root: Option<&Path>, cfg: &LintConfig) -> Option<(Vec<Diagnostic>, String)> {
-    match lang_of(path)? {
-        "python" => Some(lint_python(path, text, root, cfg)),
-        "javascript" => Some((cfg.filter(lint_js(path, root, cfg.trusted)), "eslint".into())),
-        _ => None,
+    match lang_of(path) {
+        Some("python") => Some(lint_python(path, text, root, cfg)),
+        Some("javascript") => Some((cfg.filter(lint_js(path, root, cfg.trusted)), "eslint".into())),
+        _ => {
+            // the others: their configuration may load code (rubocop, stylelint): a trusted folder only
+            let linters = generic_linters(path, &cfg.linters);
+            (cfg.trusted && !linters.is_empty()).then(|| lint_generic(path, text, root, &linters))
+        }
     }
 }
 
@@ -699,6 +884,88 @@ fn parse_node_check(out: &str) -> Vec<Diagnostic> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The lines of the linters Florm knows, as they write them.
+    #[test]
+    fn generic_outputs_are_read() {
+        let one = |out: &str| {
+            let d = parse_generic(out, "x");
+            assert_eq!(d.len(), 1, "{out}: {d:?}");
+            d.into_iter().next().unwrap()
+        };
+        let d = one("-:3:6: warning: Double quote to prevent globbing and word splitting. [SC2086]");
+        assert_eq!((d.line, d.col, d.severity, d.code.as_deref()), (2, 5, Severity::Warning, Some("SC2086")));
+        assert!(d.message.starts_with("Double quote"));
+        let d = one("stdin:1:1: [error] syntax error: mapping values are not allowed here (syntax)");
+        assert_eq!((d.line, d.severity, d.code.as_deref()), (0, Severity::Error, Some("syntax")));
+        let d = one("stdin:4 MD022/blanks-around-headings Headings should be surrounded by blank lines");
+        assert_eq!((d.line, d.col, d.code.as_deref()), (3, 0, Some("MD022/blanks-around-headings")));
+        let d = one("-:3 DL3008 warning: Pin versions in apt get install");
+        assert_eq!((d.line, d.code.as_deref(), d.severity), (2, Some("DL3008"), Severity::Warning));
+        let d = one("a.lua:1:7: (W211) unused variable 'x'");
+        assert_eq!((d.col, d.code.as_deref()), (6, Some("W211")));
+        let d = one("/p/a.rb:2:1: E: Lint/Syntax: unexpected token");
+        assert_eq!(d.severity, Severity::Error);
+        let d = one("/p/a.css:3:5: Unexpected unknown property \"colr\" (property-no-unknown) [error]");
+        assert_eq!((d.severity, d.code.as_deref()), (Severity::Error, Some("property-no-unknown")));
+        // other lines (a summary, a blank) are left out
+        assert!(parse_generic("\n3 problems found\n", "x").is_empty());
+    }
+
+    #[test]
+    fn linters_of_a_file() {
+        let names = |p: &str, cfg: &HashMap<String, LinterCfg>| generic_linters(Path::new(p), cfg).into_iter().map(|(n, ..)| n).collect::<Vec<_>>();
+        let none = HashMap::new();
+        assert_eq!(names("a/run.sh", &none), ["shellcheck"]);
+        assert_eq!(names("x/Dockerfile", &none), ["hadolint"]);
+        assert!(names("a.py", &none).is_empty() && names("a.nim", &none).is_empty());
+        let settings: crate::config::Settings = toml::from_str(concat!(
+            "[linters.nimcheck]\ncmd = \"nim check --stdin\"\next = [\"nim\"]\n",
+            "[linters.markdownlint]\ncmd = \"\"\n",
+            "[linters.shellcheck]\ncmd = \"shellcheck -S error -f gcc -\"\n",
+        ))
+        .unwrap();
+        let cfg = &settings.linters;
+        assert_eq!(names("a.nim", cfg), ["nimcheck"]);
+        // turned off; replaced (its files kept)
+        assert!(names("README.md", cfg).is_empty());
+        assert_eq!(generic_linters(Path::new("run.sh"), cfg), [("shellcheck".to_string(), "shellcheck -S error -f gcc -".to_string(), String::new())]);
+        assert_eq!(split_command("tool --x 'a b' \"c d\" {file}"), ["tool", "--x", "a b", "c d", "{file}"]);
+    }
+
+    #[test]
+    fn a_pattern_of_the_settings() {
+        let d = parse_pattern("E 12 bad thing\nW 3 meh\nnoise", r"^(?P<severity>[EW]) (?P<line>\d+) (?P<msg>.*)$", "t");
+        assert_eq!(d.len(), 2);
+        assert_eq!((d[0].line, d[0].severity, d[0].message.as_str()), (11, Severity::Error, "bad thing"));
+        assert_eq!(d[1].severity, Severity::Warning);
+        let bad = parse_pattern("x", "(", "t");
+        assert!(bad[0].message.contains("[linters.t]"));
+    }
+
+    /// A linter of the settings run for real: it gets the text on its standard input, and the
+    /// path in place of {file}.
+    #[cfg(unix)]
+    #[test]
+    fn a_linter_of_the_settings_runs() {
+        let dir = std::env::temp_dir().join(format!("florm_generic_lint_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("fake-lint");
+        std::fs::write(&script, "#!/bin/sh\nn=0\nwhile IFS= read -r l; do n=$((n+1)); case \"$l\" in *TODO*) echo \"$1:$n:1: warning: TODO left [T1]\";; esac; done\n").unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let path = dir.join("a.nim");
+        let linters = vec![("fake".to_string(), format!("{} {{file}}", script.display()), String::new())];
+        let (d, names) = lint_generic(&path, "ok\n# TODO later\n", Some(&dir), &linters);
+        assert_eq!(names, "fake");
+        assert_eq!(d.len(), 1, "{d:?}");
+        assert_eq!((d[0].line, d[0].code.as_deref(), d[0].source.as_str()), (1, Some("T1"), "fake"));
+        // not installed: left out without a word
+        let missing = vec![("nope".to_string(), "florm-no-such-linter -".to_string(), String::new())];
+        let (d, names) = lint_generic(&path, "x", Some(&dir), &missing);
+        assert!(d.is_empty() && names.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     #[ignore = "runs the ruff installed: cargo test -- --ignored"]

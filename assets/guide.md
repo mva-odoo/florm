@@ -333,11 +333,32 @@ Les problèmes sont soulignés dans le code et listés dans **Problèmes** (pann
   passe par `ruff` pour Python, par le serveur de langage pour les autres. Pour formater chaque
   fichier Python à l'enregistrement : Préférences → Éditeur.
 - **XML et JSON** : un fichier mal formé (balise non fermée, mal imbriquée, guillemet oublié), en direct.
+- **Les autres langages**, pendant la frappe, avec le linter s'il est installé : `shellcheck` (shell),
+  `yamllint`, `markdownlint`, `hadolint` (Dockerfile), `luacheck`, `rubocop`, `stylelint` (CSS).
+  N'importe quel autre se déclare dans `settings.toml` : une commande qui écrit des lignes
+  `fichier:ligne:col: message` (le texte du fichier lui arrive sur l'entrée standard, `{file}` est
+  remplacé par son chemin). Une commande vide coupe un linter de Florm, la même clé le remplace :
+  ```toml
+  [linters.nimcheck]
+  cmd = "nim check --stdin"
+  ext = ["nim"]
+  [linters.markdownlint]
+  cmd = ""
+  ```
+  Pour une autre sortie, `pattern` : une regex avec les groupes `line`, `col`, `msg`, `severity`.
+- **Serveurs de langage de tous les langages** : Florm trouve d'office ceux de YAML, Bash, CSS, HTML,
+  Lua, Ruby, PHP, Markdown (`marksman`), TOML (`taplo`), Dockerfile, Terraform, Java, Kotlin, Swift,
+  Zig, C#, Haskell, OCaml, Elixir quand ils sont installés (la barre d'état dit lequel installer).
+  Un autre langage se déclare avec les extensions de ses fichiers :
+  ```toml
+  [lsp_servers]
+  nim = { cmd = "nimlangserver", ext = ["nim", "nims"] }
+  ```
 
 **🔒 Mode restreint.** Un serveur de langage, eslint, les plugins flake8 déclarés par un projet ou la
 configuration d'un dépôt git (`.git/config`, filtres de `.gitattributes`) peuvent exécuter son code.
 Dans un dossier qui n'est pas encore de confiance, une barre au-dessus du fichier le dit : Git, les
-serveurs de langage et eslint ne tournent pas, et flake8 ignore la configuration du projet
+serveurs de langage, eslint et les linters des autres langages ne tournent pas, et flake8 ignore la configuration du projet
 (`node --check` et le lint Python restent) ; la vue Git le dit aussi, avec le même bouton. **Faire confiance à « dossier »** les lance, pour
 ce dossier et ceux qu'il contient (clé `trusted_folders` de `settings.toml`) ; **Plus tard** cache la
 barre jusqu'à la fermeture de Florm. **Préférences → Lint → Dossiers de confiance** les liste ; × retire

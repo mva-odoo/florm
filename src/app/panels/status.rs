@@ -326,13 +326,15 @@ impl App {
     /// Language server of the active file, for the status bar menu: (text, is a warning, the
     /// click installs pylsp).
     pub(super) fn lsp_status_line(&self) -> Option<(String, bool, bool)> {
-        let fam = self.settings.lsp.then(|| self.docs.get(self.active).and_then(|d| d.path.as_deref()).and_then(lsp::language_of)).flatten()?.0;
+        let path = self.docs.get(self.active).and_then(|d| d.path.as_deref()).filter(|_| self.settings.lsp)?;
+        let fam = lsp::language_of(path, &self.settings.lsp_servers)?.0;
         let running = self.lsp.manager.clients.iter().flatten().find(|c| c.family == fam);
         match (running, self.lsp.notes.get(fam)) {
             (Some(c), _) if c.ready => Some((tf!("Serveur de langage : {}", "Language server: {}", c.name), false, false)),
             (Some(c), _) => Some((tf!("Serveur de langage : {} (démarrage…)", "Language server: {} (starting…)", c.name), false, false)),
             (None, Some(_)) if fam == "python" => Some((t!("Serveur de langage : installer pylsp", "Language server: install pylsp").into(), true, true)),
-            (None, Some(why)) => Some((tf!("Pas de serveur de langage : {why}", "No language server: {why}"), true, false)),
+            // a language one does not always want a server for: said, not a warning
+            (None, Some(why)) => Some((tf!("Pas de serveur de langage : {why}", "No language server: {why}"), lsp::usually_wanted(fam) || self.settings.lsp_servers.contains_key(fam), false)),
             _ => None,
         }
     }

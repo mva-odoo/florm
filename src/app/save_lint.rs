@@ -230,17 +230,25 @@ impl App {
             python_args: s.python_lint_args.clone(),
             ignore: ignore.into_iter().filter(|(_, c)| !c.is_empty()).map(|(n, c)| (n.to_string(), c.clone())).collect(),
             trusted: self.trusted(path),
+            linters: s.linters.clone(),
         }
     }
 
-    /// Lints the active Python buffer while typing (debounced, one run at a time per document).
+    /// Lints the active buffer while typing, Python or a language with a linter (debounced, one run
+    /// at a time per document).
     pub(super) fn update_live_lint(&mut self, ctx: &egui::Context) {
         if !self.settings.lint_live {
             return;
         }
         let Some(d) = self.docs.get(self.active) else { return };
         let Some(path) = d.path.clone() else { return };
-        if lint::lang_of(&path) != Some("python") || d.lint_version == d.version || self.lint_inflight.contains(&d.uid) {
+        if d.lint_version == d.version || self.lint_inflight.contains(&d.uid) {
+            return;
+        }
+        // Python, and the other languages with a linter (on the text typed: their standard input)
+        let python = lint::lang_of(&path) == Some("python");
+        let generic = if python || !self.trusted(&path) { Vec::new() } else { lint::generic_linters(&path, &self.settings.linters) };
+        if !python && generic.is_empty() {
             return;
         }
         let wait = Duration::from_millis(500);
@@ -254,7 +262,7 @@ impl App {
         let cfg = self.lint_config(&path);
         self.lint_inflight.insert(uid);
         self.jobs.spawn(move || {
-            let (diags, linter) = lint::lint_python(&path, &text, root.as_deref(), &cfg);
+            let (diags, linter) = if python { lint::lint_python(&path, &text, root.as_deref(), &cfg) } else { lint::lint_generic(&path, &text, root.as_deref(), &generic) };
             JobResult::Lint { uid, version, diags, linter }
         });
     }

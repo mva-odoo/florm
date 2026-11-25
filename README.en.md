@@ -244,6 +244,36 @@ brew install ruff flake8        # macOS
 
 `eslint` of the project (`node_modules/.bin/eslint`) or of the `PATH`. Without eslint, Florm checks the syntax with `node --check`.
 
+### Other languages
+
+Florm runs the linter of the file while typing when it is installed:
+
+| Files | Linter |
+|---|---|
+| Shell (`.sh`, `.bash`) | `shellcheck` |
+| YAML | `yamllint` |
+| Markdown | `markdownlint` (`npm i -g markdownlint-cli`) |
+| Dockerfile | `hadolint` |
+| Lua | `luacheck` |
+| Ruby | `rubocop` |
+| CSS, SCSS, Less | `stylelint` |
+
+Any other one is declared in `settings.toml`: a command writing `file:line:col: message` lines (the text of the file
+comes on its standard input, `{file}` is replaced by the path of the file). The same key replaces a linter of Florm,
+an empty command turns it off:
+
+```toml
+[linters.nimcheck]
+cmd = "nim check --stdin"
+ext = ["nim"]
+
+[linters.markdownlint]
+cmd = ""
+```
+
+For another output, `pattern` reads each line with a regex (groups `line`, `col`, `msg`, `severity`, `code`). Like
+eslint, these linters only run in a trusted folder: their configuration may load code.
+
 ### Language servers (LSP)
 
 Without a language server, Florm completes and goes to the definition thanks to its own index. A server adds exact completion, documentation on hover, usages (Shift+F12) and renaming in the whole project (F2). Florm detects automatically:
@@ -256,11 +286,18 @@ Without a language server, Florm completes and goes to the definition thanks to 
 | Go | `gopls` | `go install golang.org/x/tools/gopls@latest` |
 | C / C++ | `clangd` | `clangd` package (Linux), `brew install llvm` (macOS), LLVM (Windows) |
 
-To choose another command, in `settings.toml`:
+And when they are installed: `yaml-language-server`, `bash-language-server`, `vscode-css-language-server` and
+`vscode-html-language-server` (`npm i -g vscode-langservers-extracted`), `lua-language-server`, `ruby-lsp` or
+`solargraph`, `intelephense` (PHP), `marksman` (Markdown), `taplo` (TOML), `docker-langserver`, `terraform-ls`,
+`jdtls` (Java), `kotlin-language-server`, `sourcekit-lsp` (Swift), `zls` (Zig), `csharp-ls`,
+`haskell-language-server`, `ocamllsp`, `elixir-ls`. The status bar says which one to install for the open file.
+
+To choose another command, or add a language with the extensions of its files, in `settings.toml`:
 
 ```toml
 [lsp_servers]
 python = "pyright-langserver --stdio"
+nim = { cmd = "nimlangserver", ext = ["nim", "nims"] }
 ```
 
 A language server, eslint, the flake8 plugins of a project or the configuration of a git repository
