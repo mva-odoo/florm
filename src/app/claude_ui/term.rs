@@ -188,13 +188,9 @@ impl App {
                 }
             }
             let listed = std::fs::metadata(claude_term::files_of(&file)).map_or(0, |m| m.len());
+            // Claude changed files: they are reloaded and Git refreshed
             if listed != c.changed_len {
                 c.changed_len = listed;
-                for p in claude_term::changed_files(&file) {
-                    if !c.changed.contains(&p) {
-                        c.changed.push(p);
-                    }
-                }
                 touched = true;
             }
             let st = claude_term::read(&file);

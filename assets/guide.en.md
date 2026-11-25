@@ -449,14 +449,12 @@ new in it work as they are. Claude's changes are reviewed in the **Git** view.
 - **At the top**: the folder (chosen before the first message: a repository of the project, a
   recent project, or **📁 Another folder…**), **+ Context**, the 👤
   account, the **History** (the earlier conversations, kept between sessions) and **⟳** to restart
-  Claude (the conversation goes on where it was). On the right, the button of the **Session**
-  panel; hidden, the **5 h** quota gauge is at the top right (those of **7 d** and the **Context**
-  past 70 %, all of them on hover).
-- **Session** (panel on the right): the **context** in % and the **cost** of the conversation,
-  the **5 h** and **7 d quotas** of your subscription (with when they reset), the project, its
-  branch and the **model**. Florm reads them in the status line of Claude Code. Below, the **files
-  changed** by Claude in this conversation, the last one at the top: a click opens it. Florm reloads
-  them and refreshes Git as soon as Claude changes them.
+  Claude (the conversation goes on where it was).
+- **The conversation shown** grows in the list on the left: its **context** in % and its
+  **cost**, its **model** (and its account when there are several), read in the status line of
+  Claude Code. Florm reloads the files and refreshes Git as soon as Claude changes them.
+- **Usage**, at the bottom of the list: the **5 h** and **7 d quotas** of your subscription (on
+  hover, when they reset).
 - **What Claude waits for**: when it asks for a permission or a question, its message (“needs your
   permission to use Bash”…) shows on hover over the conversation in the list and over **❓ waiting**
   in the status bar. When Florm is not in front, a notification of the system tells you at
@@ -468,7 +466,7 @@ new in it work as they are. Claude's changes are reviewed in the **Git** view.
 - **Several conversations, one tab**: every conversation is listed on the left of the Claude
   tab, the newest at the top, with its title (its first message), what it does (⟳ working, ❓
   waiting for your answer, ✔ done) and how long it has been working; below, its project in its
-  color, its branch and its cost. A click shows one, the others go on behind; **+** starts a new
+  color and its branch. **×** on a hovered row closes it. A click shows one, the others go on behind; **+** starts a new
   one. Right click: **⇉ Duplicate** (a copy of its session, to try something else), **⇱ Open in
   its own tab**, **× Close** (Claude stops, it stays in the history). **Ctrl+Alt+W**: the next one
   waiting for your answer. The status bar says how many are working or waiting.
@@ -538,8 +536,7 @@ first request in the Claude tab.
 ### 🗺 Explaining a change
 
 To understand **what Claude proposes and why**, idea by idea rather than file by file.
-**🗺 Explain** in the Git view (next to ✳ AI review), **🗺 Explain these changes** under the
-changed files of Claude's Session panel, or the palette (“Git: explain the uncommitted changes”):
+**🗺 Explain** in the Git view (next to ✳ AI review), or the palette (“Git: explain the uncommitted changes”):
 the request goes to the Claude tab, to the conversation working in that folder (it knows why it
 made those changes), else to a new one. Claude gives the problem and the idea, then each idea with
 the places in the code (path:line, clickable) and what could break; it changes nothing. The talk

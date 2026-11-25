@@ -48,8 +48,6 @@ pub struct Settings {
     pub git: bool,
     pub github: bool,
     pub claude: bool,
-    /// The panel of the session (context, cost, quotas) on the right of Claude.
-    pub claude_review: bool,
     /// Claude is done and its conversation is not shown: its tab blinks a few seconds.
     pub claude_done_blink: bool,
     /// Sound played when Claude is done (`sound::SOUNDS`); empty: none.
@@ -165,7 +163,6 @@ impl Default for Settings {
             git: true,
             github: true,
             claude: true,
-            claude_review: true,
             claude_done_blink: true,
             claude_done_sound: "chime".into(),
             claude_accounts: Vec::new(),
@@ -256,8 +253,6 @@ claude = false
 # réseau filtré (Linux : paquets bubblewrap et socat ; macOS : Seatbelt, intégré ; pas sous Windows).
 # false : aucun bac à sable, même si les réglages de Claude Code en activent un. Pris en compte sans redémarrer Florm
 claude_sandbox = true
-# session de Claude (contexte, coût, quotas) à droite de son terminal
-claude_review = true
 # comptes Claude ("nom=dossier de configuration", dossier vide = celui habituel de Claude Code), par ex.
 # ["Pro=", "Perso=~/.claude-perso"] ; compte des nouvelles conversations et des messages de commit…
 claude_accounts = []

@@ -461,14 +461,12 @@ ses nouveautés marchent tels quels. Les changements de Claude se revoient dans 
 - **En haut** : le dossier (choisi avant le premier message : un dépôt du projet, un projet
   récent, ou **📁 Un autre dossier…**), **+ Contexte**, le compte 👤,
   l'**Historique** (les conversations d'avant, gardées entre les sessions) et **⟳** pour relancer
-  Claude (la conversation reprend où elle en était). À droite, le bouton du panneau **Session** ;
-  masqué, la jauge **5 h** du quota est en haut à droite (celles de **7 j** et du **Contexte**
-  au-delà de 70 %, toutes au survol).
-- **Session** (panneau de droite) : le **contexte** en % et le **coût** de la conversation, les
-  **quotas** 5 h et 7 j de ton abonnement (avec quand ils repartent à zéro), le projet, sa branche
-  et le **modèle**. Florm les lit dans la barre d'état de Claude Code. En dessous, les **fichiers
-  modifiés** par Claude dans cette conversation, le dernier en haut : un clic l'ouvre. Florm les
-  recharge et rafraîchit Git dès que Claude les change.
+  Claude (la conversation reprend où elle en était).
+- **La conversation affichée** s'agrandit dans la liste de gauche : son **contexte** en % et son
+  **coût**, son **modèle** (et son compte s'il y en a plusieurs), lus dans la barre d'état de
+  Claude Code. Florm recharge les fichiers et rafraîchit Git dès que Claude les change.
+- **Utilisation**, en bas de la liste : les **quotas** 5 h et 7 j de ton abonnement (au survol,
+  quand ils repartent à zéro).
 - **Ce que Claude attend** : quand il demande une permission ou pose une question, son message
   (« veut utiliser Bash »…) s'affiche au survol de la conversation dans la liste et de **❓ attend**
   dans la barre d'état. Si Florm n'est pas au premier plan, une notification du système te prévient
@@ -480,7 +478,7 @@ ses nouveautés marchent tels quels. Les changements de Claude se revoient dans 
 - **Plusieurs conversations, un seul onglet** : toutes les conversations sont listées à gauche
   de l'onglet Claude, la plus récente en haut, avec leur titre (leur premier message), ce qu'elles
   font (⟳ travaille, ❓ attend ta réponse, ✔ a fini) et depuis quand elles travaillent ; en
-  dessous, leur projet dans sa couleur, leur branche et leur coût. Un clic en affiche une, les
+  dessous, leur projet dans sa couleur et leur branche. **×** au survol d'une ligne la ferme. Un clic en affiche une, les
   autres continuent derrière ; **+** en commence une nouvelle. Clic droit : **⇉ Dupliquer** (une
   copie de sa session, pour essayer autre chose), **⇱ Ouvrir dans son propre onglet**, **× Fermer**
   (Claude s'arrête, elle reste dans l'historique). **Ctrl+Alt+W** : la suivante qui attend ta
@@ -553,8 +551,7 @@ dans l'onglet Claude.
 ### 🗺 Expliquer un changement
 
 Pour comprendre **ce que Claude propose et pourquoi**, idée par idée plutôt que fichier par
-fichier. **🗺 Expliquer** dans la vue Git (à côté de ✳ Revue IA), **🗺 Expliquer ces
-changements** sous les fichiers modifiés du panneau Session de Claude, ou la palette (« Git :
+fichier. **🗺 Expliquer** dans la vue Git (à côté de ✳ Revue IA), ou la palette (« Git :
 expliquer les changements non commités ») : la demande part dans l'onglet Claude, dans la
 conversation qui travaille dans ce dossier (elle sait pourquoi elle a fait ces changements), sinon
 dans une nouvelle. Claude donne le problème et l'idée, puis chaque idée avec les endroits du code

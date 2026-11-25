@@ -280,8 +280,6 @@ pub enum Layout {
     ToTab,
     /// The view goes to the bottom panel: a window with its bottom band filled.
     ToBottom,
-    /// A panel on the right, shown (filled) or hidden (outlined).
-    SidePanel(bool),
 }
 
 /// A 20×20 button with a `Layout` icon.
@@ -321,14 +319,6 @@ pub fn paint_layout(p: &Painter, c: Pos2, kind: Layout, color: Color32) {
         Layout::ToBottom => {
             p.rect_stroke(win, 2.0, stroke);
             p.rect_filled(Rect::from_min_max(Pos2::new(win.min.x, win.max.y - 4.5), win.max), 1.0, fill);
-        }
-        Layout::SidePanel(shown) => {
-            p.rect_stroke(win, 2.0, stroke);
-            let x = win.max.x - 5.0;
-            if shown {
-                p.rect_filled(Rect::from_min_max(Pos2::new(x, win.min.y), win.max), 1.0, fill);
-            }
-            p.line_segment([Pos2::new(x, win.min.y), Pos2::new(x, win.max.y)], stroke);
         }
     }
 }

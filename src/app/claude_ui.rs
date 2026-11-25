@@ -70,8 +70,8 @@ pub(super) struct ClaudeUi {
     pub(super) term_state: crate::claude_term::State,
     /// Its `claude` is started again once it is done (a setting it starts with changed).
     pub(super) term_restart: bool,
-    /// The files Claude changed in it (each once), and how much of the file listing them was read.
-    pub(super) changed: Vec<PathBuf>,
+    /// How much of the file listing the files Claude changed was read (it grows: they are
+    /// reloaded, Git refreshed).
     pub(super) changed_len: u64,
 }
 
@@ -84,7 +84,7 @@ impl ClaudeUi {
         self.term_state = Default::default();
         self.term_waiting = false;
         self.term_restart = false;
-        // its next `claude` lists them in a file of its own (those of before stay in `changed`)
+        // its next `claude` lists them in a file of its own
         self.changed_len = 0;
     }
 }
@@ -412,7 +412,7 @@ impl App {
             .collect();
     }
 
-    /// The Claude tab: the bar at the top, the session on the right, the terminal of `claude`.
+    /// The Claude tab: the bar at the top, the terminal of `claude` (its session is in the list).
     pub(super) fn claude_ui(&mut self, ui: &mut egui::Ui) {
         if self.install_guide(ui, crate::tools::Tool::Claude, true) {
             return;
@@ -443,22 +443,11 @@ impl App {
             .collect();
         let accounts = self.claude_accounts();
         let account_name = claude_account::find(&accounts, &self.claude.account).name.clone();
-        let no_limits = Vec::new();
-        let limits = self.claude_limits.get(&self.claude_limits_key(&self.claude.account)).unwrap_or(&no_limits);
-        let branch = self.claude.dir.as_deref().and_then(crate::stat_cache::head_branch);
         let accent = self.hl.colors.accent;
         let (term, colors, light) = (&mut self.term, self.hl.colors, self.hl.is_light());
         let c = &mut self.claude;
-        let d = bar::BarData { dirs: &dirs, dir_name: &dir_name, history: &history, accounts: &accounts, account_name: &account_name, limits, side: self.settings.claude_review };
+        let d = bar::BarData { dirs: &dirs, dir_name: &dir_name, history: &history, accounts: &accounts, account_name: &account_name };
         let a = bar::bar(ui, c, accent, d);
-        let side = a.side.unwrap_or(self.settings.claude_review);
-        let mut open_file = None;
-        let mut explain = false;
-        if side {
-            egui::SidePanel::right(egui::Id::new("claude_session").with(c.id)).frame(crate::app::work_side(ui)).resizable(true).default_width(230.0).width_range(200.0..=420.0).show_inside(ui, |ui| {
-                (open_file, explain) = session::session_ui(ui, c, &dir_name, branch.as_deref(), limits, accent);
-            });
-        }
         let mut paste_image = false;
         egui::CentralPanel::default().frame(egui::Frame::none().fill(colors.bg)).show_inside(ui, |ui| match c.term {
             Some(id) => paste_image = term.embedded_ui(ui, id, std::mem::take(&mut c.focus), colors, light),
@@ -473,20 +462,10 @@ impl App {
             self.jobs.spawn(move || JobResult::ClaudeImage { label, png: clipboard_image().ok_or_else(|| t!("pas d'image dans le presse-papiers", "no image in the clipboard").to_string()) });
         }
         self.claude_apply(a);
-        if let Some(p) = open_file {
-            self.open_path(p);
-        }
-        if let Some(dir) = self.claude.dir.clone().filter(|_| explain) {
-            self.explain_worktree(dir);
-        }
     }
 
     /// What the bar asked for, done now that `self` is free.
     fn claude_apply(&mut self, a: bar::Acts) {
-        if let Some(side) = a.side {
-            self.settings.claude_review = side;
-            self.persist("claude_review", side.to_string());
-        }
         if let Some(name) = a.account {
             self.set_status(tf!("Compte Claude : {name}", "Claude account: {name}"));
             self.claude_set_account(name);
@@ -550,41 +529,6 @@ impl App {
             }
             Err(e) => self.set_error(tf!("Pas de message proposé : {}", "No message suggested: {}", e.lines().next().unwrap_or(""))),
         }
-    }
-}
-
-/// A small gauge (right to left: the bar, then its label), red when nearly full.
-fn gauge(ui: &mut egui::Ui, label: &str, used: f32, accent: Color32, tip: impl FnOnce(&mut egui::Ui)) {
-    let (rect, r) = ui.allocate_exact_size(egui::vec2(46.0, 14.0), Sense::hover());
-    gauge_bar(ui, rect, used, accent);
-    let text = ui.label(RichText::new(format!("{label} {:.0} %", used * 100.0)).small().weak());
-    r.union(text).on_hover_ui(tip);
-    ui.add_space(6.0);
-}
-
-/// The bar of a gauge in `rect`: `used` (0 to 1) filled, orange then red when nearly full.
-fn gauge_bar(ui: &egui::Ui, rect: egui::Rect, used: f32, accent: Color32) {
-    let color = if used >= 0.9 { err() } else if used >= 0.7 { warn() } else { accent };
-    let bar = egui::Rect::from_center_size(rect.center(), egui::vec2(rect.width(), 6.0));
-    ui.painter().rect_filled(bar, 3.0, ui.visuals().widgets.inactive.bg_fill);
-    ui.painter().rect_filled(egui::Rect::from_min_size(bar.min, egui::vec2(bar.width() * used.max(0.0), bar.height())), 3.0, color);
-}
-
-/// Every gauge (label, used or -1 when unknown, details) one under the other, for a tooltip.
-fn gauges_tip(ui: &mut egui::Ui, gauges: &[(String, f32, String)], accent: Color32) {
-    ui.set_max_width(420.0);
-    for (k, (label, used, tip)) in gauges.iter().enumerate() {
-        if k > 0 {
-            ui.add_space(6.0);
-        }
-        ui.horizontal(|ui| {
-            ui.add_sized([64.0, 14.0], egui::Label::new(RichText::new(label).strong()));
-            let (rect, _) = ui.allocate_exact_size(egui::vec2(120.0, 14.0), Sense::hover());
-            gauge_bar(ui, rect, *used, accent);
-            let pct = if *used < 0.0 { "– %".to_string() } else { format!("{:.0} %", used * 100.0) };
-            ui.label(RichText::new(pct).small());
-        });
-        ui.label(RichText::new(tip).small().weak());
     }
 }
 

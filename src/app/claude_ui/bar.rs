@@ -1,5 +1,5 @@
 //! The bar above a conversation with Claude: its folder, a new one, its account, what to give it
-//! (« + Contexte »), the conversations kept, and the panel of its session.
+//! (« + Contexte »), the conversations kept.
 
 use super::*;
 
@@ -10,9 +10,6 @@ pub(super) struct BarData<'a> {
     pub(super) history: &'a [(u64, String, String)],
     pub(super) accounts: &'a [claude_account::Account],
     pub(super) account_name: &'a str,
-    pub(super) limits: &'a [(String, f32, i64)],
-    /// The panel of the session is shown.
-    pub(super) side: bool,
 }
 
 /// The keys of the system that copy a screen capture to the clipboard.
@@ -39,8 +36,6 @@ pub(super) struct Acts {
     pub(super) account: Option<String>,
     /// « Gérer les comptes… »: Préférences → Claude.
     pub(super) manage_accounts: bool,
-    /// The panel of the session shown (true) or hidden.
-    pub(super) side: Option<bool>,
     pub(super) restart: bool,
 }
 
@@ -97,56 +92,9 @@ fn context_menu(ui: &mut egui::Ui, c: &mut ClaudeUi, a: &mut Acts) {
     menu.response.on_hover_text(t!("Donner à Claude un fichier, la sélection, le diff, un commit, les problèmes, une image…", "Give Claude a file, the selection, the diff, a commit, the problems, an image…"));
 }
 
-/// The plan's quota over 5 hours always; over 7 days and the context only past 70 % (drawn
-/// right to left).
-fn gauges(ui: &mut egui::Ui, c: &ClaudeUi, limits: &[(String, f32, i64)], accent: Color32) {
-    let mut gauges: Vec<(String, f32, String)> = Vec::new();
-    for window in ["five_hour", "seven_day"] {
-        let (label, what) = match window {
-            "five_hour" => ("5 h", t!("sur 5 heures", "over 5 hours")),
-            _ => ("7 j", t!("sur 7 jours", "over 7 days")),
-        };
-        match limits.iter().find(|l| l.0 == window) {
-            // its window is over since: back to zero
-            Some((_, _, reset)) if *reset > 0 && *reset <= now_secs() => {
-                gauges.push((label.into(), 0.0, tf!("Quota de ton abonnement {what} : remis à zéro", "Quota of your subscription {what}: reset")));
-            }
-            Some((_, used, reset)) => {
-                gauges.push((label.into(), *used, tf!("Quota de ton abonnement {what} : {:.0} % utilisé, remis à zéro {}", "Quota of your subscription {what}: {:.0} % used, reset {}", used * 100.0, until(*reset))));
-            }
-            None => gauges.push((label.into(), -1.0, tf!("Quota de ton abonnement {what} : connu à la première réponse de Claude", "Quota of your subscription {what}: known at Claude's first answer"))),
-        }
-    }
-    let (tokens, window) = c.context;
-    if tokens > 0 && window > 0 {
-        let used = (tokens as f32 / window as f32).min(1.0);
-        gauges.push((
-            t!("Contexte", "Context").into(),
-            used,
-            tf!("Contexte de la conversation : {} / {} tokens.\nPlein, Claude résume le début de la conversation (/compact) ; /clear repart de zéro.", "Context of the conversation: {} / {} tokens.\nWhen full, Claude summarizes the start of the conversation (/compact); /clear starts from scratch.", thousands(tokens), thousands(window)),
-        ));
-    }
-    // hovering the 5 h one shows them all, the hidden ones too
-    let all = gauges.clone();
-    let all_tip = |ui: &mut egui::Ui| gauges_tip(ui, &all, accent);
-    for (k, (label, used, tip)) in gauges.into_iter().enumerate().rev() {
-        match k {
-            0 if used < 0.0 => {
-                ui.label(RichText::new("5 h – %").small().weak()).on_hover_ui(all_tip);
-                ui.add_space(6.0);
-            }
-            0 => gauge(ui, &label, used, accent, all_tip),
-            _ if used > 0.7 => gauge(ui, &label, used, accent, |ui: &mut egui::Ui| {
-                ui.label(tip);
-            }),
-            _ => {}
-        }
-    }
-}
-
 /// The bar above the conversation.
 pub(super) fn bar(ui: &mut egui::Ui, c: &mut ClaudeUi, accent: Color32, d: BarData<'_>) -> Acts {
-    let BarData { dirs, dir_name, history, accounts, account_name, limits, side } = d;
+    let BarData { dirs, dir_name, history, accounts, account_name } = d;
     let mut a = Acts::default();
     // as the breadcrumb of a file: `✳ Claude › ● florm`, on the editor's background
     crate::view_bar::header(egui::Id::new("claude_bar").with(c.id), ui)
@@ -217,25 +165,8 @@ pub(super) fn bar(ui: &mut egui::Ui, c: &mut ClaudeUi, accent: Color32, d: BarDa
                 if c.term.is_some() && ui.button("⟳").on_hover_text(t!("Relancer Claude : la conversation reprend où elle en était", "Restart Claude: the conversation goes on where it was")).clicked() {
                     a.restart = true;
                 }
-                // the gauges and the view buttons need about 300 px: else on a line of their own
-                if ui.max_rect().right() - ui.cursor().min.x < 300.0 {
-                    ui.end_row();
-                }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     crate::view_bar::controls(ui, None, None, None);
-                    let tip = if side {
-                        t!("Masquer la session : Claude prend toute la largeur", "Hide the session: Claude takes the whole width")
-                    } else {
-                        t!("Afficher la session : contexte, coût, quotas, modèle", "Show the session: context, cost, quotas, model")
-                    };
-                    if crate::icons::layout_button(ui, crate::icons::Layout::SidePanel(side), tip).clicked() {
-                        a.side = Some(!side);
-                    }
-                    ui.add_space(8.0);
-                    // the panel shows them: not twice
-                    if !side {
-                        gauges(ui, c, limits, accent);
-                    }
                 });
             });
         });

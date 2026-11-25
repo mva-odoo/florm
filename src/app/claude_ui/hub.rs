@@ -226,6 +226,12 @@ impl App {
         let line = ui.visuals().widgets.noninteractive.bg_stroke;
         ui.painter().hline(ui.clip_rect().x_range(), ui.cursor().top() + 0.5, line);
         ui.add_space(6.0);
+        // the quotas of the plan at the bottom: the account's, for every conversation
+        let no_limits = Vec::new();
+        let limits = self.claude_limits.get(&self.claude_limits_key(&self.claude.account)).unwrap_or(&no_limits);
+        egui::TopBottomPanel::bottom(egui::Id::new("claude_quotas").with(hub)).frame(egui::Frame::none()).resizable(false).show_separator_line(true).show_inside(ui, |ui| {
+            session::quotas_ui(ui, limits, accent);
+        });
         egui::ScrollArea::vertical().id_salt(("claude_list", hub)).auto_shrink([false, false]).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 2.0;
             for r in &rows {
@@ -246,15 +252,14 @@ impl App {
                     None => more.push(t!("dans le panneau du bas", "in the bottom panel").into()),
                 }
                 let project_name = if r.project.is_empty() { t!("(sans dossier)", "(no folder)").to_string() } else { r.project.clone() };
+                // its background, drawn once its height is known (the one shown has its details under it)
+                let bg = ui.painter().add(egui::Shape::Noop);
                 let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 48.0), Sense::click());
                 let v = ui.visuals();
-                if shown {
-                    ui.painter().rect_filled(rect, 6.0, crate::icons::mix(v.extreme_bg_color, accent, 0.12));
-                } else if resp.hovered() {
-                    ui.painter().rect_filled(rect, 6.0, v.widgets.hovered.weak_bg_fill);
-                }
                 let p = ui.painter().with_clip_rect(rect.shrink2(egui::vec2(4.0, 2.0)));
-                let close_zone = resp.hovered();
+                // the pointer anywhere on the row, × included: the row is no longer « hovered » once
+                // the × under the pointer is, and × went away at once (it blinked and could not be clicked)
+                let close_zone = ui.rect_contains_pointer(rect);
                 // its state on the right of the title, where × shows on hover: working (and since
                 // when), waiting for you, finished and not seen yet; nothing at rest
                 let state = match r.state {
@@ -307,6 +312,20 @@ impl App {
                 let resp = resp.on_hover_text(tip);
                 if resp.clicked() && !on_close {
                     act = Some(ListAct::Show(r.id));
+                }
+                // the one shown: its details under it (what the panel on the right of Claude showed)
+                let mut full = rect;
+                if shown {
+                    if let Some(c) = self.all_convs().find(|c| c.id == r.id) {
+                        session::details_ui(ui, c, &r.account, accent);
+                        full.max.y = ui.min_rect().bottom();
+                    }
+                }
+                let v = ui.visuals();
+                if shown {
+                    ui.painter().set(bg, egui::Shape::rect_filled(full, 6.0, crate::icons::mix(v.extreme_bg_color, accent, 0.12)));
+                } else if close_zone {
+                    ui.painter().set(bg, egui::Shape::rect_filled(rect, 6.0, v.widgets.hovered.weak_bg_fill));
                 }
                 resp.context_menu(|ui| {
                     if ui.add_enabled(r.can_fork, egui::Button::new(t!("⇉ Dupliquer", "⇉ Duplicate"))).on_hover_text(t!("Une copie qui repart de la dernière réponse : pour essayer autre chose sans perdre celle-ci", "A copy that starts again from the last answer: to try something else without losing this one")).on_disabled_hover_text(t!("Après une première réponse de Claude", "After a first answer of Claude")).clicked() {
@@ -420,6 +439,68 @@ mod tests {
         let names = ["shop", "billing", "florm", "themes", "api", "internal"];
         let colors: HashSet<[u8; 4]> = names.iter().map(|n| project_color(n, false).to_array()).collect();
         assert!(colors.len() >= 3, "{}", colors.len());
+    }
+}
+
+#[cfg(test)]
+mod list_tests {
+    use super::*;
+
+    /// The list as drawn: the conversation shown with its details, the quotas at the bottom, and
+    /// the × of a row that stays under the pointer and closes it.
+    #[test]
+    fn details_quotas_and_a_close_that_works() {
+        let dir = std::env::temp_dir().join(format!("florm_claude_list_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("settings.toml"), "check_updates = false\nlsp = false\n").unwrap();
+        let _lock = config::TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("FLORM_CONFIG", &dir);
+        let ctx = egui::Context::default();
+        let mut app = App::with_ctx(&ctx, None);
+        let hub = 77;
+        app.claude = app.claude_fresh(Some(hub));
+        app.claude.context = (50_000, 200_000);
+        let mut other = app.claude_fresh(Some(LISTED));
+        other.wish = Some("deuxième conversation".into());
+        let other_id = other.id;
+        app.claude_others.push(other);
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300.0, 800.0));
+        let frame = |app: &App, events: Vec<egui::Event>| {
+            let mut act = None;
+            let out = ctx.run(egui::RawInput { screen_rect: Some(screen), events, ..Default::default() }, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| act = app.claude_list_ui(ui, hub));
+            });
+            let mut texts = Vec::new();
+            fn walk(s: &egui::Shape, out: &mut Vec<(String, egui::Rect)>) {
+                match s {
+                    egui::Shape::Text(t) => out.push((t.galley.text().to_string(), t.galley.rect.translate(t.pos.to_vec2()))),
+                    egui::Shape::Vec(v) => v.iter().for_each(|x| walk(x, out)),
+                    _ => {}
+                }
+            }
+            out.shapes.iter().for_each(|c| walk(&c.shape, &mut texts));
+            (act, texts)
+        };
+        frame(&app, Vec::new());
+        let (_, texts) = frame(&app, Vec::new());
+        let has = |texts: &[(String, egui::Rect)], t: &str| texts.iter().any(|(x, _)| x.contains(t));
+        for want in ["25 %", "UTILISATION", "Quota 5 h"] {
+            assert!(has(&texts, want), "{want}: {texts:?}");
+        }
+        // the row of the other conversation, then its ×, several frames on it, then a click
+        let row = texts.iter().find(|(t, _)| t.contains("deuxième")).map(|(_, r)| *r).unwrap();
+        let (_, texts) = frame(&app, vec![egui::Event::PointerMoved(row.center())]);
+        let x = texts.iter().find(|(t, r)| t == "×" && (r.center().y - row.center().y).abs() < 20.0).map(|(_, r)| r.center()).expect("× on the hovered row");
+        for _ in 0..3 {
+            let (_, texts) = frame(&app, vec![egui::Event::PointerMoved(x)]);
+            assert!(texts.iter().any(|(t, r)| t == "×" && r.contains(x)), "× stays under the pointer");
+        }
+        let click = |pressed| egui::Event::PointerButton { pos: x, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+        frame(&app, vec![click(true)]);
+        let (act, _) = frame(&app, vec![click(false)]);
+        assert!(matches!(act, Some(ListAct::Close(id)) if id == other_id));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 
