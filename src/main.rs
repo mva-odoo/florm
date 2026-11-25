@@ -38,6 +38,7 @@ mod lsp;
 mod npm;
 mod test_cmd;
 mod os;
+mod packs;
 mod pick;
 mod project;
 mod rebase;

@@ -211,6 +211,8 @@ pub enum Cmd {
     DebugShow,
     DebugConfigs,
     DebugInstallDebugpy,
+    /// Preferences → Languages: the tools of each language, to install.
+    ShowLanguages,
 }
 
 impl Cmd {
@@ -428,6 +430,7 @@ pub const ALL: &[(&str, &str, Cmd)] = &[
     ("debug_show", "Débogueur : afficher le panneau", DebugShow),
     ("debug_configs", "Débogueur : configurations du projet (.florm/debug.toml)", DebugConfigs),
     ("debug_install_debugpy", "Débogueur : installer debugpy pour Python (Florm)", DebugInstallDebugpy),
+    ("show_languages", "Langages : installer les outils d'un langage (LSP, linter, débogueur…)", ShowLanguages),
     ("show_change", "Git : afficher / masquer le changement de la ligne", ShowChange),
     ("clear_search_history", "Recherche : effacer l'historique", ClearSearchHistory),
     ("git_blame", "Git : blame de la ligne (afficher / masquer)", GitBlame),
@@ -661,6 +664,7 @@ const EN: &[(&str, &str)] = &[
     ("debug_show", "Debugger: show the panel"),
     ("debug_configs", "Debugger: configurations of the project (.florm/debug.toml)"),
     ("debug_install_debugpy", "Debugger: install debugpy for Python (Florm)"),
+    ("show_languages", "Languages: install the tools of a language (LSP, linter, debugger…)"),
     ("show_change", "Git: show / hide the change of the line"),
     ("clear_search_history", "Search: clear the history"),
     ("git_blame", "Git: blame of the line (show / hide)"),

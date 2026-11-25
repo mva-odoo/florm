@@ -112,6 +112,12 @@ pub fn generic_linters(path: &Path, cfg: &HashMap<String, LinterCfg>) -> Vec<(St
             out.push((name.clone(), c.cmd.clone(), c.pattern.clone()));
         }
     }
+    // those of the language packs
+    for l in crate::packs::linters_for(path) {
+        if !out.iter().any(|(n, ..)| *n == l.0) {
+            out.push(l);
+        }
+    }
     out
 }
 
@@ -587,10 +593,10 @@ fn find_runner(name: &str) -> Option<Runner> {
         "pylint" => Some("pylint"),
         _ => None,
     };
-    let in_path = crate::os::command(name).arg("--version").stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok();
     let tool_bin = tools_dir().join("bin").join(name);
-    let r = if in_path {
-        Some(Runner::Bin(PathBuf::from(name)))
+    // in the PATH, or where Florm installs (its language packs)
+    let r = if let Some(p) = crate::lsp::in_path(name) {
+        Some(Runner::Bin(p))
     } else if tool_bin.exists() && name == "ruff" {
         Some(Runner::Bin(tool_bin))
     } else {
@@ -825,7 +831,7 @@ fn lint_js(path: &Path, root: Option<&Path>, trusted: bool) -> Vec<Diagnostic> {
         }
     }
     if trusted {
-        candidates.push("eslint".to_string());
+        candidates.push(crate::lsp::in_path("eslint").map(|p| p.display().to_string()).unwrap_or_else(|| "eslint".to_string()));
     }
     for eslint in candidates {
         let Some(out) = run_tool(&eslint, &["--format", "json", &p], dir) else { continue };

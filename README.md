@@ -311,6 +311,17 @@ confiance (le dossier repasse en mode restreint) ; la liste est dans `settings.t
 trusted_folders = ["/home/moi/src/mon-projet"]
 ```
 
+### Packs de langage : tout installer pour un langage
+
+**Préférences → Langages** montre, pour chaque langage (Python, JavaScript / TypeScript, Go, Rust,
+C / C++, YAML, Shell, Markdown, HTML / CSS, Dockerfile, TOML, PHP, Lua, Ruby, XML, JSON), ses outils
+installés ou non, et **Installer** met ce qui manque dans `~/.local/share/florm/tools/`
+(`%LOCALAPPDATA%\florm\tools` sous Windows) : `pip` dans un environnement virtuel propre à Florm,
+`npm`, `go install`, `rustup`. Rien n'est installé dans le système ; il faut seulement Python,
+Node.js, Go ou rustup pour les outils qui en dépendent. Ce que seul le système fournit (gdb,
+marksman, hadolint…) est donné en commandes à copier. Un pack perso (`~/.config/florm/packs/*.toml`)
+ajoute un langage, ses outils, son serveur de langage et son linter.
+
 ### Terminal intégré
 
 Il lance votre shell (`$SHELL` sous Linux et macOS, `cmd.exe` ou `%COMSPEC%` sous Windows ; à changer dans Préférences → Terminal). Pour les icônes des prompts (starship, powerline), installez une [Nerd Font](https://www.nerdfonts.com) : Florm la trouve tout seul.

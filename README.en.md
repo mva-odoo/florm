@@ -311,6 +311,17 @@ restricted mode); the list is in `settings.toml`:
 trusted_folders = ["/home/me/src/my-project"]
 ```
 
+### Language packs: everything for a language
+
+**Preferences → Languages** shows, for each language (Python, JavaScript / TypeScript, Go, Rust,
+C / C++, YAML, Shell, Markdown, HTML / CSS, Dockerfile, TOML, PHP, Lua, Ruby, XML, JSON), its tools
+installed or not, and **Install** puts what is missing in `~/.local/share/florm/tools/`
+(`%LOCALAPPDATA%\florm\tools` on Windows): `pip` in a virtual environment of Florm's own, `npm`,
+`go install`, `rustup`. Nothing is installed in the system; only Python, Node.js, Go or rustup are
+needed for the tools that depend on them. What only the system provides (gdb, marksman, hadolint…)
+is given as commands to copy. An own pack (`~/.config/florm/packs/*.toml`) adds a language, its
+tools, its language server and its linter.
+
 ### Built-in terminal
 
 It runs your shell (`$SHELL` on Linux and macOS, `cmd.exe` or `%COMSPEC%` on Windows; to change in Preferences → Terminal). For the prompt icons (starship, powerline), install a [Nerd Font](https://www.nerdfonts.com): Florm finds it by itself.

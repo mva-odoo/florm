@@ -40,6 +40,8 @@ impl App {
                     }
                 }
                 JobResult::ToolInstalled(r) => self.on_tool_installed(r),
+                JobResult::PackStatus(list, status) => self.on_pack_status(list, status),
+                JobResult::PackInstalled(r) => self.on_pack_installed(r),
                 JobResult::DebugStarted(r) => self.debug_started(r),
                 JobResult::FileMatches { gen, query, matched, top } => self.on_file_matches(gen, query, matched, top),
                 JobResult::FileIndex(root, list) => self.on_file_index(root, list),

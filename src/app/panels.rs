@@ -75,6 +75,7 @@ impl App {
                 self.conflict_bar(ui, self.active, 0);
                 self.disk_bar(ui, self.active, 0);
                 self.trust_bar(ui, self.active, 0);
+                self.pack_bar(ui, self.active, 0);
             }
             if self.active < self.docs.len() {
                 editor_resp = self.doc_body(ui, self.active, editor_id(), true);

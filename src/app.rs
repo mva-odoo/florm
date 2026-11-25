@@ -50,6 +50,7 @@ mod panes;
 mod compare;
 mod lsp_client;
 mod debugger;
+mod packs_ui;
 pub(crate) use debugger::DebugStart;
 mod maximize;
 mod navigation;
@@ -923,6 +924,8 @@ pub struct App {
     watch: WatchState,
     /// Folders not trusted for which « Plus tard » was clicked (until Florm is closed).
     trust_later: HashSet<PathBuf>,
+    /// Language packs: their tools there or not, the one being installed.
+    packs: packs_ui::PacksUi,
     last_line_copy: Option<String>,
     /// Closing Florm: what was confirmed, and « Fermer quand il aura fini ».
     quit: QuitState,
@@ -1077,6 +1080,7 @@ enum PrefSection {
     Appearance,
     Editor,
     Lint,
+    Languages,
     Git,
     PullRequests,
     Claude,
@@ -1087,9 +1091,10 @@ enum PrefSection {
 }
 
 /// (section, French name, English name).
-const PREF_SECTIONS: [(PrefSection, &str, &str); 10] = [
+const PREF_SECTIONS: [(PrefSection, &str, &str); 11] = [
     (PrefSection::Appearance, "Apparence", "Appearance"),
     (PrefSection::Editor, "Éditeur", "Editor"),
+    (PrefSection::Languages, "Langages", "Languages"),
     (PrefSection::Lint, "Lint", "Lint"),
     (PrefSection::Git, "Git", "Git"),
     (PrefSection::PullRequests, "Pull requests", "Pull requests"),
@@ -1251,6 +1256,7 @@ impl App {
             pending: Vec::new(),
             watch: WatchState { last_check: Instant::now(), busy: false, git_stamps: HashMap::new(), term_enter: None, was_focused: true },
             trust_later: HashSet::new(),
+            packs: packs_ui::PacksUi::default(),
             last_line_copy: None,
             quit: QuitState { confirmed: false, claude_ok: false, when_idle: false },
             closed: Vec::new(),

@@ -77,6 +77,7 @@ impl App {
         self.conflict_bar(ui, i, pane);
         self.disk_bar(ui, i, pane);
         self.trust_bar(ui, i, pane);
+        self.pack_bar(ui, i, pane);
         self.md_toolbar_ui(ui, i, pane);
         let focused = pane == self.panes.focused;
         let id = if focused { editor_id() } else { editor_view::other_editor_id() };

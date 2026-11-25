@@ -1,0 +1,203 @@
+# The language packs Florm ships: per language, its tools and how to install them.
+# A pack of ~/.config/florm/packs/<name>.toml with the same name replaces one of these.
+#
+# kind: lsp, lint, format, debug (what the tool is for)
+# bin: the program looked for (PATH, ~/.local/bin, ~/go/bin, ~/.cargo/bin, Florm's tools folder)
+# how it installs (one of): pip, npm, go, rustup; else hint (the command shown to copy)
+# module: a Python module whose presence is enough (debugpy: no program)
+# builtin: inside Florm, nothing to install
+# optional: not installed by « Installer » (another tool does the same)
+
+[[pack]]
+name = "Python"
+ext = ["py", "pyi"]
+[[pack.tool]]
+kind = "lsp"
+bin = "pylsp"
+pip = "python-lsp-server"
+[[pack.tool]]
+kind = "lint"
+bin = "ruff"
+pip = "ruff"
+[[pack.tool]]
+kind = "format"
+bin = "ruff"
+pip = "ruff"
+[[pack.tool]]
+kind = "lint"
+bin = "flake8"
+pip = "flake8"
+optional = true
+[[pack.tool]]
+kind = "debug"
+bin = "debugpy"
+module = "debugpy"
+pip = "debugpy"
+
+[[pack]]
+name = "JavaScript / TypeScript"
+ext = ["js", "mjs", "cjs", "jsx", "ts", "mts", "cts", "tsx"]
+[[pack.tool]]
+kind = "lsp"
+bin = "typescript-language-server"
+npm = "typescript-language-server typescript"
+[[pack.tool]]
+kind = "lint"
+bin = "eslint"
+npm = "eslint"
+
+[[pack]]
+name = "Go"
+ext = ["go"]
+[[pack.tool]]
+kind = "lsp"
+bin = "gopls"
+go = "golang.org/x/tools/gopls@latest"
+[[pack.tool]]
+kind = "debug"
+bin = "dlv"
+go = "github.com/go-delve/delve/cmd/dlv@latest"
+
+[[pack]]
+name = "Rust"
+ext = ["rs"]
+[[pack.tool]]
+kind = "lsp"
+bin = "rust-analyzer"
+rustup = "rust-analyzer"
+[[pack.tool]]
+kind = "debug"
+bin = "gdb"
+hint = "pacman -S gdb · apt install gdb · brew install gdb"
+
+[[pack]]
+name = "C / C++"
+ext = ["c", "h", "cpp", "cc", "cxx", "hpp", "hh", "hxx"]
+[[pack.tool]]
+kind = "lsp"
+bin = "clangd"
+pip = "clangd"
+[[pack.tool]]
+kind = "debug"
+bin = "gdb"
+hint = "pacman -S gdb · apt install gdb · brew install gdb"
+
+[[pack]]
+name = "XML"
+ext = ["xml"]
+[[pack.tool]]
+kind = "lint"
+bin = "XML"
+builtin = true
+
+[[pack]]
+name = "JSON"
+ext = ["json"]
+[[pack.tool]]
+kind = "lint"
+bin = "JSON"
+builtin = true
+
+[[pack]]
+name = "YAML"
+ext = ["yml", "yaml"]
+[[pack.tool]]
+kind = "lsp"
+bin = "yaml-language-server"
+npm = "yaml-language-server"
+[[pack.tool]]
+kind = "lint"
+bin = "yamllint"
+pip = "yamllint"
+
+[[pack]]
+name = "Shell"
+ext = ["sh", "bash"]
+[[pack.tool]]
+kind = "lsp"
+bin = "bash-language-server"
+npm = "bash-language-server"
+[[pack.tool]]
+kind = "lint"
+bin = "shellcheck"
+pip = "shellcheck-py"
+
+[[pack]]
+name = "Markdown"
+ext = ["md", "markdown"]
+[[pack.tool]]
+kind = "lsp"
+bin = "marksman"
+hint = "pacman -S marksman · brew install marksman · github.com/artempyanykh/marksman/releases"
+[[pack.tool]]
+kind = "lint"
+bin = "markdownlint"
+npm = "markdownlint-cli"
+
+[[pack]]
+name = "HTML / CSS"
+ext = ["html", "htm", "css", "scss", "less"]
+[[pack.tool]]
+kind = "lsp"
+bin = "vscode-html-language-server"
+npm = "vscode-langservers-extracted"
+[[pack.tool]]
+kind = "lsp"
+bin = "vscode-css-language-server"
+npm = "vscode-langservers-extracted"
+[[pack.tool]]
+kind = "lint"
+bin = "stylelint"
+npm = "stylelint"
+
+[[pack]]
+name = "Dockerfile"
+ext = ["Dockerfile", "Containerfile", "dockerfile"]
+[[pack.tool]]
+kind = "lsp"
+bin = "docker-langserver"
+npm = "dockerfile-language-server-nodejs"
+[[pack.tool]]
+kind = "lint"
+bin = "hadolint"
+hint = "pacman -S hadolint · brew install hadolint · github.com/hadolint/hadolint/releases"
+
+[[pack]]
+name = "TOML"
+ext = ["toml"]
+[[pack.tool]]
+kind = "lsp"
+bin = "taplo"
+npm = "@taplo/cli"
+
+[[pack]]
+name = "PHP"
+ext = ["php"]
+[[pack.tool]]
+kind = "lsp"
+bin = "intelephense"
+npm = "intelephense"
+
+[[pack]]
+name = "Lua"
+ext = ["lua"]
+[[pack.tool]]
+kind = "lsp"
+bin = "lua-language-server"
+hint = "pacman -S lua-language-server · brew install lua-language-server"
+[[pack.tool]]
+kind = "lint"
+bin = "luacheck"
+hint = "luarocks install luacheck"
+
+[[pack]]
+name = "Ruby"
+ext = ["rb", "rake", "gemspec", "Gemfile", "Rakefile"]
+[[pack.tool]]
+kind = "lsp"
+bin = "ruby-lsp"
+hint = "gem install ruby-lsp"
+[[pack.tool]]
+kind = "lint"
+bin = "rubocop"
+hint = "gem install rubocop"

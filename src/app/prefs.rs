@@ -900,6 +900,12 @@ impl App {
                     self.prefs.key_action = Some(a);
                 }
             }
+            PrefSection::Languages => {
+                if rc.matches(&["Langages", "Languages", "pack", "installer", "install", "outils", "tools", "LSP", "linter", "débogueur", "debugger"]) {
+                    rc.header(ui);
+                    self.packs_page(ui);
+                }
+            }
             PrefSection::Templates => {
                 if rc.matches(&["Modèles", "modèle", "template", "snippet", "déclencheur", "trigger"]) {
                     rc.header(ui);

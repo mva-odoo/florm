@@ -234,9 +234,14 @@ impl App {
                         if let Some((text, warning, install)) = &lsp_line {
                             ui.separator();
                             let t = if *warning { RichText::new(text).color(warn()) } else { RichText::new(text) };
-                            if *install {
-                                if ui.button(t).on_hover_text(t!("Installe python-lsp-server pour Florm (pip --target, sans toucher au Python système). Ou installe pyright.", "Installs python-lsp-server for Florm (pip --target, without touching the system Python). Or install pyright.")).clicked() {
-                                    pending.push(Cmd::InstallPylsp);
+                            if let Some(cmd) = install {
+                                let tip = if *cmd == Cmd::InstallPylsp {
+                                    t!("Installe python-lsp-server pour Florm (pip --target, sans toucher au Python système). Ou installe pyright.", "Installs python-lsp-server for Florm (pip --target, without touching the system Python). Or install pyright.")
+                                } else {
+                                    t!("Préférences → Langages : les outils de ce langage, à installer", "Preferences → Languages: the tools of this language, to install")
+                                };
+                                if ui.button(t).on_hover_text(tip).clicked() {
+                                    pending.push(*cmd);
                                     ui.close_menu();
                                 }
                             } else {
@@ -343,16 +348,22 @@ impl App {
 
     /// Language server of the active file, for the status bar menu: (text, is a warning, the
     /// click installs pylsp).
-    pub(super) fn lsp_status_line(&self) -> Option<(String, bool, bool)> {
+    /// What the language server of the current file does: (text, a warning, the command a click runs).
+    pub(super) fn lsp_status_line(&self) -> Option<(String, bool, Option<Cmd>)> {
         let path = self.docs.get(self.active).and_then(|d| d.path.as_deref()).filter(|_| self.settings.lsp)?;
         let fam = lsp::language_of(path, &self.settings.lsp_servers)?.0;
         let running = self.lsp.manager.clients.iter().flatten().find(|c| c.family == fam);
         match (running, self.lsp.notes.get(fam)) {
-            (Some(c), _) if c.ready => Some((tf!("Serveur de langage : {}", "Language server: {}", c.name), false, false)),
-            (Some(c), _) => Some((tf!("Serveur de langage : {} (démarrage…)", "Language server: {} (starting…)", c.name), false, false)),
-            (None, Some(_)) if fam == "python" => Some((t!("Serveur de langage : installer pylsp", "Language server: install pylsp").into(), true, true)),
-            // a language one does not always want a server for: said, not a warning
-            (None, Some(why)) => Some((tf!("Pas de serveur de langage : {why}", "No language server: {why}"), lsp::usually_wanted(fam) || self.settings.lsp_servers.contains_key(fam), false)),
+            (Some(c), _) if c.ready => Some((tf!("Serveur de langage : {}", "Language server: {}", c.name), false, None)),
+            (Some(c), _) => Some((tf!("Serveur de langage : {} (démarrage…)", "Language server: {} (starting…)", c.name), false, None)),
+            (None, Some(_)) if fam == "python" => Some((t!("Serveur de langage : installer pylsp", "Language server: install pylsp").into(), true, Some(Cmd::InstallPylsp))),
+            // a language one does not always want a server for: said, not a warning; its pack
+            // (Preferences → Languages) installs it
+            (None, Some(why)) => Some((
+                tf!("Pas de serveur de langage : {why} — ⬇ Langages…", "No language server: {why} — ⬇ Languages…"),
+                lsp::usually_wanted(fam) || self.settings.lsp_servers.contains_key(fam),
+                Some(Cmd::ShowLanguages),
+            )),
             _ => None,
         }
     }

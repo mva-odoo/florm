@@ -58,6 +58,8 @@ pub struct Settings {
     /// Folders whose conversations use an account: "folder=account name" (the longest that
     /// holds the folder of the conversation).
     pub claude_account_folders: Vec<String>,
+    /// Language packs not proposed any more when one of their files opens.
+    pub packs_ignored: Vec<String>,
     /// The toolbar of formatting buttons above a Markdown source (the source stays editable).
     pub markdown_toolbar: bool,
     /// Branch and upstream of git repositories on their folder in the tree.
@@ -168,6 +170,7 @@ impl Default for Settings {
             claude_accounts: Vec::new(),
             claude_account: String::new(),
             claude_account_folders: Vec::new(),
+            packs_ignored: Vec::new(),
             markdown_toolbar: true,
             tree_git_info: true,
             inline_diff: false,

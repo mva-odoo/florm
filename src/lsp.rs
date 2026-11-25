@@ -106,6 +106,13 @@ pub fn language_of(path: &Path, cfg: &HashMap<String, ServerCfg>) -> Option<(&'s
             }
         }
     }
+    // the servers the language packs declare
+    for (family, _, exts) in crate::packs::servers() {
+        if exts.iter().map(|e| e.trim().trim_start_matches('.')).any(|e| (!ext.is_empty() && e.eq_ignore_ascii_case(&ext)) || e == name) {
+            let f = intern(&family);
+            return Some((f, f));
+        }
+    }
     known_language(name, &ext)
 }
 
@@ -171,6 +178,8 @@ fn tool_dirs() -> Vec<PathBuf> {
         out.push(h.join(".cargo").join("bin"));
         out.push(h.join(".local").join("bin"));
     }
+    // what Florm installed itself (language packs)
+    out.extend(crate::packs::bin_dirs());
     out
 }
 
@@ -233,7 +242,15 @@ pub fn find_server(family: &str, overrides: &HashMap<String, ServerCfg>) -> Opti
                     env: vec![("PYTHONPATH".into(), crate::lint::tools_dir().display().to_string())],
                 })
             }),
-        _ => SERVERS.iter().filter(|(f, _)| *f == family).flat_map(|(_, s)| s.iter()).find_map(|(bin, args)| simple(bin, args)),
+        _ => SERVERS.iter().filter(|(f, _)| *f == family).flat_map(|(_, s)| s.iter()).find_map(|(bin, args)| simple(bin, args)).or_else(|| {
+            // a server declared by a language pack
+            let (_, cmd, _) = crate::packs::servers().into_iter().find(|(f, _, _)| f == family)?;
+            let mut cmd: Vec<String> = cmd.split_whitespace().map(String::from).collect();
+            let bin = in_path(&cmd[0])?;
+            let name = cmd[0].clone();
+            cmd[0] = bin.display().to_string();
+            Some(ServerSpec { name, cmd, env: Vec::new() })
+        }),
     }
 }
 

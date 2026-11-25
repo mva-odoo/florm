@@ -320,6 +320,36 @@ Les opérations lancées depuis Florm mettent la version d'origine entre les deu
   masque un panneau latéral (la revue de Claude), pleine quand il est affiché. Git et les Préférences
   sont des onglets comme les autres : Échap revient à l'onglet d'avant, Ctrl+W les ferme.
 
+## Langages : installer les outils
+
+**Préférences → Langages** (ou « Langages : installer les outils d'un langage » dans la palette)
+liste chaque langage avec ses outils : serveur de langage (LSP), linter, formateur, débogueur.
+✓ : installé ; ✖ : il manque.
+
+- **Installer** met ce qui manque dans le dossier des outils de Florm, sans toucher au système :
+  `pip` dans un environnement virtuel à lui (pylsp, ruff, debugpy, yamllint, clangd…), `npm`
+  (typescript-language-server, eslint, les serveurs YAML, Bash, HTML, CSS, Dockerfile…),
+  `go install` (gopls, dlv), `rustup` (rust-analyzer). Il faut que Python, Node.js, Go ou rustup
+  soient là pour ceux qui en dépendent. Un clic sur un outil ✖ installe celui-là seul.
+- Ce que seul le système installe (gdb, marksman, hadolint…) est donné en commandes : un clic la
+  tape dans un terminal (Entrée pour la lancer), un clic droit la copie.
+- En ouvrant un fichier d'un langage auquel il manque des outils, une barre propose de les
+  installer ; **Plus tard** la cache jusqu'à la fermeture de Florm, **Ne plus proposer** pour de bon.
+- **+ Nouveau pack…** : un langage que Florm ne connaît pas, ou d'autres outils pour un langage, dans
+  un fichier TOML de `~/.config/florm/packs/` (un pack du même nom remplace celui de Florm). Un pack
+  peut déclarer un serveur de langage (`cmd` d'un outil `lsp`) et un linter (`cmd` d'un outil `lint`,
+  qui écrit `fichier:ligne:col: message`) : Florm les lance pour ses fichiers, dans un dossier de
+  confiance.
+  ```toml
+  name = "Nim"
+  ext = ["nim", "nims"]
+  [[tool]]
+  kind = "lsp"
+  bin = "nimlangserver"
+  cmd = "nimlangserver"
+  hint = "nimble install nimlangserver"
+  ```
+
 ## Erreurs dans le code
 
 Les problèmes sont soulignés dans le code et listés dans **Problèmes** (panneau du bas) :

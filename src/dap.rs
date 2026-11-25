@@ -158,7 +158,8 @@ pub fn adapter_for(cfg: &LaunchCfg, root: &Path) -> Result<AdapterSpec, String> 
         "python" => {
             // the project's Python, the system's, then the one Florm installed in its tools
             let venv = project_python(root);
-            for py in [venv.as_str(), crate::lint::python()] {
+            let mine = crate::packs::py_venv_python().map(|p| p.display().to_string()).unwrap_or_default();
+            for py in [venv.as_str(), crate::lint::python(), mine.as_str()].into_iter().filter(|p| !p.is_empty()) {
                 if python_has_debugpy(py, None) {
                     return Ok(AdapterSpec { name: "debugpy".into(), cmd: vec![py.into(), "-m".into(), "debugpy.adapter".into()], env: Vec::new(), tcp: false, id: "debugpy".into() });
                 }

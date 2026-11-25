@@ -309,6 +309,35 @@ The operations started from Florm put the original version between the two sides
   review of Claude), filled when it is shown. Git and the Preferences are
   tabs like the others: Escape goes back to the previous tab, Ctrl+W closes them.
 
+## Languages: installing the tools
+
+**Preferences → Languages** (or “Languages: install the tools of a language” in the palette) lists
+each language with its tools: language server (LSP), linter, formatter, debugger. ✓: installed;
+✖: missing.
+
+- **Install** puts what is missing in Florm's tools folder, without touching the system: `pip` in a
+  virtual environment of its own (pylsp, ruff, debugpy, yamllint, clangd…), `npm`
+  (typescript-language-server, eslint, the YAML, Bash, HTML, CSS, Dockerfile servers…), `go install`
+  (gopls, dlv), `rustup` (rust-analyzer). Python, Node.js, Go or rustup must be there for those that
+  need them. A click on a ✖ tool installs that one alone.
+- What only the system installs (gdb, marksman, hadolint…) is given as commands: a click types it in
+  a terminal (Enter runs it), a right click copies it.
+- When a file of a language that misses tools opens, a bar proposes to install them; **Later** hides
+  it until Florm is closed, **Don't ask again** for good.
+- **+ New pack…**: a language Florm does not know, or other tools for a language, in a TOML file of
+  `~/.config/florm/packs/` (a pack with the same name replaces Florm's). A pack can declare a
+  language server (`cmd` of an `lsp` tool) and a linter (`cmd` of a `lint` tool, writing
+  `file:line:col: message`): Florm runs them for its files, in a trusted folder.
+  ```toml
+  name = "Nim"
+  ext = ["nim", "nims"]
+  [[tool]]
+  kind = "lsp"
+  bin = "nimlangserver"
+  cmd = "nimlangserver"
+  hint = "nimble install nimlangserver"
+  ```
+
 ## Errors in the code
 
 Problems are underlined in the code and listed in **Problems** (bottom panel):
