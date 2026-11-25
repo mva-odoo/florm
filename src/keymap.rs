@@ -143,7 +143,6 @@ const DEFAULTS: &[(&str, &str)] = &[
     ("ctrl+alt+r", "pull_requests"),
     ("ctrl+alt+c", "claude"),
     ("ctrl+alt+k", "claude_ask"),
-    ("ctrl+alt+i", "claude_screenshot"),
     ("alt+\\", "ai_complete"),
     ("ctrl+alt+w", "claude_next_waiting"),
     ("ctrl+alt+d", "toggle_inline_diff"),

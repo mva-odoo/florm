@@ -32,7 +32,6 @@ mod mermaid;
 mod repo_init;
 mod versions_view;
 mod versions;
-mod screenshot;
 mod md;
 mod quick_fix;
 mod pulls;
@@ -944,8 +943,6 @@ pub struct App {
     repo_init: Option<repo_init::RepoInitUi>,
     /// The window to add a version as worktrees (`odoo/20.0`, `enterprise/20.0`…).
     version_add: Option<versions::AddVersionUi>,
-    /// A picture of the window asked for Claude (Ctrl+Alt+I).
-    shot: Option<screenshot::Shot>,
     /// When the states of the conversations in a terminal were last read (Claude dans un terminal).
     claude_term_read: Option<Instant>,
     /// The window of the versions side by side (state of each, update, remove…).
@@ -1262,7 +1259,6 @@ impl App {
             hints: Default::default(),
             repo_init: None,
             version_add: None,
-            shot: None,
             claude_term_read: None,
             versions_view: None,
             versions: Vec::new(),
@@ -1568,7 +1564,6 @@ impl eframe::App for App {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.screenshot_tick(ctx);
         // Without vsync, an animation (scrolling, panel opening) would redraw as fast as the processor
         // allows: at most ~120 frames per second, and never later than an input (key, mouse).
         if let Some(last) = self.paced_frame {

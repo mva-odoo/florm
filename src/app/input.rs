@@ -395,7 +395,6 @@ impl App {
             SuggestCommit => self.suggest_commit_message(),
             ClaudeAddSelection => self.claude_attach_selection(false),
             ClaudeAsk => self.claude_attach_selection(true),
-            ClaudeScreenshot => self.screenshot_for_claude(Duration::ZERO),
             AiComplete => self.ai_complete_now(),
             ToggleAiComplete => self.ai_complete_toggle(),
             ClaudeNextWaiting => self.claude_next_waiting(),
@@ -829,7 +828,7 @@ fn terminal_lets_through(cmd: Cmd, c: Combo) -> bool {
     let shell_ctrl_shift = matches!(c.key, Key::C | Key::V | Key::X | Key::F | Key::Minus);
     fkey || (c.ctrl && c.alt)
         || (c.ctrl && c.shift && !shell_ctrl_shift)
-        || matches!(cmd, ToggleTerminal | CommandPalette | QuickOpen | ToggleSidebar | NextTab | PrevTab | Claude | ClaudeNextWaiting | ClaudeScreenshot)
+        || matches!(cmd, ToggleTerminal | CommandPalette | QuickOpen | ToggleSidebar | NextTab | PrevTab | Claude | ClaudeNextWaiting)
         // Cmd+Q on macOS, where Cmd means nothing to a shell
         || (cfg!(target_os = "macos") && cmd == Quit)
 }

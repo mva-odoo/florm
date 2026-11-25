@@ -32,7 +32,7 @@ pub fn of_cmd(cmd: Cmd) -> Option<Feature> {
     Some(match cmd {
         PullRequests | CreatePr | CopyGithubLink => Feature::GitHub,
         ShowGit | GitAddVersion | GitAmend | GitBlame | GitCheckout | GitClean | GitCommit | GitDeleteBranch | GitDiffFile | GitFetch | GitFileHistory | GitForcePush | GitHistory | GitLineHistory | GitMerge | GitNewBranch | GitNextChange | GitPrevChange | GitPull | GitPullRebase | GitPush | GitPushTags | GitRebaseOnto | GitFetchRebase | GitRebaseInteractive | GitReflog | GitRefresh | GitRenameBranch | GitRevertChange | GitRevertFile | GitSearchHistory | GitStageAll | GitStash | GitStashPop | GitVersions => Feature::Git,
-        Claude | SuggestCommit | ClaudeAddSelection | ClaudeAddFile | ClaudeResumeFile | ClaudeAsk | ClaudeScreenshot | ClaudeNextWaiting | GitAiReview | GitExplain | GitCommitRules | GitMyCommitRules => Feature::Claude,
+        Claude | SuggestCommit | ClaudeAddSelection | ClaudeAddFile | ClaudeResumeFile | ClaudeAsk | ClaudeNextWaiting | GitAiReview | GitExplain | GitCommitRules | GitMyCommitRules => Feature::Claude,
         _ => return None,
     })
 }

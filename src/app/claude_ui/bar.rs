@@ -13,8 +13,6 @@ pub(super) struct BarData<'a> {
     pub(super) limits: &'a [(String, f32, i64)],
     /// The panel of the session is shown.
     pub(super) side: bool,
-    /// The keys of « Capture de Florm » (as the keymap has them).
-    pub(super) shot_keys: &'a str,
 }
 
 /// The keys of the system that copy a screen capture to the clipboard.
@@ -36,7 +34,6 @@ pub(super) struct Acts {
     pub(super) ctx_add: Option<CtxAdd>,
     pub(super) read_commits: bool,
     pub(super) clipboard: bool,
-    pub(super) shot: bool,
     pub(super) open_saved: Option<u64>,
     pub(super) forget_saved: Option<u64>,
     pub(super) account: Option<String>,
@@ -49,7 +46,7 @@ pub(super) struct Acts {
 
 /// « + Contexte »: a file, the selection, the diff, a commit, the problems, a picture, written
 /// into Claude's field.
-fn context_menu(ui: &mut egui::Ui, c: &mut ClaudeUi, a: &mut Acts, shot_keys: &str) {
+fn context_menu(ui: &mut egui::Ui, c: &mut ClaudeUi, a: &mut Acts) {
     let menu = ui.menu_button(t!("+ Contexte", "+ Context"), |ui| {
         ui.set_min_width(260.0);
         for (label, tip, what) in [
@@ -81,10 +78,6 @@ fn context_menu(ui: &mut egui::Ui, c: &mut ClaudeUi, a: &mut Acts, shot_keys: &s
             });
         });
         ui.separator();
-        if ui.button(tf!("Capture de Florm   {shot_keys}", "Picture of Florm   {shot_keys}")).on_hover_text(tf!("La fenêtre de Florm telle qu'elle est, en image (aussi : {shot_keys} depuis n'importe quelle vue)", "Florm's window as it is, as a picture (also: {shot_keys} from any view)")).clicked() {
-            a.shot = true;
-            ui.close_menu();
-        }
         let clip = ui
             .add_enabled(c.clip_image, egui::Button::new(t!("Image du presse-papiers", "Image from the clipboard")))
             .on_hover_text(t!("L'image copiée (une capture faite avec Impr, une image copiée ailleurs)", "The copied image (a capture made with Print, an image copied elsewhere)"))
@@ -153,7 +146,7 @@ fn gauges(ui: &mut egui::Ui, c: &ClaudeUi, limits: &[(String, f32, i64)], accent
 
 /// The bar above the conversation.
 pub(super) fn bar(ui: &mut egui::Ui, c: &mut ClaudeUi, accent: Color32, d: BarData<'_>) -> Acts {
-    let BarData { dirs, dir_name, history, accounts, account_name, limits, side, shot_keys } = d;
+    let BarData { dirs, dir_name, history, accounts, account_name, limits, side } = d;
     let mut a = Acts::default();
     let fill = ui.visuals().panel_fill;
     egui::TopBottomPanel::top(egui::Id::new("claude_bar").with(c.id))
@@ -178,16 +171,7 @@ pub(super) fn bar(ui: &mut egui::Ui, c: &mut ClaudeUi, accent: Color32, d: BarDa
                 .response
                 .on_disabled_hover_text(t!("Pour changer : « Nouvelle conversation »", "To change: “New conversation”"))
                 .on_hover_text(t!("Le dossier où Claude travaille : un dépôt du projet, un projet récent ou n'importe quel dossier", "The folder Claude works in: a repository of the project, a recent project or any folder"));
-                context_menu(ui, c, &mut a, shot_keys);
-                // the picture of Florm, its keys in sight (nobody remembers them)
-                let tip = tf!(
-                    "Donner à Claude une image de la fenêtre de Florm telle qu'elle est ({shot_keys}, depuis n'importe quelle vue).\nUne capture d'une autre application : {} copie dans le presse-papiers, puis + Contexte → Image du presse-papiers.",
-                    "Give Claude a picture of Florm's window as it is ({shot_keys}, from any view).\nA capture of another application: {} copies to the clipboard, then + Context → Image from the clipboard.",
-                    system_shot_keys()
-                );
-                if ui.button(format!("📷 {shot_keys}")).on_hover_text(tip).clicked() {
-                    a.shot = true;
-                }
+                context_menu(ui, c, &mut a);
                 // the account it runs with (its session follows it); always there, to find how to add one
                 ui.menu_button(format!("👤 {account_name}"), |ui| {
                     ui.set_min_width(200.0);

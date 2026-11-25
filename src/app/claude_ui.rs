@@ -447,10 +447,9 @@ impl App {
         let limits = self.claude_limits.get(&self.claude_limits_key(&self.claude.account)).unwrap_or(&no_limits);
         let branch = self.claude.dir.as_deref().and_then(crate::stat_cache::head_branch);
         let accent = self.hl.colors.accent;
-        let shot_keys = self.keymap.label(Cmd::ClaudeScreenshot);
         let (term, colors, light) = (&mut self.term, self.hl.colors, self.hl.is_light());
         let c = &mut self.claude;
-        let d = bar::BarData { dirs: &dirs, dir_name: &dir_name, history: &history, accounts: &accounts, account_name: &account_name, limits, side: self.settings.claude_review, shot_keys: &shot_keys };
+        let d = bar::BarData { dirs: &dirs, dir_name: &dir_name, history: &history, accounts: &accounts, account_name: &account_name, limits, side: self.settings.claude_review };
         let a = bar::bar(ui, c, accent, d);
         let side = a.side.unwrap_or(self.settings.claude_review);
         let mut open_file = None;
@@ -501,9 +500,6 @@ impl App {
                 let id = self.claude.id;
                 self.jobs.spawn(move || JobResult::ClaudeCommits(id, git::stdout(&dir, &["log", "-40", "--format=%H%x1f%h%x1f%s%x1f%cr"]).unwrap_or_default()));
             }
-        }
-        if a.shot {
-            self.screenshot_for_claude(Duration::ZERO);
         }
         if let Some(w) = a.ctx_add {
             self.claude_add_context(w);
