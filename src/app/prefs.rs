@@ -217,18 +217,27 @@ impl App {
                 ui.add_space(8.0);
                 egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                     ui.set_max_width(ui.available_width().min(860.0));
-                    let sections: Vec<PrefSection> = if self.prefs.filter.is_empty() {
-                        vec![self.prefs.section]
+                    // the lint and the language servers are in the page of the languages, under them
+                    let sections: Vec<PrefSection> = if !self.prefs.filter.is_empty() {
+                        PREF_SECTIONS.iter().map(|(s, _, _)| *s).flat_map(|s| if s == PrefSection::Languages { vec![s, PrefSection::Lint] } else { vec![s] }).collect()
+                    } else if self.prefs.section == PrefSection::Languages {
+                        vec![PrefSection::Languages, PrefSection::Lint]
                     } else {
-                        PREF_SECTIONS.iter().map(|(s, _, _)| *s).collect()
+                        vec![self.prefs.section]
                     };
                     let searching = !self.prefs.filter.is_empty();
                     for sec in sections {
-                        let name = PREF_SECTIONS.iter().find(|(s, _, _)| *s == sec).map(|(_, fr, en)| t!(*fr, *en)).unwrap_or("");
+                        let name = match sec {
+                            PrefSection::Lint => t!("Lint et serveurs de langage", "Lint and language servers"),
+                            _ => PREF_SECTIONS.iter().find(|(s, _, _)| *s == sec).map(|(_, fr, en)| t!(*fr, *en)).unwrap_or(""),
+                        };
                         let mut rc = RowCtx { filter: self.prefs.filter.clone(), header: None };
                         if searching {
                             rc.header = Some((name.to_uppercase(), self.hl.colors.accent));
                         } else {
+                            if sec == PrefSection::Lint {
+                                ui.add_space(28.0);
+                            }
                             ui.label(RichText::new(name).size(22.0).strong());
                             ui.add_space(4.0);
                         }
@@ -537,9 +546,6 @@ impl App {
                 pref_row(ui, rc, t!("Supprimer les espaces en fin de ligne", "Trim trailing whitespace"), t!("À chaque enregistrement.", "On every save."), |ui| {
                     toggle_switch(ui, &mut s.trim_trailing_whitespace_on_save);
                 });
-                pref_row(ui, rc, t!("Serveurs de langage (LSP)", "Language servers (LSP)"), t!("Complétion (Ctrl+Espace), aller à la définition (F12), renommer (F2), leurs erreurs soulignées, et le formatage des fichiers autres que Python. Serveurs détectés : pyright / pylsp, typescript-language-server, rust-analyzer, gopls, clangd, et ceux de YAML, Bash, CSS, HTML, Lua, Ruby, PHP, Markdown, TOML, Java… quand ils sont installés (la barre d'état dit lequel installer). Un autre langage : [lsp_servers] dans settings.toml.", "Completion (Ctrl+Space), go to definition (F12), rename (F2), their errors underlined, and the formatting of files other than Python. Servers detected: pyright / pylsp, typescript-language-server, rust-analyzer, gopls, clangd, and those of YAML, Bash, CSS, HTML, Lua, Ruby, PHP, Markdown, TOML, Java… when they are installed (the status bar says which one to install). Another language: [lsp_servers] in settings.toml."), |ui| {
-                    toggle_switch(ui, &mut s.lsp);
-                });
                 pref_row(ui, rc, t!("Enregistrement automatique", "Auto-save"), t!("« En quittant » enregistre les fichiers modifiés quand Florm perd le focus ou qu'on passe à un autre onglet ; « Après une pause », une seconde après la dernière touche. Les nouveaux fichiers sans nom ne sont pas concernés.", "“On leaving” saves the changed files when Florm loses the focus or another tab is shown; “After a pause”, a second after the last key. New files without a name are left out."), |ui| {
                     let label = |m: &str| match m {
                         "focus" => t!("En quittant", "On leaving"),
@@ -561,6 +567,10 @@ impl App {
             }
             PrefSection::Lint => {
                 let accent = self.hl.colors.accent;
+                pref_group(ui, rc, t!("Serveurs de langage", "Language servers"), accent);
+                pref_row(ui, rc, t!("Serveurs de langage (LSP)", "Language servers (LSP)"), t!("Complétion (Ctrl+Espace), aller à la définition (F12), renommer (F2), leurs erreurs soulignées, et le formatage des fichiers autres que Python. Serveurs détectés : pyright / pylsp, typescript-language-server, rust-analyzer, gopls, clangd, et ceux de YAML, Bash, CSS, HTML, Lua, Ruby, PHP, Markdown, TOML, Java… quand ils sont installés (la barre d'état dit lequel installer). Un autre langage : [lsp_servers] dans settings.toml.", "Completion (Ctrl+Space), go to definition (F12), rename (F2), their errors underlined, and the formatting of files other than Python. Servers detected: pyright / pylsp, typescript-language-server, rust-analyzer, gopls, clangd, and those of YAML, Bash, CSS, HTML, Lua, Ruby, PHP, Markdown, TOML, Java… when they are installed (the status bar says which one to install). Another language: [lsp_servers] in settings.toml."), |ui| {
+                    toggle_switch(ui, &mut s.lsp);
+                });
                 pref_group(ui, rc, t!("Quand vérifier", "When to check"), accent);
                 pref_row(ui, rc, t!("Vérifier pendant la frappe", "Check while typing"), t!("Les fichiers Python et ceux des autres langages qui ont un linter (shell, YAML, Markdown…) sont vérifiés une demi-seconde après la dernière touche, sans enregistrer.", "Python files and those of the other languages with a linter (shell, YAML, Markdown…) are checked half a second after the last key, without saving."), |ui| {
                     toggle_switch(ui, &mut s.lint_live);
@@ -1386,7 +1396,7 @@ mod tests {
         std::env::set_var("FLORM_CONFIG", &dir);
         let ctx = egui::Context::default();
         let mut app = App::with_ctx(&ctx, None);
-        app.prefs.section = PrefSection::Lint;
+        app.prefs.section = PrefSection::Languages;
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 4000.0));
         let mut texts = String::new();
         for _ in 0..2 {
@@ -1409,6 +1419,12 @@ mod tests {
         for want in ["Autres langages", "shellcheck", "yamllint", "stylelint", "Coupé (settings.toml)", "nimcheck", "Un autre linter", "Ouvrir settings.toml"] {
             assert!(texts.contains(want), "{want}");
         }
+        // one page: the languages, then their lint and language servers (no « Lint » on the left)
+        for want in ["|Langages|", "|Lint et serveurs de langage|", "|Serveurs de langage (LSP)|", "|Dossiers de confiance|", "|Python|"] {
+            assert!(texts.contains(want), "{want} in {texts}");
+        }
+        assert!(!texts.contains("|Lint|"), "{texts}");
+        assert!(texts.find("|Lint et serveurs de langage|") > texts.find("|+ Nouveau pack…|"), "under the languages");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

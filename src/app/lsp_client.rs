@@ -519,7 +519,7 @@ impl App {
         let (uid, version) = (d.uid, d.version);
         let options = serde_json::json!({ "tabSize": self.settings.tab_size, "insertSpaces": self.settings.translate_tabs_to_spaces });
         let Some((ci, _)) = self.lsp_for(i, ctx, true) else {
-            self.set_status(t!("Pas de serveur de langage pour ce fichier (Préférences → Éditeur → Serveurs de langage)", "No language server for this file (Preferences → Editor → Language servers)"));
+            self.set_status(t!("Pas de serveur de langage pour ce fichier (Préférences → Langages → Serveurs de langage)", "No language server for this file (Preferences → Languages → Language servers)"));
             return;
         };
         let (Some((doc, _)), Some(cl)) = (self.lsp_text_position(i), self.lsp.manager.client(ci)) else { return };

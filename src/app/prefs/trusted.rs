@@ -1,4 +1,4 @@
-//! Préférences → Lint → Dossiers de confiance: the folders trusted, each with a × to take its
+//! Préférences → Langages → Dossiers de confiance: the folders trusted, each with a × to take its
 //! trust back.
 
 use super::*;

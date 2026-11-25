@@ -1119,11 +1119,10 @@ enum PrefSection {
 }
 
 /// (section, French name, English name).
-const PREF_SECTIONS: [(PrefSection, &str, &str); 12] = [
+const PREF_SECTIONS: [(PrefSection, &str, &str); 11] = [
     (PrefSection::Appearance, "Apparence", "Appearance"),
     (PrefSection::Editor, "Éditeur", "Editor"),
     (PrefSection::Languages, "Langages", "Languages"),
-    (PrefSection::Lint, "Lint", "Lint"),
     (PrefSection::Git, "Git", "Git"),
     (PrefSection::PullRequests, "Pull requests", "Pull requests"),
     (PrefSection::Claude, "Claude", "Claude"),

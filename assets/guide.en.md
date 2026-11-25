@@ -368,7 +368,7 @@ Problems are underlined in the code and listed in **Problems** (bottom panel):
 
 - **Python**: the first linter installed (`flake8`, else `ruff`, `pyflakes`, `pylint`; Preferences →
   Lint), while typing. **JavaScript**: `eslint`, on save.
-- **Language servers** (Preferences → Editor → Language servers): their errors too, for every
+- **Language servers** (Preferences → Languages → Language servers): their errors too, for every
   language they know (TypeScript, Rust, Go, C…). **Format the file** (palette) goes through `ruff`
   for Python, through the language server for the others. To format every Python file on save:
   Preferences → Editor.
@@ -401,7 +401,7 @@ a folder not trusted yet, a bar above the file says so: Git, the language server
 linters of the other languages do not run, and flake8 ignores the configuration of the project (`node --check` and the Python lint stay);
 the Git view says so too, with the same button. **Trust “folder”** starts them, for that folder and those inside it
 (`trusted_folders` key of `settings.toml`); **Later** hides the bar until Florm is closed.
-**Preferences → Lint → Trusted folders** lists them; × takes the trust of a folder back, and it
+**Preferences → Languages → Trusted folders** lists them; × takes the trust of a folder back, and it
 goes back to restricted mode. The repositories Florm clones itself (the shared
 configuration, the extension catalogues) do not need to be in it.
 

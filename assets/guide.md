@@ -381,7 +381,7 @@ Les problèmes sont soulignés dans le code et listés dans **Problèmes** (pann
 
 - **Python** : le premier linter installé (`flake8`, sinon `ruff`, `pyflakes`, `pylint` ; Préférences →
   Lint), pendant la frappe. **JavaScript** : `eslint`, à l'enregistrement.
-- **Serveurs de langage** (Préférences → Éditeur → Serveurs de langage) : leurs erreurs aussi, pour
+- **Serveurs de langage** (Préférences → Langages → Serveurs de langage) : leurs erreurs aussi, pour
   tous les langages qu'ils connaissent (TypeScript, Rust, Go, C…). **Formater le fichier** (palette)
   passe par `ruff` pour Python, par le serveur de langage pour les autres. Pour formater chaque
   fichier Python à l'enregistrement : Préférences → Éditeur.
@@ -414,7 +414,7 @@ Dans un dossier qui n'est pas encore de confiance, une barre au-dessus du fichie
 serveurs de langage, eslint et les linters des autres langages ne tournent pas, et flake8 ignore la configuration du projet
 (`node --check` et le lint Python restent) ; la vue Git le dit aussi, avec le même bouton. **Faire confiance à « dossier »** les lance, pour
 ce dossier et ceux qu'il contient (clé `trusted_folders` de `settings.toml`) ; **Plus tard** cache la
-barre jusqu'à la fermeture de Florm. **Préférences → Lint → Dossiers de confiance** les liste ; × retire
+barre jusqu'à la fermeture de Florm. **Préférences → Langages → Dossiers de confiance** les liste ; × retire
 la confiance d'un dossier, qui repasse en mode restreint. Les dépôts que Florm clone lui-même (la
 configuration partagée, les catalogues d'extensions) n'ont pas besoin d'y être.
 
