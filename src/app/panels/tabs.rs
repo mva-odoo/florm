@@ -211,7 +211,6 @@ impl App {
             self.pending.push(Cmd::NewFile);
         }
         match new_tab {
-            Some(super::bottom::NewTab::View(tab)) => self.show_big(tab),
             Some(super::bottom::NewTab::Cmd(cmd)) => self.pending.push(cmd),
             None => {}
         }

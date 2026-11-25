@@ -203,7 +203,6 @@ pub(crate) const TAB_STRIP_H: f32 = 34.0;
 
 #[derive(PartialEq, Clone, Copy, Debug)]
 enum BottomTab {
-    Search,
     Problems,
     Terminal,
     Output,
@@ -217,19 +216,18 @@ impl BottomTab {
     }
 
     /// The views of the bottom panel, in the order of its ▾ menu.
-    const ALL: [(BottomTab, icons::ViewIcon, &'static str); 5] = [
-        (BottomTab::Search, icons::ViewIcon::Search, "Recherche"),
-        (BottomTab::Problems, icons::ViewIcon::Problems, "Problèmes"),
+    /// The search is a page of its own (an editor tab), not here.
+    const ALL: [(BottomTab, icons::ViewIcon, &'static str); 4] = [
         (BottomTab::Terminal, icons::ViewIcon::Terminal, "Terminal"),
-        (BottomTab::Output, icons::ViewIcon::Output, "Sortie"),
         (BottomTab::Debug, icons::ViewIcon::Debug, "Débogueur"),
+        (BottomTab::Problems, icons::ViewIcon::Problems, "Problèmes"),
+        (BottomTab::Output, icons::ViewIcon::Output, "Sortie"),
     ];
 
     /// The views offered: those of the parts turned on.
     fn shown() -> impl Iterator<Item = (BottomTab, icons::ViewIcon, &'static str)> {
         Self::ALL.into_iter().map(|(t, i, l)| {
             let l = match l {
-                "Recherche" => t!(l, "Search"),
                 "Problèmes" => t!(l, "Problems"),
                 "Sortie" => t!(l, "Output"),
                 "Débogueur" => t!(l, "Debugger"),
@@ -247,7 +245,6 @@ impl BottomTab {
     /// The command that opens it, for the shortcut shown in the ▾ menu of the bottom panel.
     fn cmd(self) -> Cmd {
         match self {
-            BottomTab::Search => Cmd::FindInFiles,
             BottomTab::Problems => Cmd::ShowProblems,
             BottomTab::Terminal => Cmd::ToggleTerminal,
             BottomTab::Output => Cmd::ShowOutput,
@@ -610,8 +607,6 @@ enum SearchAct {
     ReplaceAll,
     Reveal(usize),
     Copy(String),
-    /// Into an editor tab (true) or back into the bottom panel.
-    Move(bool),
 }
 
 impl SearchUi {
@@ -2633,7 +2628,7 @@ mod font_tests {
         app.save_session();
         let again = App::with_ctx(&ctx, Some(proj.clone()));
         assert_eq!(views(&again), views(&app));
-        // every view, large in a tab then in the bottom panel
+        // every view of the bottom panel, and the search page
         let all = |app: &mut App| {
             let _ = ctx.run(egui::RawInput { screen_rect: screen, ..Default::default() }, |ctx| {
                 app.sidebar(ctx);
@@ -2643,10 +2638,11 @@ mod font_tests {
                 app.central(ctx);
             });
         };
+        app.open_search_tab();
+        all(&mut app);
+        all(&mut app);
+        assert!(app.docs.iter().any(|d| d.view == document::View::Search));
         for (tab, ..) in BottomTab::ALL {
-            app.show_big(tab);
-            all(&mut app);
-            all(&mut app);
             app.show_bottom(tab, false);
             all(&mut app);
             all(&mut app);

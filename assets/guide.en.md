@@ -79,14 +79,12 @@ sidebar shown or not.
 ## Bottom panel and status bar
 
 One simple rule: **files and the views that need room (Claude, Git, Pull requests (GitHub)) go in
-the tabs; the bottom panel keeps what comes along with the work**: terminal, problems, output, and
-also the search if you want. To see two tabs side by side, split the editor.
+the tabs, the search too; the bottom panel keeps what comes along with the work**: terminals,
+debugger, problems, output. To see two tabs side by side, split the editor.
 
-- **The bottom panel shows one view at a time**, without a row of tabs: its name at the top left,
-  **▾** to switch to another (with its shortcut, and what is waiting: number of problems); under “Terminal” the open terminals. **Ctrl+Shift+J** shows or hides it.
-- **⇱ / ⇲ in the header of the search** puts it in a tab or in the bottom
-  panel, and Florm remembers: its shortcut, the palette and ▾ then open it in
-  the same place. A view that already has its tab is shown there, never in two places.
+- **The bottom panel has its tabs**: one per terminal, then **Debugger** (● during a session, ⏸
+  paused), **Problems** (their number) and **Output**. A click switches between them, **+** opens a
+  new terminal, **×** on a hovered terminal closes it. **Ctrl+Shift+J** shows or hides the panel.
 - **The status bar only shows what is going on**: on the left the icon of the **Preferences**, then those of **Claude**, **Git**,
   **Pull requests** (a click opens its tab, another one goes back to the tab before; coloured when
   it is shown), **Terminal** (the terminal of the bottom panel) and **Debugger** (its view in the
@@ -99,9 +97,8 @@ also the search if you want. To see two tabs side by side, split the editor.
 ## Find in folder (Ctrl+Shift+F)
 
 Enter runs the search. The results are colored like in the editor; **F4 / Shift+F4** go to the
-next / previous result. The **in a tab** button puts the search in an editor
-tab (more room), **at the bottom** puts it back at the bottom
-(Preferences → Editor to choose where it opens).
+next / previous result. The search is a page of its own, in an editor tab: all the room for the
+results.
 
 ### Filter the files
 
@@ -301,9 +298,9 @@ The operations started from Florm put the original version between the two sides
 - **Ctrl+Shift+`**: a terminal **in a
   tab** of the editor. Like any tab, it can be dragged to the right or bottom edge of the editor
   to be next to a file (or right click on the tab → Split right / down).
-- In the bottom panel, **one terminal at a time**: its folder at the top, **+** opens another,
-  **⇱** sends it to a tab (**at the bottom** in the tab brings it back). The other terminals are in
-  **▾**, under “Terminal”: click to switch, **×** on hover to close it.
+- In the bottom panel, **each terminal has its tab**: its folder on the right, **+** opens another,
+  **⇱** sends it to an editor tab (**at the bottom** in the tab brings it back), **×** on its hovered
+  tab closes it.
 - All the views (Search, Git, Pull requests (GitHub), Claude, Terminal) have the same buttons at
   the right of their header, in the same order: **⟳** read again, **in a tab / at the
   bottom** (a small window: with a tab on top, or a band at the bottom; remembered for next time), **⋯** the other actions

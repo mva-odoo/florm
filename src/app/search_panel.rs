@@ -115,7 +115,7 @@ impl App {
         self.git_refresh();
     }
 
-    pub(super) fn search_ui(&mut self, ui: &mut egui::Ui, in_tab: bool) {
+    pub(super) fn search_ui(&mut self, ui: &mut egui::Ui) {
         let (mut go, mut act) = (false, None);
         let accent = self.hl.colors.accent;
         // the results at the size of the code, as excerpts of the editor (Zed)
@@ -173,10 +173,9 @@ impl App {
                 if s.running {
                     spinner(ui);
                 }
+                // a page of its own: no button to move it to the bottom panel
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if let Some(crate::view_bar::BarAct::Move(b)) = crate::view_bar::controls(ui, Some(in_tab), None, None) {
-                        act = Some(SearchAct::Move(b));
-                    }
+                    crate::view_bar::controls(ui, None, None, None);
                 });
             });
 
@@ -564,20 +563,6 @@ impl App {
             Some(SearchAct::Copy(t)) => {
                 ui.ctx().output_mut(|o| o.copied_text = t.clone());
                 self.set_status(tf!("Copié : {t}", "Copied: {t}"));
-            }
-            Some(SearchAct::Move(true)) => {
-                self.open_search_tab();
-                self.settings.search_in_tab = true;
-                self.persist("search_in_tab", "true".into());
-            }
-            Some(SearchAct::Move(false)) => {
-                if let Some(i) = self.docs.iter().position(|d| d.view == document::View::Search) {
-                    self.close_tab(i, true);
-                }
-                self.bottom = Some(BottomTab::Search);
-                self.search.focus = true;
-                self.settings.search_in_tab = false;
-                self.persist("search_in_tab", "false".into());
             }
             None => {}
         }

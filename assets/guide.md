@@ -80,16 +80,14 @@ bas ouvert et la barre latérale affichée ou non.
 ## Panneau du bas et barre d'état
 
 Une règle simple : **les fichiers et les vues qui demandent de la place (Claude, Git, Pull requests
-(GitHub)) vont dans les onglets ; le panneau du bas garde ce qui accompagne le travail** : terminal,
-problèmes, sortie, et aussi la recherche si tu le veux. Pour voir deux onglets côte à
-côte, divise l'éditeur.
+(GitHub), la recherche) vont dans les onglets ; le panneau du bas garde ce qui accompagne le
+travail** : terminaux, débogueur, problèmes, sortie. Pour voir deux onglets côte à côte, divise
+l'éditeur.
 
-- **Le panneau du bas montre une vue à la fois**, sans rangée d'onglets : son nom en haut à gauche,
-  **▾** pour passer à une autre (avec son raccourci, et ce qui attend : nombre de problèmes) ; sous « Terminal » les terminaux ouverts. **Ctrl+Shift+J** l'affiche ou
-  le masque.
-- **⇱ / ⇲ dans l'en-tête de la recherche** la met dans un onglet ou dans le panneau
-  du bas, et Florm s'en souvient : son raccourci, la palette et ▾ l'ouvriront
-  ensuite au même endroit. Une vue qui a déjà son onglet s'y affiche, jamais à deux endroits.
+- **Le panneau du bas a ses onglets** : un par terminal, puis **Débogueur** (● pendant une session,
+  ⏸ en pause), **Problèmes** (leur nombre) et **Sortie**. Un clic passe de l'un à l'autre, **+**
+  ouvre un nouveau terminal, **×** au survol d'un terminal le ferme. **Ctrl+Shift+J** affiche ou
+  masque le panneau.
 - **La barre d'état ne montre que ce qui se passe** : à gauche l'icône des **Préférences**, puis celles de **Claude**, **Git**,
   **Pull requests** (un clic ouvre son onglet, un autre revient à l'onglet d'avant ; en couleur quand
   il est affiché), **Terminal** (le terminal du panneau du bas) et **Débogueur** (sa vue dans le
@@ -102,9 +100,8 @@ côte, divise l'éditeur.
 ## Rechercher dans le dossier (Ctrl+Shift+F)
 
 Entrée lance la recherche. Les résultats sont colorés comme dans l'éditeur ; **F4 / Maj+F4**
-passent au résultat suivant / précédent. Le bouton **en onglet** met la recherche dans
-un onglet de l'éditeur (plus de place), **en bas** la remet en bas
-(Préférences → Éditeur pour choisir où elle s'ouvre).
+passent au résultat suivant / précédent. La recherche est une page à part, dans un onglet de
+l'éditeur : toute la place pour les résultats.
 
 ### Filtrer les fichiers
 
@@ -312,9 +309,9 @@ Les opérations lancées depuis Florm mettent la version d'origine entre les deu
 - **Ctrl+Shift+`** : un terminal **dans un onglet** de
   l'éditeur. Comme tout onglet, il se glisse sur le bord droit ou bas de l'éditeur pour être à
   côté d'un fichier (ou clic droit sur l'onglet → Diviser à droite / en bas).
-- Dans le panneau du bas, **un terminal à la fois** : son dossier en haut, **+** en ouvre un autre,
-  **⇱** l'envoie dans un onglet (**en bas** dans l'onglet le ramène). Les autres terminaux sont dans
-  **▾**, sous « Terminal » : clic pour y passer, **×** au survol pour le fermer.
+- Dans le panneau du bas, **chaque terminal a son onglet** : son dossier à droite, **+** en ouvre
+  un autre, **⇱** l'envoie dans un onglet de l'éditeur (**en bas** dans l'onglet le ramène), **×**
+  au survol de son onglet le ferme.
 - Toutes les vues (Recherche, Git, Pull requests (GitHub), Claude, Terminal) ont à droite de
   leur en-tête les mêmes boutons, dans le même ordre : **⟳** relire, **en onglet / en bas**
   (une petite fenêtre : avec un onglet en haut, ou une bande en bas ; retenu pour la prochaine fois), **⋯** les autres actions et

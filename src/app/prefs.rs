@@ -537,9 +537,6 @@ impl App {
                 pref_row(ui, rc, t!("Serveurs de langage (LSP)", "Language servers (LSP)"), t!("Complétion (Ctrl+Espace), aller à la définition (F12), renommer (F2), leurs erreurs soulignées, et le formatage des fichiers autres que Python. Serveurs détectés : pyright / pylsp, typescript-language-server, rust-analyzer, gopls, clangd, et ceux de YAML, Bash, CSS, HTML, Lua, Ruby, PHP, Markdown, TOML, Java… quand ils sont installés (la barre d'état dit lequel installer). Un autre langage : [lsp_servers] dans settings.toml.", "Completion (Ctrl+Space), go to definition (F12), rename (F2), their errors underlined, and the formatting of files other than Python. Servers detected: pyright / pylsp, typescript-language-server, rust-analyzer, gopls, clangd, and those of YAML, Bash, CSS, HTML, Lua, Ruby, PHP, Markdown, TOML, Java… when they are installed (the status bar says which one to install). Another language: [lsp_servers] in settings.toml."), |ui| {
                     toggle_switch(ui, &mut s.lsp);
                 });
-                pref_row(ui, rc, t!("Recherche dans le dossier en onglet", "Find in folder in a tab"), t!("Ctrl+Shift+F ouvre la recherche dans un onglet de l'éditeur plutôt que dans le panneau du bas (boutons « en onglet » / « en bas » de son en-tête pour changer).", "Ctrl+Shift+F opens the search in an editor tab rather than in the bottom panel (“in a tab” / “at the bottom” buttons of its header to switch)."), |ui| {
-                    toggle_switch(ui, &mut s.search_in_tab);
-                });
                 pref_row(ui, rc, t!("Enregistrement automatique", "Auto-save"), t!("« En quittant » enregistre les fichiers modifiés quand Florm perd le focus ou qu'on passe à un autre onglet ; « Après une pause », une seconde après la dernière touche. Les nouveaux fichiers sans nom ne sont pas concernés.", "“On leaving” saves the changed files when Florm loses the focus or another tab is shown; “After a pause”, a second after the last key. New files without a name are left out."), |ui| {
                     let label = |m: &str| match m {
                         "focus" => t!("En quittant", "On leaving"),
@@ -1200,7 +1197,6 @@ impl App {
             ("sticky_scroll", s.sticky_scroll, before.sticky_scroll),
             ("breadcrumbs", s.breadcrumbs, before.breadcrumbs),
             ("show_menu_bar", s.show_menu_bar, before.show_menu_bar),
-            ("search_in_tab", s.search_in_tab, before.search_in_tab),
             ("claude_sandbox", s.claude_sandbox, before.claude_sandbox),
             ("claude_done_blink", s.claude_done_blink, before.claude_done_blink),
             ("git", s.git, before.git),

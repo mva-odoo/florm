@@ -38,7 +38,6 @@ pub struct Settings {
     /// Menu bar (Fichier, Édition…) at the top; hidden, its commands are in the palette.
     pub show_menu_bar: bool,
     /// "Find in files" in an editor tab instead of the bottom panel.
-    pub search_in_tab: bool,
     /// Diffs side by side (old on the left, new on the right) instead of in one column.
     pub diff_side_by_side: bool,
     /// Claude's commands run in the sandbox of Claude Code (bubblewrap on Linux, Seatbelt on macOS).
@@ -159,7 +158,6 @@ impl Default for Settings {
             rulers: vec![80],
             breadcrumbs: true,
             show_menu_bar: false,
-            search_in_tab: false,
             diff_side_by_side: false,
             claude_sandbox: true,
             git: true,
@@ -242,8 +240,6 @@ rulers = [80]
 breadcrumbs = true
 # barre de menus en haut (masquée : ses commandes restent dans la palette, Ctrl+Shift+P)
 show_menu_bar = false
-# recherche dans le dossier (Ctrl+Shift+F) dans un onglet plutôt que dans le panneau du bas
-search_in_tab = false
 # diffs côte à côte (l'ancienne version à gauche, la nouvelle à droite) plutôt qu'en une colonne
 diff_side_by_side = false
 # Fonctions à activer ou désactiver (false : leurs vues, commandes, menus et boutons disparaissent).

@@ -91,16 +91,6 @@ pub fn controls(ui: &mut egui::Ui, place: Option<bool>, refresh: Option<&str>, m
     act
 }
 
-/// In the bottom panel, for a view shown in an editor tab: the same sentence for each, and a
-/// button to bring it back. True when clicked.
-pub fn in_tab_notice(ui: &mut egui::Ui) -> bool {
-    ui.horizontal(|ui| {
-        ui.label(RichText::new(t!("Cette vue est dans un onglet de l'éditeur.", "This view is in an editor tab.")).weak());
-        ui.button(t!("La ramener ici", "Bring it back here")).clicked()
-    })
-    .inner
-}
-
 /// The repository (or folder) a view works on, large and tinted at the left of its header, so it is not
 /// mistaken for another. With several, a click lists them (filterable); returns the index chosen.
 pub fn repo_chip(ui: &mut egui::Ui, id_salt: impl std::hash::Hash, name: &str, items: &[String], current: Option<usize>) -> Option<usize> {

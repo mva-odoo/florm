@@ -251,12 +251,12 @@ impl App {
         self.search_word_everywhere(word);
     }
 
-    /// Whole word search of `word` in the folder (bottom panel).
+    /// Whole word search of `word` in the folder (the search page).
     pub(super) fn search_word_everywhere(&mut self, word: String) {
         self.search.q.pattern = word;
         self.search.q.whole = true;
         self.search.q.regex = false;
-        self.bottom = Some(BottomTab::Search);
+        self.open_search_tab();
         self.start_search();
     }
 

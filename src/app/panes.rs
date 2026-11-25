@@ -176,7 +176,7 @@ impl App {
                 let bg = ui.visuals().extreme_bg_color;
                 egui::CentralPanel::default()
                     .frame(egui::Frame::none().fill(bg).inner_margin(egui::Margin { left: 12.0, right: 12.0, top: 10.0, bottom: 4.0 }))
-                    .show_inside(ui, |ui| self.search_ui(ui, true));
+                    .show_inside(ui, |ui| self.search_ui(ui));
                 None
             }
             document::View::Terminal(id) => {
@@ -207,9 +207,6 @@ impl App {
 
     /// The "find in files" panel in an editor tab (instead of the bottom panel).
     pub(super) fn open_search_tab(&mut self) {
-        if self.bottom == Some(BottomTab::Search) {
-            self.bottom = None;
-        }
         self.open_view_tab(document::View::Search, t!("Recherche", "Search").into());
         self.search.focus = true;
     }

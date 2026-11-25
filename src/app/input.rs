@@ -279,11 +279,8 @@ impl App {
                 }
             }
             FindInFiles | FindInFilesTab => {
-                if cmd == FindInFilesTab || self.settings.search_in_tab {
-                    self.open_search_tab();
-                } else {
-                    self.bottom = Some(BottomTab::Search);
-                }
+                // a page of its own (an editor tab)
+                self.open_search_tab();
                 self.search.focus = true;
                 if let Some(d) = self.docs.get(self.active) {
                     let p = d.primary_sel();
@@ -362,7 +359,6 @@ impl App {
                     let tab = self.last_bottom;
                     self.bottom = Some(tab);
                     match tab {
-                        BottomTab::Search => self.search.focus = true,
                         BottomTab::Terminal => self.term.want_focus = true,
                         _ => {}
                     }
@@ -582,7 +578,7 @@ impl App {
                 let w = self.word_under_cursor();
                 if !w.is_empty() {
                     self.search.q.pattern = w;
-                    self.bottom = Some(BottomTab::Search);
+                    self.open_search_tab();
                     self.start_search();
                 }
             }
