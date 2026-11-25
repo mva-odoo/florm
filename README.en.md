@@ -313,7 +313,8 @@ trusted_folders = ["/home/me/src/my-project"]
 
 ### Language packs: everything for a language
 
-**Preferences → Languages** shows, for each language (Python, JavaScript / TypeScript, Go, Rust,
+When a file opens, Florm installs **by itself** the tools its language misses (a box of
+Preferences → Languages stops it). **Preferences → Languages** shows, for each language (Python, JavaScript / TypeScript, Go, Rust,
 C / C++, YAML, Shell, Markdown, HTML / CSS, Dockerfile, TOML, PHP, Lua, Ruby, XML, JSON), its tools
 installed or not, and **Install** puts what is missing in `~/.local/share/florm/tools/`
 (`%LOCALAPPDATA%\florm\tools` on Windows): `pip` in a virtual environment of Florm's own, `npm`,

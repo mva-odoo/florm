@@ -342,8 +342,15 @@ liste chaque langage avec ses outils : serveur de langage (LSP), linter, formate
   somme SHA-256). Un clic sur un outil ✖ installe celui-là seul.
 - Ce que seul le système installe (gdb, Ruby, luacheck) est donné en commandes pour ton système :
   un clic la tape dans un terminal (Entrée pour la lancer), un clic droit la copie.
-- En ouvrant un fichier d'un langage auquel il manque des outils, une barre propose de les
-  installer ; **Plus tard** la cache jusqu'à la fermeture de Florm, **Ne plus proposer** pour de bon.
+- **Tout seul** : en ouvrant un fichier d'un langage auquel il manque des outils, Florm les installe
+  en arrière-plan, sans rien demander (une fois par session ; la barre d'état dit où il en est). Le
+  fichier s'ouvre tout de suite, coloré ; la complétion du serveur de langage et le lint arrivent
+  quand l'installation est finie. Seuls les outils de ce langage sont installés, et seulement ceux
+  que tu as cochés en haut de la page : serveur de langage, linter, formateur (par défaut), débogueur
+  (sinon installé au premier **F5**, puis la session démarre toute seule). Un outil décoché
+  s'installe toujours d'un clic sur sa pastille. Si ça échoue (ou
+  si la case « Installer tout seul » est décochée), une barre au-dessus du fichier propose de les
+  installer ; **Ne plus proposer** l'arrête pour ce langage.
 - **Syntaxe · tree-sitter** (Python, JavaScript, TypeScript, Rust, Go, C, C++, JSON, Shell, CSS,
   HTML, YAML, XML, TOML) : la coloration vient de l'**arbre de syntaxe**
   du fichier, comme dans Zed, au lieu d'expressions régulières : elle comprend le code (appels,

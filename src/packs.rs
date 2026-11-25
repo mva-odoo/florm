@@ -275,10 +275,16 @@ pub fn status(packs: &[Pack]) -> Vec<Vec<bool>> {
 }
 
 /// The tools of `pack` an « Installer » installs: missing, not optional, that Florm can install.
+#[cfg(test)]
 pub fn to_install(pack: &Pack, status: &[bool]) -> Vec<Tool> {
+    to_install_kinds(pack, status, &["lsp", "lint", "format", "debug"].map(String::from))
+}
+
+/// `to_install` for the kinds of tools wanted (lsp, lint, format, debug).
+pub fn to_install_kinds(pack: &Pack, status: &[bool], kinds: &[String]) -> Vec<Tool> {
     let mut out: Vec<Tool> = Vec::new();
     for (t, ok) in pack.tools.iter().zip(status) {
-        if !ok && !t.optional && t.method().is_some() && !out.iter().any(|o| o.method() == t.method()) {
+        if !ok && !t.optional && kinds.contains(&t.kind) && t.method().is_some() && !out.iter().any(|o| o.method() == t.method()) {
             out.push(t.clone());
         }
     }
@@ -442,6 +448,11 @@ mod tests {
         assert_eq!(bins, ["pylsp", "ruff", "debugpy"]);
         let all = vec![true; py.tools.len()];
         assert!(to_install(&py, &all).is_empty());
+        // only the kinds wanted: the linter without the language server; ruff once (lint, format)
+        let kinds = |k: &[&str]| k.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let lint: Vec<String> = to_install_kinds(&py, &none, &kinds(&["lint", "format"])).into_iter().map(|t| t.bin).collect();
+        assert_eq!(lint, ["ruff"]);
+        assert!(to_install_kinds(&py, &none, &kinds(&[])).is_empty());
     }
 
     /// A pack of the user replaces the one of the same name, adds a server and a linter.

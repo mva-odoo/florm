@@ -108,6 +108,11 @@ pub fn expand(s: &str, file: Option<&Path>, root: &Path) -> String {
 }
 
 /// The family of an adapter name.
+/// The family of an adapter name (python, go, lldb, gdb…), for the app.
+pub fn family_of(adapter: &str) -> &str {
+    family(adapter)
+}
+
 fn family(adapter: &str) -> &str {
     match adapter {
         "py" | "python" | "debugpy" => "python",

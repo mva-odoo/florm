@@ -331,8 +331,14 @@ each language with its tools: language server (LSP), linter, formatter, debugger
   ✖ tool installs that one alone.
 - What only the system installs (gdb, Ruby, luacheck) is given as commands for your system: a click
   types it in a terminal (Enter runs it), a right click copies it.
-- When a file of a language that misses tools opens, a bar proposes to install them; **Later** hides
-  it until Florm is closed, **Don't ask again** for good.
+- **By themselves**: when a file of a language that misses tools opens, Florm installs them in the
+  background, without asking (once per session; the status bar says how it goes). The file opens at
+  once, colored; the language server's completion and the lint come when the install is done. Only
+  that language's tools are installed, and only those checked at the top of the page: language
+  server, linter, formatter (by default), debugger (else installed at the first **F5**, then the
+  session starts by itself). An unchecked tool is still installed by a click on its chip. If it fails (or if the « Install by themselves » box is
+  unchecked), a bar above the file proposes to install them; **Don't ask again** stops it for that
+  language.
 - **Syntax · tree-sitter** (Python, JavaScript, TypeScript, Rust, Go, C, C++, JSON, Shell, CSS,
   HTML, YAML, XML, TOML): the highlighting comes from the file's **syntax tree**,
   as in Zed, instead of regular expressions: it understands the code (calls, builtin functions,

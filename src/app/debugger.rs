@@ -92,9 +92,9 @@ pub(super) struct DebugUi {
     reason: String,
     /// The configuration chosen in the panel: "cmd" the command typed, "" the file, "test" the test
     /// under the cursor, else the name of one of `.florm/debug.toml`.
-    choice: String,
+    pub(super) choice: String,
     /// The command typed (as in a terminal) and the folder it runs in (relative to the project).
-    cmd: String,
+    pub(super) cmd: String,
     cmd_dir: String,
     /// The project whose last command was put in the fields.
     cmd_for: Option<PathBuf>,
@@ -471,6 +471,11 @@ impl App {
         Ok((cfg, path))
     }
 
+    /// The command typed to debug, with its folder, when « Commande » is chosen.
+    pub(super) fn debug_command_line(&self) -> Option<(String, PathBuf)> {
+        (self.debug.choice == "cmd" && !self.debug.cmd.trim().is_empty()).then(|| (self.debug.cmd.clone(), self.debug_cmd_dir()))
+    }
+
     /// The folder of the command: the field, relative to the project (empty: the project).
     fn debug_cmd_dir(&self) -> PathBuf {
         let root = self.root.clone().unwrap_or_else(|| PathBuf::from("."));
@@ -624,6 +629,11 @@ impl App {
             Phase::Idle => {
                 self.debug_read_configs();
                 self.debug_prefill();
+                // its debugger missing: installed first, then F5 goes on by itself
+                if self.debug_needs_install() {
+                    self.show_bottom(BottomTab::Debug, false);
+                    return;
+                }
                 let choice = self.debug.choice.clone();
                 let r = match choice.as_str() {
                     "cmd" if !self.debug.cmd.trim().is_empty() => self.debug_command_config().map(|c| (c, self.docs.get(self.active).and_then(|d| d.path.clone()))),

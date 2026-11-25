@@ -58,6 +58,10 @@ pub struct Settings {
     /// Folders whose conversations use an account: "folder=account name" (the longest that
     /// holds the folder of the conversation).
     pub claude_account_folders: Vec<String>,
+    /// The tools of a language installed by themselves when one of its files opens.
+    pub packs_auto: bool,
+    /// The kinds of tools installed (lsp, lint, format, debug): the debugger, else at the first F5.
+    pub packs_kinds: Vec<String>,
     /// Language packs not proposed any more when one of their files opens.
     pub packs_ignored: Vec<String>,
     /// Syntaxes whose tree-sitter grammar is turned off (their pack): the regex highlighting then.
@@ -176,6 +180,9 @@ impl Default for Settings {
             claude_accounts: Vec::new(),
             claude_account: String::new(),
             claude_account_folders: Vec::new(),
+            // the tests never install anything by themselves (pip, npm…)
+            packs_auto: !cfg!(test),
+            packs_kinds: ["lsp", "lint", "format"].map(String::from).to_vec(),
             packs_ignored: Vec::new(),
             tree_sitter_off: Vec::new(),
             extensions_off: Vec::new(),

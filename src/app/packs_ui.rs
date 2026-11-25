@@ -1,6 +1,6 @@
 //! Language packs in the app: the page « Langages » of the preferences (each language, its tools
-//! there or not, « Installer »), the bar proposing them when a file of a language opens, the
-//! installs on a thread.
+//! there or not, « Installer »), the tools installed by themselves when a file of a language opens
+//! (or a bar proposing them, when that is turned off or failed), the installs on a thread.
 
 use super::*;
 use crate::packs::{self, Pack, Tool};
@@ -15,6 +15,10 @@ pub(super) struct PacksUi {
     pub busy: Option<String>,
     /// Packs whose bar was closed (until Florm is closed).
     pub later: HashSet<String>,
+    /// Packs installed by themselves in this session (tried once: a failure shows the bar).
+    pub auto_tried: HashSet<String>,
+    /// F5 waits for the debugger being installed: it starts once the install is done.
+    pub then_debug: bool,
 }
 
 enum PackAct {
@@ -61,8 +65,14 @@ impl App {
     }
 
     pub(super) fn on_pack_installed(&mut self, r: Result<String, String>) {
-        self.packs.busy = None;
+        let name = self.packs.busy.take().unwrap_or_default();
+        let ok = r.is_ok();
+        let r = r.map(|m| tf!("{name} prêt — {m}", "{name} ready — {m}"));
         self.on_tool_installed(r);
+        // the debugger installed for an F5: the session starts now
+        if std::mem::take(&mut self.packs.then_debug) && ok {
+            self.pending.push(Cmd::DebugStart);
+        }
         self.packs_check();
     }
 
@@ -113,6 +123,39 @@ impl App {
         }
     }
 
+    /// F5 with the debugger of the file's language missing (and Florm able to install it): it is
+    /// installed, then the session starts by itself. True when that happens (F5 waits).
+    pub(super) fn debug_needs_install(&mut self) -> bool {
+        let Some((name, missing)) = self.debug_missing() else { return false };
+        if self.packs.busy.is_some() {
+            return false;
+        }
+        self.packs.then_debug = true;
+        self.pack_install(name, missing);
+        true
+    }
+
+    /// The debugger tools missing for what F5 would debug: (its pack, the tools to install).
+    fn debug_missing(&self) -> Option<(String, Vec<Tool>)> {
+        let status = self.packs.status.as_ref()?;
+        // the language: the command's program (python…), else the open file's
+        let by_cmd = self
+            .debug_command_line()
+            .and_then(|(cmd, dir)| crate::dap::from_command(&cmd, &dir).ok())
+            .and_then(|c| match crate::dap::family_of(&c.adapter) {
+                "python" => Some("Python"),
+                "go" => Some("Go"),
+                _ => None,
+            });
+        let k = match by_cmd {
+            Some(name) => self.packs.list.iter().position(|p| p.name == name),
+            None => self.docs.get(self.active).and_then(|d| d.path.clone()).and_then(|p| self.packs.list.iter().position(|pk| pk.matches(&p))),
+        };
+        let pack = &self.packs.list[k?];
+        let missing = packs::to_install_kinds(pack, status.get(k?).map(Vec::as_slice).unwrap_or(&[]), &["debug".to_string()]);
+        (!missing.is_empty()).then(|| (pack.name.clone(), missing))
+    }
+
     /// Bar above a file whose language pack misses tools Florm can install.
     pub(super) fn pack_bar(&mut self, ui: &mut egui::Ui, i: usize, pane: u8) {
         let Some(path) = self.docs.get(i).filter(|d| d.view == document::View::Text).and_then(|d| d.path.clone()) else { return };
@@ -126,12 +169,25 @@ impl App {
         if self.packs.later.contains(&pack.name) || self.settings.packs_ignored.iter().any(|n| n.eq_ignore_ascii_case(&pack.name)) {
             return;
         }
-        let missing = packs::to_install(pack, status.get(k).map(Vec::as_slice).unwrap_or(&[]));
+        let missing = packs::to_install_kinds(pack, status.get(k).map(Vec::as_slice).unwrap_or(&[]), &self.settings.packs_kinds);
         if missing.is_empty() {
             return;
         }
         let name = pack.name.clone();
         let busy = self.packs.busy.as_deref() == Some(name.as_str());
+        // installed by itself, once per session (nothing asked); the bar only if that failed
+        let tried = self.packs.auto_tried.contains(&name);
+        if self.settings.packs_auto && !tried {
+            if self.packs.busy.is_none() {
+                self.packs.auto_tried.insert(name.clone());
+                self.pack_install(name, missing);
+            }
+            return;
+        }
+        if self.settings.packs_auto && busy {
+            return;
+        }
+        let failed = self.settings.packs_auto && tried;
         let what: Vec<String> = missing.iter().map(|t| format!("{} ({})", t.bin, t.kind_label())).collect();
         let (mut install, mut later, mut never) = (false, false, false);
         let bg = icons::mix(ui.visuals().panel_fill, self.hl.colors.accent, 0.10);
@@ -140,6 +196,9 @@ impl App {
             .show_inside(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
                     ui.label(RichText::new(tf!("⬇ {name}", "⬇ {name}")).strong());
+                    if failed {
+                        ui.label(RichText::new(t!("L'installation automatique n'a pas marché (voir Sortie) —", "The automatic install did not work (see Output) —")).color(warn()));
+                    }
                     ui.label(tf!("Il manque : {}", "Missing: {}", what.join(", ")));
                     if busy {
                         ui.spinner();
@@ -179,6 +238,40 @@ impl App {
             .weak(),
         );
         ui.add_space(6.0);
+        let mut auto = self.settings.packs_auto;
+        if ui
+            .checkbox(&mut auto, t!("Installer tout seul les outils d'un langage quand un de ses fichiers s'ouvre", "Install the tools of a language by themselves when one of its files opens"))
+            .on_hover_text(t!("Sans rien demander, en arrière-plan ; une barre au-dessus du fichier seulement si ça échoue", "Without asking, in the background; a bar above the file only if it fails"))
+            .changed()
+        {
+            self.settings.packs_auto = auto;
+            self.persist("packs_auto", auto.to_string());
+        }
+        // which tools: the language server and the linter are not always both wanted
+        let mut kinds_changed = false;
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new(t!("Ce qui s'installe (tout seul ou par « Installer ») :", "What is installed (by itself or by « Install »):")).weak());
+            for (kind, label, tip) in [
+                ("lsp", t!("Serveur de langage", "Language server"), t!("Complétion, F12, renommer, documentation au survol", "Completion, F12, rename, documentation on hover")),
+                ("lint", t!("Linter", "Linter"), t!("Les erreurs soulignées pendant la frappe", "The errors underlined while typing")),
+                ("format", t!("Formateur", "Formatter"), t!("Formater le fichier (palette), ou à l'enregistrement", "Format the file (palette), or on saving")),
+                ("debug", t!("Débogueur", "Debugger"), t!("Sinon installé au premier F5, quand il sert", "Else installed at the first F5, when it is needed")),
+            ] {
+                let mut on = self.settings.packs_kinds.iter().any(|k| k == kind);
+                if ui.checkbox(&mut on, label).on_hover_text(tip).changed() {
+                    self.settings.packs_kinds.retain(|k| k != kind);
+                    if on {
+                        self.settings.packs_kinds.push(kind.to_string());
+                    }
+                    kinds_changed = true;
+                }
+            }
+        });
+        if kinds_changed {
+            let list = serde_json::to_string(&self.settings.packs_kinds).unwrap_or_else(|_| "[]".into());
+            self.persist("packs_kinds", list);
+        }
+        ui.add_space(4.0);
         ui.horizontal(|ui| {
             if ui.button(t!("⟳ Vérifier", "⟳ Check")).on_hover_text(t!("Cherche à nouveau les outils installés, et relit les packs perso", "Looks again for the installed tools, and reads the own packs again")).clicked() {
                 act = Some(PackAct::Check);
@@ -205,7 +298,7 @@ impl App {
         let accent = self.hl.colors.accent;
         for (k, pack) in self.packs.list.iter().enumerate() {
             let st = status.get(k).cloned().unwrap_or_default();
-            let missing = packs::to_install(pack, &st);
+            let missing = packs::to_install_kinds(pack, &st, &self.settings.packs_kinds);
             let busy = self.packs.busy.as_deref() == Some(pack.name.as_str());
             egui::Frame::none().fill(code_bg).rounding(6.0).inner_margin(egui::Margin::symmetric(12.0, 8.0)).show(ui, |ui| {
                 ui.set_width(ui.available_width());
@@ -333,7 +426,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("florm_packs_ui_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("settings.toml"), "check_updates = false\nlsp = false\n").unwrap();
+        std::fs::write(dir.join("settings.toml"), "check_updates = false\nlsp = false\npacks_auto = false\n").unwrap();
         std::fs::write(dir.join("a.py"), "x = 1\n").unwrap();
         let _lock = config::TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         std::env::set_var("FLORM_CONFIG", &dir);
@@ -370,7 +463,7 @@ mod tests {
         texts(&mut app, true, Vec::new());
         let page = texts(&mut app, true, Vec::new());
         let names: Vec<&str> = page.iter().map(|(t, _)| t.as_str()).collect();
-        for want in ["Python", "Go", "XML", "Installer (3)", "✖ LSP · pylsp", "✓ Lint · intégré", "gdb :", "pacman -S gdb", "+ Nouveau pack…", "✓ Syntaxe · tree-sitter"] {
+        for want in ["Python", "Go", "XML", "Installer (2)", "✖ LSP · pylsp", "✓ Lint · intégré", "gdb :", "pacman -S gdb", "+ Nouveau pack…", "✓ Syntaxe · tree-sitter"] {
             assert!(names.contains(&want), "{want}: {names:?}");
         }
         // the bar of the Python file
@@ -378,13 +471,95 @@ mod tests {
         let bar = texts(&mut app, false, Vec::new());
         let joined: Vec<&str> = bar.iter().map(|(t, _)| t.as_str()).collect();
         assert!(joined.contains(&"⬇ Python") && joined.contains(&"Installer"), "{joined:?}");
-        assert!(joined.iter().any(|t| t.contains("pylsp (LSP)") && t.contains("debugpy (Débogueur)")), "{joined:?}");
+        // the language server and the linter; the debugger only at the first F5
+        assert!(joined.iter().any(|t| t.contains("pylsp (LSP)") && t.contains("ruff (Lint)") && !t.contains("debugpy")), "{joined:?}");
         let at = bar.iter().find(|(t, _)| t == "Plus tard").unwrap().1.center();
         let click = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
         texts(&mut app, false, vec![egui::Event::PointerMoved(at), click(true)]);
         texts(&mut app, false, vec![click(false)]);
         assert!(app.packs.later.contains("Python"));
         assert!(texts(&mut app, false, Vec::new()).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Installed by itself when a file opens: no bar while it installs (or waits for another
+    /// install); the bar, with a warning, only when it failed.
+    #[test]
+    fn the_tools_install_by_themselves() {
+        let dir = std::env::temp_dir().join(format!("florm_packs_auto_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("settings.toml"), "check_updates = false\nlsp = false\npacks_auto = true\n").unwrap();
+        std::fs::write(dir.join("a.py"), "x = 1\n").unwrap();
+        let _lock = config::TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("FLORM_CONFIG", &dir);
+        let ctx = egui::Context::default();
+        let mut app = App::with_ctx(&ctx, Some(dir.clone()));
+        assert!(app.settings.packs_auto);
+        assert!(app.open_path(dir.join("a.py")));
+        let list = packs::shipped();
+        let status: Vec<Vec<bool>> = list.iter().map(|p| p.tools.iter().map(|t| t.builtin).collect()).collect();
+        app.on_pack_status(list, status);
+        let texts = |app: &mut App| {
+            let out = ctx.run(Default::default(), |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    let i = app.active;
+                    app.pack_bar(ui, i, 0);
+                });
+            });
+            let mut v = Vec::new();
+            fn walk(s: &egui::Shape, out: &mut Vec<String>) {
+                match s {
+                    egui::Shape::Text(t) => out.push(t.galley.text().to_string()),
+                    egui::Shape::Vec(v) => v.iter().for_each(|x| walk(x, out)),
+                    _ => {}
+                }
+            }
+            out.shapes.iter().for_each(|c| walk(&c.shape, &mut v));
+            v
+        };
+        // another pack installing: Python waits its turn, without a bar
+        app.packs.busy = Some("Go".into());
+        assert!(texts(&mut app).is_empty() && app.packs.auto_tried.is_empty());
+        // tried and failed: the bar, with why
+        app.packs.busy = None;
+        app.packs.auto_tried.insert("Python".into());
+        let t = texts(&mut app);
+        assert!(t.iter().any(|x| x.contains("automatique")) && t.iter().any(|x| x == "Installer"), "{t:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// F5 without the debugger of the language: the tools to install first (by the open file, or
+    /// by the command typed); nothing when they are there.
+    #[test]
+    fn f5_finds_the_debugger_to_install() {
+        let dir = std::env::temp_dir().join(format!("florm_packs_f5_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("settings.toml"), "check_updates = false\nlsp = false\n").unwrap();
+        std::fs::write(dir.join("a.py"), "x = 1\n").unwrap();
+        std::fs::write(dir.join("notes.txt"), "x\n").unwrap();
+        let _lock = config::TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("FLORM_CONFIG", &dir);
+        let ctx = egui::Context::default();
+        let mut app = App::with_ctx(&ctx, Some(dir.clone()));
+        let list = packs::shipped();
+        let none: Vec<Vec<bool>> = list.iter().map(|p| p.tools.iter().map(|t| t.builtin).collect()).collect();
+        app.on_pack_status(list.clone(), none);
+        assert!(app.open_path(dir.join("a.py")));
+        app.debug.choice = String::new();
+        let (pack, tools) = app.debug_missing().expect("debugpy missing");
+        assert_eq!((pack.as_str(), tools.iter().map(|t| t.bin.as_str()).collect::<Vec<_>>()), ("Python", vec!["debugpy"]));
+        // a command typed: its language, whatever file is open
+        assert!(app.open_path(dir.join("notes.txt")));
+        assert!(app.debug_missing().is_none());
+        app.debug.choice = "cmd".into();
+        app.debug.cmd = "python3 a.py".into();
+        assert_eq!(app.debug_missing().map(|(p, _)| p).as_deref(), Some("Python"));
+        // installed: nothing to do
+        let all: Vec<Vec<bool>> = list.iter().map(|p| vec![true; p.tools.len()]).collect();
+        app.on_pack_status(list, all);
+        assert!(app.debug_missing().is_none());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
