@@ -514,7 +514,6 @@ impl App {
             return;
         }
         let root = self.root.clone();
-        let accent = self.hl.colors.accent;
         let Some(d) = self.docs.get_mut(i) else { return };
         // the views (Claude, Git, GitHub, Docker, terminal…) have their own bar: no room lost
         if !matches!(d.view, document::View::Text | document::View::Image | document::View::Preview(_)) {
@@ -553,25 +552,32 @@ impl App {
         }
         let is_md = d.view == document::View::Text && d.syntax.contains("Markdown");
         let (mut goto, mut list, mut preview, mut open, mut reveal) = (None, false, false, None, None);
+        let mut copy = None;
+        let has_path = d.path.is_some();
         let bg = self.hl.colors.bg;
         let text = ui.visuals().text_color();
-        let pill = ui.visuals().widgets.hovered.weak_bg_fill;
+        // as in Zed: the path in the font of the code (`src/app/panes.rs › App › f`), on the
+        // editor's background (one with the tab shown), a line between it and the text
+        let mono = egui::FontId::monospace((self.settings.font_size - 0.5).max(9.0));
         egui::TopBottomPanel::top(egui::Id::new("crumbs").with(pane))
-            .exact_height(24.0)
-            .frame(egui::Frame::none().fill(bg).inner_margin(egui::Margin::symmetric(10.0, 0.0)))
+            .exact_height(TAB_STRIP_H)
+            .frame(egui::Frame::none().fill(bg).inner_margin(egui::Margin { left: 16.0, right: 10.0, top: 0.0, bottom: 0.0 }))
             .show_inside(ui, |ui| {
                 ui.horizontal_centered(|ui| {
-                    ui.spacing_mut().item_spacing.x = 4.0;
-                    // pale and small: the pinned lines of the editor already show where you are
+                    ui.spacing_mut().item_spacing.x = 0.0;
+                    ui.spacing_mut().button_padding = egui::vec2(1.0, 1.0);
                     let weak = ui.visuals().weak_text_color();
                     let sep = |ui: &mut egui::Ui| {
-                        ui.label(RichText::new("›").size(13.0).color(weak));
+                        ui.label(RichText::new(" › ").font(mono.clone()).color(weak));
+                    };
+                    let slash = |ui: &mut egui::Ui| {
+                        ui.label(RichText::new("/").font(mono.clone()).color(weak));
                     };
                     for (dname, dir) in &dirs {
                         match dir {
                             // a folder: its files and folders in a menu
                             Some(dir) => {
-                                let r = ui.menu_button(RichText::new(dname).size(12.0).color(weak), |ui| {
+                                let r = ui.menu_button(RichText::new(dname).font(mono.clone()).color(text), |ui| {
                                     ui.set_max_height(420.0);
                                     if ui.button(t!("Afficher dans l'arborescence", "Show in the tree")).clicked() {
                                         reveal = Some(dir.clone());
@@ -616,37 +622,70 @@ impl App {
                                 r.response.on_hover_text(dir.display().to_string());
                             }
                             None => {
-                                ui.label(RichText::new(dname).size(12.0).color(weak));
+                                ui.label(RichText::new(dname).font(mono.clone()).color(text));
                             }
                         }
-                        sep(ui);
+                        slash(ui);
                     }
-                    // the file name, in a pill: where you are in the path
-                    let r = egui::Frame::none()
-                        .fill(pill)
-                        .rounding(5.0)
-                        .inner_margin(egui::Margin::symmetric(6.0, 1.0))
-                        .show(ui, |ui| ui.add(egui::Label::new(RichText::new(&file).size(12.0).strong().color(text)).sense(Sense::click())).on_hover_text(t!("Symboles du fichier (Ctrl+R)", "Symbols of the file (Ctrl+R)")))
-                        .inner;
+                    let r = ui.add(egui::Label::new(RichText::new(&file).font(mono.clone()).color(text)).sense(Sense::click())).on_hover_text(t!("Symboles du fichier (Ctrl+R)", "Symbols of the file (Ctrl+R)"));
                     if r.clicked() {
                         list = true;
                     }
-                    for (name, kind, l) in &chain {
+                    for (name, _, l) in &chain {
                         sep(ui);
-                        let text = RichText::new(format!("{} {name}", kind.icon())).size(12.0).color(accent);
+                        let text = RichText::new(name).font(mono.clone()).color(text);
                         if ui.add(egui::Label::new(text).sense(Sense::click())).on_hover_text(tf!("Aller à la ligne {}", "Go to line {}", l + 1)).clicked() {
                             goto = Some(*l);
                         }
                     }
-                    if is_md {
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        // copy the path of the file; the other references in its menu (right click)
+                        if has_path {
+                            let (rect, r) = ui.allocate_exact_size(egui::vec2(22.0, 20.0), Sense::click());
+                            let r = r.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(t!(
+                                "Copier le chemin du fichier (clic droit : file:ligne, lien GitHub)",
+                                "Copy the path of the file (right click: file:line, GitHub link)"
+                            ));
+                            let color = if r.hovered() { text } else { ui.visuals().weak_text_color() };
+                            if r.hovered() {
+                                ui.painter().rect_filled(rect, 4.0, ui.visuals().widgets.hovered.weak_bg_fill);
+                            }
+                            // two overlapping sheets, in thin lines
+                            let st = egui::Stroke::new(1.2_f32, color);
+                            let c = rect.center();
+                            let back = egui::Rect::from_min_size(c + egui::vec2(-5.0, -6.0), egui::vec2(8.0, 9.0));
+                            let front = back.translate(egui::vec2(3.0, 3.0));
+                            ui.painter().rect_stroke(back, 1.5, st);
+                            ui.painter().rect_filled(front, 1.5, bg);
+                            ui.painter().rect_stroke(front, 1.5, st);
+                            if r.clicked() {
+                                copy = Some(Cmd::CopyFilePath);
+                            }
+                            r.context_menu(|ui| {
+                                for (label, cmd) in [
+                                    (t!("Copier le chemin du fichier", "Copy the path of the file"), Cmd::CopyFilePath),
+                                    (t!("Copier la référence fichier:ligne", "Copy the file:line reference"), Cmd::CopyFileRef),
+                                    (t!("Copier le lien GitHub de la ligne", "Copy the GitHub link of the line"), Cmd::CopyGithubLink),
+                                ] {
+                                    if ui.button(label).clicked() {
+                                        copy = Some(cmd);
+                                        ui.close_menu();
+                                    }
+                                }
+                            });
+                        }
+                        if is_md {
                             if ui.small_button(t!("Aperçu", "Preview")).on_hover_text(t!("Aperçu Markdown à côté (Ctrl+K V)", "Markdown preview to the side (Ctrl+K V)")).clicked() {
                                 preview = true;
                             }
-                        });
-                    }
+                        }
+                    });
                 });
             });
+        if let Some(c) = copy {
+            self.active = i;
+            self.pending.push(c);
+        }
         if let Some(l) = goto {
             if let Some(d) = self.docs.get_mut(i) {
                 let ind = d.indent_len(l);

@@ -354,13 +354,14 @@ pub fn show(
     active: Option<&Path>,
     git: &HashMap<PathBuf, char>,
     repos: &HashMap<PathBuf, (String, String)>,
-    versions: &HashMap<PathBuf, VersionMark>,
     title_at: Option<Rect>,
     scroll_to: &mut Option<PathBuf>,
     nav: &mut Nav,
     app_menu: Option<&mut dyn FnMut(&mut Ui)>,
 ) -> Option<TreeAction> {
     let mut act = None;
+    // the header's buttons show while the pointer is over the panel
+    let hot = ui.rect_contains_pointer(ui.max_rect());
     if root.children.is_none() {
         root.load();
         root.expanded = true;
@@ -443,10 +444,15 @@ pub fn show(
                     };
                     crate::logo::paint(ui.painter(), logo, false);
                     ui.add_space(2.0);
-                    let r = ui.add(egui::Label::new(folder_name(root)).sense(Sense::click()).truncate());
+                    // the name stops before the four buttons of the right (22 px each)
+                    let w = (ui.available_width() - 4.0 * 22.0 - 6.0).max(20.0);
+                    let r = ui.scope(|ui| {
+                        ui.set_max_width(w);
+                        ui.add(egui::Label::new(folder_name(root)).sense(Sense::click()).truncate())
+                    }).inner;
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = 0.0;
-                        if let Some(a) = header_buttons(ui, root) {
+                        if let Some(a) = header_buttons(ui, root, hot) {
                             act = Some(a);
                         }
                     });
@@ -515,50 +521,65 @@ pub fn show(
 }
 
 /// The small buttons of the tree's header (right to left): refresh, fold everything, new folder,
-/// new file at the root. Faint until hovered.
-fn header_buttons(ui: &mut Ui, root: &mut Node) -> Option<TreeAction> {
+/// new file at the root. Thin line icons, shown only while the pointer is over the panel (`hot`):
+/// at rest the header is the name of the project alone, as in Zed.
+fn header_buttons(ui: &mut Ui, root: &mut Node, hot: bool) -> Option<TreeAction> {
     let mut act = None;
     let weak = ui.visuals().weak_text_color();
     let strong = ui.visuals().strong_text_color();
-    let bg = ui.visuals().panel_fill;
-    let button = |ui: &mut Ui, tip: &str, paint: &dyn Fn(&egui::Painter, Rect, Color32)| {
+    let button = |ui: &mut Ui, tip: &str, paint: &dyn Fn(&egui::Painter, Pos2, Stroke)| {
         let (rect, r) = ui.allocate_exact_size(egui::vec2(22.0, 20.0), Sense::click());
+        if !hot {
+            return false;
+        }
         if r.hovered() {
             ui.painter().rect_filled(rect, 4.0, ui.visuals().widgets.hovered.weak_bg_fill);
         }
-        paint(ui.painter(), rect, if r.hovered() { strong } else { weak });
+        paint(ui.painter(), rect.center(), Stroke::new(1.2_f32, if r.hovered() { strong } else { weak }));
         r.on_hover_text(tip).clicked()
     };
-    // a small « + » over the icons of the new file and the new folder
-    let plus = |p: &egui::Painter, rect: Rect, color: Color32| {
-        let c = Pos2::new(rect.right() - 6.0, rect.bottom() - 6.0);
-        p.circle_filled(c, 4.0, bg);
-        p.line_segment([Pos2::new(c.x - 2.5, c.y), Pos2::new(c.x + 2.5, c.y)], Stroke::new(1.3_f32, color));
-        p.line_segment([Pos2::new(c.x, c.y - 2.5), Pos2::new(c.x, c.y + 2.5)], Stroke::new(1.3_f32, color));
+    let seg = |p: &egui::Painter, a: (f32, f32), b: (f32, f32), c: Pos2, s: Stroke| {
+        p.line_segment([c + egui::vec2(a.0, a.1), c + egui::vec2(b.0, b.1)], s);
     };
-    if button(ui, t!("Rafraîchir l'arborescence", "Refresh the tree"), &|p, r, c| {
-        p.text(r.center(), egui::Align2::CENTER_CENTER, "⟳", egui::FontId::proportional(13.0), c);
+    if button(ui, t!("Rafraîchir l'arborescence", "Refresh the tree"), &|p, c, s| {
+        // an open circle with an arrow head at its end
+        let pts: Vec<Pos2> = (0..=20).map(|i| {
+            let a = 0.35 + i as f32 / 20.0 * 5.2;
+            c + egui::vec2(a.cos(), a.sin()) * 5.0
+        }).collect();
+        let end = *pts.last().unwrap();
+        p.add(egui::Shape::line(pts, s));
+        p.line_segment([end, end + egui::vec2(0.5, -3.2)], s);
+        p.line_segment([end, end + egui::vec2(3.2, 0.6)], s);
     }) {
         act = Some(TreeAction::Refresh);
     }
-    if button(ui, t!("Tout replier", "Fold everything"), &|p, r, c| {
-        // a box with a minus, as in VS Code
-        let b = Rect::from_center_size(r.center(), egui::vec2(11.0, 11.0));
-        p.rect_stroke(b, 2.0, Stroke::new(1.2_f32, c));
-        p.line_segment([Pos2::new(b.left() + 3.0, b.center().y), Pos2::new(b.right() - 3.0, b.center().y)], Stroke::new(1.3_f32, c));
+    if button(ui, t!("Tout replier", "Fold everything"), &|p, c, s| {
+        // two chevrons pointing at each other
+        seg(p, (-4.0, -6.0), (0.0, -2.5), c, s);
+        seg(p, (0.0, -2.5), (4.0, -6.0), c, s);
+        seg(p, (-4.0, 6.0), (0.0, 2.5), c, s);
+        seg(p, (0.0, 2.5), (4.0, 6.0), c, s);
     }) {
         fold_all(root);
     }
-    if button(ui, t!("Nouveau dossier…", "New folder…"), &|p, r, c| {
-        crate::icons::paint_folder(p, Rect::from_center_size(r.center() - egui::vec2(2.0, 1.0), egui::vec2(13.0, 13.0)), false, c, bg);
-        plus(p, r, c);
+    if button(ui, t!("Nouveau dossier…", "New folder…"), &|p, c, s| {
+        // a folder outline with a « + » inside
+        let pts = [(-6.5, -4.5), (-2.5, -4.5), (-1.0, -3.0), (6.5, -3.0), (6.5, 5.0), (-6.5, 5.0), (-6.5, -4.5)];
+        p.add(egui::Shape::line(pts.iter().map(|&(x, y)| c + egui::vec2(x, y)).collect(), s));
+        seg(p, (-2.5, 1.0), (2.5, 1.0), c, s);
+        seg(p, (0.0, -1.5), (0.0, 3.5), c, s);
     }) {
         act = Some(TreeAction::NewFolder(root.path.clone()));
     }
-    if button(ui, t!("Nouveau fichier…", "New file…"), &|p, r, c| {
-        let f = Rect::from_center_size(r.center() - egui::vec2(2.0, 1.0), egui::vec2(9.0, 12.0));
-        p.rect_stroke(f, 1.5, Stroke::new(1.2_f32, c));
-        plus(p, r, c);
+    if button(ui, t!("Nouveau fichier…", "New file…"), &|p, c, s| {
+        // a page with a folded corner and a « + » inside
+        let pts = [(-5.0, -6.5), (1.5, -6.5), (5.0, -3.0), (5.0, 6.5), (-5.0, 6.5), (-5.0, -6.5)];
+        p.add(egui::Shape::line(pts.iter().map(|&(x, y)| c + egui::vec2(x, y)).collect(), s));
+        seg(p, (1.5, -6.5), (1.5, -3.0), c, s);
+        seg(p, (1.5, -3.0), (5.0, -3.0), c, s);
+        seg(p, (-2.5, 1.5), (2.5, 1.5), c, s);
+        seg(p, (0.0, -1.0), (0.0, 4.0), c, s);
     }) {
         act = Some(TreeAction::NewFile(root.path.clone()));
     }
@@ -659,35 +680,15 @@ fn node_ui(
     let color = git
         .get(&node.path)
         .and_then(|c| git_color(*c))
-        .unwrap_or(if selected { v.strong_text_color() } else { v.text_color() });
+        .unwrap_or_else(|| name_color(v));
     // the name first; a git repository's branch at the right of the row, in the room left
     // (shortened with "…", or not shown when there is too little)
     let name = painter.layout_no_wrap(node.name.clone(), FontId::proportional(14.0), color);
     let mut name_end = x + name.size().x;
     painter.galley(Pos2::new(x, cy - name.size().y / 2.0), name, color);
-    // the other versions are already dimmed and marked WT: no eye on them
-    let a_version = node.is_dir && versions.contains_key(&node.path);
-    if own_rule && !parent_excluded && !a_version {
+    if own_rule && !parent_excluded {
         icons::paint_eye_off(&painter, Pos2::new(name_end + 12.0, cy), v.weak_text_color());
         name_end += 20.0;
-    }
-    // a version side by side: « WT » for a worktree, « ● courante » for the version worked on
-    let mark = node.is_dir.then(|| versions.get(&node.path)).flatten();
-    if let Some(m) = mark {
-        let accent = v.hyperlink_color;
-        if m.worktree {
-            let g = painter.layout_no_wrap("WT".into(), FontId::monospace(9.5), v.weak_text_color());
-            let pill = Rect::from_min_size(Pos2::new(name_end + 7.0, cy - 7.0), egui::vec2(g.size().x + 8.0, 14.0));
-            painter.rect_stroke(pill, 4.0, Stroke::new(1.0_f32, v.weak_text_color().gamma_multiply(0.7)));
-            painter.galley(Pos2::new(pill.left() + 4.0, cy - g.size().y / 2.0), g, v.weak_text_color());
-            name_end = pill.right();
-        }
-        if m.current {
-            let g = painter.layout_no_wrap(t!("● courante", "● current").into(), FontId::proportional(11.0), accent);
-            let w = g.size().x;
-            painter.galley(Pos2::new(name_end + 7.0, cy - g.size().y / 2.0), g, accent);
-            name_end += 7.0 + w;
-        }
     }
     if let Some((full, _)) = node.is_dir.then(|| repos.get(&node.path)).flatten() {
         // at rest only what needs attention (↑ to push, ↓ to pull, changed files); the branch
@@ -911,13 +912,13 @@ fn sticky(ui: &mut Ui, root: &Node, rows_top: f32, act: &mut Option<TreeAction>)
         let icon = Rect::from_center_size(Pos2::new(x + 22.0, cy), egui::vec2(16.0, 16.0));
         icons::paint_folder(&painter, icon, true, folder, bg);
         let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        let g = painter.layout_no_wrap(name, FontId::proportional(14.0), v.text_color());
-        painter.galley(Pos2::new(x + 37.0, cy - g.size().y / 2.0), g, v.text_color());
+        let g = painter.layout_no_wrap(name, FontId::proportional(14.0), name_color(&v));
+        painter.galley(Pos2::new(x + 37.0, cy - g.size().y / 2.0), g, name_color(&v));
         let r = r.on_hover_text_at_pointer(path.display().to_string());
         if r.clicked() {
             go = Some((path.clone(), rows_top + *i as f32 * ROW_H));
         }
-        r.context_menu(|ui| menu(ui, path, true, None, None, act));
+        r.context_menu(|ui| menu(ui, path, true, None, act));
     }
     // a thin shadow under the pinned folders
     let bottom = stack.iter().enumerate().map(|(s, (.., push))| view.top() + (s + 1) as f32 * ROW_H + push).fold(view.top(), f32::max);
@@ -934,14 +935,21 @@ fn sticky(ui: &mut Ui, root: &Node, rows_top: f32, act: &mut Option<TreeAction>)
     go
 }
 
+/// The names of the tree: a touch darker than the other texts of the panels on a light theme
+/// (darker, egui's text looks bold).
+fn name_color(v: &egui::Visuals) -> Color32 {
+    let bg = v.panel_fill;
+    let light = bg.r() as u32 + bg.g() as u32 + bg.b() as u32 > 384;
+    if light { mix(v.text_color(), Color32::BLACK, 0.12) } else { v.text_color() }
+}
+
 fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
     let f = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t) as u8;
     Color32::from_rgb(f(a.r(), b.r()), f(a.g(), b.g()), f(a.b(), b.b()))
 }
 
 /// `excluded`: for a folder other than the root, whether it is left out of the index.
-/// `version`: the folder is one of the versions side by side.
-fn menu(ui: &mut Ui, path: &Path, is_dir: bool, excluded: Option<bool>, version: Option<&VersionMark>, act: &mut Option<TreeAction>) {
+fn menu(ui: &mut Ui, path: &Path, is_dir: bool, excluded: Option<bool>, act: &mut Option<TreeAction>) {
     let dir = if is_dir { path.to_path_buf() } else { path.parent().map(Path::to_path_buf).unwrap_or_default() };
     let mut pick = |a: TreeAction, ui: &mut Ui| {
         *act = Some(a);

@@ -1795,6 +1795,9 @@ fn tab_widget(
     if active {
         // the line on its left too (the tab before it has its own on its right)
         p.vline(tab.left() - 0.5, tab.y_range(), line);
+    } else {
+        // the line under the strip, which the active tab leaves open
+        p.hline(tab.x_range(), tab.bottom() - 0.5, line);
     }
     let y = tab.center().y.round();
     let icon_at = egui::pos2(tab.left() + 15.0, y);

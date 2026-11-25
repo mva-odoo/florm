@@ -22,9 +22,12 @@ impl App {
         let mut strip = (egui::Rect::NOTHING, Vec::new());
         let panel_id = egui::Id::new("tabs").with(pane);
         // on the window's background, above the editor's card (its border runs under the tabs)
-        egui::TopBottomPanel::top(panel_id).exact_height(TAB_STRIP_H).frame(egui::Frame::none().fill(tc.bar)).show_inside(ui, |ui| {
+        egui::TopBottomPanel::top(panel_id).exact_height(TAB_STRIP_H).show_separator_line(false).frame(egui::Frame::none().fill(tc.bar)).show_inside(ui, |ui| {
             let bar = ui.max_rect();
             strip.0 = bar;
+            // as in Zed: a line under the strip but not under the active tab, which opens onto
+            // the path and the text (the other tabs draw it again over their fill)
+            ui.painter().hline(bar.x_range(), bar.bottom() - 0.5, egui::Stroke::new(1.0_f32, tc.border));
             let controls = self.strip_controls(pane);
             let maximized = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
             let mut scroll = bar;

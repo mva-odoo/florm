@@ -298,7 +298,8 @@ impl Highlighting {
         };
         Surfaces {
             editor: c.bg,
-            surface: step(7, 15),
+            // Zed One Light: #ebebec beside a white editor
+            surface: step(7, 20),
             bar: step(19, 30),
             border: step(30, 49),
             border_variant: step(14, 27),

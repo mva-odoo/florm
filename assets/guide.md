@@ -23,7 +23,8 @@ Tous les raccourcis se changent dans **Préférences → Raccourcis** (Ctrl+,).
 | **Ctrl+\** | Diviser l'éditeur : le fichier courant à droite ; **Ctrl+1** passe d'un côté à l'autre |
 
 Le fil d'Ariane au-dessus du code est cliquable : un dossier montre son contenu, le fichier
-liste ses symboles, une classe ou une fonction y emmène. Les vues (Claude, Git, Pull requests (GitHub),
+liste ses symboles, une classe ou une fonction y emmène. L'icône à sa droite copie le chemin du
+fichier (clic droit : la référence fichier:ligne ou le lien GitHub de la ligne). Les vues (Claude, Git, Pull requests (GitHub),
 terminal…) n'en ont pas : elles gardent toute la hauteur.
 
 Deux fichiers ouverts du même nom : leur dossier s'affiche en gris après le titre (`input.rs …/app`). Un fichier avec des erreurs montre leur nombre en rouge (`9+` au-delà de neuf).

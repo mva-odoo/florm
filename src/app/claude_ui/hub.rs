@@ -32,9 +32,11 @@ struct Row {
     id: u64,
     tab: Option<u64>,
     title: String,
-    /// The project (repository or folder) it works in, then its worktree and account if any.
+    /// The project (repository or folder) it works in, the branch checked out there, its account
+    /// (only with several accounts).
     project: String,
-    place: String,
+    branch: String,
+    account: String,
     state: ConvState,
     /// What it waits for, as Claude Code says it (empty: not said).
     waiting: String,
@@ -187,18 +189,16 @@ impl App {
             .map(|c| {
                 let project = c.dir.as_deref().map(|d| self.repo_label(d)).unwrap_or_default();
                 // the branch checked out in its folder
-                let mut place = c.dir.as_deref().and_then(crate::stat_cache::head_branch).map(|b| format!("🔀 {b}")).unwrap_or_default();
-                if accounts.len() > 1 {
-                    let who = format!("👤 {}", crate::claude_account::find(&accounts, &c.account).name);
-                    place = if place.is_empty() { who } else { format!("{who} · {place}") };
-                }
+                let branch = c.dir.as_deref().and_then(crate::stat_cache::head_branch).unwrap_or_default();
+                let account = if accounts.len() > 1 { crate::claude_account::find(&accounts, &c.account).name.clone() } else { String::new() };
                 let title = conv_title(c);
                 Row {
                     id: c.id,
                     tab: c.tab,
                     title,
                     project,
-                    place,
+                    branch,
+                    account,
                     state: conv_state(c),
                     waiting: c.term_state.message.clone(),
                     since: c.busy_since.map(|t| t.elapsed()),
@@ -223,82 +223,68 @@ impl App {
         });
         ui.add_space(4.0);
         egui::ScrollArea::vertical().id_salt(("claude_list", hub)).auto_shrink([false, false]).show(ui, |ui| {
-            // close rows: more conversations in sight
             ui.spacing_mut().item_spacing.y = 2.0;
             for r in &rows {
                 let shown = r.tab == Some(hub);
-                // its branch and account, what it costs, after its project (how long
-                // it has been working is on the right of its title)
-                let mut parts: Vec<String> = Vec::new();
-                if !r.place.is_empty() {
-                    parts.push(r.place.clone());
+                // in the row: its title, its state, its project and branch; the rest (account,
+                // cost, where it is shown) in its tooltip
+                let mut more: Vec<String> = Vec::new();
+                if !r.account.is_empty() {
+                    more.push(format!("👤 {}", r.account));
                 }
                 if r.cost > 0.0 {
-                    parts.push(format!("{:.2} $", r.cost));
+                    more.push(format!("{:.2} $", r.cost));
                 }
                 match r.tab {
                     Some(LISTED) => {}
                     Some(u) if u == hub => {}
-                    Some(_) => parts.push(t!("son onglet", "its tab").into()),
-                    None => parts.push(t!("panneau du bas", "bottom panel").into()),
+                    Some(_) => more.push(t!("dans son onglet", "in its tab").into()),
+                    None => more.push(t!("dans le panneau du bas", "in the bottom panel").into()),
                 }
-                let info = parts.join(" · ");
                 let project_name = if r.project.is_empty() { t!("(sans dossier)", "(no folder)").to_string() } else { r.project.clone() };
-                let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 40.0), Sense::click());
+                let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 48.0), Sense::click());
                 let v = ui.visuals();
                 if shown {
-                    // a light tint of the accent: the folder and the cost stay readable on it
-                    ui.painter().rect_filled(rect, 6.0, crate::icons::mix(v.panel_fill, accent, 0.14));
-                    ui.painter().rect_filled(egui::Rect::from_min_size(rect.min + egui::vec2(0.0, 8.0), egui::vec2(3.0, rect.height() - 16.0)), 1.5, accent);
+                    ui.painter().rect_filled(rect, 6.0, crate::icons::mix(v.panel_fill, accent, 0.16));
                 } else if resp.hovered() {
                     ui.painter().rect_filled(rect, 6.0, v.widgets.hovered.weak_bg_fill);
                 }
-                // the edge in the color of its project (the accent bar when shown)
-                if !shown {
-                    let c = project_color(&r.project, dark).gamma_multiply(0.6);
-                    ui.painter().rect_filled(egui::Rect::from_min_size(rect.min + egui::vec2(0.0, 8.0), egui::vec2(3.0, rect.height() - 16.0)), 1.5, c);
-                }
-                let (icon, color) = match r.state {
-                    ConvState::Working => ("⟳", accent),
-                    ConvState::Waiting => ("❓", warn()),
-                    ConvState::Done => ("✔", ok()),
-                    ConvState::Idle => ("·", weak),
-                };
                 let p = ui.painter().with_clip_rect(rect.shrink2(egui::vec2(4.0, 2.0)));
-                p.text(rect.left_top() + egui::vec2(10.0, 5.0), Align2::LEFT_TOP, icon, egui::FontId::proportional(13.0), color);
-                let strong = r.state != ConvState::Idle || shown;
-                let title_color = if strong { v.strong_text_color() } else { v.text_color() };
-                let close_zone = resp.hovered() || shown;
-                // how long it has been working, on the right of its title (where × shows on hover)
-                let since = r.since.map(short_duration).filter(|_| !close_zone);
-                let title_y = 4.0;
-                let since_w = match &since {
-                    Some(s) => p.text(egui::pos2(rect.right() - 8.0, rect.top() + title_y + 1.0), Align2::RIGHT_TOP, s, egui::FontId::proportional(11.5), color).width() + 8.0,
+                let close_zone = resp.hovered();
+                // its state on the right of the title, where × shows on hover: working (and since
+                // when), waiting for you, finished and not seen yet; nothing at rest
+                let state = match r.state {
+                    ConvState::Working => Some((r.since.map(|d| format!("⟳ {}", short_duration(d))).unwrap_or_else(|| "⟳".into()), accent)),
+                    ConvState::Waiting => Some(("❓".to_string(), warn())),
+                    ConvState::Done => Some(("●".to_string(), ok())),
+                    ConvState::Idle => None,
+                };
+                let title_y = rect.top() + 7.0;
+                let state_w = match state.as_ref().filter(|_| !close_zone) {
+                    Some((s, c)) => p.text(egui::pos2(rect.right() - 10.0, title_y + 1.0), Align2::RIGHT_TOP, s, egui::FontId::proportional(12.0), *c).width() + 8.0,
                     None => 0.0,
                 };
-                // the title cut before the duration or ×
-                let room = rect.width() - 28.0 - 28.0f32.max(since_w + 8.0);
-                let title = ui.fonts(|f| f.layout_no_wrap(r.title.clone(), egui::FontId::proportional(13.5), title_color));
-                let title = if title.size().x > room {
-                    let mut t = r.title.clone();
-                    while !t.is_empty() && ui.fonts(|f| f.layout_no_wrap(format!("{t}…"), egui::FontId::proportional(13.5), title_color).size().x) > room {
-                        t.pop();
+                let strong = r.state != ConvState::Idle || shown;
+                let title_color = if strong { v.strong_text_color() } else { v.text_color() };
+                let font = egui::FontId::proportional(13.5);
+                let room = rect.width() - 12.0 - 10.0 - if close_zone { 24.0 } else { state_w };
+                let mut title = r.title.clone();
+                if ui.fonts(|f| f.layout_no_wrap(title.clone(), font.clone(), title_color).size().x) > room {
+                    while !title.is_empty() && ui.fonts(|f| f.layout_no_wrap(format!("{title}…"), font.clone(), title_color).size().x) > room {
+                        title.pop();
                     }
-                    format!("{}…", t.trim_end())
-                } else {
-                    r.title.clone()
-                };
-                p.text(rect.left_top() + egui::vec2(28.0, title_y), Align2::LEFT_TOP, title, egui::FontId::proportional(13.5), title_color);
-                // its project in its color, then the rest
-                let below = rect.left_top() + egui::vec2(28.0, 22.0);
-                let pr = p.text(below, Align2::LEFT_TOP, format!("● {project_name}"), egui::FontId::proportional(11.5), project_color(&r.project, dark));
-                if !info.is_empty() {
-                    p.text(egui::pos2(pr.right(), below.y), Align2::LEFT_TOP, format!(" · {info}"), egui::FontId::proportional(11.5), weak);
+                    title = format!("{}…", title.trim_end());
                 }
+                p.text(egui::pos2(rect.left() + 12.0, title_y), Align2::LEFT_TOP, title, font, title_color);
+                // its project: a dot in its color, the name and the branch faint
+                let below = egui::pos2(rect.left() + 12.0, rect.top() + 27.0);
+                p.circle_filled(below + egui::vec2(3.5, 7.5), 3.5, project_color(&r.project, dark));
+                let line = if r.branch.is_empty() { project_name } else { format!("{project_name}  ·  {}", r.branch) };
+                p.text(below + egui::vec2(12.0, 0.0), Align2::LEFT_TOP, line, egui::FontId::proportional(12.0), weak);
                 // × on the hovered row: close it
                 let mut on_close = false;
                 if close_zone {
-                    let x = egui::Rect::from_center_size(egui::pos2(rect.right() - 14.0, rect.top() + 12.0), egui::vec2(18.0, 18.0));
+                    let x = egui::Rect::from_center_size(egui::pos2(rect.right() - 16.0, title_y + 8.0), egui::vec2(18.0, 18.0));
                     let xr = ui.interact(x, ui.id().with(("conv_close", r.id)), Sense::click());
                     on_close = xr.hovered();
                     p.text(x.center(), Align2::CENTER_CENTER, "×", egui::FontId::proportional(14.0), if xr.hovered() { err() } else { weak });
@@ -313,6 +299,7 @@ impl App {
                     ConvState::Done => t!("Claude a fini, pas encore vu", "Claude has finished, not seen yet"),
                     ConvState::Idle => t!("Au repos", "Idle"),
                 };
+                let tip = if more.is_empty() { tip.to_string() } else { format!("{tip}\n{}", more.join(" · ")) };
                 let resp = resp.on_hover_text(tip);
                 if resp.clicked() && !on_close {
                     act = Some(ListAct::Show(r.id));

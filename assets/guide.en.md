@@ -23,7 +23,8 @@ Every shortcut can be changed in **Preferences → Shortcuts** (Ctrl+,).
 | **Ctrl+\** | Split the editor: the current file on the right; **Ctrl+1** goes from one side to the other |
 
 The breadcrumbs above the code are clickable: a folder shows its content, the file lists its
-symbols, a class or a function takes you there. The views (Claude, Git, Pull requests (GitHub),
+symbols, a class or a function takes you there. The icon on its right copies the path of the
+file (right click: the file:line reference or the GitHub link of the line). The views (Claude, Git, Pull requests (GitHub),
 terminal…) have none: they keep the whole height.
 
 Two open files of the same name: their folder shows in grey after the title (`input.rs …/app`). A file with errors shows how many in red (`9+` beyond nine).
