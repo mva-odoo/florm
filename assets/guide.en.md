@@ -794,7 +794,8 @@ Florm Light, Florm Minimal and Florm Minimal Light, more sober (a deep or cream 
 soft palette), and Florm Monokai, One Dark, Dracula, GitHub Light after the usual themes of other editors),
 accent color, **softened text** (less “bold” text, useful on light themes), fonts of the editor
 and of the interface, minimap, breadcrumbs, **menu bar** (hidden by default, as in Zed: the menus are under
-the F logo at the top of the sidebar, and their commands in the palette, **Ctrl+Shift+P**).
+the **F** at the bottom left of the status bar, and their commands in the palette, **Ctrl+Shift+P**).
+At the top of the sidebar, the folder icon before the project's name opens the list of projects.
 
 **Theme colors → Create a theme from “…”**: all the colors of the editor (background, text,
 accent, cursor, selection, gutter…) and of the code (comments, keywords, strings, functions,

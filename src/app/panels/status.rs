@@ -103,6 +103,24 @@ impl App {
             let muted = crate::icons::mix(ui.visuals().text_color(), s.bar, 0.22);
             ui.visuals_mut().override_text_color = Some(muted);
             ui.horizontal_centered(|ui| {
+                // the F of Florm, at the far left: the menus (File, Edit, Git…) above it, when the
+                // menu bar is hidden (as Zed's ☰)
+                if !self.settings.show_menu_bar {
+                    let mut picked = Vec::new();
+                    let km = &self.keymap;
+                    let b = egui::Button::new("").frame(false).min_size(egui::vec2(22.0, 22.0));
+                    let r = egui::menu::menu_custom_button(ui, b, |ui| {
+                        ui.visuals_mut().override_text_color = None;
+                        super::menus::menus(ui, km, &mut picked);
+                    })
+                    .response;
+                    let r = r.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(t!("Menus (Fichier, Édition, Git…)", "Menus (File, Edit, Git…)"));
+                    if r.hovered() {
+                        ui.painter().rect_filled(r.rect, 4.0, ui.visuals().widgets.hovered.weak_bg_fill);
+                    }
+                    crate::logo::paint(ui.painter(), r.rect.shrink(4.0), false);
+                    self.pending.extend(picked);
+                }
                 // the preferences, one click away (a click on them shown goes back to the tab before)
                 let shown = self.docs.get(self.active).is_some_and(|d| d.view == crate::document::View::Settings);
                 let keys = self.keymap.label(Cmd::OpenSettings);
@@ -538,4 +556,49 @@ fn news_tag(line: &str) -> (Option<(&'static str, Color32)>, &str) {
         }
     }
     (None, line)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The F at the far left of the status bar opens the menus (the menu bar being hidden).
+    #[test]
+    fn the_f_of_the_status_bar_opens_the_menus() {
+        let dir = std::env::temp_dir().join(format!("florm_status_f_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("settings.toml"), "check_updates = false\nlsp = false\n").unwrap();
+        let _lock = config::TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("FLORM_CONFIG", &dir);
+        let ctx = egui::Context::default();
+        let mut app = App::with_ctx(&ctx, None);
+        assert!(!app.settings.show_menu_bar);
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 700.0));
+        let frame = |app: &mut App, events: Vec<egui::Event>| {
+            let out = ctx.run(egui::RawInput { screen_rect: Some(screen), events, ..Default::default() }, |ctx| app.status_bar(ctx));
+            let mut texts = Vec::new();
+            fn walk(s: &egui::Shape, out: &mut Vec<String>) {
+                match s {
+                    egui::Shape::Text(t) => out.push(t.galley.text().to_string()),
+                    egui::Shape::Vec(v) => v.iter().for_each(|x| walk(x, out)),
+                    _ => {}
+                }
+            }
+            out.shapes.iter().for_each(|c| walk(&c.shape, &mut texts));
+            texts
+        };
+        let before = frame(&mut app, Vec::new());
+        assert!(!before.iter().any(|t| t == "Édition"));
+        // the F: the first thing at the left of the bar
+        let at = egui::pos2(14.0, screen.bottom() - 12.0);
+        let click = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+        frame(&mut app, vec![egui::Event::PointerMoved(at), click(true)]);
+        frame(&mut app, vec![click(false)]);
+        let after = frame(&mut app, Vec::new());
+        for want in ["Fichier", "Édition", "Git", "Outils"] {
+            assert!(after.iter().any(|t| t == want), "{want}: {after:?}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

@@ -819,7 +819,8 @@ palette douce), et Florm Monokai, One Dark, Dracula, GitHub Light d'après les t
 éditeurs), couleur d'accentuation,
 **texte adouci** (texte moins « gras », utile sur les thèmes clairs), polices de l'éditeur et
 de l'interface, minimap, fil d'Ariane, **barre de menus** (masquée par défaut, comme dans Zed : les menus
-sont sous le logo F en haut de la barre latérale, et leurs commandes dans la palette, **Ctrl+Shift+P**).
+sont sous le **F** en bas à gauche de la barre d'état, et leurs commandes dans la palette, **Ctrl+Shift+P**).
+En haut de la barre latérale, l'icône de dossier devant le nom du projet ouvre la liste des projets.
 
 **Couleurs du thème → Créer un thème à partir de « … »** : toutes les couleurs de l'éditeur
 (fond, texte, accent, curseur, sélection, marge…) et du code (commentaires, mots-clés, chaînes,
