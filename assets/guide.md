@@ -328,7 +328,8 @@ Les opérations lancées depuis Florm mettent la version d'origine entre les deu
 
 ## Langages : installer les outils
 
-**Préférences → Langages** (ou « Langages : installer les outils d'un langage » dans la palette)
+**Préférences → Langages** (clic droit sur la roue dentée de la barre d'état, menu Outils, ou
+« Langages : installer les outils d'un langage » dans la palette)
 liste chaque langage avec ses outils : serveur de langage (LSP), linter, formateur, débogueur.
 ✓ : installé ; ✖ : il manque.
 
@@ -490,7 +491,7 @@ quel langage, dans un dossier de `~/.config/florm/extensions/` avec son `extensi
 avec tes droits : n'en installe que de sources sûres. Sans Python sur l'ordinateur, Florm télécharge
 le sien à la première commande d'une extension Python (une seule fois, ~30 Mo).
 
-- **Préférences → Extensions** : la liste (une case les coupe), **+ Nouvelle extension…** crée un
+- **Préférences → Extensions** (clic droit sur la roue dentée de la barre d'état, ou menu Outils) : la liste (une case les coupe), **+ Nouvelle extension…** crée un
   exemple en Python et l'ouvre, **⟳ Recharger** après un changement, **📁** le dossier.
 - Leurs commandes sont dans la palette, précédées de ✚. Ce qu'elles écrivent (`print`) et leurs
   erreurs vont dans **Sortie**.

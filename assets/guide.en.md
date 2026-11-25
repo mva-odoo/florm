@@ -317,7 +317,8 @@ The operations started from Florm put the original version between the two sides
 
 ## Languages: installing the tools
 
-**Preferences → Languages** (or “Languages: install the tools of a language” in the palette) lists
+**Preferences → Languages** (right click on the gear of the status bar, Tools menu, or
+“Languages: install the tools of a language” in the palette) lists
 each language with its tools: language server (LSP), linter, formatter, debugger. ✓: installed;
 ✖: missing.
 
@@ -476,7 +477,7 @@ opens, is saved, closes or is shown. It is a program, in Python or any language,
 some from sources you trust. Without Python on the computer, Florm downloads its own at the first
 command of a Python extension (only once, ~30 MB).
 
-- **Preferences → Extensions**: the list (a checkbox turns one off), **+ New extension…** makes a
+- **Preferences → Extensions** (right click on the gear of the status bar, or Tools menu): the list (a checkbox turns one off), **+ New extension…** makes a
   Python example and opens it, **⟳ Reload** after a change, **📁** the folder.
 - Their commands are in the palette, after ✚. What they write (`print`) and their errors go to
   **Output**.

@@ -161,6 +161,8 @@ pub(in crate::app) fn menus(ui: &mut egui::Ui, km: &crate::keymap::Keymap, pendi
     });
     ui.menu_button(t!("Outils", "Tools"), |ui| {
         item(ui, t!("Linter le fichier", "Lint the file"), Cmd::Lint);
+        item(ui, t!("Langages : outils et tree-sitter…", "Languages: tools and tree-sitter…"), Cmd::ShowLanguages);
+        item(ui, t!("Extensions et catalogue…", "Extensions and catalogue…"), Cmd::ShowExtensions);
         ui.separator();
         item(ui, "✳ Claude", Cmd::Claude);
         ui.separator();

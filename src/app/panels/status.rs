@@ -107,13 +107,33 @@ impl App {
                 let shown = self.docs.get(self.active).is_some_and(|d| d.view == crate::document::View::Settings);
                 let keys = self.keymap.label(Cmd::OpenSettings);
                 let tip = if keys.is_empty() { t!("Préférences", "Preferences").to_string() } else { tf!("Préférences ({keys})", "Preferences ({keys})") };
+                let tip = tf!("{tip}\nClic droit : Langages (outils, tree-sitter), Extensions", "{tip}\nRight click: Languages (tools, tree-sitter), Extensions");
                 let color = if shown { self.hl.colors.accent } else { muted };
-                if view_button(ui, icons::ViewIcon::Settings, color).on_hover_text(tip).clicked() {
+                let gear = view_button(ui, icons::ViewIcon::Settings, color).on_hover_text(tip);
+                if gear.clicked() {
                     if shown {
                         self.leave_tab(crate::document::View::Settings);
                     } else {
                         self.pending.push(Cmd::OpenSettings);
                     }
+                }
+                // its right click: straight to the languages and the extensions
+                let mut go = None;
+                gear.context_menu(|ui| {
+                    ui.visuals_mut().override_text_color = None;
+                    for (label, cmd) in [
+                        (t!("Préférences", "Preferences"), Cmd::OpenSettings),
+                        (t!("Langages : outils et tree-sitter…", "Languages: tools and tree-sitter…"), Cmd::ShowLanguages),
+                        (t!("Extensions et catalogue…", "Extensions and catalogue…"), Cmd::ShowExtensions),
+                    ] {
+                        if ui.button(label).clicked() {
+                            go = Some(cmd);
+                            ui.close_menu();
+                        }
+                    }
+                });
+                if let Some(c) = go {
+                    self.pending.push(c);
                 }
                 // the views of every day, one click away: Claude, Git, the pull requests (their tab;
                 // a click on the one shown goes back to the tab before it) and the terminal

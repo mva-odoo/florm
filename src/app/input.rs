@@ -832,7 +832,8 @@ pub(super) enum MacroStep {
 
 /// Whether a shortcut still works while a terminal has the keyboard. The shell keeps plain keys,
 /// Alt+key, Ctrl+key (Ctrl+C, Ctrl+R, Ctrl+D…) and the Ctrl+Shift keys it uses (copy, paste,
-/// search, Ctrl+_); Florm takes the F-keys, Ctrl+Alt, the other Ctrl+Shift combos, and tab switching.
+/// search, Ctrl+_); Florm takes the F-keys, Ctrl+Alt, the other Ctrl+Shift combos, tab switching and
+/// the preferences (Ctrl+, means nothing to a shell).
 fn terminal_lets_through(cmd: Cmd, c: Combo) -> bool {
     use Cmd::*;
     let fkey = matches!(
@@ -842,7 +843,7 @@ fn terminal_lets_through(cmd: Cmd, c: Combo) -> bool {
     let shell_ctrl_shift = matches!(c.key, Key::C | Key::V | Key::X | Key::F | Key::Minus);
     fkey || (c.ctrl && c.alt)
         || (c.ctrl && c.shift && !shell_ctrl_shift)
-        || matches!(cmd, ToggleTerminal | CommandPalette | QuickOpen | ToggleSidebar | NextTab | PrevTab | Claude | ClaudeNextWaiting)
+        || matches!(cmd, ToggleTerminal | CommandPalette | QuickOpen | ToggleSidebar | NextTab | PrevTab | Claude | ClaudeNextWaiting | OpenSettings)
         // Cmd+Q on macOS, where Cmd means nothing to a shell
         || (cfg!(target_os = "macos") && cmd == Quit)
 }
@@ -879,7 +880,7 @@ mod tests {
         // Florm's global shortcuts
         for s in [
             "ctrl+shift+g", "ctrl+alt+r", "ctrl+shift+j", "ctrl+tab", "ctrl+pageup", "ctrl+pagedown", "ctrl+f6",
-            "ctrl+shift+f6", "ctrl+shift+p", "ctrl+p", "ctrl+b", "ctrl+alt+c",
+            "ctrl+shift+f6", "ctrl+shift+p", "ctrl+p", "ctrl+b", "ctrl+alt+c", "ctrl+,",
         ] {
             assert!(through(s), "{s} should reach Florm");
         }
