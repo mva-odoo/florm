@@ -438,11 +438,12 @@ pour Python, **dlv** pour Go, **lldb-dap** ou **gdb** (14 ou plus) pour Rust, C 
   la montre au survol), ou **F9** sur la ligne. Ils suivent les lignes quand le texte change.
 - **Une commande, comme dans un terminal** : la vue **Débogueur** (🐞 dans la barre d'état) s'ouvre
   sur **Commande** (la liste en haut à gauche) ; tape
-  la ligne qui lance ton programme (`./odoo-bin -d ma_base -u mon_module`, `python -m flask run`,
-  `pytest tests/test_a.py`, `go run .`, `./mon_programme --port 8000`, des variables devant comme
-  `PGHOST=db ./odoo-bin …`, le Python d'un environnement virtuel comme
-  `~/venvs/odoo/bin/python odoo-bin -d ma_base`) et son **dossier** (vide : le projet), puis **Entrée**
-  ou **F5**. Florm choisit le débogueur d'après la commande ; vide, F5 débogue le fichier ouvert. Chaque commande lancée reste dans **🕘**, par projet ;
+  la ligne qui lance ton programme (`python app.py --port 8000`, `python -m flask run`,
+  `pytest tests/test_a.py`, `go run .`, `./mon_programme --verbose`, des variables devant comme
+  `DEBUG=1 ./mon_programme`, le Python d'un environnement virtuel comme
+  `~/venvs/app/bin/python app.py`) et son **dossier** : vide, le projet ; un chemin relatif part du
+  projet ; **📁** ouvre le sélecteur de dossiers du système. Un dossier qui n'existe pas s'affiche en
+  rouge (le survol dit lequel) et F5 le refuse. Puis **Entrée** ou **F5**. Florm choisit le débogueur d'après la commande ; vide, F5 débogue le fichier ouvert. Chaque commande lancée reste dans **🕘**, par projet ;
   la dernière revient à la réouverture. Une commande enveloppée (`make`, `docker`…) ne se débogue
   pas directement : lance le programme avec `debugpy --listen` et attache-toi (voir plus bas).
 - **F5** lance ce qui est choisi dans la vue **Débogueur** (panneau du bas) : la **commande**, le **fichier

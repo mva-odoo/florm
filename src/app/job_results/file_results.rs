@@ -107,7 +107,7 @@ impl App {
             crate::os::Pick::Folder => Some(Prompt::OpenFolder),
             crate::os::Pick::File => Some(Prompt::OpenFile),
             crate::os::Pick::SaveAs => Some(Prompt::SaveAs),
-            crate::os::Pick::Image | crate::os::Pick::ClaudeDir | crate::os::Pick::AccountProject | crate::os::Pick::AccountConfig | crate::os::Pick::SkillsDir => None,
+            crate::os::Pick::Image | crate::os::Pick::ClaudeDir | crate::os::Pick::AccountProject | crate::os::Pick::AccountConfig | crate::os::Pick::SkillsDir | crate::os::Pick::DebugDir => None,
         };
         match prompt {
             Some(prompt) => {
@@ -118,6 +118,11 @@ impl App {
             None if matches!(kind, crate::os::Pick::AccountProject | crate::os::Pick::AccountConfig) => {
                 if let Some(p) = paths.first() {
                     self.claude_account_picked(kind, p.clone());
+                }
+            }
+            None if kind == crate::os::Pick::DebugDir => {
+                if let Some(p) = paths.first() {
+                    self.debug_dir_picked(p.clone());
                 }
             }
             None if kind == crate::os::Pick::SkillsDir => {

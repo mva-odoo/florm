@@ -478,8 +478,24 @@ impl App {
 
     /// The folder of the command: the field, relative to the project (empty: the project).
     fn debug_cmd_dir(&self) -> PathBuf {
-        let root = self.root.clone().unwrap_or_else(|| PathBuf::from("."));
-        let d = self.debug.cmd_dir.trim();
+        cmd_dir_of(self.root.as_deref(), &self.debug.cmd_dir)
+    }
+
+    /// A folder chosen in the dialog for the command: relative to the project when it is inside.
+    pub(in crate::app) fn debug_dir_picked(&mut self, p: PathBuf) {
+        self.debug.cmd_dir = match self.root.as_deref().and_then(|r| p.strip_prefix(r).ok()) {
+            Some(rel) if rel.as_os_str().is_empty() => String::new(),
+            Some(rel) => rel.display().to_string(),
+            None => p.display().to_string(),
+        };
+    }
+}
+
+/// The folder of the command for the field's text `d`, from the project `root` (empty: the project).
+pub(super) fn cmd_dir_of(root: Option<&Path>, d: &str) -> PathBuf {
+    {
+        let root = root.map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("."));
+        let d = d.trim();
         if d.is_empty() || d == "." {
             root
         } else if let Some(rest) = d.strip_prefix("~/").or_else(|| d.strip_prefix("~\\")) {
@@ -492,10 +508,15 @@ impl App {
             root.join(d)
         }
     }
+}
 
+impl App {
     /// The command typed, read into a configuration and kept in the history of the project.
     fn debug_command_config(&mut self) -> Result<LaunchCfg, String> {
         let dir = self.debug_cmd_dir();
+        if !dir.is_dir() {
+            return Err(tf!("Le dossier de la commande n'existe pas : {}", "The folder of the command does not exist: {}", dir.display()));
+        }
         let cfg = dap::from_command(&self.debug.cmd, &dir)?;
         let project = self.root.as_ref().map(|r| r.display().to_string()).unwrap_or_default();
         self.state.remember_debug(project::DebugRun { cmd: self.debug.cmd.trim().to_string(), dir: self.debug.cmd_dir.trim().to_string(), project });

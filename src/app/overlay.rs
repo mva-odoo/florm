@@ -1128,6 +1128,7 @@ impl App {
                     Pick::AccountProject => d.set_title(t!("Un dossier dont les conversations utilisent ce compte", "A folder whose conversations use this account")).pick_folder().into_iter().collect(),
                     Pick::AccountConfig => d.set_title(t!("Le dossier de configuration de ce compte Claude", "The configuration folder of this Claude account")).pick_folder().into_iter().collect(),
                     Pick::SkillsDir => d.set_title(t!("Le dossier de tes skills de Claude", "The folder of your skills of Claude")).pick_folder().into_iter().collect(),
+                    Pick::DebugDir => d.set_title(t!("Le dossier où la commande est lancée", "The folder the command runs in")).pick_folder().into_iter().collect(),
                     Pick::Image => d.set_title(t!("Des images ou des PDF pour Claude", "Images or PDFs for Claude")).add_filter("Images, PDF", &["png", "jpg", "jpeg", "gif", "webp", "bmp", "pdf"]).pick_files().unwrap_or_default(),
                     Pick::SaveAs => {
                         let d = d.set_title(t!("Enregistrer sous", "Save as"));
