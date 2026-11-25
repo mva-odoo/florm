@@ -152,6 +152,23 @@ impl App {
         self.jobs.spawn(move || JobResult::GitBranches(git::branch_list(&repo), pick, target));
     }
 
+    /// `git fetch` on the remote of the branch (else origin), then the branches to rebase onto:
+    /// the remote ones first, as they are now on the server.
+    pub(super) fn fetch_then_rebase(&mut self) {
+        let Some(repo) = self.repo.clone() else {
+            self.set_status(t!("Pas de dépôt git", "No git repository"));
+            return;
+        };
+        let remote = self.default_remote().unwrap_or_else(|| "origin".into());
+        self.log(format!("$ git fetch {remote} --prune"));
+        self.set_status(tf!("git fetch {remote}…", "git fetch {remote}…"));
+        self.jobs.spawn(move || {
+            // fetched or not (offline…), the branches known are offered
+            let _ = git::run(&repo, &["fetch", &remote, "--prune"]);
+            JobResult::GitBranches(git::branch_list(&repo), BranchPick::Rebase, None)
+        });
+    }
+
     pub(super) fn branches_ready(&mut self, list: Vec<git::Branch>, pick: BranchPick, target: Option<String>) {
         if let Some(t) = target {
             match list.into_iter().find(|b| b.name == t) {
@@ -161,6 +178,16 @@ impl App {
             return;
         }
         let current = self.git.status.as_ref().map(|s| s.branch.clone()).unwrap_or_default();
+        let mut list = list;
+        // a rebase: onto a branch of the server first, its main one (master, main) at the top
+        if pick == BranchPick::Rebase {
+            let rank = |b: &git::Branch| match (b.remote, b.name.rsplit('/').next().unwrap_or("")) {
+                (true, "master" | "main") => 0,
+                (true, _) => 1,
+                (false, _) => 2,
+            };
+            list.sort_by_key(rank);
+        }
         let items: Vec<Item> = list
             .into_iter()
             // what makes no sense on the current branch, and renaming a remote one

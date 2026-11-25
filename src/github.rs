@@ -3,7 +3,7 @@
 
 use serde::Deserialize;
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::path::Path;
 use std::process::Stdio;
 
@@ -161,9 +161,6 @@ impl Commit {
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Comment {
-    /// GraphQL id: "IC_…" for a comment, "PRR_…" for a review.
-    #[serde(default)]
-    pub id: String,
     #[serde(default)]
     pub author: Author,
     #[serde(default)]
@@ -173,17 +170,8 @@ pub struct Comment {
     /// Reviews only: APPROVED, CHANGES_REQUESTED, COMMENTED…
     #[serde(default)]
     pub state: String,
-    /// Written by me (to change or delete it).
-    #[serde(skip)]
-    pub mine: bool,
 }
 
-impl Comment {
-    /// A review (its text can be changed, not deleted).
-    pub fn is_review(&self) -> bool {
-        self.id.starts_with("PRR_")
-    }
-}
 
 /// A check of the last commit: a GitHub Actions job or a status sent by another service.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -264,13 +252,10 @@ pub struct Thread {
 #[derive(Clone, Debug)]
 pub struct LineComment {
     pub id: String,
-    /// REST id (to reply to it).
-    pub db_id: u64,
     pub author: String,
     pub body: String,
     pub created_at: String,
     pub diff_hunk: String,
-    pub mine: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -307,8 +292,6 @@ pub struct PrDetail {
     pub reviewers: Vec<(String, String)>,
     pub assignees: Vec<String>,
     pub checks: Vec<Check>,
-    /// My login.
-    pub viewer: String,
     /// Files marked as viewed by me, by path.
     pub viewed: HashSet<String>,
 }
@@ -417,14 +400,6 @@ reviewDecision,mergeable,mergeStateStatus,reviewRequests,assignees,statusCheckRo
     let mut comments: Vec<Comment> = v.comments.into_iter().chain(v.reviews.into_iter().filter(|r| !r.body.trim().is_empty() || r.state == "APPROVED" || r.state == "CHANGES_REQUESTED")).collect();
     comments.sort_by(|a, b| a.created_at.cmp(&b.created_at));
     let pr = &extra["data"]["repository"]["pullRequest"];
-    // mine, by id
-    let mut mine_of: HashMap<&str, bool> = HashMap::new();
-    for c in ["comments", "reviews"].iter().filter_map(|k| pr[k]["nodes"].as_array()).flatten() {
-        mine_of.insert(c["id"].as_str().unwrap_or(""), c["viewerDidAuthor"].as_bool().unwrap_or(false));
-    }
-    for c in comments.iter_mut() {
-        c.mine = mine_of.get(c.id.as_str()).copied().unwrap_or(false);
-    }
     let owner = v.url.split('/').nth(3).unwrap_or("").to_string();
     let asked: Vec<String> = v
         .review_requests
@@ -448,7 +423,6 @@ reviewDecision,mergeable,mergeStateStatus,reviewRequests,assignees,statusCheckRo
         reviewers,
         assignees: v.assignees.into_iter().map(|a| a.login).collect(),
         checks: parse_checks(&v.status_check_rollup),
-        viewer: extra["data"]["viewer"]["login"].as_str().unwrap_or("").to_string(),
         viewed,
         number: v.number,
         title: v.title,
@@ -487,12 +461,10 @@ fn parse_threads(v: &Value) -> Vec<Thread> {
                     cs.iter()
                         .map(|c| LineComment {
                             id: c["id"].as_str().unwrap_or("").to_string(),
-                            db_id: c["databaseId"].as_u64().unwrap_or(0),
                             author: c["author"]["login"].as_str().unwrap_or("").to_string(),
                             body: c["body"].as_str().unwrap_or("").to_string(),
                             created_at: c["createdAt"].as_str().unwrap_or("").to_string(),
                             diff_hunk: c["diffHunk"].as_str().unwrap_or("").to_string(),
-                            mine: c["viewerDidAuthor"].as_bool().unwrap_or(false),
                         })
                         .collect()
                 })
@@ -630,41 +602,6 @@ pub fn number_of(url: &str) -> Option<u64> {
     url.trim().rsplit('/').next()?.parse().ok()
 }
 
-/// A comment on the whole pull request.
-pub fn comment(dir: &Path, n: u64, body: &str) -> Result<String, String> {
-    gh(dir, &["pr", "comment", &n.to_string(), "--body", body])
-}
-
-/// A reply in the conversation of a comment on lines.
-pub fn reply(dir: &Path, n: u64, comment_id: u64, body: &str) -> Result<String, String> {
-    let url = format!("repos/{{owner}}/{{repo}}/pulls/{n}/comments/{comment_id}/replies");
-    gh(dir, &["api", "-X", "POST", &url, "-f", &format!("body={body}")])
-}
-
-/// A new comment on line `line` of `path` ("RIGHT": the new version, "LEFT": the old one) at `commit`.
-pub fn line_comment(dir: &Path, n: u64, commit: &str, path: &str, line: usize, side: &str, body: &str) -> Result<String, String> {
-    let url = format!("repos/{{owner}}/{{repo}}/pulls/{n}/comments");
-    gh(
-        dir,
-        &[
-            "api",
-            "-X",
-            "POST",
-            &url,
-            "-f",
-            &format!("body={body}"),
-            "-f",
-            &format!("commit_id={commit}"),
-            "-f",
-            &format!("path={path}"),
-            "-F",
-            &format!("line={line}"),
-            "-f",
-            &format!("side={side}"),
-        ],
-    )
-}
-
 /// A review (without approving nor asking for changes) at `commit`: `body` on the whole pull
 /// request and comments on lines (path, line, "RIGHT" / "LEFT", text), all sent at once.
 pub fn review(dir: &Path, n: u64, commit: &str, body: &str, comments: &[(String, usize, String, String)]) -> Result<String, String> {
@@ -675,13 +612,6 @@ pub fn review(dir: &Path, n: u64, commit: &str, body: &str, comments: &[(String,
         input["body"] = body.into();
     }
     gh_with(dir, &["api", "-X", "POST", &url, "--input", "-"], Some(input.to_string())).map(|_| String::new())
-}
-
-/// Marks a conversation on lines as resolved (or not any more).
-pub fn resolve(dir: &Path, thread_id: &str, resolved: bool) -> Result<String, String> {
-    let m = if resolved { "resolveReviewThread" } else { "unresolveReviewThread" };
-    let q = format!("mutation($id:ID!){{{m}(input:{{threadId:$id}}){{thread{{isResolved}}}}}}");
-    gh(dir, &["api", "graphql", "-f", &format!("id={thread_id}"), "-f", &format!("query={q}")])
 }
 
 /// Any `gh` command (merge, close, edit… built by the view).
@@ -719,39 +649,12 @@ pub fn pr_args(verb: &str, n: u64, more: &[&str]) -> Vec<String> {
     a
 }
 
-/// A review: "approve", "request-changes" or "comment", with its message (needed but to approve).
-pub fn review_args(n: u64, event: &str, body: &str) -> Vec<String> {
-    let mut a = pr_args("review", n, &[&format!("--{event}")]);
-    if !body.is_empty() {
-        a.extend(["--body".into(), body.into()]);
-    }
-    a
-}
-
 fn graphql(dir: &Path, query: &str, vars: &[(&str, &str)]) -> Result<String, String> {
     let mut a = args(&["api", "graphql", "-f", &format!("query={query}")]);
     for (k, v) in vars {
         a.extend(["-f".into(), format!("{k}={v}")]);
     }
     run(dir, &a).map(|_| String::new())
-}
-
-/// The text of one of my comments ("IC_…"), comments on lines ("PRRC_…") or reviews ("PRR_…") changed.
-pub fn edit_comment(dir: &Path, id: &str, body: &str) -> Result<String, String> {
-    let (m, field) = if id.starts_with("PRRC_") {
-        ("updatePullRequestReviewComment", "pullRequestReviewCommentId")
-    } else if id.starts_with("PRR_") {
-        ("updatePullRequestReview", "pullRequestReviewId")
-    } else {
-        ("updateIssueComment", "id")
-    };
-    graphql(dir, &format!("mutation($id:ID!,$b:String!){{{m}(input:{{{field}:$id,body:$b}}){{clientMutationId}}}}"), &[("id", id), ("b", body)])
-}
-
-/// The command deleting one of my comments (on the pull request or on a line), asked first.
-pub fn delete_comment_args(id: &str) -> Vec<String> {
-    let m = if id.starts_with("PRRC_") { "deletePullRequestReviewComment" } else { "deleteIssueComment" };
-    args(&["api", "graphql", "-f", &format!("query=mutation($id:ID!){{{m}(input:{{id:$id}}){{clientMutationId}}}}"), "-f", &format!("id={id}")])
 }
 
 /// A file of the pull request marked as viewed (or not any more), like the box of GitHub.
@@ -979,8 +882,6 @@ mod tests {
     #[test]
     fn command_args() {
         assert_eq!(merge_args(5, "squash", true), ["pr", "merge", "5", "--squash", "--delete-branch"]);
-        assert_eq!(review_args(5, "approve", ""), ["pr", "review", "5", "--approve"]);
-        assert_eq!(review_args(5, "request-changes", "non"), ["pr", "review", "5", "--request-changes", "--body", "non"]);
         assert_eq!(pr_args("ready", 5, &["--undo"]), ["pr", "ready", "5", "--undo"]);
     }
 }

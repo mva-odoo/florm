@@ -5,19 +5,14 @@
 
 use super::*;
 use crate::github::{self, Part};
-use history::{DiffAct, DiffClick, DiffKind};
+use history::{DiffAct, DiffClick};
 use super::pr_claude::{to_claude_bar, to_claude_tick};
 
 /// `gh pr list --state` values and their labels (French, English).
 pub(super) const STATES: [(&str, &str, &str); 4] = [("open", "Ouvertes", "Open"), ("merged", "Fusionnées", "Merged"), ("closed", "Fermées", "Closed"), ("all", "Toutes", "All")];
 
-/// Key of the draft of the comment on the whole pull request, and of the one on a line.
-const DRAFT_PR: &str = "pr";
-const DRAFT_LINE: &str = "line";
 /// Key of the kept remarks of the AI review, published together.
 const DRAFT_AI: &str = "ai";
-/// Key of the comment being changed.
-const DRAFT_EDIT: &str = "edit";
 
 /// `gh pr merge` methods and their labels.
 const MERGE_METHODS: [(&str, &str, &str); 3] = [("merge", "Commit de fusion", "Merge commit"), ("squash", "Squash", "Squash"), ("rebase", "Rebase", "Rebase")];
@@ -71,12 +66,8 @@ pub(super) struct PrUi {
     /// The commit chosen in "Commits" and its own changes.
     commit: Option<String>,
     commit_diff: PrDiff,
-    /// Comments being written: on the pull request, on a line, or replies (key: thread id).
-    drafts: HashMap<String, String>,
     /// The conversations on lines ticked to be handled by Claude (their id).
     pub(super) to_claude: HashSet<String>,
-    /// Line of the diff being commented: (file, line, "RIGHT" new / "LEFT" old, index in the diff).
-    new_line: Option<(String, usize, &'static str, usize)>,
     /// Comments whose suggestion was applied.
     applied: HashSet<String>,
     /// Lines added (or removed) by the suggestions applied, per file: (last line replaced, delta),
@@ -88,8 +79,6 @@ pub(super) struct PrUi {
     busy: bool,
     /// AI review of the selected pull request: remarks proposed, published only when asked.
     pub(super) ai: ai_review::AiReview,
-    /// Comment being changed: its id and its new text.
-    editing: Option<(String, String)>,
     /// The pull request just created from here: GitHub takes a few seconds to know it.
     created: Option<u64>,
     /// Index in `MERGE_METHODS`, and the branch deleted once merged.
@@ -122,9 +111,6 @@ pub(super) enum PrAct {
     CommitInGit(String),
     Open(String, usize),
     Apply { id: String, path: String, start: usize, end: usize, text: String },
-    /// Send the draft of this key.
-    Send(String),
-    Resolve(String, bool),
     /// Ask Claude for a review of the pull request.
     AiReview,
     /// Publish the kept remarks of the AI review.
@@ -134,9 +120,6 @@ pub(super) enum PrAct {
     Gh { label: String, cmds: Vec<Vec<String>>, draft: Option<String> },
     /// Same, asked first: it cannot be undone.
     Ask { title: String, msg: String, yes: String, label: String, cmds: Vec<Vec<String>> },
-    /// Save the text of the comment being changed.
-    SaveComment,
-    DeleteComment(String),
     Viewed(String, bool),
     /// The log of a GitHub Actions job (name of the check, job).
     Log(String, u64),
@@ -212,11 +195,9 @@ impl App {
             self.pr.files = PrDiff::default();
             self.pr.commit = None;
             self.pr.commit_diff = PrDiff::default();
-            self.pr.new_line = None;
             self.pr.applied.clear();
             self.pr.shifts.clear();
             self.pr.ai = Default::default();
-            self.pr.editing = None;
         }
         self.pr.selected = Some(n);
         self.pr.detail_loading = true;
@@ -300,17 +281,9 @@ impl App {
                     self.log(out);
                 }
                 self.set_status(tf!("{label} : OK", "{label}: OK"));
-                if let Some(k) = draft {
-                    self.pr.drafts.remove(&k);
-                    if k == DRAFT_LINE {
-                        self.pr.new_line = None;
-                    }
-                    if k == DRAFT_AI {
-                        self.pr.ai.notes.retain(|n| !n.keep);
-                    }
-                    if k == DRAFT_EDIT {
-                        self.pr.editing = None;
-                    }
+                // the kept remarks of the AI review, published: they go
+                if draft.as_deref() == Some(DRAFT_AI) {
+                    self.pr.ai.notes.retain(|n| !n.keep);
                 }
                 if let Some(n) = reload.filter(|n| self.pr.selected == Some(*n)) {
                     self.load_pr(n);
@@ -609,9 +582,6 @@ impl App {
                             if open_threads > 0 && crate::features::on(crate::features::Feature::Claude) {
                                 to_claude_bar(ui, d, &mut p.to_claude, checked_out, accent, &mut act);
                             }
-                            // the line of the timeline, under what is drawn after (set once its end is known)
-                            let line = ui.painter().add(egui::Shape::Noop);
-                            let line_top = ui.cursor().top() + 8.0;
                             let neutral = ui.visuals().text_color();
                             for (date, ev) in timeline(d, p.show_resolved) {
                                 match ev {
@@ -636,29 +606,20 @@ impl App {
                                             tracking(ui, icon, color, &c.author.login, &date, t);
                                         } else {
                                             comment_block(ui, &c.author.login, &date, review.map(|(t, c, _)| (t, c)), |ui| {
-                                                let tools = CommentTools { id: &c.id, body: &c.body, mine: c.mine, deletable: !c.is_review(), busy: p.busy, accent };
-                                                comment_body(ui, cache, tools, &mut p.editing, &mut act, |ui, cache, _| {
-                                                    super::md::remote_viewer().show(ui, cache, &super::md::remote(&c.body));
-                                                });
+                                                super::md::remote_viewer().show(ui, cache, &super::md::remote(&c.body));
                                             });
                                         }
                                     }
                                     Event::Thread(k) => {
                                         let t = &d.threads[k];
-                                        let who = t.comments.first().map_or("", |c| c.author.as_str());
-                                        tracking(ui, "✏", neutral, who, &date, &tf!("a commenté {}", "commented on {}", t.path.rsplit('/').next().unwrap_or(&t.path)));
+                                        ui.add_space(8.0);
                                         ui.horizontal_top(|ui| {
                                             // ticked: handled by Claude (« Envoyer à Claude »)
                                             if !t.resolved && crate::features::on(crate::features::Feature::Claude) {
-                                                ui.add_space(CONTENT_X - 26.0);
                                                 to_claude_tick(ui, &mut p.to_claude, &t.id);
-                                                ui.add_space(4.0);
-                                            } else {
-                                                ui.add_space(CONTENT_X);
                                             }
                                             ui.vertical(|ui| {
-                                                let draft = p.drafts.entry(t.id.clone()).or_default();
-                                                thread_ui(ui, t, cache, &p.applied, &p.shifts, checked_out, p.busy, draft, &mut p.editing, accent, false, &mut act);
+                                                thread_ui(ui, t, cache, &p.applied, &p.shifts, checked_out, accent, false, &mut act);
                                                 if crate::features::on(crate::features::Feature::Claude) && explain_button(ui) {
                                                     act = Some(PrAct::ExplainThread(t.id.clone()));
                                                 }
@@ -673,7 +634,15 @@ impl App {
                                             let short = c.oid[..c.oid.len().min(7)].to_string();
                                             let clicked = event_row(ui, "●", neutral, |ui| {
                                                 avatar(ui, &author, 18.0);
-                                                let a = ui.add(egui::Label::new(RichText::new(&headline).monospace()).truncate().sense(Sense::click())).on_hover_text(tf!("{author} · {} — clic : voir ce commit", "{author} · {} — click: show this commit", ago(&date)));
+                                                // the title cut before the hash, which keeps its room on the right
+                                                let room = (ui.available_width() - 80.0).max(60.0);
+                                                let a = ui
+                                                    .scope(|ui| {
+                                                        ui.set_max_width(room);
+                                                        ui.add(egui::Label::new(RichText::new(&headline).monospace()).truncate().sense(Sense::click()))
+                                                    })
+                                                    .inner
+                                                    .on_hover_text(tf!("{author} · {} — clic : voir ce commit", "{author} · {} — click: show this commit", ago(&date)));
                                                 let b = ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| ui.link(RichText::new(&short).monospace().color(accent))).inner;
                                                 a.clicked() || b.clicked()
                                             });
@@ -685,45 +654,9 @@ impl App {
                                     }
                                 }
                             }
-                            let stroke = egui::Stroke::new(2.0_f32, ui.visuals().widgets.noninteractive.bg_stroke.color);
-                            let x = ui.max_rect().left() + LINE_X;
-                            let bottom = ui.cursor().top();
-                            if bottom > line_top {
-                                ui.painter().set(line, egui::Shape::line_segment([egui::pos2(x, line_top), egui::pos2(x, bottom)], stroke));
-                            }
-                            ui.add_space(10.0);
-                            ui.horizontal_top(|ui| {
-                                ui.add_space(CONTENT_X);
-                                ui.vertical(|ui| {
-                                    merge_box(ui, d, &mut p.merge_method, &mut p.delete_branch, &mut p.all_checks, p.busy, accent, &mut act);
-                                    let draft = p.drafts.entry(DRAFT_PR.into()).or_default();
-                                    if composer(ui, draft, t!("Écrire un commentaire sur la pull request…", "Write a comment on the pull request…"), t!("Commenter", "Comment"), p.busy, accent) {
-                                        act = Some(PrAct::Send(DRAFT_PR.into()));
-                                    }
-                                    // a review: GitHub does not let one approve their own pull request
-                                    if d.state == "OPEN" && !d.viewer.is_empty() && d.viewer != d.author {
-                                        ui.horizontal(|ui| {
-                                            let text = draft.trim().to_string();
-                                            let review = |event: &str, label: &str| PrAct::Gh { label: label.into(), cmds: vec![github::review_args(d.number, event, &text)], draft: Some(DRAFT_PR.into()) };
-                                            if ui
-                                                .add_enabled(!p.busy, egui::Button::new(RichText::new(t!("✔ Approuver", "✔ Approve")).color(ok())))
-                                                .on_hover_text(t!("Approuver la PR, avec le message écrit au-dessus s'il y en a un", "Approve the PR, with the message written above if there is one"))
-                                                .clicked()
-                                            {
-                                                act = Some(review("approve", t!("Approbation", "Approval")));
-                                            }
-                                            if ui
-                                                .add_enabled(!p.busy && !text.is_empty(), egui::Button::new(RichText::new(t!("✖ Demander des changements", "✖ Request changes")).color(err())))
-                                                .on_hover_text(t!("Le message écrit au-dessus dit ce qu'il faut changer", "The message written above says what to change"))
-                                                .on_disabled_hover_text(t!("Écris d'abord au-dessus ce qu'il faut changer", "First write above what to change"))
-                                                .clicked()
-                                            {
-                                                act = Some(review("request-changes", t!("Changements demandés", "Changes requested")));
-                                            }
-                                        });
-                                    }
-                                });
-                            });
+                            // what it takes to merge it (reading here, writing on GitHub)
+                            ui.add_space(12.0);
+                            merge_box(ui, d, &mut p.merge_method, &mut p.delete_branch, &mut p.all_checks, p.busy, accent, &mut act);
                             ui.add_space(20.0);
                         });
                     }
@@ -834,9 +767,8 @@ impl App {
                                 ai_at.entry(*i).or_default().push(k);
                             }
                         }
-                        let new_at = p.new_line.as_ref().map(|n| n.3);
-                        let lines: HashSet<usize> = at.keys().chain(ai_at.keys()).copied().chain(new_at).collect();
-                        let (drafts, applied, shifts, new_line, ai_notes, editing, to_claude) = (&mut p.drafts, &p.applied, &p.shifts, &mut p.new_line, &mut p.ai.notes, &mut p.editing, &mut p.to_claude);
+                        let lines: HashSet<usize> = at.keys().chain(ai_at.keys()).copied().collect();
+                        let (applied, shifts, ai_notes, to_claude) = (&p.applied, &p.shifts, &mut p.ai.notes, &mut p.to_claude);
                         let mut line_act = None;
                         let mut show = |ui: &mut egui::Ui, i: usize| {
                             for &k in at.get(&i).map_or(&[][..], |v| &v[..]) {
@@ -844,17 +776,13 @@ impl App {
                                 if !t.resolved && crate::features::on(crate::features::Feature::Claude) {
                                     to_claude_tick(ui, to_claude, &t.id);
                                 }
-                                let draft = drafts.entry(t.id.clone()).or_default();
-                                thread_ui(ui, t, cache, applied, shifts, checked_out, busy, draft, editing, accent, true, &mut line_act);
+                                thread_ui(ui, t, cache, applied, shifts, checked_out, accent, true, &mut line_act);
                                 if crate::features::on(crate::features::Feature::Claude) && explain_button(ui) {
                                     line_act = Some(PrAct::ExplainThread(t.id.clone()));
                                 }
                             }
                             for &k in ai_at.get(&i).map_or(&[][..], |v| &v[..]) {
                                 ai_review::note_card(ui, cache, k, &mut ai_notes[k], true, accent, &mut ai_act);
-                            }
-                            if new_at == Some(i) {
-                                line_composer(ui, drafts.entry(DRAFT_LINE.into()).or_default(), new_line, busy, accent, &mut line_act);
                             }
                         };
                         let notes = history::Notes { at: &lines, show: &mut show };
@@ -863,21 +791,8 @@ impl App {
                             act = line_act;
                         }
                         match clicked {
-                            Some(DiffClick::Line(i)) => {
-                                if let Some(diff) = &p.files.diff {
-                                    if let (Some(path), Some(l)) = (history::file_at(&diff.text, i), diff.lines.get(i)) {
-                                        let at = match l.kind {
-                                            DiffKind::Removed => l.old.map(|n| (n, "LEFT")),
-                                            DiffKind::Hunk => None,
-                                            _ => l.new.map(|n| (n, "RIGHT")),
-                                        };
-                                        if let Some((n, side)) = at {
-                                            p.new_line = Some((path, n, side, i));
-                                        }
-                                    }
-                                }
-                            }
-                            Some(DiffClick::File(i, _) | DiffClick::Hunk(i, _)) => {
+                            // reading here: a double click opens the file there (writing is on GitHub)
+                            Some(DiffClick::File(i, _) | DiffClick::Hunk(i, _) | DiffClick::Line(i)) => {
                                 if let Some(diff) = &p.files.diff {
                                     if let Some(path) = history::file_at(&diff.text, i) {
                                         act = Some(PrAct::Open(path, history::target_line(&diff.lines, i)));
@@ -928,26 +843,6 @@ impl App {
             Some(PrAct::CommitInGit(sha)) => self.pr_commit_in_git(repo, n, sha),
             Some(PrAct::Open(path, line)) => self.pr_open_file(&path, line),
             Some(PrAct::Apply { id, path, start, end, text }) => self.apply_suggestion(id, &path, start, end, &text),
-            Some(PrAct::Send(key)) => {
-                let body = self.pr.drafts.get(&key).map(|s| s.trim().to_string()).unwrap_or_default();
-                let Some(Ok(d)) = &self.pr.detail else { return };
-                if body.is_empty() {
-                    return;
-                }
-                if key == DRAFT_PR {
-                    self.pr_job(t!("Commentaire", "Comment").into(), Some(n), Some(key), move || github::comment(&repo, n, &body));
-                } else if key == DRAFT_LINE {
-                    let Some((path, line, side, _)) = self.pr.new_line.clone() else { return };
-                    let commit = d.head_oid.clone();
-                    self.pr_job(t!("Commentaire sur la ligne", "Comment on the line").into(), Some(n), Some(key), move || github::line_comment(&repo, n, &commit, &path, line, side, &body));
-                } else if let Some(id) = d.threads.iter().find(|t| t.id == key).and_then(|t| t.comments.first()).map(|c| c.db_id) {
-                    self.pr_job(t!("Réponse", "Reply").into(), Some(n), Some(key), move || github::reply(&repo, n, id, &body));
-                }
-            }
-            Some(PrAct::Resolve(id, yes)) => {
-                let label = if yes { t!("Conversation résolue", "Conversation resolved") } else { t!("Conversation rouverte", "Conversation reopened") };
-                self.pr_job(label.into(), Some(n), None, move || github::resolve(&repo, &id, yes));
-            }
             Some(PrAct::AiReview) => {
                 if let Some(Ok(d)) = self.pr.detail.clone() {
                     self.ai_review_pr(repo, &d);
@@ -983,21 +878,6 @@ impl App {
             }
             Some(PrAct::Gh { label, cmds, draft }) => self.pr_job(label, Some(n), draft, move || github::run_all(&repo, &cmds)),
             Some(PrAct::Ask { title, msg, yes, label, cmds }) => self.confirm = Some(Confirm::Gh { title, msg, yes, label, repo, cmds, n }),
-            Some(PrAct::SaveComment) => {
-                let Some((id, body)) = self.pr.editing.clone() else { return };
-                self.pr_job(t!("Commentaire modifié", "Comment edited").into(), Some(n), Some(DRAFT_EDIT.into()), move || github::edit_comment(&repo, &id, body.trim()));
-            }
-            Some(PrAct::DeleteComment(id)) => {
-                self.confirm = Some(Confirm::Gh {
-                    title: t!("Supprimer le commentaire", "Delete the comment").into(),
-                    msg: t!("Supprimer ce commentaire sur GitHub ? Il ne pourra pas être récupéré.", "Delete this comment on GitHub? It cannot be brought back.").into(),
-                    yes: t!("Supprimer", "Delete").into(),
-                    label: t!("Commentaire supprimé", "Comment deleted").into(),
-                    repo,
-                    cmds: vec![github::delete_comment_args(&id)],
-                    n,
-                });
-            }
             Some(PrAct::Viewed(path, yes)) => {
                 let Some(Ok(d)) = &mut self.pr.detail else { return };
                 if yes {
@@ -1100,31 +980,6 @@ impl App {
 /// Row of the diff a conversation is about: its last line, on its side of the file.
 fn thread_row(diff: &HistoryDiff, t: &github::Thread) -> Option<usize> {
     ai_review::diff_row(diff, &t.path, t.line?, &t.side)
-}
-
-/// The comment being written on a line of the diff, under it.
-fn line_composer(ui: &mut egui::Ui, draft: &mut String, new_line: &mut Option<(String, usize, &'static str, usize)>, busy: bool, accent: Color32, act: &mut Option<PrAct>) {
-    let Some((path, line, side, _)) = new_line.clone() else { return };
-    egui::Frame::none()
-        .stroke(egui::Stroke::new(1.0_f32, icons::mix(ui.visuals().panel_fill, accent, 0.6)))
-        .rounding(8.0)
-        .inner_margin(egui::Margin::same(10.0))
-        .outer_margin(egui::Margin::symmetric(0.0, 6.0))
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.horizontal(|ui| {
-                let what = if side == "LEFT" { t!(" (ancienne version)", " (old version)") } else { "" };
-                ui.label(RichText::new(tf!("💬 Nouveau commentaire sur {path}:{line}{what}", "💬 New comment on {path}:{line}{what}")).strong());
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.small_button(t!("Annuler", "Cancel")).clicked() {
-                        *new_line = None;
-                    }
-                });
-            });
-            if composer(ui, draft, t!("Ton commentaire (Markdown ; ```suggestion pour proposer un remplacement)…", "Your comment (Markdown; ```suggestion to suggest a replacement)…"), t!("Commenter la ligne", "Comment on the line"), busy, accent) {
-                *act = Some(PrAct::Send(DRAFT_LINE.into()));
-            }
-        });
 }
 
 /// Files on the left (with their comments to deal with), every diff one under the other on the right.
@@ -1448,56 +1303,6 @@ fn side_info(ui: &mut egui::Ui, d: &github::PrDetail) {
     people(ui, &assignees);
 }
 
-/// What a comment needs, when mine, to be changed or deleted.
-struct CommentTools<'a> {
-    id: &'a str,
-    body: &'a str,
-    mine: bool,
-    /// Reviews cannot be deleted, only changed.
-    deletable: bool,
-    busy: bool,
-    accent: Color32,
-}
-
-/// The body of a comment (`show`), or its editor while it is being changed; then, for mine,
-/// ✏ / 🗑.
-fn comment_body(
-    ui: &mut egui::Ui,
-    cache: &mut egui_commonmark::CommonMarkCache,
-    c: CommentTools,
-    editing: &mut Option<(String, String)>,
-    act: &mut Option<PrAct>,
-    show: impl FnOnce(&mut egui::Ui, &mut egui_commonmark::CommonMarkCache, &mut Option<PrAct>),
-) {
-    if let Some((_, text)) = editing.as_mut().filter(|(id, _)| id == c.id) {
-        ui.add(egui::TextEdit::multiline(text).desired_rows(3).desired_width(f32::INFINITY));
-        let (save, cancel) = ui
-            .horizontal(|ui| {
-                let save = ui.add_enabled(!c.busy && !text.trim().is_empty(), filled_button(t!("Enregistrer", "Save"), c.accent)).clicked();
-                (save, ui.button(t!("Annuler", "Cancel")).clicked())
-            })
-            .inner;
-        if save {
-            *act = Some(PrAct::SaveComment);
-        }
-        if cancel {
-            *editing = None;
-        }
-        return;
-    }
-    show(ui, cache, act);
-    ui.horizontal_wrapped(|ui| {
-        if c.mine && !c.id.is_empty() {
-            if ui.add_enabled(!c.busy, egui::Button::new("✏").small().frame(false)).on_hover_text(t!("Modifier ton commentaire", "Edit your comment")).clicked() {
-                *editing = Some((c.id.to_string(), c.body.to_string()));
-            }
-            if c.deletable && ui.add_enabled(!c.busy, egui::Button::new("🗑").small().frame(false)).on_hover_text(t!("Supprimer ton commentaire", "Delete your comment")).clicked() {
-                *act = Some(PrAct::DeleteComment(c.id.to_string()));
-            }
-        }
-    });
-}
-
 /// A pull request in the list (as in Atom): the author's initials, the title on up to two lines,
 /// then number, branch and age; on the right the state of the checks and of the review.
 fn pr_row(ui: &mut egui::Ui, pr: &github::PrSummary, selected: bool, accent: Color32) -> egui::Response {
@@ -1677,34 +1482,27 @@ fn avatar(ui: &mut egui::Ui, login: &str, size: f32) {
     ui.painter().text(rect.center(), Align2::CENTER_CENTER, initial, egui::FontId::proportional(size * 0.5), Color32::WHITE);
 }
 
-/// Where the comments and the rest of the conversation start (right of the avatars), and the line
-/// of the timeline with the icons of what happened.
-const CONTENT_X: f32 = 48.0;
-const LINE_X: f32 = CONTENT_X + 20.0;
-
-/// A comment like on GitHub: the avatar on the left, then a box with a band « bob commented 2 days
-/// ago » (or what the review says) and its body.
+/// A comment, full width: a box with a band « (avatar) bob commented 2 days ago » (or what the
+/// review says) and its body.
 fn comment_block(ui: &mut egui::Ui, author: &str, date: &str, tag: Option<(&str, Color32)>, body: impl FnOnce(&mut egui::Ui)) {
-    ui.add_space(10.0);
-    ui.horizontal_top(|ui| {
-        avatar(ui, author, 32.0);
-        ui.add_space(CONTENT_X - 32.0 - ui.spacing().item_spacing.x);
+    ui.add_space(8.0);
+    {
         let v = ui.visuals().clone();
         let edge = v.widgets.noninteractive.bg_stroke.color;
-        // opaque: the line of the timeline passes under it
-        egui::Frame::none().fill(v.panel_fill).stroke(egui::Stroke::new(1.0_f32, edge)).rounding(6.0).show(ui, |ui| {
+        egui::Frame::none().fill(v.extreme_bg_color).stroke(egui::Stroke::new(1.0_f32, edge)).rounding(6.0).show(ui, |ui| {
             ui.set_width(ui.available_width());
             // the band above the body (the frame is in a row: it would put them side by side)
             ui.vertical(|ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
             let band = egui::Frame::none()
-                .fill(icons::mix(v.panel_fill, v.text_color(), 0.04))
+                .fill(v.panel_fill)
                 .rounding(egui::Rounding { nw: 6.0, ne: 6.0, sw: 0.0, se: 0.0 })
-                .inner_margin(egui::Margin::symmetric(12.0, 7.0))
+                .inner_margin(egui::Margin::symmetric(12.0, 6.0))
                 .show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     ui.horizontal_wrapped(|ui| {
-                        ui.spacing_mut().item_spacing.x = 5.0;
+                        ui.spacing_mut().item_spacing.x = 6.0;
+                        avatar(ui, author, 20.0);
                         ui.label(RichText::new(author).strong());
                         match tag {
                             Some((t, c)) => ui.label(RichText::new(t).color(c)),
@@ -1723,19 +1521,30 @@ fn comment_block(ui: &mut egui::Ui, author: &str, date: &str, tag: Option<(&str,
             });
             });
         });
-    });
+    }
 }
 
-/// A line of the timeline: its icon in a circle on the line, then what `add` draws; what it gave.
+/// A comment inside a conversation on code: « (avatar) bob · 2 days ago », its body under it.
+fn comment_entry(ui: &mut egui::Ui, author: &str, date: &str, body: impl FnOnce(&mut egui::Ui)) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 6.0;
+        avatar(ui, author, 18.0);
+        ui.label(RichText::new(author).strong());
+        if !date.is_empty() {
+            ui.label(RichText::new(ago(date)).weak()).on_hover_text(date);
+        }
+    });
+    ui.add_space(2.0);
+    body(ui);
+}
+
+/// A line of what happened (a commit pushed, a review without text): its icon, then what `add`
+/// draws; what it gave.
 fn event_row<R>(ui: &mut egui::Ui, icon: &str, color: Color32, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
     ui.horizontal(|ui| {
-        ui.set_min_height(34.0);
-        // from the same edge as the line, whatever the spacing between widgets
-        let c = egui::pos2(ui.max_rect().left() + LINE_X, ui.max_rect().top() + 17.0);
-        let v = ui.visuals();
-        ui.painter().circle(c, 12.0, icons::mix(v.panel_fill, v.text_color(), 0.08), egui::Stroke::new(2.0_f32, v.panel_fill));
-        ui.painter().text(c, Align2::CENTER_CENTER, icon, egui::FontId::proportional(12.0), color);
-        ui.add_space(LINE_X + 26.0 - ui.spacing().item_spacing.x);
+        ui.set_min_height(28.0);
+        ui.add_space(6.0);
+        ui.add_sized(egui::vec2(16.0, 16.0), egui::Label::new(RichText::new(icon).color(color)));
         add(ui)
     })
     .inner
@@ -1789,21 +1598,6 @@ fn timeline(d: &github::PrDetail, show_resolved: bool) -> Vec<(String, Event)> {
     ev
 }
 
-/// A text field to write a comment, with its button; true: send it (button or Ctrl+Entrée).
-fn composer(ui: &mut egui::Ui, text: &mut String, hint: &str, button: &str, busy: bool, accent: Color32) -> bool {
-    let rows = if text.is_empty() { 1 } else { 3 };
-    let resp = ui.add(egui::TextEdit::multiline(text).hint_text(hint).desired_rows(rows).desired_width(f32::INFINITY));
-    let ctrl_enter = resp.has_focus() && ui.input(|i| i.modifiers.command && i.key_pressed(Key::Enter));
-    let mut send = false;
-    if !text.trim().is_empty() {
-        ui.horizontal(|ui| {
-            send = ui.add_enabled(!busy, filled_button(button, accent)).on_hover_text(t!("Ctrl+Entrée", "Ctrl+Enter")).clicked();
-            ui.label(RichText::new("Markdown").small().weak());
-        });
-    }
-    (send || ctrl_enter) && !busy && !text.trim().is_empty()
-}
-
 /// The code commented, numbered like in a diff, the commented lines highlighted.
 fn code_snippet(ui: &mut egui::Ui, hunk: &str, from: usize, to: usize) {
     let rows = github::hunk_tail(hunk, (to - from + 1).max(4));
@@ -1844,9 +1638,6 @@ fn thread_ui(
     applied: &HashSet<String>,
     shifts: &HashMap<String, Vec<(usize, isize)>>,
     checked_out: bool,
-    busy: bool,
-    draft: &mut String,
-    editing: &mut Option<(String, String)>,
     accent: Color32,
     in_diff: bool,
     act: &mut Option<PrAct>,
@@ -1854,16 +1645,19 @@ fn thread_ui(
     let line = t.line.or(t.original_line).unwrap_or(1);
     let start = t.start_line.unwrap_or(line);
     let v = ui.visuals().clone();
+    let edge = v.widgets.noninteractive.bg_stroke.color;
     egui::Frame::none()
-        .stroke(egui::Stroke::new(1.0_f32, v.widgets.noninteractive.bg_stroke.color))
-        .rounding(8.0)
-        .outer_margin(egui::Margin { left: 0.0, right: 0.0, top: 6.0, bottom: 6.0 })
+        .fill(v.extreme_bg_color)
+        .stroke(egui::Stroke::new(1.0_f32, edge))
+        .rounding(6.0)
+        .outer_margin(egui::Margin { left: 0.0, right: 0.0, top: 4.0, bottom: 4.0 })
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
-            // header: the file and lines, state, resolve
-            egui::Frame::none()
-                .fill(icons::mix(v.panel_fill, accent, 0.07))
-                .rounding(egui::Rounding { nw: 8.0, ne: 8.0, sw: 0.0, se: 0.0 })
+            ui.spacing_mut().item_spacing.y = 0.0;
+            // header: the file and lines, its state
+            let head = egui::Frame::none()
+                .fill(v.panel_fill)
+                .rounding(egui::Rounding { nw: 6.0, ne: 6.0, sw: 0.0, se: 0.0 })
                 .inner_margin(egui::Margin::symmetric(10.0, 6.0))
                 .show(ui, |ui| {
                     ui.set_width(ui.available_width());
@@ -1879,38 +1673,33 @@ fn thread_ui(
                         if t.outdated {
                             badge(ui, t!("code modifié depuis", "code changed since"), Color32::GRAY);
                         }
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            let (label, tip) = if t.resolved { (t!("Rouvrir", "Reopen"), t!("Marquer la conversation comme non résolue", "Mark the conversation as unresolved")) } else { (t!("✔ Résoudre", "✔ Resolve"), t!("Marquer la conversation comme résolue", "Mark the conversation as resolved")) };
-                            if ui.add_enabled(!busy, egui::Button::new(label).small()).on_hover_text(tip).clicked() {
-                                *act = Some(PrAct::Resolve(t.id.clone(), !t.resolved));
-                            }
-                        });
                     });
                 });
-            egui::Frame::none().inner_margin(egui::Margin::symmetric(10.0, 8.0)).show(ui, |ui| {
+            ui.painter().hline(head.response.rect.x_range(), head.response.rect.bottom() - 0.5, egui::Stroke::new(1.0_f32, edge));
+            egui::Frame::none().inner_margin(egui::Margin::symmetric(12.0, 10.0)).show(ui, |ui| {
                 ui.set_width(ui.available_width());
+                ui.spacing_mut().item_spacing.y = 4.0;
                 // in the diff, the code is just above
                 if let Some(first) = t.comments.first().filter(|_| !in_diff) {
                     code_snippet(ui, &first.diff_hunk, start, line);
+                    ui.add_space(6.0);
                 }
-                for c in &t.comments {
-                    comment_block(ui, &c.author, &c.created_at, None, |ui| {
-                        let tools = CommentTools { id: &c.id, body: &c.body, mine: c.mine, deletable: true, busy, accent };
-                        comment_body(ui, cache, tools, editing, act, |ui, cache, act| {
-                            for part in github::parts(&c.body) {
-                                match part {
-                                    Part::Text(text) => {
-                                        super::md::remote_viewer().show(ui, cache, &super::md::remote(&text));
-                                    }
-                                    Part::Suggestion(text) => suggestion_ui(ui, t, c, &text, start, line, applied, shifts, checked_out, accent, act),
+                for (k, c) in t.comments.iter().enumerate() {
+                    if k > 0 {
+                        ui.add_space(6.0);
+                        ui.separator();
+                        ui.add_space(4.0);
+                    }
+                    comment_entry(ui, &c.author, &c.created_at, |ui| {
+                        for part in github::parts(&c.body) {
+                            match part {
+                                Part::Text(text) => {
+                                    super::md::remote_viewer().show(ui, cache, &super::md::remote(&text));
                                 }
+                                Part::Suggestion(text) => suggestion_ui(ui, t, c, &text, start, line, applied, shifts, checked_out, accent, act),
                             }
-                        });
+                        }
                     });
-                }
-                ui.add_space(6.0);
-                if composer(ui, draft, t!("Répondre…", "Reply…"), t!("Répondre", "Reply"), busy, accent) {
-                    *act = Some(PrAct::Send(t.id.clone()));
                 }
             });
         });
@@ -2113,7 +1902,6 @@ mod render_check {
             number: 7,
             title: "Fix".into(),
             author: "bob".into(),
-            viewer: "me".into(),
             state: "OPEN".into(),
             base: "17.0".into(),
             head: "17.0-fix".into(),
@@ -2124,8 +1912,7 @@ mod render_check {
             ..Default::default()
         };
         let ctx = egui::Context::default();
-        let mut cache = egui_commonmark::CommonMarkCache::default();
-        let (mut method, mut delete, mut all, mut editing) = (0, false, false, None);
+        let (mut method, mut delete, mut all) = (0, false, false);
         let mut shapes = Vec::new();
         for _ in 0..3 {
             let out = ctx.run(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 800.0))), ..Default::default() }, |ctx| {
@@ -2133,8 +1920,7 @@ mod render_check {
                     let mut act = None;
                     merge_box(ui, &d, &mut method, &mut delete, &mut all, false, Color32::BLUE, &mut act);
                     side_info(ui, &d);
-                    let tools = CommentTools { id: "IC_1", body: "salut", mine: true, deletable: true, busy: false, accent: Color32::BLUE };
-                    comment_body(ui, &mut cache, tools, &mut editing, &mut act, |ui, _, _| {
+                    comment_block(ui, "bob", "", None, |ui| {
                         ui.label("salut");
                     });
                 });
@@ -2142,7 +1928,7 @@ mod render_check {
             shapes = out.shapes;
         }
         let t = texts(&shapes);
-        for want in ["Checks", "CI / tests", "Logs", "17.0", "alice", "✔", "🗑"] {
+        for want in ["Checks", "CI / tests", "Logs", "17.0", "alice", "✔", "bob", "salut"] {
             assert!(t.contains(want), "{want}: {t}");
         }
     }

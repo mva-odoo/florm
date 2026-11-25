@@ -187,7 +187,8 @@ impl App {
                     ("⬆ Push", Cmd::GitPush, t!("Envoyer tes commits", "Send your commits")),
                     ("⬆ Push --force-with-lease…", Cmd::GitForcePush, t!("Après un rebase ou un amend : remplacer la branche distante (refusé si quelqu'un y a poussé entre-temps)", "After a rebase or an amend: replace the remote branch (refused if someone pushed to it meanwhile)")),
                     (t!("⬆ Pousser les tags", "⬆ Push the tags"), Cmd::GitPushTags, t!("git push --tags", "git push --tags")),
-                    ("Fetch", Cmd::GitFetch, t!("Récupérer sans intégrer", "Fetch without merging")),
+                    ("⟳ Fetch", Cmd::GitFetch, t!("Récupérer sans intégrer", "Fetch without merging")),
+                    (t!("⤵ Rebaser sur… (après fetch)", "⤵ Rebase onto… (after fetch)"), Cmd::GitFetchRebase, t!("Récupérer les commits distants (git fetch), puis choisir la branche sur laquelle rejouer tes commits (origin/master…)", "Fetch the remote commits (git fetch), then choose the branch to replay your commits onto (origin/master…)")),
                 ] {
                     if ui.button(label).on_hover_text(tip).clicked() {
                         cmds.push(cmd);

@@ -235,7 +235,8 @@ opening the folder or showing a diff does not run them. The hooks of commits and
   was already pushed, a push --force-with-lease will be needed.
 - **↕ Sync**: Pull, **Pull --rebase** (your commits replayed on top, no merge commit), Push,
   **Push --force-with-lease** (after a rebase or an amend: refused if someone pushed meanwhile),
-  **Push the tags**, Fetch. When a push is refused, the error message also offers
+  **Push the tags**, ⟳ Fetch, and **⤵ Rebase onto… (after fetch)**: fetches the commits of the server, then
+  offers the branch to replay yours onto (the server's first, master or main on top). When a push is refused, the error message also offers
   **⬆ Force (--force-with-lease)**.
 - Right click on a commit of the graph: besides checkout, cherry-pick, revert…
   - **Create a tag here** (“v1.2”, or “v1.2 message” for an annotated tag); on a tag:
@@ -430,11 +431,13 @@ palette).
 - On the left, the PRs of the repository (open, merged, closed, yours), with a filter. At the
   start, **yours** (preference “Author shown at the start” to see all of them).
 - A PR you just created opens as soon as GitHub knows it (a few seconds).
-- **Conversation**, as on GitHub: the description on top, then everything that happened from the
-  oldest to the newest, on a line with an icon per event: the comments and reviews (in a box “bob
-  commented 2 days ago”), the **comments on the code** (clickable file:line, the commented code,
-  the replies) and the commits (a click shows them). At the bottom: whether the PR can be merged,
-  then the field to write a comment.
+- **The view is for reading**: to write (comment, reply, approve, resolve a conversation),
+  **Open on GitHub** in the header. Claude's help stays (✳ AI review, 🗺 Explain, ✳ Send to
+  Claude), and so does applying suggestions.
+- **Conversation**: the description on top, then everything that happened from the oldest to the
+  newest: the comments and reviews (in a box “bob commented 2 days ago”), the **comments on the
+  code** (clickable file:line, the commented code, the replies) and the commits (a click shows
+  them). At the bottom: whether the PR can be merged.
 - **Handle the comments with Claude**: tick the unresolved comments to handle (box on the
   left of each, in Conversation or Files; “All” at the top), then **✳ Send to Claude**. A
   Claude conversation opens in the repository with each comment (file:line, commented code,
@@ -449,8 +452,8 @@ palette).
   **double-click** (or **Show in the Git view ↗**, or right click) opens it selected in the
   graph of the Git view (the commits of the PR are first fetched into `remote/pr/N` when they
   are not in your repository). **Files**: the whole diff of the
-  PR, the conversations **under the commented lines** like on GitHub (reply, resolve, apply a
-  suggestion), and **double-click a line** to comment on it.
+  PR, the conversations **under the commented lines** like on GitHub (apply a suggestion), and
+  **double-click a line** to open the file there.
 - A box before each file marks it **viewed**: it folds and GitHub remembers it for your review
   (“3/10 viewed” on top).
 - **✳ AI review**: Claude reads the PR over and proposes remarks under the lines of the diff;
@@ -469,12 +472,9 @@ palette).
   ones**), and the buttons: **Merge** (merge commit, squash or rebase, delete the branch), **⟳ Update the
   branch** (merge or rebase of the base), **Ready for review** / **Back to draft**, **Close** /
   **Reopen**. Merge, close and rebase ask first.
-- Under the message: **✔ Approve** or **✖ Request changes** (the message says what).
 - On the right, for information: the reviewers with their verdict (✔ approved, ✖ changes
   requested, 💬 commented, ⏳ waiting), “Review required” when the repository asks for an approval,
   and the assignees. They are changed on GitHub, like the labels and the milestone.
-- Your comments have **✏** (edit) and **🗑** (delete). The title, the description and the
-  reactions are changed on GitHub (**Open on GitHub** button of the header).
 - Right-click a PR of the list: open, open on GitHub, checkout, copy the link or the number. In
   the open PR, **Open on GitHub** and **⤵ Checkout** are buttons of the header, and **⋯** copies
   the link or the number.

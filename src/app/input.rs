@@ -676,6 +676,7 @@ impl App {
             },
             GitMerge => self.pick_branch(BranchPick::Merge, None),
             GitRebaseOnto => self.pick_branch(BranchPick::Rebase, None),
+            GitFetchRebase => self.fetch_then_rebase(),
             GitRebaseInteractive => self.pick_branch(BranchPick::RebaseInteractive, None),
             GitRenameBranch => self.pick_branch(BranchPick::Rename, None),
             GitDeleteBranch => self.pick_branch(BranchPick::Delete, None),

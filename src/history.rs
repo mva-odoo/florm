@@ -692,17 +692,10 @@ pub fn stacked_diff_view(
                     let name = p.text(Pos2::new(bar.left() + 42.0, cy), Align2::LEFT_CENTER, &f.path, FontId::proportional(13.5), v.strong_text_color());
                     let a = p.text(Pos2::new(name.right() + 12.0, cy), Align2::LEFT_CENTER, format!("+{}", f.adds), FontId::monospace(12.0), crate::highlight::green());
                     p.text(Pos2::new(a.right() + 6.0, cy), Align2::LEFT_CENTER, format!("−{}", f.dels), FontId::monospace(12.0), crate::highlight::red());
-                    let mut right = bar.right() - 6.0;
-                    let mut on_button = false;
-                    for (label, tip, act) in file_buttons.iter().rev() {
-                        let w = button_width(ui, label);
-                        let br = Rect::from_min_max(Pos2::new(right - w, bar.top() + 2.0), Pos2::new(right, bar.bottom() - 2.0));
-                        right -= w + 4.0;
-                        let bresp = ui.put(br, egui::Button::new(egui::RichText::new(*label).size(12.5))).on_hover_text(*tip);
-                        on_button |= bresp.hovered();
-                        if bresp.clicked() {
-                            click = Some(DiffClick::File(f.start, *act));
-                        }
+                    let area = Rect::from_min_max(Pos2::new(bar.center().x, bar.top() + 2.0), Pos2::new(bar.right() - 6.0, bar.bottom() - 2.0));
+                    let (picked, on_button) = right_buttons(ui, area, file_buttons);
+                    if let Some(act) = picked {
+                        click = Some(DiffClick::File(f.start, act));
                     }
                     if resp.clicked() && !on_button {
                         if folded {
@@ -730,14 +723,10 @@ pub fn stacked_diff_view(
                     let text_x = if side { cw * 7.0 } else { nums_w };
                     p.text(Pos2::new(rect.left() + text_x, y), Align2::LEFT_CENTER, &l.text, font.clone(), color);
                     if l.kind == DiffKind::Hunk && !hunk_buttons.is_empty() {
-                        let mut right = rect.right().min(visible.right()) - 6.0;
-                        for (label, tip, act) in hunk_buttons.iter().rev() {
-                            let w = button_width(ui, label);
-                            let br = Rect::from_min_max(Pos2::new(right - w, rect.top() + 2.0), Pos2::new(right, rect.bottom() - 2.0));
-                            right -= w + 4.0;
-                            if ui.put(br, egui::Button::new(egui::RichText::new(*label).size(12.5))).on_hover_text(*tip).clicked() {
-                                click = Some(DiffClick::Hunk(i, *act));
-                            }
+                        let right = rect.right().min(visible.right()) - 6.0;
+                        let area = Rect::from_min_max(Pos2::new(rect.left().max(right - 420.0), rect.top() + 2.0), Pos2::new(right, rect.bottom() - 2.0));
+                        if let (Some(act), _) = right_buttons(ui, area, hunk_buttons) {
+                            click = Some(DiffClick::Hunk(i, act));
                         }
                     } else if l.kind != DiffKind::Hunk && resp.on_hover_text_at_pointer(t!("Double-clic : ouvrir le fichier à cette ligne", "Double-click: open the file at this line")).double_clicked() {
                         click = Some(DiffClick::Line(i));
@@ -912,21 +901,33 @@ fn side_toggle(ui: &mut Ui, area: Rect) {
     } else {
         (t!("◫ Côte à côte", "◫ Side by side"), t!("L'ancienne version à gauche, la nouvelle à droite, pour tous les diffs", "The old version on the left, the new one on the right, for every diff"))
     };
-    let w = button_width(ui, label);
-    let r = Rect::from_min_size(area.right_bottom() - egui::vec2(w + 22.0, 34.0), egui::vec2(w, 24.0));
+    let r = Rect::from_min_max(area.right_bottom() - egui::vec2(400.0, 34.0), area.right_bottom() - egui::vec2(22.0, 10.0));
     let fill = ui.visuals().window_fill;
     let b = egui::Button::new(egui::RichText::new(label).size(12.5)).fill(fill).stroke(ui.visuals().window_stroke);
-    if ui.put(r, b).on_hover_text(tip).clicked() {
+    let clicked = ui
+        .allocate_new_ui(egui::UiBuilder::new().max_rect(r).layout(egui::Layout::right_to_left(egui::Align::Center)), |ui| ui.add(b).on_hover_text(tip).clicked())
+        .inner;
+    if clicked {
         SIDE_BY_SIDE.store(!on, std::sync::atomic::Ordering::Relaxed);
         ui.ctx().request_repaint();
     }
 }
 
-/// Width of a diff button (12.5 pt label + the style's padding): the button must fit in the
-/// rect given to `ui.put`, or it overflows onto its neighbour.
-fn button_width(ui: &Ui, label: &str) -> f32 {
-    let text = ui.fonts(|f| f.layout_no_wrap(label.to_string(), FontId::proportional(12.5), Color32::WHITE).size().x);
-    text + 2.0 * ui.spacing().button_padding.x + 2.0
+/// Buttons in a row at the right of `area`, each its own width (laid out by egui: they never
+/// overlap): the one clicked, and whether the pointer is on one of them.
+fn right_buttons(ui: &mut Ui, area: Rect, buttons: &[DiffButton]) -> (Option<DiffAct>, bool) {
+    let (mut clicked, mut hovered) = (None, false);
+    ui.allocate_new_ui(egui::UiBuilder::new().max_rect(area).layout(egui::Layout::right_to_left(egui::Align::Center)), |ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
+        for (label, tip, act) in buttons.iter().rev() {
+            let r = ui.add(egui::Button::new(egui::RichText::new(*label).size(12.5))).on_hover_text(*tip);
+            hovered |= r.hovered();
+            if r.clicked() {
+                clicked = Some(*act);
+            }
+        }
+    });
+    (clicked, hovered)
 }
 
 /// Commit message body for display: the lines of a paragraph (hard-wrapped at ~72 columns by
@@ -1014,14 +1015,10 @@ pub fn diff_view(ui: &mut Ui, lines: &[DiffLine], id: &str, hunk_buttons: &[Diff
             p.text(Pos2::new(rect.left() + text_x, y), Align2::LEFT_CENTER, &l.text, font.clone(), color);
             if l.kind == DiffKind::Hunk && !hunk_buttons.is_empty() {
                 // buttons on the right of the visible area
-                let mut right = rect.right().min(visible_right) - 6.0;
-                for (label, tip, act) in hunk_buttons.iter().rev() {
-                    let w = button_width(ui, label);
-                    let r = Rect::from_min_max(Pos2::new(right - w, rect.top() + 1.0), Pos2::new(right, rect.bottom() - 1.0));
-                    right -= w + 4.0;
-                    if ui.put(r, egui::Button::new(egui::RichText::new(*label).size(12.5))).on_hover_text(*tip).clicked() {
-                        click = Some(DiffClick::Hunk(i, *act));
-                    }
+                let right = rect.right().min(visible_right) - 6.0;
+                let area = Rect::from_min_max(Pos2::new(rect.left().max(right - 420.0), rect.top() + 1.0), Pos2::new(right, rect.bottom() - 1.0));
+                if let (Some(act), _) = right_buttons(ui, area, hunk_buttons) {
+                    click = Some(DiffClick::Hunk(i, act));
                 }
             } else if resp.on_hover_text_at_pointer(t!("Double-clic : ouvrir le fichier à cette ligne", "Double-click: open the file at this line")).double_clicked() {
                 click = Some(DiffClick::Line(i));

@@ -242,7 +242,8 @@ d'habitude.
   S'il était déjà poussé, il faudra un push --force-with-lease.
 - **↕ Synchroniser** : Pull, **Pull --rebase** (tes commits rejoués par-dessus, sans commit de
   merge), Push, **Push --force-with-lease** (après un rebase ou un amend : refusé si quelqu'un a
-  poussé entre-temps), **Pousser les tags**, Fetch. Quand un push est refusé, le message d'erreur
+  poussé entre-temps), **Pousser les tags**, ⟳ Fetch, et **⤵ Rebaser sur… (après fetch)** : récupère les commits du serveur, puis propose la
+  branche sur laquelle rejouer les tiens (celles du serveur d'abord, master ou main en tête). Quand un push est refusé, le message d'erreur
   propose aussi **⬆ Forcer (--force-with-lease)**.
 - Clic droit sur un commit du graphe : en plus du checkout, du cherry-pick, du revert…
   - **Créer un tag ici**  (« v1.2 », ou « v1.2 message » pour un tag annoté) ; sur un tag :
@@ -440,11 +441,13 @@ avec `gh auth login` (connexion par le navigateur). Sans `gh`, la vue explique c
   ouverte (la liste se charge ainsi bien plus vite). Au départ,
   **les tiennes** (préférence « Auteur affiché au départ » pour voir toutes les PR).
 - Une PR que tu viens de créer s'ouvre dès que GitHub la connaît (quelques secondes).
-- **Conversation**, comme sur GitHub : la description en haut, puis tout ce qui s'est passé du
-  plus ancien au plus récent, sur une ligne avec une icône par événement : les commentaires et
-  revues (dans un cadre « bob a commenté il y a 2 jours »), les **commentaires sur le code**
-  (fichier:ligne cliquable, le code commenté, les réponses) et les commits (un clic les montre).
-  En bas : si la PR peut être fusionnée, puis le champ pour écrire un commentaire.
+- **La vue sert à lire** : pour écrire (commenter, répondre, approuver, résoudre une
+  conversation), **Ouvrir sur GitHub** dans l'en-tête. Les aides de Claude restent (✳ Revue IA,
+  🗺 Expliquer, ✳ Envoyer à Claude), ainsi que l'application des suggestions.
+- **Conversation** : la description en haut, puis tout ce qui s'est passé du plus ancien au plus
+  récent : les commentaires et revues (dans un cadre « bob a commenté il y a 2 jours »), les
+  **commentaires sur le code** (fichier:ligne cliquable, le code commenté, les réponses) et les
+  commits (un clic les montre). En bas : si la PR peut être fusionnée.
 - **Traiter les commentaires avec Claude** : coche les commentaires non résolus à traiter
   (case à gauche de chacun, dans Conversation ou Fichiers ; « Tous » en haut), puis
   **✳ Envoyer à Claude**. Une conversation Claude s'ouvre dans le dépôt avec chaque
@@ -459,8 +462,8 @@ avec `gh auth login` (connexion par le navigateur). Sans `gh`, la vue explique c
   **double-clic** (ou **Voir dans la vue Git ↗**, ou clic droit) l'ouvre sélectionné dans le
   graphe de la vue Git (les commits de la PR sont d'abord récupérés dans `remote/pr/N` s'ils ne
   sont pas dans ton dépôt). **Fichiers** : tout le
-  diff de la PR, les conversations **sous les lignes commentées** comme sur GitHub (répondre,
-  résoudre, appliquer une suggestion), et **double-clic sur une ligne** pour la commenter.
+  diff de la PR, les conversations **sous les lignes commentées** comme sur GitHub (appliquer
+  une suggestion), et **double-clic sur une ligne** pour ouvrir le fichier là.
 - Une case avant chaque fichier le marque **vu** : il se replie et GitHub s'en souvient pour
   ta revue (« 3/10 vu(s) » en haut).
 - **✳ Revue IA** : Claude relit la PR et propose des remarques sous les lignes du diff ; rien
@@ -480,12 +483,9 @@ avec `gh auth login` (connexion par le navigateur). Sans `gh`, la vue explique c
   branche), **⟳ Mettre à jour la branche** (merge ou rebase de la base), **Prête pour la
   revue** / **Repasser en brouillon**, **Fermer** / **Rouvrir**. Fusionner, fermer et rebaser
   demandent confirmation.
-- Sous le message : **✔ Approuver** ou **✖ Demander des changements** (le message dit quoi).
 - À droite, pour information : les relecteurs avec leur avis (✔ approuvé, ✖ changements demandés,
   💬 commenté, ⏳ en attente), « Relecture requise » quand le dépôt exige une approbation, et les
   assignés. Ils se changent sur GitHub, comme les étiquettes et le jalon.
-- Tes commentaires ont **✏** (modifier) et **🗑** (supprimer). Le titre, la description et les
-  réactions se changent sur GitHub (bouton **Ouvrir sur GitHub** de l'en-tête).
 - Clic droit sur une PR de la liste : ouvrir, ouvrir sur GitHub, checkout, copier le lien ou le
   numéro. Dans la PR ouverte, **Ouvrir sur GitHub** et **⤵ Checkout** sont des boutons de
   l'en-tête, et **⋯** copie le lien ou le numéro.
