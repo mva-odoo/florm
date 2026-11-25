@@ -102,6 +102,11 @@ pub(crate) fn work_panel(ui: &egui::Ui) -> egui::CentralPanel {
     egui::CentralPanel::default().frame(egui::Frame::central_panel(ui.style()).fill(ui.visuals().extreme_bg_color))
 }
 
+/// The frame of a side or top panel inside a view of the workspace: on the editor's background.
+pub(crate) fn work_side(ui: &egui::Ui) -> egui::Frame {
+    egui::Frame::side_top_panel(ui.style()).fill(ui.visuals().extreme_bg_color)
+}
+
 fn apply_visuals(ctx: &egui::Context, v: egui::Visuals) {
     ctx.set_visuals_of(egui::Theme::Dark, v.clone());
     ctx.set_visuals_of(egui::Theme::Light, v);
@@ -207,7 +212,7 @@ fn filled_button(text: impl Into<String>, fill: Color32) -> egui::Button<'static
     egui::Button::new(RichText::new(text.into()).color(text_on(fill)).strong()).fill(fill)
 }
 
-const TAB_STRIP_H: f32 = 34.0;
+pub(crate) const TAB_STRIP_H: f32 = 34.0;
 
 #[derive(PartialEq, Clone, Copy, Debug)]
 enum BottomTab {
@@ -1572,6 +1577,7 @@ impl eframe::App for App {
             self.paced_frame = Some(Instant::now());
         }
         self.prof.begin();
+        crate::view_bar::set_font_size(self.settings.font_size);
         if std::mem::take(&mut self.visuals_dirty) {
             apply_visuals(ctx, self.hl.visuals());
         }

@@ -128,7 +128,8 @@ impl App {
                 // one tab for every conversation: their list on the left, always there, even with
                 // a single conversation: its « + » starts the next one
                 let mut act = None;
-                let fill = ui.visuals().panel_fill;
+                // on the editor's background: the conversations are part of the work, as a file
+                let fill = ui.visuals().extreme_bg_color;
                 egui::Panel::left(egui::Id::unique("claude_list").with(uid))
                     .resizable(true)
                     .default_size(250.0)
@@ -142,14 +143,11 @@ impl App {
                 None
             }
             document::View::PullRequests => {
-                egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| self.pulls_ui(ui));
+                crate::app::work_panel(ui).show(ui, |ui| self.pulls_ui(ui));
                 None
             }
             document::View::Git => {
-                let fill = ui.visuals().panel_fill;
-                egui::Panel::top(egui::Id::unique("git_bar").with(self.docs[i].uid))
-                    .frame(egui::Frame::NONE.fill(fill).inner_margin(egui::Margin { left: 10, right: 10, top: 8, bottom: 4 }))
-                    .show(ui, |ui| self.git_bar(ui));
+                crate::view_bar::header(egui::Id::unique("git_bar").with(self.docs[i].uid), ui).show(ui, |ui| self.git_bar(ui));
                 crate::app::work_panel(ui).show(ui, |ui| self.history_ui(ui));
                 None
             }

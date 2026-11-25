@@ -379,8 +379,16 @@ impl Highlighting {
         // UI text a bit brighter than code text, for readability on panels.
         // on light themes, pure black text looks bold with egui's rendering: a dark grey instead
         // the text softness already lightens c.fg: no more fading on top, or menus and lists turn pale
-        let fade = (0.18 - self.soft(light)).max(0.0);
-        let text = if light { mix(c.fg, c.bg, 0.06 + fade) } else { mix(c.fg, Color32::WHITE, 0.3) };
+        // UI text: on light themes the theme's text color with only the softness of the
+        // preferences (the code is a bit lighter still), else panels and lists on white lack
+        // contrast; on dark themes a bit brighter than the code
+        let text = if light {
+            let (t, k) = (self.soft(true), self.softness);
+            let f = |fg: u8, bg: u8| (bg as f32 + (fg as f32 - bg as f32) * (1.0 - k) / (1.0 - t)).clamp(0.0, 255.0) as u8;
+            Color32::from_rgb(f(c.fg.r(), c.bg.r()), f(c.fg.g(), c.bg.g()), f(c.fg.b(), c.bg.b()))
+        } else {
+            mix(c.fg, Color32::WHITE, 0.3)
+        };
         v.widgets.noninteractive.bg_fill = v.panel_fill;
         v.widgets.noninteractive.weak_bg_fill = v.panel_fill;
         v.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, s.border); // separators: Zed's lines
@@ -399,7 +407,9 @@ impl Highlighting {
             w.corner_radius = CornerRadius::same(4);
             w.expansion = 0.0;
         }
-        v.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, mix(text, c.bg, (0.12 - self.soft(light) / 2.0).max(0.0)));
+        if !light {
+            v.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, mix(text, c.bg, (0.12 - self.soft(light) / 2.0).max(0.0)));
+        }
         v
     }
 

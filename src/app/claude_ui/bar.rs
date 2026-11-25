@@ -148,12 +148,12 @@ fn gauges(ui: &mut egui::Ui, c: &ClaudeUi, limits: &[(String, f32, i64)], accent
 pub(super) fn bar(ui: &mut egui::Ui, c: &mut ClaudeUi, accent: Color32, d: BarData<'_>) -> Acts {
     let BarData { dirs, dir_name, history, accounts, account_name, limits, side } = d;
     let mut a = Acts::default();
-    let fill = ui.visuals().panel_fill;
-    egui::Panel::top(egui::Id::unique("claude_bar").with(c.id))
-        .frame(egui::Frame::NONE.fill(fill).inner_margin(egui::Margin { left: 10, right: 10, top: 8, bottom: 6 }))
+    // as the breadcrumb of a file: `✳ Claude › ● florm`, on the editor's background
+    crate::view_bar::header(egui::Id::unique("claude_bar").with(c.id), ui)
         .show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new("✳ Claude").strong().size(15.0).color(accent));
+                ui.label(RichText::new("✳ Claude").font(crate::view_bar::crumb_font()).color(accent));
+                crate::view_bar::sep(ui);
                 // its folder is set once something was said
                 ui.add_enabled_ui(c.is_empty(), |ui| {
                     let mut labels: Vec<String> = dirs.iter().map(|(_, l)| l.clone()).collect();
@@ -161,8 +161,8 @@ pub(super) fn bar(ui: &mut egui::Ui, c: &mut ClaudeUi, accent: Color32, d: BarDa
                     let current = dirs.iter().position(|(d, _)| c.dir.as_ref() == Some(d));
                     // in the color of its project, as in the list of the conversations
                     let color = hub::project_color(dir_name, ui.visuals().dark_mode);
-                    let text = RichText::new(format!("● {dir_name}")).strong().size(14.0).color(color);
-                    match crate::pick::combo(ui, ("claude_dir", c.id), text, &labels, current) {
+                    let text = RichText::new(format!("● {dir_name}")).font(crate::view_bar::crumb_font()).color(color);
+                    match crate::view_bar::flat(ui, |ui| crate::pick::combo(ui, ("claude_dir", c.id), text, &labels, current)) {
                         Some(k) if k < dirs.len() => a.dir = Some(dirs[k].0.clone()),
                         Some(_) => a.pick_dir = true,
                         None => {}

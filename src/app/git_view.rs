@@ -591,7 +591,7 @@ impl App {
         let h = &mut self.history;
         // messages and operations in progress, above the list (nothing when there are none)
         let mut banner = h.notice.is_some() || op_banner.is_some() || bisecting || h.graph.as_ref().is_some_and(|g| g.rebasing);
-        egui::Panel::top("history_top").drag_to_open(false).show_collapsible(ui, &mut banner, |ui| {
+        egui::Panel::top("history_top").frame(crate::app::work_side(ui)).drag_to_open(false).show_collapsible(ui, &mut banner, |ui| {
             if let Some((n, color)) = &h.notice {
                 ui.horizontal(|ui| {
                     let icon = if *color == err() { "⚠" } else { "✔" };
@@ -872,6 +872,7 @@ impl App {
             if maxed != Some("detail") {
                 let avail = ui.available_height();
                 egui::Panel::top("history_list_panel")
+                    .frame(crate::app::work_side(ui))
                     .resizable(true)
                     .default_size((avail * 0.36).max(140.0))
                     .size_range(100.0..=(avail - 160.0).max(120.0))

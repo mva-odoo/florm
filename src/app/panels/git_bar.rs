@@ -90,7 +90,7 @@ impl App {
         if self.repo.as_ref().is_some_and(|r| !git::trusted(r)) {
             return;
         }
-        let bg = ui.visuals().panel_fill;
+        let bg = ui.visuals().extreme_bg_color;
         let mut dismiss_error = false;
         let (mut chosen_repo, mut reload) = (None, false);
         let repo_name = self.history.repo.as_deref().map(|r| self.repo_label(r)).unwrap_or_default();
@@ -119,8 +119,10 @@ impl App {
                 chosen_repo = Some(repo_choices[k].0.clone());
             }
             if let Some(st) = &self.git.status {
-                // the branch and its menu are one: switch, or create a new one
-                ui.menu_button(RichText::new(format!("🔀 {} ▾", st.branch)).strong().size(15.0), |ui| {
+                // the branch and its menu are one: switch, or create a new one (`florm › 🔀 main ▾`)
+                crate::view_bar::sep(ui);
+                let text = RichText::new(format!("🔀 {} ▾", st.branch)).font(crate::view_bar::crumb_font()).color(ui.visuals().text_color());
+                crate::view_bar::flat(ui, |ui| ui.menu_button(text, |ui| {
                     if ui.button(t!("Changer de branche…", "Switch branch…")).clicked() {
                         cmds.push(Cmd::GitCheckout);
                         ui.close();
@@ -144,7 +146,7 @@ impl App {
                             ui.close();
                         }
                     }
-                })
+                }))
                 .response
                 .on_hover_text(t!("Changer de branche ou en créer une", "Switch branch or create one"));
                 match st.upstream() {
