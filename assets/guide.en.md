@@ -372,11 +372,12 @@ Python, **dlv** for Go, **lldb-dap** or **gdb** (14 or later) for Rust, C and C+
 
 - **Breakpoint**: a click in the column on the left of the line numbers (a faint red dot shows it
   on hover), or **F9** on the line. They follow the lines when the text changes.
-- **A command, as in a terminal**: in the **Debugger** view, choose **Command**, type the line that
-  starts your program (`./odoo-bin -d my_db -u my_module`, `python -m flask run`,
+- **A command, as in a terminal**: the **Debugger** view (🐞 in the status bar) opens on **Command**
+  (the list at the top left); type the line that starts your program (`./odoo-bin -d my_db -u my_module`, `python -m flask run`,
   `pytest tests/test_a.py`, `go run .`, `./my_program --port 8000`, variables in front like
-  `PGHOST=db ./odoo-bin …`) and its **folder** (empty: the project), then **Enter** or **F5**.
-  Florm picks the debugger from the command. Each command run stays in **🕘**, per project; the
+  `PGHOST=db ./odoo-bin …`, the Python of a virtual environment like
+  `~/venvs/odoo/bin/python odoo-bin -d my_db`) and its **folder** (empty: the project), then **Enter**
+  or **F5**. Florm picks the debugger from the command; empty, F5 debugs the open file. Each command run stays in **🕘**, per project; the
   last one comes back when the project opens again. A wrapped command (`make`, `docker`…) cannot be
   debugged directly: start the program with `debugpy --listen` and attach to it (see below).
 - **F5** starts what is chosen in the **Debugger** view (bottom panel): the **command**, the **open file**, the

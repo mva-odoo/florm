@@ -400,9 +400,11 @@ fn is_python(word: &str) -> bool {
     name == "python" || name.strip_prefix("python").is_some_and(|v| !v.is_empty() && v.chars().all(|c| c.is_ascii_digit() || c == '.'))
 }
 
-/// `word` in `dir` when it is a path (`./odoo-bin`, `bin/x`), else as typed (looked for in the PATH).
+/// `word` in `dir` when it is a path (`./odoo-bin`, `bin/x`, `~/venv/bin/python`), else as typed (looked for in the PATH).
 fn resolve(word: &str, dir: &Path) -> String {
-    if word.contains('/') || word.contains('\\') {
+    if let Some(rest) = word.strip_prefix("~/").or_else(|| word.strip_prefix("~\\")) {
+        crate::config::home().join(rest).display().to_string()
+    } else if word.contains('/') || word.contains('\\') {
         let p = Path::new(word);
         let p = if p.is_absolute() { p.to_path_buf() } else { dir.join(p) };
         p.display().to_string()
@@ -455,7 +457,11 @@ pub fn from_command(cmd: &str, dir: &Path) -> Result<LaunchCfg, String> {
                 let module = it.next().ok_or_else(|| t!("python -m : le module manque", "python -m: the module is missing").to_string())?;
                 Ok(python(interpreter, LaunchCfg { module, args: it.collect(), ..base }))
             }
-            Some(script) => Ok(python(interpreter, LaunchCfg { program: resolve(&script, dir), args: it.collect(), ..base })),
+            Some(script) => {
+                // `python odoo-bin`: the script of the folder, even without ./
+                let program = if dir.join(&script).is_file() { dir.join(&script).display().to_string() } else { resolve(&script, dir) };
+                Ok(python(interpreter, LaunchCfg { program, args: it.collect(), ..base }))
+            }
             None => Err(t!("Quel script Python lancer ? (python script.py, python -m module)", "Which Python script to run? (python script.py, python -m module)").into()),
         };
     }
@@ -609,6 +615,10 @@ mod tests {
         let c = from_command(".venv/bin/python -u -m flask run --debug", &dir).unwrap();
         assert_eq!((c.module.as_str(), c.args.as_slice()), ("flask", &["run", "--debug"].map(String::from)[..]));
         assert_eq!(c.extra["python"], json!(dir.join(".venv/bin/python").display().to_string()));
+        // a virtual environment out of the project, the script without ./
+        let c = from_command("~/venvs/odoo/bin/python odoo-bin -d test", &dir).unwrap();
+        assert_eq!(c.extra["python"], json!(crate::config::home().join("venvs/odoo/bin/python").display().to_string()));
+        assert_eq!((c.program.clone(), c.args.as_slice()), (dir.join("odoo-bin").display().to_string(), &["-d", "test"].map(String::from)[..]));
         let c = from_command("python3 manage.py runserver", &dir).unwrap();
         assert!(c.program.ends_with("manage.py") && c.args == ["runserver"]);
         let c = from_command("pytest tests/test_a.py::test_x -x", &dir).unwrap();

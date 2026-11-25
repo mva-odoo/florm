@@ -130,7 +130,8 @@ impl Default for DebugUi {
             console: Vec::new(),
             input: String::new(),
             reason: String::new(),
-            choice: String::new(),
+            // the command first: the way most programs start (empty, F5 debugs the open file)
+            choice: "cmd".into(),
             cmd: String::new(),
             cmd_dir: String::new(),
             cmd_for: None,
@@ -476,6 +477,10 @@ impl App {
         let d = self.debug.cmd_dir.trim();
         if d.is_empty() || d == "." {
             root
+        } else if let Some(rest) = d.strip_prefix("~/").or_else(|| d.strip_prefix("~\\")) {
+            crate::config::home().join(rest)
+        } else if d == "~" {
+            crate::config::home()
         } else if Path::new(d).is_absolute() {
             PathBuf::from(d)
         } else {
@@ -621,8 +626,8 @@ impl App {
                 self.debug_prefill();
                 let choice = self.debug.choice.clone();
                 let r = match choice.as_str() {
-                    "cmd" => self.debug_command_config().map(|c| (c, self.docs.get(self.active).and_then(|d| d.path.clone()))),
-                    "" => self.debug_file_config().map(|(c, f)| (c, Some(f))),
+                    "cmd" if !self.debug.cmd.trim().is_empty() => self.debug_command_config().map(|c| (c, self.docs.get(self.active).and_then(|d| d.path.clone()))),
+                    "" | "cmd" => self.debug_file_config().map(|(c, f)| (c, Some(f))),
                     "test" => self.debug_test_config().map(|(c, f)| (c, Some(f))),
                     name => match self.debug.configs.iter().find(|c| c.name == name).cloned() {
                         Some(c) => Ok((c, self.docs.get(self.active).and_then(|d| d.path.clone()))),
@@ -822,7 +827,8 @@ mod tests {
         let ctx = egui::Context::default();
         let mut app = App::with_ctx(&ctx, Some(a.clone()));
         app.debug_prefill();
-        assert!(app.debug.cmd.is_empty());
+        // the command row shows from the start, even with no history
+        assert!(app.debug.cmd.is_empty() && app.debug.choice == "cmd");
         for c in ["./odoo-bin -d test -u sale", "./odoo-bin -d test -u stock"] {
             app.debug.cmd = c.into();
             let cfg = app.debug_command_config().unwrap();
