@@ -746,6 +746,8 @@ struct RebaseUi {
 /// the history, reflog.
 struct LineHistoryUi {
     title: String,
+    /// What was looked for (the lines and their file), above the lists.
+    what: String,
     repo: PathBuf,
     loading: bool,
     error: Option<String>,

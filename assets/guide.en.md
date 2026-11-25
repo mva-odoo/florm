@@ -265,7 +265,8 @@ opening the folder or showing a diff does not run them. The hooks of commits and
   - Both also open with a **right click on ✨**, next to the commit message.
 - **File history** (right click in the editor, Git menu): all its commits, through its renames.
   **Line history** (Ctrl+Alt+B) also takes several selected lines; each commit shows the whole
-  block that changed around these lines, with some context. The history opens in a tab (↑ / ↓ to
+  block that changed around these lines, with some context, and the last one is the creation
+  of the file (✚). The history opens in a tab (↑ / ↓ to
   go from one commit to the next, Escape to come back).
 - **Side-by-side diffs**: the **◫ Side by side** button, at the bottom right of every diff (Git,
   history, Claude's review, pull requests), puts the old version on the left and the new one on

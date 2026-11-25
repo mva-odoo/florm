@@ -879,7 +879,20 @@ pub fn line_history(file: &Path, first: usize, last: usize) -> Result<Vec<LineCo
             c.diff = d;
         }
     }
+    // git stops at the commit that wrote the lines: the creation of the file is worth seeing too
+    // (through its renames), as Sublime Merge shows it
+    let added = stdout(dir, &["log", "--follow", "--diff-filter=A", "--date=format:%Y-%m-%d %H:%M", "--format=%x1e%H%x1f%an%x1f%ad%x1f%s", "-p", "HEAD", "--", name]);
+    if let Some(first) = added.ok().and_then(|out| parse_log(&out).pop()) {
+        if !commits.iter().any(|c| c.hash == first.hash) {
+            commits.push(first);
+        }
+    }
     Ok(commits)
+}
+
+/// The diff creates the file.
+pub fn creates_file(diff: &str) -> bool {
+    diff.lines().take(5).any(|l| l.starts_with("new file mode"))
 }
 
 /// The file of a one-file diff (its new path, or the old one when deleted).

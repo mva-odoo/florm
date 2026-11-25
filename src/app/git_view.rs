@@ -115,13 +115,18 @@ impl App {
             return;
         };
         let title = if a == b { tf!("Historique de la ligne {} — {name}", "History of line {} — {name}", a + 1) } else { tf!("Historique des lignes {}–{} — {name}", "History of lines {}–{} — {name}", a + 1, b + 1) };
+        let rel = path.strip_prefix(&repo).map(|r| r.to_string_lossy().replace('\\', "/")).unwrap_or_else(|_| name.clone());
+        let what = if a == b { tf!("Ligne {} de {rel}", "Line {} of {rel}", a + 1) } else { tf!("Lignes {}–{} de {rel}", "Lines {}–{} of {rel}", a + 1, b + 1) };
         self.open_history_window(title, repo, false);
+        if let Some(lh) = self.line_history.as_mut() {
+            lh.what = what;
+        }
         self.jobs.spawn(move || JobResult::LineHistory(git::line_history(&path, first + 1, last + 1)));
     }
 
     /// The history tab (made, or reused for this new history).
     fn open_history_window(&mut self, title: String, repo: PathBuf, reflog: bool) {
-        self.line_history = Some(LineHistoryUi { title: title.clone(), repo, loading: true, error: None, commits: Vec::new(), diffs: Vec::new(), selected: 0, reflog });
+        self.line_history = Some(LineHistoryUi { title: title.clone(), what: title.clone(), repo, loading: true, error: None, commits: Vec::new(), diffs: Vec::new(), selected: 0, reflog });
         self.show_tab(document::View::History);
         if let Some(d) = self.docs.iter_mut().find(|d| d.view == document::View::History) {
             d.title_override = Some(title);
@@ -207,6 +212,9 @@ impl App {
             list_keys = Some(ui.input(|i| (i.key_pressed(Key::ArrowDown), i.key_pressed(Key::ArrowUp))));
         }
         ui.set_min_size(ui.available_size());
+        // what was looked for
+        ui.add(egui::Label::new(RichText::new(&lh.what).strong()).truncate());
+        ui.add_space(4.0);
         let height = ui.available_height();
         ui.horizontal_top(|ui| {
             // commit list
@@ -224,7 +232,8 @@ impl App {
                             ui.painter().rect_filled(rect, 5.0, v.widgets.hovered.weak_bg_fill);
                         }
                         let p = ui.painter().with_clip_rect(rect.shrink(4.0));
-                        p.text(rect.left_top() + egui::vec2(8.0, 6.0), Align2::LEFT_TOP, &c.subject, egui::FontId::proportional(14.0), v.text_color());
+                        let subject = if git::creates_file(&c.diff) { format!("✚ {}", c.subject) } else { c.subject.clone() };
+                        p.text(rect.left_top() + egui::vec2(8.0, 6.0), Align2::LEFT_TOP, subject, egui::FontId::proportional(14.0), v.text_color());
                         p.text(
                             rect.left_top() + egui::vec2(8.0, 25.0),
                             Align2::LEFT_TOP,
@@ -243,8 +252,8 @@ impl App {
             // selected commit: header + diff
             ui.vertical(|ui| {
                 let c = &lh.commits[lh.selected];
+                // the buttons first, at the right: the subject is cut in the room left, not under them
                 ui.horizontal(|ui| {
-                    ui.add(egui::Label::new(RichText::new(&c.subject).strong()).truncate());
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if lh.reflog {
                             ui.menu_button(t!("Récupérer ▾", "Bring back ▾"), |ui| {
@@ -267,9 +276,13 @@ impl App {
                         if ui.button(t!("Copier le hash", "Copy the hash")).clicked() {
                             copy = Some(c.hash.clone());
                         }
+                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                            ui.add(egui::Label::new(RichText::new(&c.subject).strong()).truncate());
+                        });
                     });
                 });
-                ui.label(RichText::new(format!("{} · {} · {}", c.author, c.date, &c.hash[..c.hash.len().min(10)])).weak());
+                let created = if git::creates_file(&c.diff) { t!(" · ✚ création du fichier", " · ✚ creation of the file") } else { "" };
+                ui.label(RichText::new(format!("{} · {} · {}{created}", c.author, c.date, &c.hash[..c.hash.len().min(10)])).weak());
                 ui.separator();
                 match &lh.diffs[lh.selected] {
                     Some(d) => {

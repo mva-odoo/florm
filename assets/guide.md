@@ -272,7 +272,8 @@ d'habitude.
   - Les deux s'ouvrent aussi d'un **clic droit sur ✨**, à côté du message du commit.
 - **Historique du fichier** (clic droit dans l'éditeur, menu Git) : tous ses commits, à travers
   ses renommages. **Historique de la ligne** (Ctrl+Alt+B) prend aussi plusieurs lignes sélectionnées ;
-  chaque commit montre tout le bloc qui a changé autour de ces lignes, avec un peu de contexte.
+  chaque commit montre tout le bloc qui a changé autour de ces lignes, avec un peu de contexte, et le dernier est la
+  création du fichier (✚).
   L'historique s'ouvre dans un onglet (↑ / ↓ pour passer d'un commit à l'autre, Échap pour revenir).
 - **Diffs côte à côte** : le bouton **◫ Côte à côte**, en bas à droite de chaque diff (Git,
   historique, revue de Claude, pull requests), met l'ancienne version à gauche et la nouvelle à
