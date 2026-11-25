@@ -1,0 +1,31 @@
+# The Odoo extension of Florm's catalogue.
+name = "Odoo"
+description = "Tests Odoo sous le curseur (--test-tags), mise à jour du module, aller au modèle ou au record ('sale.order', 'module.xml_id'), records du fichier, __manifest__.py"
+cmd = "python3 main.py"
+version = "1.0"
+
+[[command]]
+id = "test"
+title = "Odoo : lancer le test sous le curseur"
+key = "ctrl+alt+o"
+
+[[command]]
+id = "test_edit"
+title = "Odoo : modifier la commande des tests (base, conteneur…)"
+
+[[command]]
+id = "update"
+title = "Odoo : mettre à jour le module (-u)"
+
+[[command]]
+id = "goto"
+title = "Odoo : aller au modèle ou au record sous le curseur"
+key = "alt+f12"
+
+[[command]]
+id = "records"
+title = "Odoo : modèles et records du fichier"
+
+[[command]]
+id = "manifest"
+title = "Odoo : ouvrir le __manifest__.py du module"

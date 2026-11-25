@@ -708,6 +708,12 @@ impl App {
                 self.bottom = Some(BottomTab::Problems);
             }
             OpenSettings => self.open_settings(),
+            ShowExtensions => {
+                self.prefs.section = PrefSection::Extensions;
+                self.prefs.filter.clear();
+                self.ext.catalog = None;
+                self.open_settings();
+            }
             ShowLanguages => {
                 self.prefs.section = PrefSection::Languages;
                 self.prefs.filter.clear();

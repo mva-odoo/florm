@@ -24,7 +24,7 @@ pub const DEFAULT_REPO: &str = "florm-config";
 /// in `tests::SHARED` (a test checks that each one is in one of the two).
 pub const LOCAL_KEYS: &[&str] = &[
     "shared_config", "skills_dir", "test_history", "shell",
-    "lsp_servers", "linters", "python_linter", "python_lint_args", "trusted_folders", "claude_accounts", "claude_account", "claude_account_folders",
+    "lsp_servers", "linters", "extensions_off", "extension_catalogs", "python_linter", "python_lint_args", "trusted_folders", "claude_accounts", "claude_account", "claude_account_folders",
     "claude_sandbox",
 ];
 
@@ -202,7 +202,7 @@ fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-fn clone(url: &str, slug: Option<&str>, dir: &Path) -> Result<(), String> {
+pub(crate) fn clone(url: &str, slug: Option<&str>, dir: &Path) -> Result<(), String> {
     let parent = dir.parent().unwrap_or(dir);
     std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     let target = dir.to_string_lossy().into_owned();

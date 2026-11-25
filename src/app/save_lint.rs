@@ -163,6 +163,7 @@ impl App {
     }
 
     fn after_save(&mut self, idx: usize, path: &Path) {
+        self.ext_event("save", idx);
         if let (Some(ix), Some(d)) = (self.index.symbols.as_mut(), self.docs.get(idx)) {
             ix.update(path, &d.rope.to_string());
         }

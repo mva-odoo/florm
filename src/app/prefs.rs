@@ -906,6 +906,12 @@ impl App {
                     self.packs_page(ui);
                 }
             }
+            PrefSection::Extensions => {
+                if rc.matches(&["Extensions", "extension", "plugin", "python", "script"]) {
+                    rc.header(ui);
+                    self.extensions_page(ui);
+                }
+            }
             PrefSection::Templates => {
                 if rc.matches(&["Modèles", "modèle", "template", "snippet", "déclencheur", "trigger"]) {
                     rc.header(ui);

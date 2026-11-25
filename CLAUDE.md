@@ -4,7 +4,8 @@ Florm : éditeur de texte en Rust (egui/eframe 0.29), inspiré de Sublime Text, 
 Intègre Git, GitHub (pull requests), Claude Code, terminal, LSP, linters, orthographe, tests (pytest,
 jest, cargo, go, dans le terminal), débogueur DAP (`src/dap.rs`, `src/app/debugger.rs` : debugpy, dlv,
 lldb-dap, gdb), packs de langage (`src/packs.rs`, `assets/packs.toml` : installer les outils d'un
-langage).
+langage), extensions (`src/ext.rs`, `src/app/extensions.rs`, bibliothèque `assets/florm_ext.py`) et leur
+catalogue (`src/catalog.rs` ; extensions livrées dans `assets/extensions/`, ex. Odoo).
 
 ## Commandes
 

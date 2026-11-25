@@ -16,6 +16,7 @@ impl App {
                         .filter(|(_, l, c)| !l.is_empty() && crate::features::cmd_on(*c) && *c != Cmd::CommandPalette)
                         .map(|(id, l, c)| Item { label: commands::label(id, l).to_string(), detail: self.keymap.label(*c), action: Action::Cmd(*c) }),
                 );
+                v.extend(self.ext_items());
                 v.into()
             }
             Mode::Files => self.file_items(),
@@ -230,6 +231,7 @@ impl App {
             Mode::Definitions(w) => tf!("Définitions de « {w} »", "Definitions of “{w}”"),
             Mode::References(w) => tf!("Usages de « {w} »", "Usages of “{w}”"),
             Mode::Bookmarks => t!("Signets", "Bookmarks").into(),
+            Mode::ExtPick(title) => title.clone(),
             Mode::Prompt(p) => match p {
                 Prompt::OpenFolder => t!("Ouvrir le dossier", "Open the folder").into(),
                 Prompt::OpenFile => t!("Ouvrir le fichier", "Open the file").into(),
@@ -250,6 +252,7 @@ impl App {
                 Prompt::TagAt(h) => tf!("Nom du tag sur le commit {}   (« v1.2 » ; « v1.2 message » : tag annoté)", "Name of the tag on commit {}   (“v1.2”; “v1.2 message”: annotated tag)", &h[..h.len().min(8)]),
                 Prompt::AddRemote => t!("Nouveau remote : nom puis URL   (upstream git@github.com:propriétaire/dépôt.git)", "New remote: name then URL   (upstream git@github.com:owner/repo.git)").into(),
                 Prompt::AddSubmodule => t!("Nouveau sous-module : URL, puis le dossier si besoin   (git@github.com:org/lib.git libs/lib)", "New submodule: URL, then the folder if needed   (git@github.com:org/lib.git libs/lib)").into(),
+                Prompt::ExtInput(title) => title.clone(),
                 Prompt::HistorySearch(k) => tf!("Rechercher dans l'historique — {}   (Tab : changer de critère)", "Search the history — {}   (Tab: change the criterion)", k.label()),
             },
         };
@@ -596,6 +599,8 @@ impl App {
     fn choose(&mut self, ctx: &egui::Context, action: Action) {
         match action {
             Action::Cmd(c) => self.exec(ctx, c),
+            Action::Ext(k, id) => self.ext_command(k, id),
+            Action::ExtPick(i) => self.ext_picked(i),
             Action::OpenIndexed(i) => {
                 if let (Some(root), Some(p)) = (self.root.clone(), self.index.files.get(i)) {
                     let p = root.join(p);
@@ -668,6 +673,7 @@ impl App {
             return;
         }
         match p {
+            Prompt::ExtInput(_) => self.ext_typed(text),
             Prompt::OpenFolder => {
                 let path = self.resolve(PathBuf::from(&text));
                 if path.is_dir() {

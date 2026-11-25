@@ -51,6 +51,7 @@ mod compare;
 mod lsp_client;
 mod debugger;
 mod packs_ui;
+mod extensions;
 pub(crate) use debugger::DebugStart;
 mod maximize;
 mod navigation;
@@ -273,6 +274,8 @@ enum Prompt {
     AddRemote,
     /// "url [folder]" of a new submodule.
     AddSubmodule,
+    /// A text asked by an extension (its title).
+    ExtInput(String),
     /// What to look for in the history.
     HistorySearch(git::SearchKind),
     /// New name of the symbol under the cursor (LSP rename).
@@ -305,6 +308,8 @@ enum Mode {
     References(String),
     Bookmarks,
     Prompt(Prompt),
+    /// A list shown for an extension (its title).
+    ExtPick(String),
 }
 
 #[derive(Clone)]
@@ -328,6 +333,10 @@ enum Action {
     Terminal(u64),
     /// Show a Claude conversation (its id), where it is (`#` in the palette).
     Conversation(u64),
+    /// Run command (id) of extension n.
+    Ext(usize, String),
+    /// Entry n of a list shown for an extension.
+    ExtPick(usize),
 }
 
 struct Item {
@@ -926,6 +935,8 @@ pub struct App {
     trust_later: HashSet<PathBuf>,
     /// Language packs: their tools there or not, the one being installed.
     packs: packs_ui::PacksUi,
+    /// Extensions: their processes, what they wait for.
+    ext: extensions::ExtUi,
     last_line_copy: Option<String>,
     /// Closing Florm: what was confirmed, and « Fermer quand il aura fini ».
     quit: QuitState,
@@ -1087,11 +1098,12 @@ enum PrefSection {
     Terminal,
     Keys,
     Templates,
+    Extensions,
     Advanced,
 }
 
 /// (section, French name, English name).
-const PREF_SECTIONS: [(PrefSection, &str, &str); 11] = [
+const PREF_SECTIONS: [(PrefSection, &str, &str); 12] = [
     (PrefSection::Appearance, "Apparence", "Appearance"),
     (PrefSection::Editor, "Éditeur", "Editor"),
     (PrefSection::Languages, "Langages", "Languages"),
@@ -1102,6 +1114,7 @@ const PREF_SECTIONS: [(PrefSection, &str, &str); 11] = [
     (PrefSection::Terminal, "Terminal", "Terminal"),
     (PrefSection::Keys, "Raccourcis", "Shortcuts"),
     (PrefSection::Templates, "Modèles", "Templates"),
+    (PrefSection::Extensions, "Extensions", "Extensions"),
     (PrefSection::Advanced, "Avancé", "Advanced"),
 ];
 
@@ -1257,6 +1270,7 @@ impl App {
             watch: WatchState { last_check: Instant::now(), busy: false, git_stamps: HashMap::new(), term_enter: None, was_focused: true },
             trust_later: HashSet::new(),
             packs: packs_ui::PacksUi::default(),
+            ext: extensions::ExtUi::default(),
             last_line_copy: None,
             quit: QuitState { confirmed: false, claude_ok: false, when_idle: false },
             closed: Vec::new(),
@@ -1470,6 +1484,7 @@ impl App {
                 // linted and compared with git once shown (`analyze_shown`): the tabs of a
                 // session do not each start a linter and git at startup
                 self.activate_tab(self.docs.len() - 1);
+                self.ext_event("open", self.docs.len() - 1);
                 true
             }
             Err(e) => {
@@ -1627,6 +1642,7 @@ impl eframe::App for App {
         self.prof.mark("début");
         self.lsp_frame(ctx);
         self.debug_frame(ctx);
+        self.ext_frame(ctx);
         self.update_hover(ctx);
         self.completion_keys(ctx);
         self.ai_complete_keys(ctx);

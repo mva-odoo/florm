@@ -60,6 +60,10 @@ pub struct Settings {
     pub claude_account_folders: Vec<String>,
     /// Language packs not proposed any more when one of their files opens.
     pub packs_ignored: Vec<String>,
+    /// Extensions turned off (their names).
+    pub extensions_off: Vec<String>,
+    /// Catalogue repositories of extensions and packs ("owner/repo" or a git address).
+    pub extension_catalogs: Vec<String>,
     /// The toolbar of formatting buttons above a Markdown source (the source stays editable).
     pub markdown_toolbar: bool,
     /// Branch and upstream of git repositories on their folder in the tree.
@@ -171,6 +175,8 @@ impl Default for Settings {
             claude_account: String::new(),
             claude_account_folders: Vec::new(),
             packs_ignored: Vec::new(),
+            extensions_off: Vec::new(),
+            extension_catalogs: Vec::new(),
             markdown_toolbar: true,
             tree_git_info: true,
             inline_diff: false,

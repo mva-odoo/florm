@@ -454,6 +454,66 @@ change its name (one word = its trigger), the files it is offered for and its te
 (extension of the current file; `log.xml` for another type) in the templates folder and opens
 it. If there was a selection, it becomes the text of the template.
 
+## Extensions
+
+An extension adds commands to the palette (with a shortcut if it wants) and reacts when a file
+opens, is saved, closes or is shown. It is a program, in Python or any language, in a folder of
+`~/.config/florm/extensions/` with its `extension.toml`. It runs with your rights: only install
+some from sources you trust.
+
+- **Preferences → Extensions**: the list (a checkbox turns one off), **+ New extension…** makes a
+  Python example and opens it, **⟳ Reload** after a change, **📁** the folder.
+- Their commands are in the palette, after ✚. What they write (`print`) and their errors go to
+  **Output**.
+- `extension.toml`:
+  ```toml
+  name = "My extension"
+  cmd = "python3 main.py"        # started in its folder, when first needed
+  events = ["save"]              # open, save, close, focus
+  [[command]]
+  id = "upper"
+  title = "Upper-case the selection"
+  key = "ctrl+alt+u"
+  ```
+- `main.py`, with the library Florm gives it (`florm.py`):
+  ```python
+  import florm
+
+  @florm.command("upper")
+  def upper(ctx):                # ctx.file, ctx.root, ctx.selection, ctx.line, ctx.col
+      florm.replace_selection(ctx.selection.upper())
+
+  @florm.on("save")
+  def saved(ctx):
+      florm.status(f"{ctx.file}: {florm.text().count(chr(10))} lines")
+
+  florm.main()
+  ```
+- What an extension can do: `status`, `message` (info, warning, error), `output`, `text()`,
+  `replace_selection`, `insert`, `set_text` (undone by Ctrl+Z), `open(path, line)`,
+  `pick(list, title)` (the index chosen, None on Esc), `input(title)`, `run("save")` (a command of
+  Florm, the identifiers of `[keys]`), `terminal("make test")`.
+- In another language: Florm talks to it in JSON-RPC on its input and output, like to a language
+  server (`Content-Length` header); the methods are those of `florm.py`.
+
+**Catalogue** (Preferences → Extensions, at the bottom; or “Extensions: installed and catalogue” in
+the palette): the extensions and language packs shipped with Florm, those of your shared
+configuration (its `extensions/` and `packs/` folders), and those of the catalogue repositories you
+add (`owner/repo` or a git address: a folder per extension, and `packs/*.toml`). **Install** copies
+into your folders, **Update** when the catalogue has another version (the state the extension keeps
+stays), **Uninstall** removes. An extension that does not come from Florm asks to confirm: it will
+run with your rights. **⟳ Update the catalogues** fetches them again.
+
+**The Odoo extension** (in Florm's catalogue):
+- **Ctrl+Alt+O**: runs the test under the cursor (`--test-tags /sale:TestOrder.test_confirm`, the
+  class, or the module outside a test) in a terminal. The first time, the command shows to be
+  completed (the database `-d`, a `docker compose exec …` in front); then only the tags change.
+  “Odoo: change the tests command” to change it.
+- **Alt+F12**: on `'sale.order'`, goes to the model (`_name`, then its `_inherit` to choose from); on
+  `'module.xml_id'` or `ref="…"`, goes to the record (XML, CSV).
+- “Odoo: update the module (-u)”, “models and records of the file”, “open the module's
+  `__manifest__.py`”.
+
 ## GitHub
 
 Florm goes through the `gh` command: no token to create, you only need to have logged in once

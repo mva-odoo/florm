@@ -459,6 +459,18 @@ lint_on_save = true
 The command identifiers are listed in `src/commands.rs`. The `.tmTheme` themes (e.g. Monokai)
 put in `~/.config/florm/themes/` are loaded at startup.
 
+### Extensions
+
+An extension is a folder of `~/.config/florm/extensions/` (`%APPDATA%\florm\extensions` on
+Windows) with an `extension.toml` (its name, the command that starts it, its commands and their
+shortcuts, the events it wants: open, save, close, focus) and its code. Florm talks to it in
+JSON-RPC on its input and output; in Python, the `florm.py` library Florm gives it does that work.
+**Preferences → Extensions** also has a **catalogue**: the Odoo extension shipped with Florm (tests
+under the cursor, go to the model or the record), the extensions and packs of your shared
+configuration, and catalogue repositories (`extension_catalogs = ["owner/repo"]`).
+**+ New extension…** makes an example; the guide (Help → Florm guide) details what it can
+do.
+
 ### Configuration shared between several computers
 
 The preferences, templates, themes and Claude skills can come from a GitHub repository, the same on each PC. The repository has a fixed layout, each part is optional:
@@ -468,6 +480,8 @@ florm-config/
 ├── settings.toml   # preferences applied on top of those of the computer
 ├── templates/      # templates (one file per template, like the local folder)
 ├── themes/         # .tmTheme themes
+├── extensions/     # extensions offered in the catalogue (a folder each)
+├── packs/          # language packs offered in the catalogue
 └── skills/         # Claude skills (each SKILL.md, even in subfolders; or a separate repository: Preferences → Claude → My skills)
 ```
 
@@ -475,7 +489,7 @@ In Preferences → Advanced → **Shared configuration** (or `shared_config` in 
 
 - **Create on GitHub** makes the repository (private, with `gh`) from the configuration of this computer.
 - The shared `settings.toml` only changes the keys it contains (`[keys]`, `[lsp_servers]`… are merged). A preference changed in Florm and present in this file is written there too; new templates and themes are created in the repository.
-- What runs a command or sets its rights stays specific to each computer, never taken from the shared repository: `shared_config`, `skills_dir`, `shell`, `test_history`, `trusted_folders`, `lsp_servers`, `python_linter`, `python_lint_args`, the Claude accounts (`claude_accounts`, `claude_account`, `claude_account_folders`) and `claude_sandbox`.
+- What runs a command or sets its rights stays specific to each computer, never taken from the shared repository: `shared_config`, `skills_dir`, `shell`, `test_history`, `trusted_folders`, `lsp_servers`, `extension_catalogs`, `extensions_off`, `python_linter`, `python_lint_args`, the Claude accounts (`claude_accounts`, `claude_account`, `claude_account_folders`) and `claude_sandbox`.
 - **Publish** (or Tools → Publish the shared configuration) makes the commit and the push; **Synchronize** fetches the changes from the other PCs.
 
 ## Publishing a release

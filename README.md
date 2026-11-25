@@ -459,6 +459,18 @@ lint_on_save = true
 Les identifiants de commande sont listés dans `src/commands.rs`. Les thèmes `.tmTheme` (ex. Monokai)
 déposés dans `~/.config/florm/themes/` sont chargés au démarrage.
 
+### Extensions
+
+Une extension est un dossier de `~/.config/florm/extensions/` (`%APPDATA%\florm\extensions` sous
+Windows) avec un `extension.toml` (son nom, la commande qui la lance, ses commandes et leurs
+raccourcis, les événements qu'elle veut : open, save, close, focus) et son code. Florm lui parle en
+JSON-RPC sur son entrée et sa sortie ; en Python, la bibliothèque `florm.py` que Florm lui donne fait
+ce travail. **Préférences → Extensions** a aussi un **catalogue** : l'extension Odoo livrée avec Florm
+(tests sous le curseur, aller au modèle ou au record), les extensions et packs de ta configuration
+partagée, et des dépôts de catalogue (`extension_catalogs = ["propriétaire/dépôt"]`).
+**+ Nouvelle extension…** crée un exemple ; le guide (Aide → guide de Florm)
+détaille ce qu'elle peut faire.
+
 ### Configuration partagée entre plusieurs ordinateurs
 
 Les préférences, modèles, thèmes et skills de Claude peuvent venir d'un dépôt GitHub, le même sur chaque PC. Le dépôt a une forme fixe, chaque partie est facultative :
@@ -468,6 +480,8 @@ florm-config/
 ├── settings.toml   # préférences appliquées par-dessus celles de l'ordinateur
 ├── templates/      # modèles (un fichier par modèle, comme le dossier local)
 ├── themes/         # thèmes .tmTheme
+├── extensions/     # extensions proposées dans le catalogue (un dossier chacune)
+├── packs/          # packs de langage proposés dans le catalogue
 └── skills/         # skills de Claude (chaque SKILL.md, même en sous-dossiers ; ou un dépôt à part : Préférences → Claude → Mes skills)
 ```
 
@@ -475,7 +489,7 @@ Dans Préférences → Avancé → **Configuration partagée** (ou `shared_confi
 
 - **Créer sur GitHub** fait le dépôt (privé, avec `gh`) à partir de la configuration de cet ordinateur.
 - `settings.toml` partagé ne change que les clés qu'il contient (`[keys]`, `[lsp_servers]`… sont fusionnés). Une préférence modifiée dans Florm et présente dans ce fichier y est écrite aussi ; les nouveaux modèles et thèmes sont créés dans le dépôt.
-- Ce qui lance une commande ou en choisit les droits reste propre à chaque ordinateur, jamais pris du dépôt partagé : `shared_config`, `skills_dir`, `shell`, `test_history`, `trusted_folders`, `lsp_servers`, `python_linter`, `python_lint_args`, les comptes Claude (`claude_accounts`, `claude_account`, `claude_account_folders`) et `claude_sandbox`.
+- Ce qui lance une commande ou en choisit les droits reste propre à chaque ordinateur, jamais pris du dépôt partagé : `shared_config`, `skills_dir`, `shell`, `test_history`, `trusted_folders`, `lsp_servers`, `extension_catalogs`, `extensions_off`, `python_linter`, `python_lint_args`, les comptes Claude (`claude_accounts`, `claude_account`, `claude_account_folders`) et `claude_sandbox`.
 - **Publier** (ou Outils → Publier la configuration partagée) fait le commit et le push ; **Synchroniser** récupère les changements des autres PC.
 
 ## Publier une release

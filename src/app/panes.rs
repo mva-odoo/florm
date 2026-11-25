@@ -793,6 +793,9 @@ impl App {
             return;
         }
         let was_active = idx == self.active;
+        if doc.path.is_some() {
+            self.ext_event("close", idx);
+        }
         let d = self.docs.remove(idx);
         self.debug_keep_breakpoints(&d);
         if d.view == document::View::History {
