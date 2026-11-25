@@ -134,15 +134,13 @@ The `.gitignore` is respected.
 
 - **Aa** matches case, **« »** searches the whole word, **.*** turns on regular expressions:
   `def _compute_\w+` finds all the compute methods, `^\s*import ` the imports.
-- With ⏵, the replacement shows; in regex `$1`, `$2` take back the groups:
+- With **Replace** (on the right of **Find**), the replacement shows; in regex `$1`, `$2` take back the groups:
   `fields\.(\w+)\(` → `Fields.$1(`.
 - **New line** in the replacement: **Shift+Enter** in the field, or `\n` in regex
   (`\t` tab, `\\` backslash). To turn the `\n` written in the text into real new lines: regex,
   find `\\n`, replace with `\n`. Also in Ctrl+H.
 - **Keep case**: cat → dog, Cat → Dog, CAT → DOG.
 - **×** on a result (or a file) drops it: it will not be replaced.
-- **TODO / FIXME** (on the right of the bar, or Tools → TODO / FIXME of the project): all the
-  `TODO`, `FIXME`, `XXX` and `HACK` of the project, by file.
 
 ### Compare, local history
 

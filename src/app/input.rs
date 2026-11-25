@@ -427,7 +427,6 @@ impl App {
                 }
             }
             LocalHistory => self.open_local_history(),
-            ListTodos => self.list_todos(),
             KeyboardHints => {
                 self.hints.open_in = 3;
                 self.egui_ctx.request_repaint();

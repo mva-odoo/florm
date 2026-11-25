@@ -137,15 +137,13 @@ Le `.gitignore` est respecté.
 
 - **Aa** respecte la casse, **« »** cherche le mot entier, **.*** active les expressions régulières :
   `def _compute_\w+` trouve toutes les méthodes de calcul, `^\s*import ` les imports.
-- Avec ⏵, le remplacement s'affiche ; en regex `$1`, `$2` reprennent les groupes :
+- Avec **Remplacer** (à droite de **Rechercher**), le remplacement s'affiche ; en regex `$1`, `$2` reprennent les groupes :
   `fields\.(\w+)\(` → `Fields.$1(`.
 - **Retour à la ligne** dans le remplacement : **Maj+Entrée** dans le champ, ou `\n` en regex
   (`\t` tabulation, `\\` barre oblique inverse). Pour changer les `\n` écrits dans le texte en
   vrais retours à la ligne : regex, chercher `\\n`, remplacer par `\n`. Aussi dans Ctrl+H.
 - **Garder la casse** : chat → chien, Chat → Chien, CHAT → CHIEN.
 - **×** sur un résultat (ou un fichier) l'écarte : il ne sera pas remplacé.
-- **TODO / FIXME** (à droite de la barre, ou Outils → TODO / FIXME du projet) : tous les
-  `TODO`, `FIXME`, `XXX` et `HACK` du projet, rangés par fichier.
 
 ### Comparer, historique local
 

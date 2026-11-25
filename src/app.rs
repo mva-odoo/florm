@@ -2108,7 +2108,27 @@ fn welcome_row(ui: &mut egui::Ui, label: &str, detail: &str, shortcut: bool) -> 
 /// "▾" button listing previous values; returns true when one was picked.
 fn history_menu(ui: &mut egui::Ui, list: &[String], target: &mut String, title: &str) -> bool {
     let mut picked = false;
-    ui.menu_button("⏷", |ui| {
+    // a small clock: clearer than an arrow for « the recent ones »
+    let (rect, r) = ui.allocate_exact_size(egui::vec2(22.0, 22.0), Sense::click());
+    let r = r.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(title);
+    let popup = ui.make_persistent_id(("history_menu", title));
+    let open = ui.memory(|m| m.is_popup_open(popup));
+    let color = if r.hovered() || open { ui.visuals().strong_text_color() } else { ui.visuals().text_color() };
+    if r.hovered() || open {
+        ui.painter().rect_filled(rect, 4.0, ui.visuals().widgets.hovered.weak_bg_fill);
+    }
+    let (c, st) = (rect.center(), egui::Stroke::new(1.3_f32, color));
+    ui.painter().circle_stroke(c, 6.0, st);
+    ui.painter().line_segment([c, c + egui::vec2(0.0, -3.5)], st);
+    ui.painter().line_segment([c, c + egui::vec2(2.5, 1.5)], st);
+    if r.clicked() {
+        ui.memory_mut(|m| m.toggle_popup(popup));
+    }
+    // egui sizes the popup from its anchor minus the frame margins: the 22 px button is too narrow
+    let mut anchor = r.clone();
+    anchor.rect.set_width(240.0);
+    egui::popup_below_widget(ui, popup, &anchor, egui::PopupCloseBehavior::CloseOnClick, |ui| {
+        ui.set_min_width(220.0);
         ui.label(RichText::new(title).small().strong());
         if list.is_empty() {
             ui.label(RichText::new(t!("(vide)", "(empty)")).weak());
@@ -2117,12 +2137,9 @@ fn history_menu(ui: &mut egui::Ui, list: &[String], target: &mut String, title: 
             if ui.button(RichText::new(h).monospace()).clicked() {
                 *target = h.clone();
                 picked = true;
-                ui.close_menu();
             }
         }
-    })
-    .response
-    .on_hover_text(title);
+    });
     picked
 }
 

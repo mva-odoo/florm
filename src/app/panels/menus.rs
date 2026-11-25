@@ -162,7 +162,6 @@ pub(in crate::app) fn menus(ui: &mut egui::Ui, km: &crate::keymap::Keymap, pendi
         item(ui, t!("Linter le fichier", "Lint the file"), Cmd::Lint);
         ui.separator();
         item(ui, "✳ Claude", Cmd::Claude);
-        item(ui, t!("TODO / FIXME du projet", "TODO / FIXME of the project"), Cmd::ListTodos);
         ui.separator();
         item(ui, t!("Historique local du fichier…", "Local history of the file…"), Cmd::LocalHistory);
         item(ui, t!("Comparer avec le presse-papiers", "Compare with the clipboard"), Cmd::CompareClipboard);
