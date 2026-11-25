@@ -140,21 +140,8 @@ pub enum JobResult {
     Repos(PathBuf, Vec<PathBuf>),
     /// XML / JSON checked (document uid, version checked).
     LintedInProcess { uid: u64, version: u64, diags: Vec<Diagnostic> },
-    /// The versions of the opened folder (root), read before its repositories; the index waited
-    /// for them when `reindex`.
-    Versions { root: PathBuf, versions: Vec<git::Versions>, reindex: bool },
     /// `git init` in a folder of the tree: its output, then the repositories of the project again.
     RepoInit { root: PathBuf, dir: PathBuf, result: Result<String, String>, repos: Vec<PathBuf> },
-    /// Branches a new version can come from (see `git::Versions`), and why a fetch failed.
-    VersionBranches { branches: Vec<String>, error: Option<String> },
-    /// A version added in each repository chosen: its name and what git said, then the
-    /// repositories of the project again.
-    VersionAdded { root: PathBuf, results: Vec<(String, Result<String, String>)>, repos: Vec<PathBuf> },
-    /// The state of the folder of a version (see the « Versions » window).
-    VersionState(PathBuf, Result<git::VersionState, String>),
-    /// An action of the « Versions » window done (update, add, remove, fetch): its key (the
-    /// version, "" for the fetch), its title, and what git said in each repository.
-    VersionsDone { root: PathBuf, key: String, title: String, results: Vec<(String, Result<String, String>)>, repos: Vec<PathBuf> },
     /// Symbols of the whole project (go to definition, completion).
     /// `bool`: only the repositories being worked on so far, the whole index follows.
     SymbolIndex(PathBuf, crate::index::Index, bool),

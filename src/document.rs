@@ -990,26 +990,8 @@ impl Document {
         }
     }
 
-    /// The symbol at `pos`: an Odoo model or xml id between quotes ('sale.order',
-    /// "base.group_user"), else the identifier. None outside of a word.
+    /// The identifier at `pos`, None outside of a word.
     pub fn symbol_at(&self, pos: usize) -> Option<(usize, usize)> {
-        let line = self.rope.char_to_line(pos.min(self.rope.len_chars()));
-        let ls = self.rope.line_to_char(line);
-        let chars: Vec<char> = self.line_text(line).chars().collect();
-        let col = (pos - ls).min(chars.len());
-        let quote = |c: char| c == '\'' || c == '"';
-        let (mut a, mut b) = (col, col);
-        while a > 0 && !quote(chars[a - 1]) && !chars[a - 1].is_whitespace() {
-            a -= 1;
-        }
-        while b < chars.len() && !quote(chars[b]) && !chars[b].is_whitespace() {
-            b += 1;
-        }
-        if a > 0 && b < chars.len() && quote(chars[a - 1]) && quote(chars[b]) && chars[a..b].contains(&'.')
-            && chars[a..b].iter().all(|c| c.is_alphanumeric() || *c == '_' || *c == '.')
-        {
-            return Some((ls + a, ls + b));
-        }
         let (ws, we) = self.word_at(pos);
         (we > ws).then_some((ws, we))
     }
@@ -2937,12 +2919,11 @@ mod tests {
     }
 
     #[test]
-    fn symbol_at_models_and_identifiers() {
-        let d = Document::from_text(1, "    _inherit = 'sale.order'\n    x = self.env.ref(\"base.main_company\")\n", 4, true);
+    fn symbol_at_identifiers() {
+        let d = Document::from_text(1, "    parent = 'shop.cart'\n    x = self.env.get(\"main\")\n", 4, true);
         let at = |line: usize, col: usize| d.symbol_at(d.pos_of(line, col)).map(|(a, b)| d.slice(a, b));
-        assert_eq!(at(0, 20).as_deref(), Some("sale.order"));
-        assert_eq!(at(0, 6).as_deref(), Some("_inherit"));
-        assert_eq!(at(1, 28).as_deref(), Some("base.main_company"));
+        assert_eq!(at(0, 20).as_deref(), Some("cart"));
+        assert_eq!(at(0, 6).as_deref(), Some("parent"));
         assert_eq!(at(1, 13).as_deref(), Some("env"));
         assert_eq!(at(0, 1), None);
     }
@@ -3119,7 +3100,7 @@ mod tests {
         assert_eq!(typed("HTML", "<div", ">"), "<div>|</div>");
         assert_eq!(typed("Python", "<div", ">"), "<div>|");
         // </ completes the innermost open element
-        let view = "<?xml version=\"1.0\"?>\n<odoo>\n<record id=\"a\">\n<field name=\"x\"/>\n<!-- <b> -->\n<p><br></p>\n";
+        let view = "<?xml version=\"1.0\"?>\n<data>\n<record id=\"a\">\n<field name=\"x\"/>\n<!-- <b> -->\n<p><br></p>\n";
         assert_eq!(typed("XML", view, "</"), format!("{view}</record>|"));
         assert_eq!(typed("HTML", "<div><br>", "</"), "<div><br></div>|");
         assert_eq!(typed("XML", "<a></a>", "</"), "<a></a></|");

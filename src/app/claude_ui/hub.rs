@@ -424,9 +424,9 @@ mod tests {
     #[test]
     fn each_project_its_color() {
         // the same name, the same color; light and dark themes differ
-        assert_eq!(project_color("odoo", true), project_color("odoo", true));
-        assert_ne!(project_color("odoo", true), project_color("odoo", false));
-        let names = ["odoo", "enterprise", "florm", "design-themes", "upgrade", "internal"];
+        assert_eq!(project_color("shop", true), project_color("shop", true));
+        assert_ne!(project_color("shop", true), project_color("shop", false));
+        let names = ["shop", "billing", "florm", "themes", "api", "internal"];
         let colors: HashSet<[u8; 4]> = names.iter().map(|n| project_color(n, false).to_array()).collect();
         assert!(colors.len() >= 3, "{}", colors.len());
     }

@@ -280,14 +280,6 @@ impl App {
                             self.open_claude();
                         }
                     }
-                    // versions side by side (odoo/17.0, odoo/20.0…): the one in the index
-                    if !self.versions.is_empty() {
-                        let text = if self.version.is_empty() { t!("Versions : toutes", "Versions: all").to_string() } else { tf!("Version {}", "Version {}", self.version) };
-                        let tip = t!("La version sur laquelle tu travailles (seule dans Ctrl+P, F12 et la recherche) · clic : toutes les versions, leur état, mettre à jour, ajouter, supprimer", "The version you work on (alone in go to file, F12 and the search) · click: every version, its state, update, add, remove");
-                        if ui.add(egui::Button::new(text).frame(false)).on_hover_text(tip).clicked() {
-                            self.pending.push(Cmd::GitVersions);
-                        }
-                    }
                     if let Some(st) = &self.git.status {
                         let mut label = match (&self.repo, self.repos.len() > 1) {
                             (Some(r), true) => format!("🔀 {} · {}", self.repo_label(r), st.branch),

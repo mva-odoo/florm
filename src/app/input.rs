@@ -388,7 +388,7 @@ impl App {
             TestRun => self.run_tests(String::new()),
             TestHere => match self.test_tags_here() {
                 Some(t) => self.run_tests(t),
-                None => self.set_status(t!("Pas de test sous le curseur (Odoo, pytest, jest, cargo, go)", "No test under the cursor (Odoo, pytest, jest, cargo, go)")),
+                None => self.set_status(t!("Pas de test sous le curseur (pytest, jest, cargo, go)", "No test under the cursor (pytest, jest, cargo, go)")),
             },
             CreatePr => self.start_pr_create(),
             Claude => self.open_claude(),
@@ -774,14 +774,6 @@ impl App {
             },
             GitCheckout => self.pick_branch(BranchPick::Checkout, None),
             GitNewBranch => self.open_prompt(Prompt::NewBranch),
-            GitAddVersion => match self.root.clone() {
-                Some(root) => self.open_add_version(root),
-                None => self.set_status(t!("Aucun dossier ouvert", "No folder open")),
-            },
-            GitVersions => match self.root.clone() {
-                Some(root) => self.open_versions(root),
-                None => self.set_status(t!("Aucun dossier ouvert", "No folder open")),
-            },
             GitDiffFile => {
                 let path = self.docs.get(self.active).and_then(|d| d.path.clone());
                 match path.as_deref().and_then(|p| Some((p, self.repo_for(p)?))) {

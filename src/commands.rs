@@ -149,8 +149,6 @@ pub enum Cmd {
     GitNewBranch,
     GitDiffFile,
     GitHistory,
-    GitAddVersion,
-    GitVersions,
     PullRequests,
     TestAgain,
     TestHere,
@@ -379,11 +377,9 @@ pub const ALL: &[(&str, &str, Cmd)] = &[
     ("git_new_branch", "Git : nouvelle branche…", GitNewBranch),
     ("git_diff_file", "Git : diff du fichier courant", GitDiffFile),
     ("git_history", "Git : historique (graphe des commits)", GitHistory),
-    ("git_add_version", "Git : ajouter une version (worktrees odoo/20.0, enterprise/20.0…)", GitAddVersion),
-    ("git_versions", "Git : versions côte à côte (état, travailler dessus, mettre à jour, supprimer)…", GitVersions),
     ("pull_requests", "GitHub : pull requests (commentaires, suggestions, commits)", PullRequests),
-    ("test_again", "Tests : relancer les derniers tests (Odoo, pytest, jest, cargo, go)", TestAgain),
-    ("test_here", "Tests : lancer le test sous le curseur (Odoo, pytest, jest, cargo, go)", TestHere),
+    ("test_again", "Tests : relancer les derniers tests (pytest, jest, cargo, go)", TestAgain),
+    ("test_here", "Tests : lancer le test sous le curseur (pytest, jest, cargo, go)", TestHere),
     ("test_run", "Tests : lancer des tests… (la commande du curseur proposée)", TestRun),
     ("create_pr", "GitHub : créer une pull request de la branche…", CreatePr),
     ("claude", "Claude : ouvrir la conversation (Claude Code dans un terminal)", Claude),
@@ -602,11 +598,9 @@ const EN: &[(&str, &str)] = &[
     ("git_new_branch", "Git: new branch…"),
     ("git_diff_file", "Git: diff of the current file"),
     ("git_history", "Git: history (commit graph)"),
-    ("git_add_version", "Git: add a version (worktrees odoo/20.0, enterprise/20.0…)"),
-    ("git_versions", "Git: versions side by side (state, work on it, update, remove)…"),
     ("pull_requests", "GitHub: pull requests (comments, suggestions, commits)"),
-    ("test_again", "Tests: run the last tests again (Odoo, pytest, jest, cargo, go)"),
-    ("test_here", "Tests: run the test under the cursor (Odoo, pytest, jest, cargo, go)"),
+    ("test_again", "Tests: run the last tests again (pytest, jest, cargo, go)"),
+    ("test_here", "Tests: run the test under the cursor (pytest, jest, cargo, go)"),
     ("test_run", "Tests: run tests… (the command of the cursor offered)"),
     ("create_pr", "GitHub: create a pull request from the branch…"),
     ("claude", "Claude: open the conversation (Claude Code in a terminal)"),
@@ -702,11 +696,7 @@ pub fn label(id: &str, fr: &'static str) -> &'static str {
     EN.iter().find(|(i, _)| *i == id).map_or(fr, |(_, l)| *l)
 }
 
-/// Former ids of renamed commands, still read in `[keys]`.
-const RENAMED: [(&str, &str); 3] = [("odoo_test_again", "test_again"), ("odoo_test_here", "test_here"), ("odoo_test_run", "test_run")];
-
 pub fn by_id(id: &str) -> Option<Cmd> {
-    let id = RENAMED.iter().find(|(old, _)| *old == id).map_or(id, |(_, new)| *new);
     ALL.iter().find(|(i, _, _)| *i == id).map(|(_, _, c)| *c)
 }
 

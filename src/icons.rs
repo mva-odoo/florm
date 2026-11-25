@@ -10,7 +10,6 @@ fn rgb(hex: u32) -> Color32 {
 pub fn file_kind(name: &str) -> (&'static str, Color32) {
     let lower = name.to_lowercase();
     let special = match lower.as_str() {
-        "__manifest__.py" | "__openerp__.py" => Some(("OD", 0xa2_4689)),
         "dockerfile" | "docker-compose.yml" | "docker-compose.yaml" => Some(("DK", 0x2496ed)),
         "makefile" => Some(("MK", 0x8a9aae)),
         ".gitignore" | ".gitattributes" | ".gitmodules" => Some(("GI", 0xf1502f)),
@@ -263,7 +262,6 @@ mod tests {
     #[test]
     fn kinds() {
         assert_eq!(file_kind("models.py").0, "PY");
-        assert_eq!(file_kind("__manifest__.py").0, "OD");
         assert_eq!(file_kind("view.XML").0, "<>");
         assert_eq!(file_kind("fr.po").0, "PO");
         assert_eq!(file_kind("unknown.zzz").0, "");

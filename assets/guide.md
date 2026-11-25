@@ -12,9 +12,9 @@ Tous les raccourcis se changent dans **Préférences → Raccourcis** (Ctrl+,).
 | **Ctrl+P** | Aller à un fichier du projet. `nom:42` ouvre à la ligne 42, `:42` va à la ligne 42 du fichier courant |
 | **Ctrl+Shift+P** | Palette de commandes : d'abord les vues (Claude, Git, Pull requests, Recherche, Terminal…, les terminaux et les conversations), puis les commandes. Tape pour filtrer (les accents sont facultatifs : « theme » trouve « Choisir le thème… ») ; une vue dont le nom contient les mots tapés reste en tête (« pull request » → la vue des pull requests, puis les commandes). **`#`** en tête ne liste que les vues : `#git`, `#term`, `#claude`. |
 | **Alt** seul | Tout au clavier : une ou deux lettres sur chaque bouton, onglet, case ou champ visible ; les taper le clique (Échap ferme). Dans un menu ouvert, ↓ ↑ passent d'une entrée à l'autre et Entrée choisit. Se désactive dans Préférences → Éditeur |
-| **Ctrl+R** | Aller à une classe, une fonction, un record Odoo du fichier |
+| **Ctrl+R** | Aller à une classe, une fonction du fichier |
 | **Ctrl+O** / **Ctrl+Shift+S** | Ouvrir / enregistrer sous : **Tab complète le chemin** comme dans un terminal |
-| **F12** | Aller à la définition (aussi sur `'sale.order'` ou `'module.xml_id'`) |
+| **F12** | Aller à la définition |
 | **Ctrl+.** | Corrections rapides du problème sous le curseur (aussi l'ampoule en bout de ligne) : importer un nom du projet, ignorer (`# noqa`), `ruff --fix`, corriger avec Claude, et les corrections du serveur de langage dans tous les langages (importer un nom en Go, Rust, TypeScript…), en tête de liste ; le curseur peut être n'importe où sur la ligne |
 | **Alt+Z** | Retour à la ligne automatique des lignes trop longues (l'affichage seulement ; ↑ ↓ suivent les rangées) |
 | **Maj+F12** | Les usages du symbole (serveur de langage, sinon le mot entier dans le dossier) |
@@ -75,36 +75,6 @@ bas ouvert et la barre latérale affichée ou non.
   (`main`), puis **tout ajouter** (`git add .`) et faire le premier commit, ou un **commit vide**
   sans aucun fichier, ou rien. Avec un remote, le commit est poussé (`git push -u`). Si une étape
   échoue, la fenêtre reste ouverte avec l'erreur (les étapes d'avant restent faites).
-- **Versions côte à côte** (worktrees git, comme pour Odoo : `odoo/master` contient le dépôt,
-  `odoo/17.0`, `odoo/18.0`… sont ses worktrees, pareil pour `enterprise/` et `design-themes/`) :
-  clic droit sur `odoo/`, sur une de ses versions ou sur le dossier au-dessus → **Ajouter une
-  version (worktrees)…** (aussi dans le menu Git). Tape la branche (`20.0`, `saas-18.3`…, les
-  branches connues sont proposées ; ⟳ lance `git fetch --all` pour voir les récentes) et coche les
-  dépôts : chacun reçoit son dossier (`odoo/20.0`, `enterprise/20.0`…) sur cette branche, qui suit
-  la branche distante. Une branche qu'aucun remote ne connaît encore est d'abord récupérée. Si un
-  dépôt échoue, les autres sont faits quand même et la fenêtre montre ce qui n'a pas marché.
-- **La fenêtre Versions** (clic sur **Version 20.0** dans la barre d'état, clic droit sur `odoo/` →
-  **Versions côte à côte…**, ou menu Git) montre tout d'un coup : une ligne par version (`master`,
-  puis la plus récente en haut), une colonne par dépôt. Chaque case dit si le dossier est **✔ à
-  jour**, en retard (**↓3** commits à récupérer, depuis le dernier fetch), en avance (**↑1** à
-  pousser), avec des **● fichiers modifiés**, ou sur une autre branche (son nom en gris) ; **—** :
-  la version manque dans ce dépôt, **+** l'y ajoute. Pour chaque version : **Travailler dessus**
-  (voir ci-dessous), **Mettre à jour** (`git pull --ff-only` dans chaque dépôt, jamais de commit de
-  merge), et dans **⋯** : un terminal dans un de ses dossiers, l'ajouter là où elle manque, ou la
-  **supprimer** (`git worktree remove` : les dossiers partent, les branches restent ; avec des
-  fichiers modifiés, Florm le dit et demande de confirmer). **⟳ Vérifier sur le serveur** lance
-  `git fetch --all` pour recompter les ↓ ; **+ Nouvelle version…** ouvre la fenêtre d'ajout.
-- Dans l'arborescence, chaque dossier de version qui est un worktree porte un petit **WT** (pas
-  `master`, qui est le dépôt lui-même), et la version sur laquelle tu travailles est marquée
-  **● courante**, dans chaque dépôt. Clic droit sur une version → **● Travailler sur la version
-  20.0** (ou **Ne plus filtrer les versions** sur la courante).
-- **Version courante** : avec des versions côte à côte dans le dossier ouvert, la barre d'état
-  montre **Version 20.0** (ou **Versions : toutes**). Dans la fenêtre Versions, **Travailler dessus**
-  choisit la version sur laquelle tu travailles (**Ne plus filtrer** les remet toutes) : elle seule est dans l'index (Ctrl+P, F12, complétion, recherche), dans tous les
-  dépôts à la fois (`odoo/20.0`, `enterprise/20.0`…). Les autres restent dans l'arborescence,
-  grisées, et s'ouvrent toujours. Le choix est gardé pour le dossier ; **Exclure de l'index** marche
-  comme avant, à part. Pour retrouver un fichier dans une autre version, coche **+ autres versions**
-  en haut de Ctrl+P ou à côté des filtres de la recherche (décoché à chaque changement de version).
 
 ## Panneau du bas et barre d'état
 
@@ -374,7 +344,7 @@ ce dossier et ceux qu'il contient (clé `trusted_folders` de `settings.toml`) ; 
 barre jusqu'à la fermeture de Florm. **Préférences → Lint → Dossiers de confiance** les liste ; × retire
 la confiance d'un dossier, qui repasse en mode restreint.
 
-## Tests (Odoo, pytest, jest, cargo, go)
+## Tests (pytest, jest, cargo, go)
 
 Les tests de n'importe quel projet se lancent dans le terminal du panneau du bas :
 
@@ -388,24 +358,14 @@ Les tests de n'importe quel projet se lancent dans le terminal du panneau du bas
 - La sortie s'affiche dans le panneau du bas, le résumé (✔ ou ⚠, réussis et en échec) dans la barre d'état.
 - Un `ipdb` dans un test s'arrête dans ce terminal, où il se tape comme d'habitude.
 
-**Tests Odoo** (fichiers `tests/test_*.py` d'un module, le dossier qui contient `__manifest__.py`) :
-le ▶ et le curseur donnent les tags du test (`/sale:TestSaleOrder.test_confirm`, `/sale` hors
-d'un test). La première fois, la commande s'affiche pour la compléter (la base `-d`, `-u sale`,
-un `docker compose exec odoo …` devant) : `./odoo-bin --stop-after-init --test-enable --test-tags
-/sale:TestSaleOrder` avec l'`odoo-bin` trouvé dans le projet, sinon `odoo`. Ensuite, chaque ▶ et
-Ctrl+Maj+F6 reprennent **la dernière commande de tests Odoo lancée** en ne changeant que ses tags :
-la base, les options et le conteneur restent. Pour en changer, « Tests : lancer des tests… » et
-modifier la commande. Le résumé lu dans le log (`1 failed, 0 error(s) of 12 tests`) va dans la
-barre d'état ; **Ctrl+clic** sur une ligne `File "…", line N` ouvre le fichier.
+**Ctrl+clic** sur une ligne `File "…", line N` d'une trace d'erreur ouvre le fichier.
 
 ## Modèles
 
 **Ctrl+Alt+N** (ou Outils → Insérer un modèle) : les modèles du type du fichier courant sont
 proposés en premier. Florm en livre deux, `ipdb` et `pdb` (Python : taper `ipdb` puis Tab) ; ajoute les tiens (voir plus bas).
 
-Les variables sont remplies d'après le fichier : dans `estate/views/estate_property_views.xml`,
-`${model}` = `estate.property`, `${model_}` = `estate_property`, `${Model}` = `EstateProperty`,
-`${name}` = `Estate Property`, `${module}` = `estate`. `$0` marque la place du curseur.
+`$0` marque la place du curseur.
 
 Pour ajouter les tiens : **Outils → Dossier des modèles**, un fichier par modèle
 (son nom = le nom du modèle, son extension = le type de fichier). Un fichier qui porte le nom
@@ -566,8 +526,8 @@ ses nouveautés marchent tels quels. Les changements de Claude se revoient dans 
   conversations de ce dossier (et de ses sous-dossiers) l'utilisent ; **📁** change son dossier de
   configuration. Les quotas suivent le compte de la conversation affichée.
 - **Contexte Florm** : au démarrage de Claude, Florm lui dit ce qu'il sait du projet : les
-  **consignes des messages de commit** (celles du projet, sinon les tiennes) et la branche et la
-  version où tu travailles. Claude écrit alors ses commits comme ✨. Pour lui apprendre à lancer tes
+  **consignes des messages de commit** (celles du projet, sinon les tiennes) et la branche où tu
+  travailles. Claude écrit alors ses commits comme ✨. Pour lui apprendre à lancer tes
   tests (un conteneur, des tags…), un **skill** de Claude Code s'en charge mieux : il ne sert que
   quand c'est utile.
 - **Mes skills** (Préférences → Claude) : un dossier à toi pour tous tes skills (un dépôt GitHub à

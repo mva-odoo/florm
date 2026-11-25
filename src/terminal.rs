@@ -1549,8 +1549,8 @@ fn traceback_location(text: &str) -> Option<(String, usize)> {
     Some((path.to_string(), n))
 }
 
-/// A file printed by a program in a container (`/opt/odoo/addons/sale/x.py`), here: its end under
-/// `dir` (`addons/sale/x.py`), the longest end first, at least a folder and the file.
+/// A file printed by a program in a container (`/opt/app/shop/models/x.py`), here: its end under
+/// `dir` (`shop/models/x.py`), the longest end first, at least a folder and the file.
 fn find_file(path: &str, dir: &Path) -> Option<PathBuf> {
     let parts: Vec<&str> = path.split(['/', '\\']).filter(|s| !s.is_empty()).collect();
     (2..=parts.len()).rev().map(|k| dir.join(parts[parts.len() - k..].iter().collect::<PathBuf>())).find(|f| f.is_file())

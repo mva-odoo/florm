@@ -66,8 +66,6 @@ impl App {
         self.root = None;
         self.repo = None;
         self.repos.clear();
-        self.versions.clear();
-        self.version.clear();
         self.history = HistoryUi::default();
         self.tree = None;
         self.index.files = Default::default();
@@ -128,7 +126,6 @@ impl App {
             split: self.is_split().then(|| if self.panes.split_dir == SplitDir::Down { "down" } else { "right" }.to_string()),
             bottom: self.bottom.map(|b| b.key()),
             sidebar_hidden: !self.show_sidebar,
-            version: self.version.clone(),
             claude_listed: self.claude_listed_keys(),
         };
         (session, backups)
@@ -314,7 +311,7 @@ impl App {
     }
 
     /// A folder of the tree left out of the index (go to file, F12, find in files) or taken back:
-    /// an anchored pattern ("/odoo/16.0/") in the exclusions of the preferences.
+    /// an anchored pattern ("/vendor/old/") in the exclusions of the preferences.
     pub(super) fn exclude_folder(&mut self, path: &Path, on: bool) {
         let Some(root) = self.root.clone() else { return };
         let Ok(rel) = path.strip_prefix(&root) else { return };
@@ -332,7 +329,6 @@ impl App {
         let still = crate::walk::Exclusions::new(&root, &self.settings.exclude).excludes_here_or_above(path, true);
         self.set_status(match (on, still) {
             (true, _) => tf!("{} exclu de l'index ({pattern})", "{} excluded from the index ({pattern})", rel.display()),
-            (false, _) if self.in_other_version(path) => tf!("Pas la version courante ({}) : choisis-la dans la barre d'état", "Not the current version ({}): choose it in the status bar", self.version),
             (false, false) => tf!("{} remis dans l'index", "{} put back in the index", rel.display()),
             (false, true) => t!("Toujours exclu par une autre règle : Préférences → Avancé → Fichiers exclus", "Still excluded by another rule: Preferences → Advanced → Excluded files").to_string(),
         });
@@ -419,19 +415,7 @@ impl App {
         }
         self.repos = repos;
         let active = self.docs.get(self.active).and_then(|d| d.path.clone());
-        // no file of a repository open: the version worked on (odoo/20.0), not the first one found
-        // (design-themes/16.0)
-        let of_version = || {
-            let mut found: Vec<PathBuf> = self.versions.iter().filter(|_| !self.version.is_empty()).map(|g| g.dir.join(&self.version)).filter(|d| self.repos.contains(d)).collect();
-            // odoo first, then enterprise, then the others
-            found.sort_by_key(|d| match d.parent().and_then(|p| p.file_name()).and_then(|n| n.to_str()) {
-                Some("odoo") => 0,
-                Some("enterprise") => 1,
-                _ => 2,
-            });
-            found.into_iter().next()
-        };
-        let pick = active.as_deref().and_then(|p| self.repo_for(p)).or_else(of_version).or_else(|| self.repos.first().cloned());
+        let pick = active.as_deref().and_then(|p| self.repo_for(p)).or_else(|| self.repos.first().cloned());
         if let Some(r) = pick {
             self.select_repo(r);
         }
@@ -442,8 +426,7 @@ impl App {
     pub(super) fn refresh_index(&mut self) {
         let Some(root) = self.root.clone() else { return };
         self.index.files_at = Some(Instant::now());
-        let pats = if self.index.all_versions { self.settings.exclude.clone() } else { self.index_exclude() };
-        let ex = crate::walk::Exclusions::new(&root, &pats);
+        let ex = crate::walk::Exclusions::new(&root, &self.settings.exclude);
         let current = self.index.files.clone();
         self.jobs.spawn(move || {
             let mut v = Vec::new();

@@ -1,7 +1,7 @@
 //! Index of the project's symbols (like Sublime Text's): built in the background, updated when a
 //! file is saved; used by "go to definition" and the completion when no language server answers.
 //!
-//! Millions of symbols in a big project (Odoo: 1.7 million), kept in a few big arrays rather than
+//! Millions of symbols in a big project (1.7 million in a big Python code base), kept in a few big arrays rather than
 //! millions of small allocations: every path in one text, every distinct name or detail once in
 //! another, every symbol (16 bytes) in one list; found by binary search, not hash tables.
 
@@ -16,7 +16,7 @@ use std::sync::mpsc;
 const MAX_FILE: u64 = 1_500_000;
 /// First bytes of the file of the index kept between two runs (and its version: change it when the
 /// layout or the symbols change).
-const MAGIC: &[u8; 8] = b"FLIDX\0\0\x01";
+const MAGIC: &[u8; 8] = b"FLIDX\0\0\x02";
 
 /// Size and modification time (ns) of a file: when both are the same, its symbols are the same.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -449,25 +449,19 @@ impl Index {
         Entry { name: self.strings.get(s.name).to_string(), kind: s.kind, line: s.line as usize, detail: self.strings.get(s.detail).to_string() }
     }
 
-    /// Definitions of `name`. "module.xml_id" also finds the record "xml_id", and "sale.order" the
-    /// model declared with `_name = 'sale.order'`.
+    /// Definitions of `name`.
     pub fn lookup(&self, name: &str) -> Vec<(PathBuf, Entry)> {
-        let short = name.rsplit('.').next().unwrap_or(name);
-        let id = self.strings.find(name);
-        let short_id = if short != name { self.strings.find(short) } else { None };
-        if id.is_none() && short_id.is_none() {
-            return Vec::new();
-        }
+        let Some(id) = self.strings.find(name) else { return Vec::new() };
         let mut out: Vec<(PathBuf, Entry)> = self
             .files
             .iter()
             .flat_map(|f| self.file_syms(f).iter().map(move |e| (f, e)))
-            .filter(|(_, e)| Some(e.name) == id || (e.kind == Kind::Record && Some(e.name) == short_id))
+            .filter(|(_, e)| e.name == id)
             .map(|(f, e)| (PathBuf::from(self.path_of(f)), self.entry(e)))
             .collect();
         // classes and functions before the rest (fields…), then by file
         let rank = |k: Kind| match k {
-            Kind::Class | Kind::Record => 0,
+            Kind::Class => 0,
             Kind::Function | Kind::Method => 1,
             _ => 2,
         };
@@ -496,14 +490,14 @@ fn kind_code(k: Kind) -> u8 {
         Kind::Class => 0,
         Kind::Function => 1,
         Kind::Method => 2,
-        Kind::Record => 3,
         Kind::Heading => 4,
         Kind::Other => 5,
     }
 }
 
 fn kind_of(c: u8) -> Option<Kind> {
-    [Kind::Class, Kind::Function, Kind::Method, Kind::Record, Kind::Heading, Kind::Other].get(c as usize).copied()
+    // 3 was a kind that no longer exists
+    [Some(Kind::Class), Some(Kind::Function), Some(Kind::Method), None, Some(Kind::Heading), Some(Kind::Other)].get(c as usize).copied().flatten()
 }
 
 /// A text as its length (u32) and its bytes.
@@ -559,24 +553,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn odoo_project() {
+    fn python_project() {
         let root = std::env::temp_dir().join(format!("florm_index_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("syndic/models")).unwrap();
-        std::fs::create_dir_all(root.join("syndic/views")).unwrap();
         std::fs::write(
             root.join("syndic/models/budget.py"),
-            "from odoo import fields, models\n\n\nclass SyndicBudget(models.Model):\n    _name = 'syndic.budget'\n\n    amount = fields.Float()\n\n    def compute_total(self):\n        return 1\n",
+            "from django.db import models\n\n\nclass SyndicBudget(models.Model):\n    name = 'budget'\n\n    amount = models.FloatField()\n\n    def compute_total(self):\n        return 1\n",
         )
         .unwrap();
-        std::fs::write(root.join("syndic/views/budget.xml"), "<odoo>\n    <record id=\"view_budget_form\" model=\"ir.ui.view\">\n    </record>\n</odoo>\n").unwrap();
         let mut idx = Index::build(&root, &[], &Exclusions::none(), usize::MAX);
         let one = |n: &str| idx.lookup(n).into_iter().map(|(p, e)| (p.file_name().unwrap().to_string_lossy().into_owned(), e.line)).collect::<Vec<_>>();
         assert_eq!(one("compute_total"), [("budget.py".to_string(), 8)]);
         assert_eq!(one("SyndicBudget"), [("budget.py".to_string(), 3)]);
-        assert_eq!(one("syndic.budget"), [("budget.py".to_string(), 4)]);
         assert_eq!(one("amount"), [("budget.py".to_string(), 6)]);
-        assert_eq!(one("syndic.view_budget_form"), [("budget.xml".to_string(), 1)]);
         assert_eq!(idx.names_with_prefix("comp", 10), ["compute_total"]);
         // saving a file updates it
         let p = root.join("syndic").join("models").join("budget.py");
@@ -614,8 +604,8 @@ mod tests {
         crate::os::release_memory();
         eprintln!("après release_memory : {} Mo", rss());
         let t = std::time::Instant::now();
-        let n = idx.lookup("sale.order").len();
-        eprintln!("lookup sale.order : {n} résultat(s) en {:?}", t.elapsed());
+        let n = idx.lookup("main").len();
+        eprintln!("lookup main : {n} résultat(s) en {:?}", t.elapsed());
     }
 }
 

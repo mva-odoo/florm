@@ -173,8 +173,8 @@ mod tests {
 
     #[test]
     fn the_exact_file_name_comes_first() {
-        let py = "odoo/20.0/addons/event/models/event_registration.py";
-        let demo = "odoo/20.0/addons/event/data/event_registration_demo.xml";
+        let py = "shop/v2.0/addons/event/models/event_registration.py";
+        let demo = "shop/v2.0/addons/event/data/event_registration_demo.xml";
         assert!(score("event_registration", py) > score("event_registration", demo));
         assert!(score("event_registration.py", py) > score("event_registration.py", demo));
     }

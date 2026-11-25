@@ -45,18 +45,7 @@ impl App {
             // what is drawn inside (sticky folders, icons) on the same background
             ui.visuals_mut().panel_fill = panel;
             let title_at = self.sidebar_mac_buttons(ui);
-            // the other versions dimmed too
-            let pats = self.index_exclude();
-            // the folders of the versions side by side: « WT », the current one
-            let marks: HashMap<PathBuf, sidebar::VersionMark> = self
-                .versions
-                .iter()
-                .flat_map(|g| g.names.iter().map(move |n| (g.dir.join(n), g.main.clone(), n.clone())))
-                .map(|(dir, main, name)| {
-                    let current = name == self.version;
-                    (dir.clone(), sidebar::VersionMark { worktree: dir != main, current, name })
-                })
-                .collect();
+            let pats = self.settings.exclude.clone();
             // only the tree: the views are reached from the status bar, the bottom panel's ▾ and the palette
             match self.tree.as_mut() {
                 Some(tree) => {
@@ -72,7 +61,7 @@ impl App {
                     let (km, pending) = (&self.keymap, &mut self.pending);
                     let mut menus = |ui: &mut egui::Ui| super::menus::menus(ui, km, pending);
                     let app_menu = (!self.settings.show_menu_bar).then_some(&mut menus as &mut dyn FnMut(&mut egui::Ui));
-                    tree_action = sidebar::show(ui, tree, &projects, ex, active.as_deref(), &self.git.map, info, &marks, title_at, &mut self.tree_scroll, &mut self.tree_nav, app_menu);
+                    tree_action = sidebar::show(ui, tree, &projects, ex, active.as_deref(), &self.git.map, info, title_at, &mut self.tree_scroll, &mut self.tree_nav, app_menu);
                 }
                 None => {
                     ui.label(t!("Aucun dossier ouvert.", "No folder open."));
@@ -134,9 +123,6 @@ impl App {
             TreeAction::CopyFile(p) => self.copy_entry(&p),
             TreeAction::Paste(d) => self.paste_into(d),
             TreeAction::InitRepo(d) => self.init_repo(d),
-            TreeAction::AddVersion(d) => self.open_add_version(d),
-            TreeAction::Versions(d) => self.open_versions(d),
-            TreeAction::WorkOnVersion(n) => self.set_version(n),
         }
     }
 

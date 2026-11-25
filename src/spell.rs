@@ -703,10 +703,10 @@ mod tests {
     #[test]
     fn markdown_and_comments() {
         let d = dict();
-        let md = "Le fichierr est la.\n\n```\nfonctoin()\n```\nUn `fonctoin` et [le lien](https://exemple.fr/fonctoin) Odoo snake_case camelCase v2alpha fichier.py\n";
+        let md = "Le fichierr est la.\n\n```\nfonctoin()\n```\nUn `fonctoin` et [le lien](https://exemple.fr/fonctoin) Gitea snake_case camelCase v2alpha fichier.py\n";
         let found = check(md, Kind::Prose, &d);
         let words: Vec<(usize, usize, &str)> = found.iter().map(|m| (m.line, m.col, m.word.as_str())).collect();
-        // `Un`, `et`: two letters; Odoo: a name; code, addresses, identifiers left out
+        // `Un`, `et`: two letters; Gitea: a name; code, addresses, identifiers left out
         assert_eq!(words, [(0, 3, "fichierr"), (5, 21, "lien")]);
         let rs = "let s = \"fonctoin in a string\"; // this functoin returns the value\n/* the fichierr */ fn f() {}\n";
         let found = check(rs, kind_of(Path::new("a.rs")).unwrap(), &d);

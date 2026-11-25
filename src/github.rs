@@ -511,7 +511,7 @@ pub struct LinkedPr {
     pub state: String,
 }
 
-/// Pull requests of `repo` ("odoo/odoo") that contain commit `sha` (GitHub also gives those of
+/// Pull requests of `repo` ("acme/shop") that contain commit `sha` (GitHub also gives those of
 /// the forks: left out).
 pub fn for_commit(dir: &Path, repo: &str, sha: &str) -> Result<Vec<LinkedPr>, String> {
     let out = gh(dir, &["api", &format!("repos/{repo}/commits/{sha}/pulls")])?;
@@ -538,7 +538,7 @@ fn parse_linked(out: &str, repo: &str) -> Vec<LinkedPr> {
         .unwrap_or_default()
 }
 
-/// Pull requests named in a commit message by the merge bot: "closes odoo/odoo#123" (or "#123").
+/// Pull requests named in a commit message by the merge bot: "closes acme/shop#123" (or "#123").
 pub fn closed_by_message(message: &str, repo: &str) -> Vec<u64> {
     static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     let re = RE.get_or_init(|| regex::Regex::new(r"(?im)^\s*(?:closes|fixes|fixed|closed)\s+([\w.-]+/[\w.-]+)?#(\d+)").unwrap());
@@ -548,7 +548,7 @@ pub fn closed_by_message(message: &str, repo: &str) -> Vec<u64> {
         .collect()
 }
 
-/// The repository pull requests go to ("odoo/odoo") and its default branch.
+/// The repository pull requests go to ("acme/shop") and its default branch.
 pub fn base_repo(dir: &Path) -> Result<(String, String), String> {
     let out = gh(dir, &["repo", "view", "--json", "nameWithOwner,defaultBranchRef"])?;
     let v: Value = serde_json::from_str(&out).map_err(|e| e.to_string())?;
@@ -790,9 +790,9 @@ mod tests {
     fn the_reviewers_are_those_asked_and_those_who_reviewed() {
         let r = |w: &str, s: &str| (w.to_string(), s.to_string());
         let reviews = [r("alice", "APPROVED"), r("alice", "COMMENTED"), r("bob", "COMMENTED"), r("bob", "CHANGES_REQUESTED"), r("me", "COMMENTED"), r("carol", "COMMENTED")];
-        let asked = ["carol".to_string(), "odoo/team".to_string()];
+        let asked = ["carol".to_string(), "acme/team".to_string()];
         // a comment after an approval does not take it back; asked again: waiting; the author is not one
-        assert_eq!(reviewers_of(&asked, &reviews, "me"), vec![r("alice", "APPROVED"), r("bob", "CHANGES_REQUESTED"), r("carol", "PENDING"), r("odoo/team", "PENDING")]);
+        assert_eq!(reviewers_of(&asked, &reviews, "me"), vec![r("alice", "APPROVED"), r("bob", "CHANGES_REQUESTED"), r("carol", "PENDING"), r("acme/team", "PENDING")]);
         assert!(reviewers_of(&[], &[], "me").is_empty());
     }
 
@@ -831,19 +831,19 @@ mod tests {
         assert_eq!(guess_base("saas-17.2-imp-x", &bases, "master"), "saas-17.2");
         assert_eq!(guess_base("20-test", &bases, "master"), "master");
         assert_eq!(guess_base("17.0", &bases, "master"), "master");
-        assert_eq!(number_of("https://github.com/odoo/odoo/pull/123\n"), Some(123));
+        assert_eq!(number_of("https://github.com/acme/shop/pull/123\n"), Some(123));
         assert!(not_found_yet("GraphQL: Could not resolve to a PullRequest with the number of 4631. (repository.pullRequest)"));
         assert!(!not_found_yet(&not_installed()));
         assert!(!not_found_yet("HTTP 502: Bad Gateway"));
-        let base = r#"{"repo":{"full_name":"odoo/odoo"}}"#;
-        let fork = r#"{"repo":{"full_name":"someone/odoo"}}"#;
+        let base = r#"{"repo":{"full_name":"acme/shop"}}"#;
+        let fork = r#"{"repo":{"full_name":"someone/shop"}}"#;
         let l = parse_linked(
             &format!(r#"[{{"number":5,"title":"x","state":"closed","merged_at":"2026","base":{base}}},{{"number":6,"title":"y","state":"open","merged_at":null,"base":{base}}},{{"number":1,"title":"z","state":"open","base":{fork}}}]"#),
-            "odoo/odoo",
+            "acme/shop",
         );
         assert_eq!(l.iter().map(|p| (p.number, p.state.as_str())).collect::<Vec<_>>(), [(5, "MERGED"), (6, "OPEN")]);
-        let msg = "[FIX] x: y\n\nblah\n\ncloses odoo/odoo#231452\n\nX-original-commit: abc\nSigned-off-by: a\ncloses other/repo#1\nCloses #7";
-        assert_eq!(closed_by_message(msg, "odoo/odoo"), [231452, 7]);
+        let msg = "[FIX] x: y\n\nblah\n\ncloses acme/shop#231452\n\nX-original-commit: abc\nSigned-off-by: a\ncloses other/repo#1\nCloses #7";
+        assert_eq!(closed_by_message(msg, "acme/shop"), [231452, 7]);
     }
 
     #[test]
@@ -869,11 +869,11 @@ mod tests {
             r#"[{"__typename":"CheckRun","name":"lint","workflowName":"CI","status":"COMPLETED","conclusion":"SUCCESS","detailsUrl":"https://github.com/o/r/actions/runs/11/job/22"},
                 {"__typename":"CheckRun","name":"tests","workflowName":"CI","status":"COMPLETED","conclusion":"FAILURE","detailsUrl":"https://github.com/o/r/actions/runs/11/job/33?pr=1"},
                 {"__typename":"CheckRun","name":"build","status":"IN_PROGRESS","conclusion":""},
-                {"__typename":"StatusContext","context":"ci/runbot","state":"SUCCESS","targetUrl":"https://runbot.odoo.com/x","description":"ok"}]"#,
+                {"__typename":"StatusContext","context":"ci/build","state":"SUCCESS","targetUrl":"https://ci.example.com/x","description":"ok"}]"#,
         )
         .unwrap();
         let c = parse_checks(&rollup);
-        assert_eq!(c.iter().map(|c| (c.name.as_str(), c.state)).collect::<Vec<_>>(), [("tests", CheckState::Fail), ("build", CheckState::Pending), ("ci/runbot", CheckState::Pass), ("lint", CheckState::Pass)]);
+        assert_eq!(c.iter().map(|c| (c.name.as_str(), c.state)).collect::<Vec<_>>(), [("tests", CheckState::Fail), ("build", CheckState::Pending), ("ci/build", CheckState::Pass), ("lint", CheckState::Pass)]);
         assert_eq!(c[0].job(), Some((11, 33)));
         assert_eq!(c[2].job(), None);
         assert_eq!(c[2].description, "ok");

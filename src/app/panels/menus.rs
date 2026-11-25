@@ -147,8 +147,6 @@ pub(in crate::app) fn menus(ui: &mut egui::Ui, km: &crate::keymap::Keymap, pendi
         ui.separator();
         item(ui, t!("Changer de branche…", "Switch branch…"), Cmd::GitCheckout);
         item(ui, t!("Nouvelle branche…", "New branch…"), Cmd::GitNewBranch);
-        item(ui, t!("Versions côte à côte…", "Versions side by side…"), Cmd::GitVersions);
-        item(ui, t!("Ajouter une version (worktrees)…", "Add a version (worktrees)…"), Cmd::GitAddVersion);
         item(ui, t!("Diff du fichier", "Diff of the file"), Cmd::GitDiffFile);
         item(ui, t!("Historique (graphe)", "History (graph)"), Cmd::GitHistory);
         item(ui, t!("Pull requests GitHub", "GitHub pull requests"), Cmd::PullRequests);

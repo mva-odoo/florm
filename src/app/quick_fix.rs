@@ -35,7 +35,7 @@ enum QfAct {
 }
 
 /// Python module of file `p`, for an import: its packages (folders with an __init__.py) and its
-/// name; an Odoo module (folder with a __manifest__.py) is found under `odoo.addons`.
+/// name.
 pub(super) fn python_module(p: &Path) -> Option<String> {
     let mut parts: Vec<String> = Vec::new();
     let stem = p.file_stem()?.to_string_lossy().into_owned();
@@ -43,17 +43,9 @@ pub(super) fn python_module(p: &Path) -> Option<String> {
         parts.push(stem);
     }
     let mut dir = p.parent();
-    let mut odoo = false;
     while let Some(d) = dir.filter(|d| d.join("__init__.py").is_file()) {
         parts.insert(0, d.file_name()?.to_string_lossy().into_owned());
-        if d.join("__manifest__.py").is_file() {
-            odoo = true;
-            break;
-        }
         dir = d.parent();
-    }
-    if odoo {
-        parts.insert(0, "odoo.addons".into());
     }
     (!parts.is_empty()).then(|| parts.join("."))
 }
@@ -431,14 +423,13 @@ mod tests {
         assert_eq!(undefined_name("F401 'os' imported but unused"), None);
         let dir = std::env::temp_dir().join(format!("florm_qf_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        for f in ["pkg/__init__.py", "pkg/sub/__init__.py", "pkg/sub/tools.py", "addons/sale_x/__init__.py", "addons/sale_x/__manifest__.py", "addons/sale_x/models/__init__.py", "addons/sale_x/models/order.py", "alone.py"] {
+        for f in ["pkg/__init__.py", "pkg/sub/__init__.py", "pkg/sub/tools.py", "alone.py"] {
             let p = dir.join(f);
             std::fs::create_dir_all(p.parent().unwrap()).unwrap();
             std::fs::write(p, "").unwrap();
         }
         assert_eq!(python_module(&dir.join("pkg/sub/tools.py")).as_deref(), Some("pkg.sub.tools"));
         assert_eq!(python_module(&dir.join("pkg/sub/__init__.py")).as_deref(), Some("pkg.sub"));
-        assert_eq!(python_module(&dir.join("addons/sale_x/models/order.py")).as_deref(), Some("odoo.addons.sale_x.models.order"));
         assert_eq!(python_module(&dir.join("alone.py")).as_deref(), Some("alone"));
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -12,9 +12,9 @@ Every shortcut can be changed in **Preferences → Shortcuts** (Ctrl+,).
 | **Ctrl+P** | Go to a file of the project. `name:42` opens it at line 42, `:42` goes to line 42 of the current file |
 | **Ctrl+Shift+P** | Command palette: the views first (Claude, Git, Pull requests, Search, Terminal…, the terminals and the conversations), then the commands. Type to filter (accents are optional); a view whose name has the words typed stays first (“pull request” → the pull requests view, then the commands). A leading **`#`** lists only the views: `#git`, `#term`, `#claude`. |
 | **Alt** alone | Everything from the keyboard: one or two letters on each visible button, tab, box or field; typing them clicks it (Esc closes). In an open menu, ↓ ↑ move between its entries and Enter chooses. Can be turned off in Preferences → Editor |
-| **Ctrl+R** | Go to a class, a function, an Odoo record of the file |
+| **Ctrl+R** | Go to a class, a function of the file |
 | **Ctrl+O** / **Ctrl+Shift+S** | Open / save as: **Tab completes the path** like in a terminal |
-| **F12** | Go to definition (also on `'sale.order'` or `'module.xml_id'`) |
+| **F12** | Go to definition |
 | **Ctrl+.** | Quick fixes for the problem under the cursor (also the light bulb at the end of the line): import a name of the project, ignore (`# noqa`), `ruff --fix`, fix with Claude, and the fixes of the language server in every language (import a name in Go, Rust, TypeScript…), at the top of the list; the cursor can be anywhere on the line |
 | **Alt+Z** | Word wrap of the lines that are too long (display only; ↑ ↓ follow the rows) |
 | **Shift+F12** | Usages of the symbol (language server, else the whole word in the folder) |
@@ -74,37 +74,6 @@ sidebar shown or not.
   (`main`), then **add everything** (`git add .`) and make the first commit, or an **empty
   commit** without any file, or nothing. With a remote, the commit is pushed (`git push -u`). If a
   step fails, the window stays open with the error (the steps before stay done).
-- **Versions side by side** (git worktrees, as for Odoo: `odoo/master` holds the repository,
-  `odoo/17.0`, `odoo/18.0`… are its worktrees, same for `enterprise/` and `design-themes/`): right
-  click on `odoo/`, on one of its versions or on the folder above → **Add a version
-  (worktrees)…** (also in the Git menu). Type the branch (`20.0`, `saas-18.3`…, the known branches
-  are suggested; ⟳ runs `git fetch --all` to see the recent ones) and tick the repositories:
-  each one gets its folder (`odoo/20.0`, `enterprise/20.0`…) on that branch, tracking the remote
-  branch. A branch no remote knows yet is fetched first. If a repository fails, the others are still
-  done and the window shows what went wrong.
-- **The Versions window** (click **Version 20.0** in the status bar, right click on `odoo/` →
-  **Versions side by side…**, or the Git menu) shows everything at once: a row per version
-  (`master`, then the newest at the top), a column per repository. Each cell says whether the
-  folder is **✔ up to date**, behind (**↓3** commits to pull, since the last fetch), ahead (**↑1**
-  to push), with **● changed files**, or on another branch (its name in grey); **—**: the version
-  is missing in this repository, **+** adds it there. For each version: **Work on it** (see
-  below), **Update** (`git pull --ff-only` in each repository, never a merge commit), and in
-  **⋯**: a terminal in one of its folders, add it where it is missing, or **remove** it (`git
-  worktree remove`: the folders go, the branches stay; with changed files, Florm says so and asks
-  to confirm). **⟳ Check the server** runs `git fetch --all` to count the ↓ again; **+ New
-  version…** opens the window to add one.
-- In the tree, each version folder that is a worktree carries a small **WT** (not `master`, which
-  is the repository itself), and the version you work on is marked **● current**, in each
-  repository. Right click on a version → **● Work on version 20.0** (or **Stop filtering the
-  versions** on the current one).
-- **Current version**: with versions side by side in the opened folder, the status bar shows
-  **Version 20.0** (or **Versions: all**). In the Versions window, **Work on it** chooses the version you work on (**Stop filtering**
-  puts them all back): only that one is
-  in the index (go to file, F12, completion, search), in every repository at once (`odoo/20.0`,
-  `enterprise/20.0`…). The others stay in the tree, dimmed, and still open. The choice is kept for
-  the folder; **Exclude from the index** works as before, separately. To find a file in another
-  version, tick **+ other versions** at the top of go to file (Ctrl+P) or next to the filters of the
-  search (unticked whenever the version changes).
 
 ## Bottom panel and status bar
 
@@ -364,7 +333,7 @@ the Git view says so too, with the same button. **Trust “folder”** starts th
 **Preferences → Lint → Trusted folders** lists them; × takes the trust of a folder back, and it
 goes back to restricted mode.
 
-## Tests (Odoo, pytest, jest, cargo, go)
+## Tests (pytest, jest, cargo, go)
 
 The tests of any project run in the terminal of the bottom panel:
 
@@ -378,24 +347,14 @@ The tests of any project run in the terminal of the bottom panel:
 - The output shows in the bottom panel, the summary (✔ or ⚠, passed and failed) in the status bar.
 - An `ipdb` in a test stops in that terminal, where it is typed as usual.
 
-**Odoo tests** (files `tests/test_*.py` of a module, the folder holding `__manifest__.py`): the ▶
-and the cursor give the tags of the test (`/sale:TestSaleOrder.test_confirm`, `/sale` outside a
-test). The first time, the command is shown to be completed (the database `-d`, `-u sale`, a
-`docker compose exec odoo …` in front): `./odoo-bin --stop-after-init --test-enable --test-tags
-/sale:TestSaleOrder` with the `odoo-bin` found in the project, else `odoo`. Then each ▶ and
-Ctrl+Shift+F6 take **the last Odoo test command run** and only change its tags: the database, the
-options and the container stay. To change them, “Tests: run tests…” and edit the command. The
-summary read in the log (`1 failed, 0 error(s) of 12 tests`) goes to the status bar; **Ctrl+click**
-on a `File "…", line N` line opens the file.
+**Ctrl+click** on a `File "…", line N` line of a traceback opens the file.
 
 ## Templates
 
 **Ctrl+Alt+N** (or Tools → Insert a template): the templates of the type of the current file
 come first. Florm ships two, `ipdb` and `pdb` (Python: type `ipdb` then Tab); add your own (see below).
 
-The variables are filled from the file: in `estate/views/estate_property_views.xml`,
-`${model}` = `estate.property`, `${model_}` = `estate_property`, `${Model}` = `EstateProperty`,
-`${name}` = `Estate Property`, `${module}` = `estate`. `$0` marks the place of the cursor.
+`$0` marks the place of the cursor.
 
 To add yours: **Tools → Templates folder**, one file per template
 (its name = the name of the template, its extension = the type of file). A file with the name
@@ -553,7 +512,7 @@ new in it work as they are. Claude's changes are reviewed in the **Git** view.
   use it; **📁** changes its configuration folder. The quotas follow the account of the
   conversation shown.
 - **Florm context**: when Claude starts, Florm tells it what it knows of the project: the
-  **commit message rules** (the project's, else yours) and the branch and version you work on.
+  **commit message rules** (the project's, else yours) and the branch you work on.
   Claude then writes its commits like ✨. To teach it how to run your tests (a container, tags…), a
   Claude Code **skill** does it better: it is only used when useful.
 - **My skills** (Preferences → Claude): a folder of yours for all your skills (a GitHub

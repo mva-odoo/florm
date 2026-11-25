@@ -158,7 +158,7 @@ pub fn split(s: &str) -> Vec<String> {
     out
 }
 
-/// A command of these runners (and not Odoo tags): its folder (relative to the project) and
+/// A command of these runners: its folder (relative to the project) and
 /// its arguments.
 pub fn parse(cmd: &str) -> Option<(Option<String>, Vec<String>)> {
     // cut like a shell first: a `&&` inside quotes (a folder named so) is part of a word
@@ -439,7 +439,7 @@ mod tests {
     }
 
     #[test]
-    fn odoo_tags_are_not_commands() {
+    fn only_runner_commands_are_commands() {
         assert!(parse("/sale:TestX.test_y").is_none());
         assert!(parse("cargo test x").is_some());
     }

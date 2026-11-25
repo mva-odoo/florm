@@ -62,7 +62,7 @@ pub struct ViewOpts<'a> {
     pub rulers: &'a [usize],
     /// Comments of a pull request on lines: (line, text), marked in the gutter.
     pub notes: &'a [(usize, String)],
-    /// Tests of the file: (line, Odoo tags or command), a ▶ in the gutter runs them.
+    /// Tests of the file: (line, its command), a ▶ in the gutter runs them.
     pub tests: &'a [(usize, String)],
     /// The brackets colored by level.
     pub rainbow: bool,
@@ -508,11 +508,7 @@ fn text_area(
                         msgs.push(t!("✳ Clic : ajouter cette ligne (ou les lignes sélectionnées) au contexte de Claude", "✳ Click: add this line (or the selected lines) to Claude's context").into());
                     } else if let Some(tags) = test_at(l).filter(|_| p.x >= gx + test_x && p.x < gx + test_x + test_w) {
                         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
-                        msgs.push(if crate::odoo_test::is_tags(tags) {
-                            tf!("▶ Clic : lancer les tests Odoo {tags} dans le terminal (Ctrl+F6 : relancer)", "▶ Click: run the Odoo tests {tags} in the terminal (Ctrl+F6: run again)")
-                        } else {
-                            tf!("▶ Clic : lancer « {tags} » (Ctrl+F6 : relancer)", "▶ Click: run “{tags}” (Ctrl+F6: run again)")
-                        });
+                        msgs.push(tf!("▶ Clic : lancer « {tags} » (Ctrl+F6 : relancer)", "▶ Click: run “{tags}” (Ctrl+F6: run again)"));
                     }
                     if p.x >= gx + gutter_w - 8.0 && doc.hunks.iter().any(|h| h.contains(l)) {
                         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);

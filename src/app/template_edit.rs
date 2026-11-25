@@ -132,7 +132,7 @@ impl TemplateDraft {
             ui.label(RichText::new(t!("Texte", "Text")).strong());
             ui.add(egui::TextEdit::multiline(&mut self.body).code_editor().desired_rows(14).desired_width(f32::INFINITY));
             ui.label(
-                RichText::new(t!("Variables remplies d'après le fichier : ${model} (sale.order), ${model_} (sale_order), ${Model} (SaleOrder), ${name} (Sale Order), ${module} (le module Odoo) ; $0 : où va le curseur.", "Variables filled from the file: ${model} (sale.order), ${model_} (sale_order), ${Model} (SaleOrder), ${name} (Sale Order), ${module} (the Odoo module); $0: where the cursor goes."))
+                RichText::new(t!("$0 : où va le curseur.", "$0: where the cursor goes."))
                     .small()
                     .weak(),
             );

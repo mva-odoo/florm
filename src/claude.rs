@@ -24,8 +24,6 @@ pub struct FlormContext {
     pub commit_rules: String,
     /// The repository of the file shown and its branch.
     pub repo: Option<(String, String)>,
-    /// The version worked on, among several side by side (odoo/17.0…).
-    pub version: String,
 }
 
 /// The text added to Claude's system prompt (`--append-system-prompt`) from `ctx`, in the
@@ -42,9 +40,6 @@ pub fn florm_context(ctx: &FlormContext) -> String {
     let mut here = Vec::new();
     if let Some((repo, branch)) = &ctx.repo {
         here.push(tf!("dépôt `{repo}`, branche `{branch}`", "repository `{repo}`, branch `{branch}`"));
-    }
-    if !ctx.version.is_empty() {
-        here.push(tf!("version travaillée : `{}`", "version worked on: `{}`", ctx.version));
     }
     if !here.is_empty() {
         parts.push(tf!("## Où en est l'utilisateur\n{}", "## Where the user is\n{}", here.join(" ; ")));
@@ -628,11 +623,10 @@ mod tests {
         assert!(florm_context(&FlormContext::default()).is_empty());
         let ctx = FlormContext {
             commit_rules: "[TAG] Zone : quoi".into(),
-            repo: Some(("odoo".into(), "17.0-fix".into())),
-            version: "17.0".into(),
+            repo: Some(("shop".into(), "2.0-fix".into())),
         };
         let t = florm_context(&ctx);
-        assert!(t.contains("[TAG] Zone : quoi") && t.contains("17.0-fix"), "{t}");
+        assert!(t.contains("[TAG] Zone : quoi") && t.contains("2.0-fix"), "{t}");
     }
 
     #[test]

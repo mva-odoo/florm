@@ -14,7 +14,7 @@ pub struct Skill {
     pub description: String,
     /// Its SKILL.md.
     pub path: PathBuf,
-    /// The folder it is in, from the folder of the skills ("" at the top, "odoo/tests"…).
+    /// The folder it is in, from the folder of the skills ("" at the top, "dev/tests"…).
     pub group: String,
 }
 
@@ -200,21 +200,21 @@ mod tests {
         assert!(make_plugin(&list_in(&root), &out).is_none());
         create_in(&root, "Notes").unwrap();
         // by theme, deeper, the layout of Claude Code, and two of the same name
-        for (dir, name) in [("odoo/tests-odoo", "tests-odoo"), ("odoo/migration/scripts-mig", "scripts-mig"), ("perso/skills/rapport", "rapport"), ("perso/notes", "notes")] {
+        for (dir, name) in [("dev/tests-dev", "tests-dev"), ("dev/migration/scripts-mig", "scripts-mig"), ("perso/skills/rapport", "rapport"), ("perso/notes", "notes")] {
             std::fs::create_dir_all(root.join(dir)).unwrap();
             std::fs::write(root.join(dir).join("SKILL.md"), format!("---\nname: {name}\ndescription: d\n---\nx")).unwrap();
         }
         // a folder of a skill (its scripts) and a hidden one are not looked into
-        std::fs::create_dir_all(root.join("odoo/tests-odoo/sub")).unwrap();
-        std::fs::write(root.join("odoo/tests-odoo/sub/SKILL.md"), "---\nname: no\n---").unwrap();
+        std::fs::create_dir_all(root.join("dev/tests-dev/sub")).unwrap();
+        std::fs::write(root.join("dev/tests-dev/sub/SKILL.md"), "---\nname: no\n---").unwrap();
         std::fs::create_dir_all(root.join(".git/x")).unwrap();
         std::fs::write(root.join(".git/x/SKILL.md"), "---\nname: no\n---").unwrap();
         let s = list_in(&root);
         let names: Vec<(String, String)> = s.iter().map(|s| (s.group.clone(), s.name.clone())).collect();
-        assert_eq!(names, [("", "notes"), ("odoo", "tests-odoo"), ("odoo/migration", "scripts-mig"), ("perso", "notes"), ("perso", "rapport")].map(|(g, n)| (g.to_string(), n.to_string())));
+        assert_eq!(names, [("", "notes"), ("dev", "tests-dev"), ("dev/migration", "scripts-mig"), ("perso", "notes"), ("perso", "rapport")].map(|(g, n)| (g.to_string(), n.to_string())));
         assert_eq!(make_plugin(&s, &out), Some(out.clone()));
         assert!(std::fs::read_to_string(out.join(".claude-plugin/plugin.json")).unwrap().contains("\"florm\""));
-        for n in ["notes", "perso-notes", "tests-odoo", "scripts-mig", "rapport"] {
+        for n in ["notes", "perso-notes", "tests-dev", "scripts-mig", "rapport"] {
             assert!(out.join("skills").join(n).join("SKILL.md").is_file(), "{n}");
         }
         // the same skills again: the links are left as they are (not made anew)
@@ -225,7 +225,7 @@ mod tests {
         // made again: a skill removed goes, the skills themselves stay
         std::fs::remove_dir_all(root.join("perso")).unwrap();
         make_plugin(&list_in(&root), &out);
-        assert!(!out.join("skills/rapport").exists() && root.join("odoo/tests-odoo/SKILL.md").is_file());
+        assert!(!out.join("skills/rapport").exists() && root.join("dev/tests-dev/SKILL.md").is_file());
         assert_eq!(front("---\nname: a\ndescription: \"b c\"\n---\nx"), (Some("a".into()), Some("b c".into())));
         let _ = std::fs::remove_dir_all(&base);
     }

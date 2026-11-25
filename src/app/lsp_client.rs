@@ -168,8 +168,7 @@ impl App {
             });
     }
 
-    /// Word to look up for "go to definition": the identifier at the cursor, or a quoted dotted
-    /// name ('sale.order', 'module.xml_id') when the cursor is in one.
+    /// Word to look up for "go to definition": the identifier at the cursor.
     pub(super) fn definition_word(d: &Document) -> String {
         d.symbol_at(d.primary_sel().head).map(|(a, b)| d.slice(a, b)).unwrap_or_default()
     }
@@ -661,8 +660,7 @@ impl App {
         let line = d.rope.char_to_line(start);
         let line_start = d.rope.line_to_char(line);
         let indent: String = d.line_text(line).chars().take(start - line_start).take_while(|c| *c == ' ' || *c == '\t').collect();
-        let vars = crate::templates::variables(d.path.as_deref());
-        let (text, cursor) = crate::templates::expand(body, &vars, &indent);
+        let (text, cursor) = crate::templates::expand(body, &indent);
         d.edit(EditKind::Other, vec![Edit { start, end: head, text, anchor: cursor, head: cursor }]);
         d.scroll_to_cursor = true;
     }

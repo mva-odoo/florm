@@ -6,7 +6,7 @@ so without Claude; Sublime in --safe-mode; VS Code with a temporary profile). It
 are found by a variable of their environment (inherited by all of them), measured every
 half second, then the editor is closed.
 
-    python3 scripts/bench.py ~/src/odoo/master [--editors florm,sublime,code] [--settle 120] [--idle 30]
+    python3 scripts/bench.py ~/src/big-project [--editors florm,sublime,code] [--settle 120] [--idle 30]
 
 Measures (Linux, /proc):
 - window: seconds until its window shows (Hyprland: hyprctl; else not measured)

@@ -43,10 +43,6 @@ pub struct Session {
     pub bottom: Option<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub sidebar_hidden: bool,
-    /// The version worked on, among versions side by side (`20.0`): the others are left out of the
-    /// index. Empty: all of them.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub version: String,
     /// The conversations of the list of the Claude tab (their key in the history of Claude).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub claude_listed: Vec<u64>,

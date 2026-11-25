@@ -1,4 +1,4 @@
-//! Symbols of a file (classes, functions, Odoo records, Markdown headings…) found with per-language
+//! Symbols of a file (classes, functions, Markdown headings…) found with per-language
 //! regexes, and indentation-based blocks, used by the symbol list (Ctrl+R), the breadcrumbs and folding.
 
 use regex::Regex;
@@ -9,7 +9,6 @@ pub enum Kind {
     Class,
     Function,
     Method,
-    Record,
     Heading,
     Other,
 }
@@ -20,7 +19,6 @@ impl Kind {
             Kind::Class => "C",
             Kind::Function => "ƒ",
             Kind::Method => "m",
-            Kind::Record => "R",
             Kind::Heading => "#",
             Kind::Other => "·",
         }
@@ -37,7 +35,7 @@ pub struct Symbol {
     pub end: usize,
     /// Nesting depth (0 = top level).
     pub depth: usize,
-    /// Extra information shown in the list (e.g. the model of an Odoo record).
+    /// Extra information shown in the list (e.g. the type of a class attribute).
     pub detail: String,
 }
 
@@ -54,7 +52,6 @@ fn rules(syntax: &str) -> &'static [Rule] {
     static PHP: OnceLock<Vec<Rule>> = OnceLock::new();
     static RB: OnceLock<Vec<Rule>> = OnceLock::new();
     static SH: OnceLock<Vec<Rule>> = OnceLock::new();
-    static XML: OnceLock<Vec<Rule>> = OnceLock::new();
     static CSS: OnceLock<Vec<Rule>> = OnceLock::new();
     static JAVA: OnceLock<Vec<Rule>> = OnceLock::new();
     let r = |re: &str, kind| Rule { re: Regex::new(re).unwrap(), kind };
@@ -63,8 +60,6 @@ fn rules(syntax: &str) -> &'static [Rule] {
             vec![
                 r(r"^\s*class\s+(\w+)", Kind::Class),
                 r(r"^\s*(?:async\s+)?def\s+(\w+)", Kind::Function),
-                // Odoo model: _name = 'sale.order'
-                r(r#"^\s+_name\s*=\s*['"]([\w.]+)['"]"#, Kind::Record),
             ]
         }),
         "JavaScript" | "TypeScript" | "JSX" | "TypeScriptReact" => JS.get_or_init(|| {
@@ -100,12 +95,6 @@ fn rules(syntax: &str) -> &'static [Rule] {
         }),
         "Bourne Again Shell (bash)" | "Shell-Unix-Generic" => SH.get_or_init(|| {
             vec![r(r"^\s*(?:function\s+)?([A-Za-z_][\w-]*)\s*\(\)", Kind::Function)]
-        }),
-        "XML" | "HTML" => XML.get_or_init(|| {
-            vec![
-                r(r#"<(?:record|template|menuitem|act_window|report)\b[^>]*?\bid="([^"]+)""#, Kind::Record),
-                r(r#"\bt-name="([^"]+)""#, Kind::Record),
-            ]
         }),
         "CSS" | "SCSS" | "Sass" | "LESS" => CSS.get_or_init(|| vec![r(r"^([^\s{}/@][^{};]*?)\s*\{", Kind::Other)]),
         "Java" | "C#" | "C++" | "C" | "Kotlin" => JAVA.get_or_init(|| {
@@ -229,12 +218,12 @@ pub fn syntax_for(path: &std::path::Path) -> Option<&'static str> {
     })
 }
 
-/// Symbols for the project index: `extract`, plus Python class attributes (Odoo fields).
+/// Symbols for the project index: `extract`, plus Python class attributes declared as fields.
 pub fn extract_for_index(text: &str, syntax: &str) -> Vec<Symbol> {
     let mut v = extract(text, syntax, 4);
     if syntax == "Python" {
         static FIELD: OnceLock<Regex> = OnceLock::new();
-        let re = FIELD.get_or_init(|| Regex::new(r"^    (\w+)\s*=\s*(fields\.\w+|[\w.]*Field)\(").unwrap());
+        let re = FIELD.get_or_init(|| Regex::new(r"^    (\w+)\s*=\s*([\w.]*Field)\(").unwrap());
         for (i, l) in text.split('\n').enumerate() {
             if let Some(c) = re.captures(l) {
                 v.push(Symbol { name: c[1].to_string(), kind: Kind::Other, line: i, end: i, depth: 1, detail: c[2].to_string() });
@@ -267,46 +256,18 @@ pub fn extract(text: &str, syntax: &str, tab: usize) -> Vec<Symbol> {
     if rules.is_empty() {
         return out;
     }
-    let model_re = {
-        static M: OnceLock<Regex> = OnceLock::new();
-        M.get_or_init(|| Regex::new(r#"\bmodel="([^"]+)""#).unwrap())
-    };
-    let xml = matches!(syntax, "XML" | "HTML");
-    let open_tag = {
-        static T: OnceLock<Regex> = OnceLock::new();
-        T.get_or_init(|| Regex::new(r#"<(?:record|template|menuitem|act_window|report)\b[^>]*$"#).unwrap())
-    };
     for (i, l) in lines.iter().enumerate() {
         if l.len() > 2000 {
             continue;
         }
-        // an XML tag whose attributes go on the next lines (`<menuitem` then `id="…"` below): read up
-        // to its `>`, the symbol stays on the line of the tag
-        let joined;
-        let l: &str = if xml && open_tag.is_match(l) {
-            joined = lines[i..lines.len().min(i + 12)].iter().scan(false, |done, x| (!*done).then(|| {
-                *done = x.contains('>');
-                *x
-            })).collect::<Vec<_>>().join(" ");
-            &joined
-        } else {
-            l
-        };
         for rule in rules {
             let Some(c) = rule.re.captures(l) else { continue };
             let name = c[1].trim().to_string();
             if rule.kind == Kind::Method && NOT_METHODS.contains(&name.as_str()) {
                 continue;
             }
-            let detail = if rule.kind == Kind::Record {
-                model_re.captures(l).map(|m| m[1].to_string()).unwrap_or_else(|| {
-                    l.trim_start().trim_start_matches('<').split(|c: char| !c.is_alphanumeric() && c != '_' && c != '-').next().unwrap_or("").to_string()
-                })
-            } else {
-                String::new()
-            };
             let end = block_end(&lines, i, tab).unwrap_or(i);
-            out.push(Symbol { name, kind: rule.kind, line: i, end, depth: 0, detail });
+            out.push(Symbol { name, kind: rule.kind, line: i, end, depth: 0, detail: String::new() });
             break;
         }
     }
@@ -344,14 +305,13 @@ mod tests {
 
     #[test]
     fn python_classes_and_methods() {
-        let src = "import x\n\nclass Account(models.Model):\n    _name = 'a'\n\n    def compute(self):\n        if x:\n            pass\n\n    async def other(self):\n        pass\n\n\ndef helper():\n    return 1\n";
+        let src = "import x\n\nclass Account(Base):\n    kind = 'a'\n\n    def compute(self):\n        if x:\n            pass\n\n    async def other(self):\n        pass\n\n\ndef helper():\n    return 1\n";
         let s = extract(src, "Python", 4);
         let v: Vec<(&str, Kind, usize, usize, usize)> = s.iter().map(|s| (s.name.as_str(), s.kind, s.line, s.end, s.depth)).collect();
         assert_eq!(
             v,
             [
                 ("Account", Kind::Class, 2, 10, 0),
-                ("a", Kind::Record, 3, 3, 1), // Odoo model (_name)
                 ("compute", Kind::Method, 5, 7, 1),
                 ("other", Kind::Method, 9, 10, 1),
                 ("helper", Kind::Function, 13, 14, 0),
@@ -363,22 +323,7 @@ mod tests {
     }
 
     #[test]
-    fn an_xml_tag_on_several_lines() {
-        let xml = "<odoo>\n    <menuitem\n        name=\"POS\"\n        id=\"menu_point_root\"\n        sequence=\"5\"/>\n    <record model=\"ir.ui.view\"\n            id=\"view_x\">\n    </record>\n</odoo>\n";
-        let v = extract(xml, "XML", 4);
-        let found: Vec<(&str, usize)> = v.iter().map(|s| (s.name.as_str(), s.line)).collect();
-        // on the line of the tag, where « Aller au symbole » takes you
-        assert_eq!(found, [("menu_point_root", 1), ("view_x", 5)]);
-        assert_eq!(v[1].detail, "ir.ui.view");
-    }
-
-    #[test]
-    fn odoo_xml_and_js_and_markdown() {
-        let xml = "<odoo>\n    <record id=\"view_form\" model=\"ir.ui.view\">\n        <field name=\"arch\" type=\"xml\">\n            <form/>\n        </field>\n    </record>\n    <menuitem id=\"menu_root\" name=\"X\"/>\n</odoo>\n";
-        let s = extract(xml, "XML", 4);
-        assert_eq!((s[0].name.as_str(), s[0].detail.as_str(), s[0].end), ("view_form", "ir.ui.view", 5));
-        assert_eq!((s[1].name.as_str(), s[1].detail.as_str()), ("menu_root", "menuitem"));
-
+    fn js_and_markdown() {
         let js = "export class Foo extends Component {\n    setup() {\n        if (x) {\n        }\n    }\n}\nconst bar = async (a) => a;\n";
         let s = extract(js, "JavaScript", 4);
         let v: Vec<(&str, Kind)> = s.iter().map(|s| (s.name.as_str(), s.kind)).collect();

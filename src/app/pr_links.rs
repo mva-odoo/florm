@@ -6,7 +6,7 @@ use crate::github;
 
 #[derive(Default)]
 pub(super) struct GhUi {
-    /// Per repository: the repository pull requests go to ("odoo/odoo") and its default branch
+    /// Per repository: the repository pull requests go to ("owner/repo") and its default branch
     /// (None while asked, or when `gh` has no answer).
     base: HashMap<PathBuf, Option<(String, String)>>,
     /// Pull requests of a branch (repository, branch).
@@ -99,7 +99,7 @@ impl App {
     }
 
     /// Pull requests of commit `sha` of `repo`: from GitHub, and those named by the merge bot in
-    /// its message ("closes odoo/odoo#123").
+    /// its message ("closes owner/repo#123").
     pub(super) fn commit_prs(&mut self, repo: &Path, sha: &str, message: &str) -> Vec<github::LinkedPr> {
         if !crate::features::on(crate::features::Feature::GitHub) {
             return Vec::new();
@@ -172,10 +172,9 @@ impl App {
     /// What git said for the window « Créer une pull request »: it opens.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn pr_create_info(&mut self, repo: PathBuf, branch: String, upstream: Option<String>, remotes: Vec<(String, String)>, title: String, body: String, refs: Vec<String>) {
-        // the remote it already follows, else "dev" (the fork of the odoo developers), else origin
+        // the remote it already follows, else origin
         let remote = upstream
             .and_then(|u| remotes.iter().position(|(n, _)| *n == u))
-            .or_else(|| remotes.iter().position(|(n, _)| n == "dev"))
             .or_else(|| remotes.iter().position(|(n, _)| n == "origin"))
             .unwrap_or(0);
         self.gh_base(&repo);

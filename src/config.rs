@@ -110,7 +110,6 @@ pub struct Settings {
     /// Look for a newer release of Florm at startup (GitHub).
     pub check_updates: bool,
     /// Last test commands run, newest first.
-    #[serde(alias = "odoo_test_history")]
     pub test_history: Vec<String>,
     /// State of the pull requests shown at the start: "open", "merged", "closed" or "all".
     pub pr_default_state: String,

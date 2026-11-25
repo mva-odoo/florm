@@ -1,8 +1,6 @@
 //! Templates (snippets): blocks of code inserted at the cursor, e.g. a Python breakpoint.
 //! Built-in ones plus the files of the `templates` folder of the configuration (file name = name
-//! of the template, extension = language). Variables are filled from the current file:
-//! `${model}` (sale.order), `${model_}` (sale_order), `${Model}` (SaleOrder), `${name}` (Sale
-//! Order), `${module}` (folder with the `__manifest__.py`); `$0` is where the cursor goes.
+//! of the template, extension = language). `$0` is where the cursor goes.
 //! A template with a trigger (`ipdb`) is also offered by the completion, and Tab after the
 //! word expands it, like the snippets of Sublime Text.
 
@@ -28,18 +26,12 @@ const BUILTIN: &[(&str, &str, &str, &str)] = &[
 
 const README: &str = "# Modèles Florm\n\n\
 Chaque fichier de ce dossier est un modèle : son nom devient le nom du modèle, son extension\n\
-le type de fichier pour lequel il est proposé en premier (ex. « Ma vue kanban.xml »).\n\n\
+le type de fichier pour lequel il est proposé en premier (ex. « Mon test.py »).\n\n\
 Un nom d'un seul mot (lettres, chiffres, _) sert aussi de déclencheur : avec « ipdb.py », taper\n\
 `ipdb` dans un fichier .py le propose dans les suggestions, et Tab le développe.\n\n\
 Pour remplacer un modèle intégré, donne au fichier le même nom, avec « · » à la place de « : »\n\
 (interdit dans un nom de fichier sous Windows) : « Python · pdb.py » remplace « Python : pdb ».\n\n\
-Variables remplacées à l'insertion, d'après le fichier courant :\n\n\
-- `${model}` : sale.order (d'après le nom du fichier : sale_order_views.xml, sale_order.py)\n\
-- `${model_}` : sale_order\n\
-- `${Model}` : SaleOrder\n\
-- `${name}` : Sale Order\n\
-- `${module}` : le module Odoo (dossier qui contient __manifest__.py)\n\
-- `$0` : la position du curseur après l'insertion\n";
+`$0` marque la position du curseur après l'insertion.\n";
 
 /// Where new templates are written: the shared configuration when there is one.
 pub fn dir() -> PathBuf {
@@ -114,48 +106,10 @@ pub fn with_trigger<'a>(all: &'a [Template], ext: &str, prefix: &str) -> impl It
     })
 }
 
-/// Model name guessed from a file name: "sale_order_views.xml" → "sale.order".
-pub fn model_from_file(path: &Path) -> String {
-    let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-    let mut s = stem.as_str();
-    for suffix in ["_views", "_view", "_menus", "_menu", "_actions", "_action", "_templates", "_data", "_security", "_report", "_wizard"] {
-        if let Some(rest) = s.strip_suffix(suffix) {
-            s = rest;
-            break;
-        }
-    }
-    if s.is_empty() || s == "__init__" || s == "__manifest__" || s == "ir.model.access" {
-        return "my.model".into();
-    }
-    s.replace('_', ".")
-}
-
-/// Values of the variables for a template inserted in `path`.
-pub fn variables(path: Option<&Path>) -> Vec<(&'static str, String)> {
-    let model = path.map(model_from_file).unwrap_or_else(|| "my.model".into());
-    let camel: String = model.split('.').map(|w| {
-        let mut c = w.chars();
-        c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str()).unwrap_or_default()
-    }).collect();
-    let name: String = model.split('.').map(|w| {
-        let mut c = w.chars();
-        c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str()).unwrap_or_default()
-    }).collect::<Vec<_>>().join(" ");
-    let module = path
-        .and_then(|p| p.ancestors().skip(1).find(|d| d.join("__manifest__.py").is_file()))
-        .and_then(|d| d.file_name())
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "my_module".into());
-    vec![("${model_}", model.replace('.', "_")), ("${model}", model), ("${Model}", camel), ("${name}", name), ("${module}", module)]
-}
-
-/// The text to insert: variables replaced, every line after the first indented with `indent`.
-/// Returns it with the position of `$0` (in chars), or its end.
-pub fn expand(body: &str, vars: &[(&str, String)], indent: &str) -> (String, usize) {
-    let mut t = body.replace("\r\n", "\n");
-    for (k, v) in vars {
-        t = t.replace(k, v);
-    }
+/// The text to insert: every line after the first indented with `indent`. Returns it with the
+/// position of `$0` (in chars), or its end.
+pub fn expand(body: &str, indent: &str) -> (String, usize) {
+    let t = body.replace("\r\n", "\n");
     // inserted on a line that already has its indentation: only the next lines get it
     let t = t.strip_suffix('\n').map(str::to_string).unwrap_or(t);
     let t: String = t.split('\n').enumerate().map(|(i, l)| if i == 0 || l.is_empty() { l.to_string() } else { format!("{indent}{l}") }).collect::<Vec<_>>().join("\n");
@@ -176,33 +130,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn variables_from_the_file() {
-        let dir = std::env::temp_dir().join(format!("florm_tpl_{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(dir.join("estate/views")).unwrap();
-        std::fs::write(dir.join("estate/__manifest__.py"), "{}").unwrap();
-        let f = dir.join("estate/views/estate_property_views.xml");
-        let v = variables(Some(&f));
-        let get = |k: &str| v.iter().find(|(n, _)| *n == k).unwrap().1.clone();
-        assert_eq!(get("${model}"), "estate.property");
-        assert_eq!(get("${model_}"), "estate_property");
-        assert_eq!(get("${Model}"), "EstateProperty");
-        assert_eq!(get("${name}"), "Estate Property");
-        assert_eq!(get("${module}"), "estate");
-        assert_eq!(model_from_file(Path::new("models/sale_order.py")), "sale.order");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
     fn expands_with_indent_and_cursor() {
-        let vars = vec![("${model_}", "a_b".to_string()), ("${model}", "a.b".to_string())];
-        let (t, c) = expand("<menuitem id=\"${model_}_menu\"\n    parent=\"$0\"/>\n", &vars, "    ");
-        assert_eq!(t, "<menuitem id=\"a_b_menu\"\n        parent=\"\"/>");
-        assert_eq!(&t.chars().take(c).collect::<String>(), "<menuitem id=\"a_b_menu\"\n        parent=\"");
-        // the built-in ones all have a known model and a cursor
+        let (t, c) = expand("<item id=\"a\"\n    parent=\"$0\"/>\n", "    ");
+        assert_eq!(t, "<item id=\"a\"\n        parent=\"\"/>");
+        assert_eq!(&t.chars().take(c).collect::<String>(), "<item id=\"a\"\n        parent=\"");
+        // the built-in ones all have a cursor
         for tpl in load(Path::new("/nonexistent")) {
-            let (t, _) = expand(&tpl.body, &variables(Some(Path::new("x/sale_order_views.xml"))), "");
-            assert!(!t.contains("${"), "{}: {t}", tpl.name);
+            let (t, _) = expand(&tpl.body, "");
             assert!(!t.contains("$0"), "{}", tpl.name);
         }
     }
@@ -214,7 +148,7 @@ mod tests {
         install_readme(&dir);
         // « · » for « : », refused in a file name on Windows
         std::fs::write(dir.join("Python · pdb.py"), "breakpoint()").unwrap();
-        std::fs::write(dir.join("Kanban.xml"), "<kanban/>").unwrap();
+        std::fs::write(dir.join("Card.html"), "<div/>").unwrap();
         let all = load(&dir);
         assert_eq!(all.iter().filter(|t| t.name == "Python : pdb").count(), 1);
         assert_eq!(all.iter().find(|t| t.name == "Python : pdb").unwrap().body, "breakpoint()");
@@ -225,9 +159,9 @@ mod tests {
             assert_eq!(all.iter().filter(|t| t.name == "Python : ipdb").map(|t| t.body.as_str()).collect::<Vec<_>>(), ["breakpoint()"]);
             std::fs::remove_file(dir.join("Python : ipdb.py")).unwrap();
         }
-        assert!(all.iter().any(|t| t.name == "Kanban" && t.ext == "xml"));
+        assert!(all.iter().any(|t| t.name == "Card" && t.ext == "html"));
         assert!(!all.iter().any(|t| t.name == "README"));
-        assert_eq!(all.iter().find(|t| t.name == "Kanban").unwrap().trigger, "Kanban");
+        assert_eq!(all.iter().find(|t| t.name == "Card").unwrap().trigger, "Card");
         std::fs::write(dir.join("ipdb.py"), "breakpoint()").unwrap();
         let all = load(&dir);
         let hits: Vec<&Template> = with_trigger(&all, "py", "ipd").collect();

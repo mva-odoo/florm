@@ -29,12 +29,6 @@ pub enum TreeAction {
     Paste(PathBuf),
     /// `git init` in this folder (new project).
     InitRepo(PathBuf),
-    /// A new version as worktrees, next to the versions around this folder (see `git::Versions`).
-    AddVersion(PathBuf),
-    /// The « Versions » window, for the versions around this folder.
-    Versions(PathBuf),
-    /// Work on this version (its name): only it in the index; empty: every version again.
-    WorkOnVersion(String),
     /// Leave the folder out of go to file, the symbol index and find in files (`true`), or
     /// take it back.
     Exclude(PathBuf, bool),
@@ -43,14 +37,6 @@ pub enum TreeAction {
     /// Chosen in the menu of the folder name at the top.
     SwitchProject(PathBuf),
     OpenFolder,
-}
-
-/// A folder of a version side by side (`odoo/20.0`, see `git::Versions`): its name, whether it is a
-/// worktree (not the folder of the repository itself), whether it is the version worked on.
-pub struct VersionMark {
-    pub name: String,
-    pub worktree: bool,
-    pub current: bool,
 }
 
 /// Keyboard navigation in the tree: the entry under the keyboard cursor, and a focus request.
@@ -501,11 +487,11 @@ pub fn show(
             ui.add_space(6.0);
         }
         drop_target(ui, &r, &root.path, &mut act);
-        r.context_menu(|ui| menu(ui, &root.path, true, None, None, &mut act));
+        r.context_menu(|ui| menu(ui, &root.path, true, None, &mut act));
         let rows_top = ui.cursor().top();
         if let Some(children) = root.children.as_mut() {
             for c in children {
-                node_ui(ui, c, 0, active, git, repos, versions, ex, false, &mut act, scroll_to, cursor.as_deref(), &mut clicked);
+                node_ui(ui, c, 0, active, git, repos, ex, false, &mut act, scroll_to, cursor.as_deref(), &mut clicked);
             }
         }
         if let Some((path, y)) = sticky(ui, root, rows_top, &mut act) {
@@ -609,7 +595,6 @@ fn node_ui(
     active: Option<&Path>,
     git: &HashMap<PathBuf, char>,
     repos: &HashMap<PathBuf, (String, String)>,
-    versions: &HashMap<PathBuf, VersionMark>,
     ex: &crate::walk::Exclusions,
     parent_excluded: bool,
     act: &mut Option<TreeAction>,
@@ -744,24 +729,16 @@ fn node_ui(
             *act = Some(TreeAction::Show(node.path.clone()));
         }
     }
-    let mut note = if excluded { t!("\n\nExclu de l'index : ni dans Ctrl+P, ni dans F12, ni dans la recherche", "\n\nExcluded from the index: not in Ctrl+P, F12 or the search").to_string() } else { String::new() };
-    if let Some(m) = mark {
-        note.push_str(&match (m.worktree, m.current) {
-            (true, true) => tf!("\n\nWorktree git, version {} : celle sur laquelle tu travailles", "\n\nGit worktree, version {}: the one you work on", m.name),
-            (true, false) => tf!("\n\nWorktree git, version {} (clic droit : travailler dessus)", "\n\nGit worktree, version {} (right click: work on it)", m.name),
-            (false, true) => tf!("\n\nLe dépôt lui-même, version {} : celle sur laquelle tu travailles", "\n\nThe repository itself, version {}: the one you work on", m.name),
-            (false, false) => tf!("\n\nLe dépôt lui-même (ses versions sont des worktrees à côté)", "\n\nThe repository itself (its versions are worktrees next to it)"),
-        });
-    }
+    let note = if excluded { t!("\n\nExclu de l'index : ni dans Ctrl+P, ni dans F12, ni dans la recherche", "\n\nExcluded from the index: not in Ctrl+P, F12 or the search").to_string() } else { String::new() };
     let r = match repo {
         Some((_, tip)) => r.on_hover_text_at_pointer(format!("{}{note}\n\n{tip}", node.path.display())),
         None => r.on_hover_text_at_pointer(format!("{}{note}", node.path.display())),
     };
-    r.context_menu(|ui| menu(ui, &node.path, node.is_dir, node.is_dir.then_some(excluded), mark, act));
+    r.context_menu(|ui| menu(ui, &node.path, node.is_dir, node.is_dir.then_some(excluded), act));
     if node.is_dir && node.expanded {
         if let Some(children) = node.children.as_mut() {
             for c in children {
-                node_ui(ui, c, depth + 1, active, git, repos, versions, ex, excluded, act, scroll_to, cursor, clicked);
+                node_ui(ui, c, depth + 1, active, git, repos, ex, excluded, act, scroll_to, cursor, clicked);
             }
         }
     }
@@ -1025,30 +1002,6 @@ fn menu(ui: &mut Ui, path: &Path, is_dir: bool, excluded: Option<bool>, version:
         ui.separator();
         if ui.button(t!("Initialiser un dépôt git ici…", "Initialize a git repository here…")).on_hover_text(t!("git init, le remote à ajouter, puis tout committer (git add .) ou un commit vide, et pousser", "git init, the remote to add, then commit everything (git add .) or an empty commit, and push")).clicked() {
             pick(TreeAction::InitRepo(path.to_path_buf()), ui);
-        }
-    }
-    // versions side by side (odoo/master, odoo/17.0…): from their folder, one of them or the folder
-    // above; not deeper in a repository (its folders are not looked through)
-    if is_dir && !path.ancestors().skip(1).any(|a| a.join(".git").exists()) && !crate::git::versions_near(path).is_empty() {
-        ui.separator();
-        match version {
-            Some(m) if m.current => {
-                if ui.button(t!("Ne plus filtrer les versions", "Stop filtering the versions")).on_hover_text(t!("Toutes les versions de nouveau dans Ctrl+P, F12 et la recherche", "Every version back in go to file, F12 and the search")).clicked() {
-                    pick(TreeAction::WorkOnVersion(String::new()), ui);
-                }
-            }
-            Some(m) => {
-                if ui.button(tf!("● Travailler sur la version {}", "● Work on version {}", m.name)).on_hover_text(t!("Seulement cette version dans Ctrl+P, F12 et la recherche, dans tous les dépôts (odoo, enterprise…)", "Only this version in go to file, F12 and the search, in every repository (odoo, enterprise…)")).clicked() {
-                    pick(TreeAction::WorkOnVersion(m.name.clone()), ui);
-                }
-            }
-            None => {}
-        }
-        if ui.button(t!("Versions côte à côte…", "Versions side by side…")).on_hover_text(t!("Toutes les versions (odoo/20.0, enterprise/20.0…) et leur état : travailler dessus, mettre à jour, ajouter, supprimer", "Every version (odoo/20.0, enterprise/20.0…) and its state: work on it, update, add, remove")).clicked() {
-            pick(TreeAction::Versions(path.to_path_buf()), ui);
-        }
-        if ui.button(t!("Ajouter une version (worktrees)…", "Add a version (worktrees)…")).on_hover_text(t!("Un worktree git par dépôt (odoo/20.0, enterprise/20.0…) sur la branche choisie, qui suit la branche distante", "One git worktree per repository (odoo/20.0, enterprise/20.0…) on the chosen branch, tracking the remote one")).clicked() {
-            pick(TreeAction::AddVersion(path.to_path_buf()), ui);
         }
     }
     match excluded {

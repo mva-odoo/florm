@@ -724,23 +724,23 @@ mod tests {
         assert!(lint_in_process("xml", "<a><b/></a>").is_empty());
         let d = lint_in_process("xml", "<a>\n  <b></c>\n</a>");
         assert_eq!(d.iter().map(|d| (d.line, d.col)).collect::<Vec<_>>(), [(1, 2), (1, 5)]);
-        let d = lint_in_process("xml", "<odoo>\n<record>");
+        let d = lint_in_process("xml", "<data>\n<record>");
         assert_eq!(d.iter().map(|d| d.line).collect::<Vec<_>>(), [0, 1]);
         let at = |s: &str| lint_in_process("xml", s).iter().map(|d| (d.line, d.col)).collect::<Vec<_>>();
         // the unclosed tag is reported on its own line, and the check goes on after it
-        assert_eq!(at("<odoo>\n<record id=\"a\">\n  <field name=\"x\">\n</record>\n<record>\n</odoo>"), [(2, 2), (4, 0)]);
+        assert_eq!(at("<data>\n<record id=\"a\">\n  <field name=\"x\">\n</record>\n<record>\n</data>"), [(2, 2), (4, 0)]);
         // a mistyped closing tag, then its tag left open
-        assert_eq!(at("<odoo>\n<record>\n</recrd>\n</odoo>"), [(1, 0), (2, 0)]);
-        assert_eq!(at("<odoo>\n<record id=a/>\n</odoo>"), [(1, 11)]);
-        assert_eq!(at("<odoo>\n<record id=\"a\" id=\"b\"/>\n</odoo>"), [(1, 15)]);
-        assert_eq!(at("<odoo>\n<a <b/>\n</odoo>"), [(1, 3)]);
-        assert_eq!(at("<odoo>\n<a>x & y</a>\n</odoo>"), [(1, 5)]);
-        assert_eq!(at("<odoo>\n<a b=\"&nbsp;\"/>\n</odoo>"), [(1, 0)]);
+        assert_eq!(at("<data>\n<record>\n</recrd>\n</data>"), [(1, 0), (2, 0)]);
+        assert_eq!(at("<data>\n<record id=a/>\n</data>"), [(1, 11)]);
+        assert_eq!(at("<data>\n<record id=\"a\" id=\"b\"/>\n</data>"), [(1, 15)]);
+        assert_eq!(at("<data>\n<a <b/>\n</data>"), [(1, 3)]);
+        assert_eq!(at("<data>\n<a>x & y</a>\n</data>"), [(1, 5)]);
+        assert_eq!(at("<data>\n<a b=\"&nbsp;\"/>\n</data>"), [(1, 0)]);
         assert_eq!(at("<!DOCTYPE a [<!ENTITY e \"x\">]>\n<a>&e;</a>"), []);
-        assert_eq!(at("<odoo></odoo>\n<odoo></odoo>"), [(1, 0)]);
-        assert_eq!(at("<odoo>\n<record id=\"a>\n</record>\n</odoo>"), [(1, 0)]);
-        assert_eq!(at("<odoo>\n<!-- a -- b -->\n</odoo>"), [(1, 7)]);
-        assert_eq!(at("<?xml version=\"1.0\"?>\n<!-- c -->\n<odoo><![CDATA[a < b & c]]></odoo>\n"), []);
+        assert_eq!(at("<data></data>\n<data></data>"), [(1, 0)]);
+        assert_eq!(at("<data>\n<record id=\"a>\n</record>\n</data>"), [(1, 0)]);
+        assert_eq!(at("<data>\n<!-- a -- b -->\n</data>"), [(1, 7)]);
+        assert_eq!(at("<?xml version=\"1.0\"?>\n<!-- c -->\n<data><![CDATA[a < b & c]]></data>\n"), []);
     }
 
     #[test]

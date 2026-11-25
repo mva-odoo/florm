@@ -1402,7 +1402,7 @@ fn commit_row(ui: &mut egui::Ui, c: &github::Commit, selected: bool, accent: Col
     resp.on_hover_text(format!("{full}\n\n{}", t!("Clic : ses changements · double-clic : dans la vue Git", "Click: its changes · double-click: in the Git view")))
 }
 
-/// The tag at the start of a title (« [FIX] », « [IMP] »…, the convention of Odoo) and its color:
+/// The tag at the start of a title (« [FIX] », « [IMP] »…, as in the commits of Florm) and its color:
 /// red a fix, the accent an improvement, green an addition, orange the others.
 fn title_tag(title: &str, accent: Color32) -> Option<(&str, Color32)> {
     let end = title.find(']').filter(|_| title.starts_with('['))?;
@@ -1962,7 +1962,7 @@ mod render_check {
     }
 }
 
-/// The remote of `repo` that points to the GitHub repository `full` ("odoo/odoo"), else origin.
+/// The remote of `repo` that points to the GitHub repository `full` ("owner/repo"), else origin.
 fn remote_of(repo: &Path, full: &str) -> String {
     let remotes = git::stdout(repo, &["remote"]).unwrap_or_default();
     remotes
@@ -2001,10 +2001,10 @@ mod remote_tests {
         std::fs::create_dir_all(&d).unwrap();
         let g = |a: &[&str]| crate::git::run(&d, a).unwrap();
         g(&["init", "-q"]);
-        g(&["remote", "add", "dev", "git@github.com:odoo-dev/odoo.git"]);
-        g(&["remote", "add", "odoo", "https://github.com/odoo/odoo.git"]);
-        assert_eq!(super::remote_of(&d, "odoo/odoo"), "odoo");
-        assert_eq!(super::remote_of(&d, "Odoo-Dev/odoo"), "dev");
+        g(&["remote", "add", "fork", "git@github.com:me-dev/shop.git"]);
+        g(&["remote", "add", "acme", "https://github.com/acme/shop.git"]);
+        assert_eq!(super::remote_of(&d, "acme/shop"), "acme");
+        assert_eq!(super::remote_of(&d, "Me-Dev/shop"), "fork");
         assert_eq!(super::remote_of(&d, "x/y"), "origin");
         let _ = std::fs::remove_dir_all(&d);
     }

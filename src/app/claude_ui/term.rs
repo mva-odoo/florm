@@ -31,7 +31,7 @@ impl App {
     fn florm_context(&self, dir: &Path) -> String {
         let repo = self.repo_for(dir).unwrap_or_else(|| dir.to_path_buf());
         let branch = git::head_branch(dir).map(|b| (self.repo_label(&repo), b));
-        claude::florm_context(&claude::FlormContext { commit_rules: claude::commit_rules(dir), repo: branch, version: self.version.clone() })
+        claude::florm_context(&claude::FlormContext { commit_rules: claude::commit_rules(dir), repo: branch })
     }
 
     /// The terminal of the conversation shown, started if it has none yet: `claude` with the

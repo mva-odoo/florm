@@ -35,7 +35,6 @@ mod local_history;
 mod logo;
 mod lsp;
 mod npm;
-mod odoo_test;
 mod test_cmd;
 mod os;
 mod pick;

@@ -25,19 +25,18 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 mod git_view;
+mod profile;
 mod ai_review;
 mod ai_complete;
 mod hints;
 mod mermaid;
 mod repo_init;
-mod versions_view;
-mod versions;
 mod md;
 mod quick_fix;
 mod pulls;
 mod view_tabs;
 mod install_guide;
-mod odoo_tests;
+mod test_runs;
 mod conflicts;
 mod pr_claude;
 mod pr_links;
@@ -273,7 +272,7 @@ enum Prompt {
     NewTemplate { body: String, ext: String },
     /// The other file (or folder) to compare the active file with.
     CompareWith,
-    /// Tags of the Odoo tests to run (`/module`, `:TestClass.test_method`…).
+    /// The test command to run (`pytest …`, `cargo test …`…), as a draft.
     TestTags(String),
 }
 
@@ -546,8 +545,6 @@ enum FindAction {
 #[derive(Default)]
 struct SearchUi {
     q: search::Query,
-    /// Searches the versions other than the current one too.
-    all_versions: bool,
     replacement: String,
     show_replace: bool,
     files: Vec<FileHits>,
@@ -826,8 +823,6 @@ struct Indexes {
     /// Files of the project, relative and sorted (recent files are found by binary search);
     /// shared with the job that lists them again, which compares without the interface.
     files: Arc<crate::filelist::FileList>,
-    /// Go to file lists the versions other than the current one too (its "+ other versions").
-    all_versions: bool,
     /// When the file list was last asked for (Ctrl+P rebuilds it, at most every few seconds).
     files_at: Option<Instant>,
     /// Project symbols (go to definition / completion without a language server).
@@ -943,21 +938,13 @@ pub struct App {
     hints: hints::Hints,
     /// The window of a new git repository (right click on a folder in the tree).
     repo_init: Option<repo_init::RepoInitUi>,
-    /// The window to add a version as worktrees (`odoo/20.0`, `enterprise/20.0`…).
-    version_add: Option<versions::AddVersionUi>,
     /// When the states of the conversations in a terminal were last read (Claude dans un terminal).
     claude_term_read: Option<Instant>,
-    /// The window of the versions side by side (state of each, update, remove…).
-    versions_view: Option<versions_view::VersionsView>,
-    /// Versions side by side in the opened folder (`odoo/17.0`, `odoo/20.0`…, see `git::Versions`).
-    versions: Vec<git::Versions>,
-    /// The one worked on (`20.0`): the others are left out of the index. Empty: all of them.
-    version: String,
     /// Corrections rapides (Ctrl+.) of the cursor, while their list is open.
     quick_fix: Option<quick_fix::QuickFix>,
     /// GitHub pull requests tab.
     pr: pulls::PrUi,
-    tests: odoo_tests::Tests,
+    tests: test_runs::Tests,
     /// Pull requests of branches and commits, creation of one.
     gh: pr_links::GhUi,
     /// Conversation with Claude Code and review of its changes: the one shown last.
@@ -1261,11 +1248,7 @@ impl App {
             ai: Default::default(),
             hints: Default::default(),
             repo_init: None,
-            version_add: None,
             claude_term_read: None,
-            versions_view: None,
-            versions: Vec::new(),
-            version: String::new(),
             quick_fix: None,
             pr: {
                 let mut pr = pulls::PrUi::default();
@@ -1484,21 +1467,13 @@ impl App {
         self.repo = None;
         self.git = GitUi::default();
         self.history = HistoryUi::default();
-        // the versions first (the index leaves out those other than the current one, the
-        // repository selected is the one of the current version), then the repositories
-        self.versions.clear();
-        self.version = project::load_session(&path).map(|s| s.version).unwrap_or_default();
-        let (r, send, reindex) = (path.clone(), self.jobs.sender(), !self.version.is_empty());
+        let r = path.clone();
         self.jobs.spawn(move || {
-            send(JobResult::Versions { root: r.clone(), versions: versions::versions_in(&r), reindex });
             let repos = git::find_repos(&r, 3);
             JobResult::Repos(r, repos)
         });
         self.index.files = Default::default();
-        // a version chosen in the session: the index waits for the folders of the others
-        if !reindex {
-            self.refresh_index();
-        }
+        self.refresh_index();
         // the symbol index starts once the file list is done (they would compete for the disk)
         self.index.symbols = None;
         self.index.symbols_for = None;
@@ -1693,8 +1668,6 @@ impl eframe::App for App {
         self.local_history_ui(ctx);
         self.pr_create_ui(ctx);
         self.repo_init_ui(ctx);
-        self.versions_view_ui(ctx);
-        self.version_add_ui(ctx);
         self.overlay_ui(ctx);
         self.confirm_ui(ctx);
         self.hints_ui(ctx);
@@ -2279,9 +2252,6 @@ mod font_tests {
             (App::definition_word(&d), App::word_start(&d))
         };
         assert_eq!(at("self.compute_total()", 8).0, "compute_total");
-        assert_eq!(at("_inherit = 'sale.order'", 15).0, "sale.order");
-        assert_eq!(at("env.ref(\"syndic.view_form\")", 16).0, "syndic.view_form");
-        // a quoted word without a dot stays a plain word
         assert_eq!(at("x = 'hello'", 7).0, "hello");
         assert_eq!(at("    record.amo", 14).1, 11);
     }

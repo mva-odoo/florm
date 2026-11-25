@@ -140,7 +140,7 @@ impl App {
     }
 
     /// Formats (or fixes) the active Python file with ruff; with a selection, `Format` only
-    /// formats its lines (useful where the project is not formatted with ruff, like Odoo).
+    /// formats its lines (useful where the project is not formatted with ruff).
     pub(super) fn python_rewrite(&mut self, what: lint::Rewrite) {
         let Some(d) = self.docs.get(self.active) else { return };
         if d.path.as_deref().and_then(lint::lang_of) != Some("python") {
