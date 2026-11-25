@@ -9,13 +9,13 @@
 # module: a Python module whose presence is enough (debugpy: no program)
 # builtin: inside Florm, nothing to install
 # optional: not installed by « Installer » (another tool does the same)
-# tree_sitter (of a pack): the syntax whose tree-sitter grammar is compiled into Florm (a switch in
-# the pack turns it off)
+# tree_sitter (of a pack): its tree-sitter grammars compiled into Florm (a switch in the pack turns
+# them off)
 
 [[pack]]
 name = "Python"
 ext = ["py", "pyi"]
-tree_sitter = "Python"
+tree_sitter = ["Python"]
 [[pack.tool]]
 kind = "lsp"
 bin = "pylsp"
@@ -42,6 +42,7 @@ pip = "debugpy"
 [[pack]]
 name = "JavaScript / TypeScript"
 ext = ["js", "mjs", "cjs", "jsx", "ts", "mts", "cts", "tsx"]
+tree_sitter = ["JavaScript", "TypeScript", "TSX"]
 [[pack.tool]]
 kind = "lsp"
 bin = "typescript-language-server"
@@ -54,6 +55,7 @@ npm = "eslint"
 [[pack]]
 name = "Go"
 ext = ["go"]
+tree_sitter = ["Go"]
 [[pack.tool]]
 kind = "lsp"
 bin = "gopls"
@@ -66,6 +68,7 @@ go = "github.com/go-delve/delve/cmd/dlv@latest"
 [[pack]]
 name = "Rust"
 ext = ["rs"]
+tree_sitter = ["Rust"]
 [[pack.tool]]
 kind = "lsp"
 bin = "rust-analyzer"
@@ -86,6 +89,7 @@ hint_windows = "winget install -e --id LLVM.LLVM · scoop install gdb"
 [[pack]]
 name = "C / C++"
 ext = ["c", "h", "cpp", "cc", "cxx", "hpp", "hh", "hxx"]
+tree_sitter = ["C", "C++"]
 [[pack.tool]]
 kind = "lsp"
 bin = "clangd"
@@ -100,6 +104,7 @@ hint_windows = "winget install -e --id LLVM.LLVM · scoop install gdb"
 [[pack]]
 name = "XML"
 ext = ["xml"]
+tree_sitter = ["XML"]
 [[pack.tool]]
 kind = "lint"
 bin = "XML"
@@ -108,6 +113,7 @@ builtin = true
 [[pack]]
 name = "JSON"
 ext = ["json"]
+tree_sitter = ["JSON"]
 [[pack.tool]]
 kind = "lint"
 bin = "JSON"
@@ -116,6 +122,7 @@ builtin = true
 [[pack]]
 name = "YAML"
 ext = ["yml", "yaml"]
+tree_sitter = ["YAML"]
 [[pack.tool]]
 kind = "lsp"
 bin = "yaml-language-server"
@@ -128,6 +135,7 @@ pip = "yamllint"
 [[pack]]
 name = "Shell"
 ext = ["sh", "bash"]
+tree_sitter = ["Shell"]
 [[pack.tool]]
 kind = "lsp"
 bin = "bash-language-server"
@@ -157,6 +165,7 @@ npm = "markdownlint-cli"
 [[pack]]
 name = "HTML / CSS"
 ext = ["html", "htm", "css", "scss", "less"]
+tree_sitter = ["HTML", "CSS"]
 [[pack.tool]]
 kind = "lsp"
 bin = "vscode-html-language-server"
@@ -190,6 +199,7 @@ asset.windows-x64 = "hadolint-windows-x86_64.exe"
 [[pack]]
 name = "TOML"
 ext = ["toml"]
+tree_sitter = ["TOML"]
 [[pack.tool]]
 kind = "lsp"
 bin = "taplo"

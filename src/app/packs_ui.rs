@@ -24,8 +24,8 @@ enum PackAct {
     Folder,
     New,
     Check,
-    /// The tree-sitter grammar of a syntax turned on or off.
-    TreeSitter(String, bool),
+    /// The tree-sitter grammars of a pack turned on or off (the pack's name, its grammars).
+    TreeSitter(String, Vec<String>, bool),
 }
 
 impl App {
@@ -96,10 +96,10 @@ impl App {
                 self.set_status(t!("Nouveau pack : enregistre-le, puis ⟳ dans Préférences → Langages", "New pack: save it, then ⟳ in Preferences → Languages"));
             }
             PackAct::Check => self.packs_check(),
-            PackAct::TreeSitter(syntax, on) => {
-                self.settings.tree_sitter_off.retain(|s| *s != syntax);
+            PackAct::TreeSitter(syntax, grammars, on) => {
+                self.settings.tree_sitter_off.retain(|s| !grammars.contains(s));
                 if !on {
-                    self.settings.tree_sitter_off.push(syntax.clone());
+                    self.settings.tree_sitter_off.extend(grammars);
                 }
                 crate::syntax_tree::set_off(&self.settings.tree_sitter_off);
                 let list = serde_json::to_string(&self.settings.tree_sitter_off).unwrap_or_else(|_| "[]".into());
@@ -232,7 +232,7 @@ impl App {
                 ui.horizontal_wrapped(|ui| {
                     // the syntax tree (tree-sitter), compiled in: on or off
                     if !pack.tree_sitter.is_empty() {
-                        let on = !self.settings.tree_sitter_off.iter().any(|s| *s == pack.tree_sitter);
+                        let on = !pack.tree_sitter.iter().any(|g| self.settings.tree_sitter_off.contains(g));
                         let text = format!("{} {}", if on { "✓" } else { "○" }, t!("Syntaxe · tree-sitter", "Syntax · tree-sitter"));
                         let rt = if on { RichText::new(text).small().color(ok()) } else { RichText::new(text).small().weak() };
                         if ui
@@ -243,7 +243,7 @@ impl App {
                             ))
                             .clicked()
                         {
-                            act = Some(PackAct::TreeSitter(pack.tree_sitter.clone(), !on));
+                            act = Some(PackAct::TreeSitter(pack.name.clone(), pack.tree_sitter.clone(), !on));
                         }
                     }
                     for (t, there) in pack.tools.iter().zip(st.iter().copied().chain(std::iter::repeat(false))) {

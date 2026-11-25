@@ -622,6 +622,9 @@ pub struct HlCache {
     pub view_from: usize,
     /// The regexes even when the language has a grammar (the tests of the regex highlighting).
     pub regex_only: bool,
+    /// The extension of the file (set by the editor): it chooses the grammar (TypeScript and
+    /// JavaScript share a syntax, TOML has none of its own).
+    pub ext: String,
 }
 
 impl HlCache {
@@ -730,7 +733,7 @@ impl HlCache {
     fn ensure_tree(&mut self, hl: &Highlighting, rope: &Rope, upto: usize) -> bool {
         let Some(ts) = self.ts.as_mut() else { return true };
         if std::mem::take(&mut self.ts_untold) {
-            if let Some(g) = crate::syntax_tree::grammar_for(ts.syntax()) {
+            if let Some(g) = crate::syntax_tree::grammar_for(ts.name()) {
                 if let Some(fresh) = crate::syntax_tree::SyntaxTree::new(g) {
                     *ts = fresh;
                 }
@@ -776,10 +779,10 @@ impl HlCache {
     /// Highlights up to `upto` (inclusive), for at most `budget` of time (the UI thread: a frame
     /// must not freeze on a long file). Returns false when the budget ran out (caller should repaint).
     pub fn ensure(&mut self, hl: &Highlighting, syntax: &str, rope: &Rope, upto: usize, budget: Duration) -> bool {
-        let grammar = if rope.len_bytes() <= crate::syntax_tree::MAX_BYTES && !self.regex_only { crate::syntax_tree::grammar_for(syntax) } else { None };
-        if self.syntax != syntax || self.generation != hl.generation || grammar.is_some() != self.ts.is_some() {
-            let (view_from, regex_only) = (self.view_from, self.regex_only);
-            *self = HlCache { syntax: syntax.to_string(), generation: hl.generation, view_from, regex_only, ..Default::default() };
+        let grammar = if rope.len_bytes() <= crate::syntax_tree::MAX_BYTES && !self.regex_only { crate::syntax_tree::grammar_for_file(syntax, &self.ext) } else { None };
+        if self.syntax != syntax || self.generation != hl.generation || grammar.map(|g| g.name) != self.ts.as_ref().map(|t| t.name()) {
+            let (view_from, regex_only, ext) = (self.view_from, self.regex_only, std::mem::take(&mut self.ext));
+            *self = HlCache { syntax: syntax.to_string(), generation: hl.generation, view_from, regex_only, ext, ..Default::default() };
             self.ts = grammar.and_then(crate::syntax_tree::SyntaxTree::new);
         }
         if self.ts.is_some() {

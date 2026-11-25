@@ -8,7 +8,7 @@ langage), extensions (`src/ext.rs`, `src/app/extensions.rs`, bibliothèque `asse
 catalogue (`src/catalog.rs` ; extensions livrées dans `assets/extensions/`, ex. Odoo). Ce qui manque
 (Python, Node.js, Go, binaires des releases GitHub) est téléchargé et vérifié par `src/runtimes.rs`.
 Coloration par arbre de syntaxe (tree-sitter, grammaires compilées dans Florm, `src/syntax_tree.rs`,
-branché dans `HlCache` de `src/highlight.rs`) pour les langages qui en ont une ; syntect pour les autres.
+branché dans `HlCache` de `src/highlight.rs`) pour les langages qui en ont une (choisie par l'extension du fichier) ; syntect pour les autres.
 
 ## Commandes
 

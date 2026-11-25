@@ -154,6 +154,11 @@ fn removed_strong(light: bool) -> Color32 {
 }
 
 pub fn show(ui: &mut Ui, doc: &mut Document, hl: &Highlighting, opts: &ViewOpts, matches: &[(usize, usize)], id: Id) -> egui::Response {
+    // the extension chooses the syntax tree's grammar (set before the minimap highlights)
+    let ext = doc.path.as_deref().and_then(|p| p.extension()).and_then(|e| e.to_str()).unwrap_or("");
+    if doc.highlight.ext != ext {
+        doc.highlight.ext = ext.to_string();
+    }
     let font = FontId::monospace(opts.font_size);
     let (rh, cw) = ui.fonts(|f| (f.row_height(&font), char_width(f, &font)));
     let bg = hl.colors.bg;
