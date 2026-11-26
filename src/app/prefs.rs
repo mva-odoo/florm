@@ -467,9 +467,6 @@ impl App {
                 pref_row(ui, rc, t!("Barre de mise en forme Markdown", "Markdown toolbar"), t!("Au-dessus du texte d'un fichier .md : gras, italique, titres, listes, liens… autour de la sélection.", "Above the text of a .md file: bold, italic, headings, lists, links… around the selection."), |ui| {
                     toggle_switch(ui, &mut s.markdown_toolbar);
                 });
-                pref_row(ui, rc, t!("Barre de menus", "Menu bar"), t!("Fichier, Édition, Sélection… en haut de la fenêtre. Masquée, ses commandes restent dans la palette (Ctrl+Shift+P).", "File, Edit, Selection… at the top of the window. Hidden, its commands are still in the palette (Ctrl+Shift+P)."), |ui| {
-                    toggle_switch(ui, &mut s.show_menu_bar);
-                });
                 pref_row(ui, rc, t!("Fil d'Ariane", "Breadcrumbs"), t!("Dossier › fichier › classe › fonction au-dessus de l'éditeur ; clic sur un élément pour y aller.", "Folder › file › class › function above the editor; click an item to go to it."), |ui| {
                     toggle_switch(ui, &mut s.breadcrumbs);
                 });
@@ -936,7 +933,7 @@ impl App {
                         }
                     });
                 });
-                pref_row(ui, rc, t!("Chercher les mises à jour", "Check for updates"), &tf!("Au démarrage, Florm regarde s'il existe une version plus récente que la {} sur GitHub et la propose en bas à droite.", "At startup, Florm checks GitHub for a version newer than {} and offers it at the bottom right.", crate::update::current()), |ui| {
+                pref_row(ui, rc, t!("Chercher les mises à jour", "Check for updates"), &tf!("Au démarrage, Florm regarde s'il existe une version plus récente que la {} sur GitHub et la propose en haut à gauche (⬆).", "At startup, Florm checks GitHub for a version newer than {} and offers it at the top left (⬆).", crate::update::current()), |ui| {
                     toggle_switch(ui, &mut s.check_updates);
                 });
                 let shared = &mut self.prefs.shared;
@@ -1203,7 +1200,6 @@ impl App {
             ("word_wrap", s.word_wrap, before.word_wrap),
             ("sticky_scroll", s.sticky_scroll, before.sticky_scroll),
             ("breadcrumbs", s.breadcrumbs, before.breadcrumbs),
-            ("show_menu_bar", s.show_menu_bar, before.show_menu_bar),
             ("claude_sandbox", s.claude_sandbox, before.claude_sandbox),
             ("claude_done_blink", s.claude_done_blink, before.claude_done_blink),
             ("git", s.git, before.git),

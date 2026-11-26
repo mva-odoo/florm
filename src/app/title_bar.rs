@@ -1,5 +1,6 @@
-//! Florm's own title bar (as VS Code): the menus, the title and ─ □ ✕ inside the window, which
-//! has no system title bar then; dragging the bar moves the window, its edges resize it.
+//! The window without the system's title bar (as Zed): the bar at the top is the tab strip, which
+//! goes on over the sidebar; ─ □ ✕ at its end (round buttons at its start on macOS, none under a
+//! tiling window manager); dragging it moves the window, the window's edges resize it.
 
 use super::*;
 use crate::os::{self, Controls};
@@ -41,8 +42,6 @@ fn clear_corners(radius: f32) -> eframe::egui_glow::CallbackFn {
     })
 }
 
-/// Height of the bar.
-pub(super) const TITLE_H: f32 = 32.0;
 /// Width of a window button (as Windows draws them).
 const BUTTON_W: f32 = 46.0;
 /// Room the three buttons take at the right of the tab strip (menus hidden, Windows and Linux).
@@ -57,46 +56,24 @@ const CORNER: f32 = 12.0;
 impl App {
     /// Florm draws the title bar (see `os::draws_title_bar`).
     pub(super) fn own_title_bar(&self) -> bool {
-        os::draws_title_bar(self.settings.show_menu_bar)
+        os::draws_title_bar()
     }
 
-    /// The window buttons go in the tab strip (menus hidden, so no bar): at its right end (Windows,
-    /// Linux) or its left (macOS). `pane`: the strip of a split editor (None: the only one).
+    /// The window buttons in the tab strip of `pane` (None: the only one): at the right end of the
+    /// last one (Windows, Linux), at the left of the first one (macOS) when the sidebar is hidden.
     pub(super) fn strip_controls(&self, pane: Option<u8>) -> Option<Controls> {
-        if self.settings.show_menu_bar {
-            return None;
-        }
         let c = os::window_controls();
         let here = match (c, pane) {
             (Controls::Side, None | Some(1)) => true,
-            // macOS: in the corner of the window, at the top of the sidebar when it is shown
             (Controls::Mac, None | Some(0)) => !self.show_sidebar,
             _ => false,
         };
         here.then_some(c)
     }
 
-    /// macOS, menus hidden: the round buttons at the top of the sidebar (the top left corner of
-    /// the window, as macOS puts them), above the folder.
-    /// The round buttons at the top of the sidebar (macOS, without the menu bar); the room left on
-    /// their right, where the tree puts the name of the folder (a row less).
-    pub(super) fn sidebar_mac_buttons(&self, ui: &mut egui::Ui) -> Option<Rect> {
-        if self.settings.show_menu_bar || os::window_controls() != Controls::Mac {
-            return None;
-        }
-        let maximized = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
-        egui::Panel::top("sidebar_mac_buttons").exact_size(TITLE_H - 6.0).frame(egui::Frame::NONE).show_separator_line(false).show(ui, |ui| {
-            let bar = ui.max_rect();
-            // the empty part moves the window, as the title bar does
-            let drag = ui.interact(bar, egui::Id::unique("sidebar_mac_drag"), Sense::click_and_drag());
-            drag_window(ui.ctx(), &drag, maximized);
-            // from the left edge of the window (the sidebar has a margin)
-            let left = Rect::from_min_max(Pos2::new(bar.left() - 8.0, bar.top()), bar.right_bottom());
-            strip_buttons(ui, left, Controls::Mac, maximized);
-            Rect::from_min_max(Pos2::new(left.left() + MAC_BUTTONS_W, bar.top()), Pos2::new(bar.right() - 4.0, bar.bottom()))
-        })
-        .inner
-        .into()
+    /// The window buttons at the top of the sidebar: macOS (the top left corner of the window).
+    pub(super) fn top_controls(&self, _sidebar: bool) -> Option<Controls> {
+        (os::window_controls() == Controls::Mac).then_some(Controls::Mac)
     }
 
     /// The window's edge drawn by Florm: a thin line in a grey touched by the accent, a lighter one
@@ -110,7 +87,7 @@ impl App {
         // rounded corners when the window does not fill the screen and has no system decorations;
         // a tiling compositor (Hyprland…) says « maximized » for every window: rounded there too
         let round = (!maximized || os::window_controls() == Controls::None)
-            && os::rounded_window(self.settings.show_menu_bar)
+            && os::rounded_window()
             && os::TRANSPARENT_WINDOW.load(std::sync::atomic::Ordering::Relaxed);
         let radius = if round { WINDOW_ROUNDING } else { 0.0 };
         let tc = self.hl.tab_colors();
@@ -133,43 +110,6 @@ impl App {
             ctx.send_viewport_cmd(ViewportCommand::Decorations(!own));
             self.title_bar_on = own;
         }
-    }
-
-    /// The bar: the menus at the left (unless hidden), ─ □ ✕ at the right (round ones at the left
-    /// on macOS, none under a tiling window manager).
-    pub(super) fn title_bar(&mut self, ui: &mut egui::Ui) {
-        let ctx = &ui.ctx().clone();
-        let mut pending = Vec::new();
-        let panel = self.hl.surfaces().bar;
-        let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
-        let controls = os::window_controls();
-        egui::Panel::top("menu")
-            .exact_size(TITLE_H)
-            .frame(egui::Frame::NONE.fill(panel).inner_margin(egui::Margin { left: 10, right: 0, top: 0, bottom: 0 }))
-            .show_separator_line(false)
-            .show(ui, |ui| {
-                let bar = ui.max_rect();
-                ui.painter().hline(bar.x_range(), bar.bottom() - 0.5, egui::Stroke::new(1.0_f32, self.hl.surfaces().border));
-                // under everything else of the bar: what is not a menu or a button moves the window
-                let drag = ui.interact(bar, egui::Id::unique("title_drag"), Sense::click_and_drag());
-                drag_window(ctx, &drag, maximized);
-                ui.horizontal_centered(|ui| {
-                    if controls == Controls::Mac {
-                        mac_buttons(ui, ctx, maximized);
-                        ui.add_space(6.0);
-                    }
-                    if self.settings.show_menu_bar {
-                        egui::MenuBar::new().ui(ui, |ui| self.menus(ui, &mut pending));
-                    }
-                    if controls == Controls::Side {
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.spacing_mut().item_spacing.x = 0.0;
-                            window_buttons(ui, maximized);
-                        });
-                    }
-                });
-            });
-        self.pending.extend(pending);
     }
 
     /// The edges of the window resize it (it has no system frame).

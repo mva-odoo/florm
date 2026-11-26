@@ -4,26 +4,41 @@
 use super::*;
 
 impl App {
-    /// The update, at the bottom right of the status bar (next to the version): a pill of the
-    /// accent color, its card says what is new and installs it. Once installed, Florm restarts
-    /// by itself (see `update`).
-    pub(super) fn update_symbol(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+    /// Beside the F at the top left: the version of Florm (a click looks for an update), and the
+    /// update when there is one, a round button of its icon alone in the accent color: its card
+    /// says what is new and installs it. Once installed, Florm restarts by itself (see `update`).
+    pub(in crate::app) fn version_and_update(&mut self, ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
         let accent = self.hl.colors.accent;
-        // a pill, not a link lost among the details of the bar
-        let pill = |text: String| egui::Button::new(RichText::new(text).size(12.0).color(text_on(accent)).strong()).fill(accent).corner_radius(9.0).min_size(egui::vec2(0.0, 18.0));
+        let muted = self.hl.tab_colors().text_inactive;
+        let version = egui::Button::new(RichText::new(format!("v{}", crate::update::current())).size(11.5).color(muted)).frame(false);
+        if ui.add(version).on_hover_text(t!("Version de Florm · clic : rechercher une mise à jour", "Florm version · click: check for an update")).clicked() {
+            self.pending.push(Cmd::CheckUpdate);
+        }
+        // a round green badge, its icon alone (the room of the bar is for the project): it stands out
+        let badge = || egui::Button::new("").frame(false).min_size(egui::vec2(20.0, 20.0));
+        let paint = |ui: &egui::Ui, r: &egui::Response, ready: bool| {
+            icons::paint_upgrade(ui.painter(), egui::Rect::from_center_size(r.rect.center(), egui::vec2(16.0, 16.0)), ready, r.hovered());
+            if r.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+        };
         if let (Some(u), true) = (&self.upd.found, self.upd.installing) {
-            ui.label(RichText::new(tf!("Mise à jour vers Florm {}…", "Updating to Florm {}…", u.version)).weak());
-            spinner(ui);
+            ui.add(egui::Spinner::new().size(14.0)).on_hover_text(tf!("Mise à jour vers Florm {}…", "Updating to Florm {}…", u.version));
         } else if let (Some(u), true) = (&self.upd.found, self.upd.ready.is_some()) {
-            if ui.add(pill(tf!("⟳ Redémarrer pour la {}", "⟳ Restart for {}", u.version))).on_hover_text(t!("La nouvelle version est installée : Florm se relance (fichiers non enregistrés : la question habituelle)", "The new version is installed: Florm restarts (unsaved files: the usual question)")).clicked() {
-                self.restart_for_update(ctx);
+            let tip = tf!("Florm {} est installée : clic pour redémarrer (fichiers non enregistrés : la question habituelle)", "Florm {} is installed: click to restart (unsaved files: the usual question)", u.version);
+            let r = ui.add(badge());
+            paint(ui, &r, true);
+            if r.on_hover_text(tip).clicked() {
+                self.restart_for_update(&ctx);
             }
         } else if let Some(u) = self.upd.found.clone() {
             ui.scope(|ui| {
-                ui.spacing_mut().button_padding = egui::vec2(9.0, 0.0);
-                egui::containers::menu::MenuButton::from_button(pill(tf!("⬆ Mise à jour {}", "⬆ Update {}", u.version))).ui(ui, |ui| self.update_card(ui, &u, accent))
-                    .0
-                    .on_hover_text(t!("Une nouvelle version de Florm : clic pour voir ce qui change et l'installer", "A new version of Florm: click to see what changes and install it"));
+                ui.spacing_mut().button_padding = egui::vec2(0.0, 0.0);
+                let tip = tf!("Florm {} est disponible : clic pour voir ce qui change et l'installer", "Florm {} is available: click to see what changes and install it", u.version);
+                let r = egui::containers::menu::MenuButton::from_button(badge()).ui(ui, |ui| self.update_card(ui, &u, accent)).0;
+                paint(ui, &r, false);
+                r.on_hover_text(tip);
             });
         }
     }
@@ -104,103 +119,6 @@ impl App {
             let muted = crate::icons::mix(ui.visuals().text_color(), s.bar, 0.22);
             ui.visuals_mut().override_text_color = Some(muted);
             ui.horizontal_centered(|ui| {
-                // the F of Florm, at the far left: the menus (File, Edit, Git…) above it, when the
-                // menu bar is hidden (as Zed's ☰)
-                if !self.settings.show_menu_bar {
-                    let mut picked = Vec::new();
-                    let km = &self.keymap;
-                    let b = egui::Button::new("").frame(false).min_size(egui::vec2(22.0, 22.0));
-                    let r = egui::containers::menu::MenuButton::from_button(b)
-                        .ui(ui, |ui| {
-                            ui.visuals_mut().override_text_color = None;
-                            super::menus::menus(ui, km, &mut picked);
-                        })
-                        .0;
-                    let r = r.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(t!("Menus (Fichier, Édition, Git…)", "Menus (File, Edit, Git…)"));
-                    if r.hovered() {
-                        ui.painter().rect_filled(r.rect, 4.0, ui.visuals().widgets.hovered.weak_bg_fill);
-                    }
-                    crate::logo::paint(ui.painter(), r.rect.shrink(4.0), false);
-                    self.pending.extend(picked);
-                }
-                // the preferences, one click away (a click on them shown goes back to the tab before)
-                let shown = self.docs.get(self.active).is_some_and(|d| d.view == crate::document::View::Settings);
-                let keys = self.keymap.label(Cmd::OpenSettings);
-                let tip = if keys.is_empty() { t!("Préférences", "Preferences").to_string() } else { tf!("Préférences ({keys})", "Preferences ({keys})") };
-                let tip = tf!("{tip}\nClic droit : Langages (outils, tree-sitter), Extensions", "{tip}\nRight click: Languages (tools, tree-sitter), Extensions");
-                let color = if shown { self.hl.colors.accent } else { muted };
-                let gear = view_button(ui, icons::ViewIcon::Settings, color).on_hover_text(tip);
-                if gear.clicked() {
-                    if shown {
-                        self.leave_tab(crate::document::View::Settings);
-                    } else {
-                        self.pending.push(Cmd::OpenSettings);
-                    }
-                }
-                // its right click: straight to the languages and the extensions
-                let mut go = None;
-                gear.context_menu(|ui| {
-                    ui.visuals_mut().override_text_color = None;
-                    for (label, cmd) in [
-                        (t!("Préférences", "Preferences"), Cmd::OpenSettings),
-                        (t!("Langages : outils et tree-sitter…", "Languages: tools and tree-sitter…"), Cmd::ShowLanguages),
-                        (t!("Extensions et catalogue…", "Extensions and catalogue…"), Cmd::ShowExtensions),
-                    ] {
-                        if ui.button(label).clicked() {
-                            go = Some(cmd);
-                            ui.close();
-                        }
-                    }
-                });
-                if let Some(c) = go {
-                    self.pending.push(c);
-                }
-                // the views of every day, one click away: Claude, Git, the pull requests (their tab;
-                // a click on the one shown goes back to the tab before it) and the terminal
-                use crate::features::{on, Feature};
-                let accent = self.hl.colors.accent;
-                let active_view = self.docs.get(self.active).map(|d| d.view);
-                for (on, icon, view, label, cmd) in [
-                    (on(Feature::Claude), icons::ViewIcon::Claude, Some(crate::document::View::Claude), "Claude", Cmd::Claude),
-                    (on(Feature::Git), icons::ViewIcon::Git, Some(crate::document::View::Git), "Git", Cmd::ShowGit),
-                    (on(Feature::GitHub), icons::ViewIcon::PullRequests, Some(crate::document::View::PullRequests), t!("Pull requests (GitHub)", "Pull requests (GitHub)"), Cmd::PullRequests),
-                    (true, icons::ViewIcon::Terminal, None, "Terminal", Cmd::ToggleTerminal),
-                ] {
-                    if !on {
-                        continue;
-                    }
-                    let shown = match view {
-                        Some(v) => active_view == Some(v),
-                        None => self.bottom == Some(BottomTab::Terminal) || matches!(active_view, Some(crate::document::View::Terminal(_))),
-                    };
-                    let keys = self.keymap.label(cmd);
-                    let tip = if keys.is_empty() { label.to_string() } else { format!("{label} ({keys})") };
-                    if view_button(ui, icon, if shown { accent } else { muted }).on_hover_text(tip).clicked() {
-                        match view {
-                            Some(v) if shown => self.leave_tab(v),
-                            _ => self.pending.push(cmd),
-                        }
-                    }
-                }
-                // the debugger, beside the terminal: in color while a session runs (green) or is
-                // paused (orange); a click shows its view, or hides it when shown
-                let shown = self.bottom == Some(BottomTab::Debug);
-                let (color, state) = match self.debug_status() {
-                    Some(true) => (warn(), t!(" — en pause", " — paused")),
-                    Some(false) => (ok(), t!(" — en cours", " — running")),
-                    None if shown => (accent, ""),
-                    None => (muted, ""),
-                };
-                let keys = self.keymap.label(Cmd::DebugStart);
-                let tip = tf!("Débogueur{state} ({keys} : lancer, continuer)", "Debugger{state} ({keys}: start, continue)");
-                if view_button(ui, icons::ViewIcon::Debug, color).on_hover_text(tip).clicked() {
-                    if shown {
-                        self.bottom = None;
-                    } else {
-                        self.pending.push(Cmd::DebugShow);
-                    }
-                }
-                ui.separator();
                 // only for a text (not on the welcome page, a diff, the preferences…)
                 if let Some(d) = self.docs.get(self.active).filter(|d| d.view == crate::document::View::Text) {
                     let p = d.primary_sel();
@@ -248,128 +166,116 @@ impl App {
                     }
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let version = egui::Button::new(RichText::new(format!("v{}", crate::update::current())).small()).frame(false);
-                    if ui.add(version).on_hover_text(t!("Version de Florm · clic : rechercher une mise à jour", "Florm version · click: check for an update")).clicked() {
-                        self.pending.push(Cmd::CheckUpdate);
-                    }
-                    self.update_symbol(ui, ctx);
-                    // the rest of the file's details and the language server in a menu
-                    let mut pending = Vec::new();
-                    let lsp_line = self.lsp_status_line();
-                    ui.menu_button("⋯", |ui| {
-                        ui.visuals_mut().override_text_color = None;
-                        if let Some(d) = self.docs.get(self.active) {
-                            if ui.button(tf!("Syntaxe : {}…", "Syntax: {}…", d.syntax)).clicked() {
-                                pending.push(Cmd::SetSyntax);
-                                ui.close();
+                    // at the right end, the views of the bottom panel as tabs of their icon:
+                    // Terminal, Débogueur, Problèmes, Sortie (a click shows it, again hides it)
+                    self.bottom_tabs(ui);
+                    // everything else on the left, after the position and the message: the branch,
+                    // Claude, the file's details
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        if let Some(st) = &self.git.status {
+                            let mut label = match (&self.repo, self.repos.len() > 1) {
+                                (Some(r), true) => format!("🔀 {} · {}", self.repo_label(r), st.branch),
+                                _ => format!("🔀 {}", st.branch),
+                            };
+                            // commits to push / to pull, and the changed files
+                            if let Some((_, ahead, behind)) = st.upstream() {
+                                if ahead > 0 {
+                                    label.push_str(&format!(" ↑{ahead}"));
+                                }
+                                if behind > 0 {
+                                    label.push_str(&format!(" ↓{behind}"));
+                                }
                             }
-                            let ind = if d.use_spaces { tf!("Espaces : {}", "Spaces: {}", d.tab_size) } else { tf!("Tabulations : {}", "Tabs: {}", d.tab_size) };
-                            if ui.button(tf!("Indentation : {ind}", "Indentation: {ind}")).on_hover_text(t!("Clic : passer aux espaces / aux tabulations", "Click: switch to spaces / tabs")).clicked() {
-                                toggle_spaces = true;
-                                ui.close();
+                            if !st.entries.is_empty() {
+                                label.push_str(&format!(" ●{}", st.entries.len()));
                             }
-                            ui.label(tf!("Fin de ligne : {}", "Line ending: {}", if d.crlf { "CRLF (Windows)" } else { "LF" }));
-                            ui.label(tf!("Encodage : {}", "Encoding: {}", d.encoding.label()));
+                            // the branch, what it tracks and the remotes (what the top of the sidebar showed)
+                            let legend = t!("↑ à pousser, ↓ à récupérer, ● fichiers modifiés · clic : Git", "↑ to push, ↓ to pull, ● changed files · click: Git");
+                            let tip = match self.repo.as_ref().and_then(|r| self.repo_info.get(r)) {
+                                Some((_, t)) => format!("{t}\n\n{legend}"),
+                                None => legend.to_string(),
+                            };
+                            if ui.add(egui::Button::new(label).frame(false)).on_hover_text(tip).clicked() {
+                                self.pending.push(Cmd::ShowGit);
+                            }
                         }
-                        if let Some((text, warning, install)) = &lsp_line {
-                            ui.separator();
-                            let t = if *warning { RichText::new(text).color(warn()) } else { RichText::new(text) };
-                            if let Some(cmd) = install {
-                                let tip = if *cmd == Cmd::InstallPylsp {
-                                    t!("Installe python-lsp-server pour Florm (pip --target, sans toucher au Python système). Ou installe pyright.", "Installs python-lsp-server for Florm (pip --target, without touching the system Python). Or install pyright.")
-                                } else {
-                                    t!("Préférences → Langages : les outils de ce langage, à installer", "Preferences → Languages: the tools of this language, to install")
-                                };
-                                if ui.button(t).on_hover_text(tip).clicked() {
-                                    pending.push(*cmd);
+                        // the rest of the file's details and the language server in a menu
+                        let mut pending = Vec::new();
+                        let lsp_line = self.lsp_status_line();
+                        ui.menu_button("⋯", |ui| {
+                            ui.visuals_mut().override_text_color = None;
+                            if let Some(d) = self.docs.get(self.active) {
+                                if ui.button(tf!("Syntaxe : {}…", "Syntax: {}…", d.syntax)).clicked() {
+                                    pending.push(Cmd::SetSyntax);
                                     ui.close();
                                 }
-                            } else {
-                                ui.label(t);
+                                let ind = if d.use_spaces { tf!("Espaces : {}", "Spaces: {}", d.tab_size) } else { tf!("Tabulations : {}", "Tabs: {}", d.tab_size) };
+                                if ui.button(tf!("Indentation : {ind}", "Indentation: {ind}")).on_hover_text(t!("Clic : passer aux espaces / aux tabulations", "Click: switch to spaces / tabs")).clicked() {
+                                    toggle_spaces = true;
+                                    ui.close();
+                                }
+                                ui.label(tf!("Fin de ligne : {}", "Line ending: {}", if d.crlf { "CRLF (Windows)" } else { "LF" }));
+                                ui.label(tf!("Encodage : {}", "Encoding: {}", d.encoding.label()));
+                            }
+                            if let Some((text, warning, install)) = &lsp_line {
+                                ui.separator();
+                                let t = if *warning { RichText::new(text).color(warn()) } else { RichText::new(text) };
+                                if let Some(cmd) = install {
+                                    let tip = if *cmd == Cmd::InstallPylsp {
+                                        t!("Installe python-lsp-server pour Florm (pip --target, sans toucher au Python système). Ou installe pyright.", "Installs python-lsp-server for Florm (pip --target, without touching the system Python). Or install pyright.")
+                                    } else {
+                                        t!("Préférences → Langages : les outils de ce langage, à installer", "Preferences → Languages: the tools of this language, to install")
+                                    };
+                                    if ui.button(t).on_hover_text(tip).clicked() {
+                                        pending.push(*cmd);
+                                        ui.close();
+                                    }
+                                } else {
+                                    ui.label(t);
+                                }
+                            }
+                        })
+                        .response
+                        .on_hover_text(t!("Syntaxe, indentation, fin de ligne, encodage, serveur de langage", "Syntax, indentation, line ending, encoding, language server"));
+                        self.pending.extend(pending);
+                        if let Some(d) = self.docs.get(self.active) {
+                            // only shown when it is not UTF-8: the file is saved back in its encoding
+                            if d.encoding != document::Encoding::Utf8
+                                && ui
+                                    .add(egui::Button::new(RichText::new(d.encoding.label()).color(warn())).frame(false))
+                                    .on_hover_text(t!("Le fichier n'est pas en UTF-8 : il est enregistré dans son encodage.\nClic : l'enregistrer en UTF-8 désormais.", "The file is not in UTF-8: it is saved in its encoding.\nClick: save it in UTF-8 from now on."))
+                                    .clicked()
+                            {
+                                convert_utf8 = true;
                             }
                         }
-                    })
-                    .response
-                    .on_hover_text(t!("Syntaxe, indentation, fin de ligne, encodage, serveur de langage", "Syntax, indentation, line ending, encoding, language server"));
-                    self.pending.extend(pending);
-                    if let Some(d) = self.docs.get(self.active) {
-                        // only shown when it is not UTF-8: the file is saved back in its encoding
-                        if d.encoding != document::Encoding::Utf8
-                            && ui
-                                .add(egui::Button::new(RichText::new(d.encoding.label()).color(warn())).frame(false))
-                                .on_hover_text(t!("Le fichier n'est pas en UTF-8 : il est enregistré dans son encodage.\nClic : l'enregistrer en UTF-8 désormais.", "The file is not in UTF-8: it is saved in its encoding.\nClick: save it in UTF-8 from now on."))
-                                .clicked()
-                        {
-                            convert_utf8 = true;
-                        }
-                    }
-                    // problems: only when there are some
-                    let errs: usize = self
-                        .docs
-                        .iter()
-                        .flat_map(|d| d.diagnostics.iter())
-                        .filter(|g| g.severity == Severity::Error)
-                        .count();
-                    let warns: usize = self.docs.iter().map(|d| d.diagnostics.len()).sum::<usize>() - errs;
-                    if errs + warns > 0 {
-                        let txt = RichText::new(format!("✖ {errs}  ⚠ {warns}")).color(if errs > 0 { err() } else { warn() });
-                        if ui.add(egui::Button::new(txt).frame(false)).on_hover_text(t!("Problèmes (Ctrl+Shift+M)", "Problems (Ctrl+Shift+M)")).clicked() {
-                            self.pending.push(Cmd::ShowProblems);
-                        }
-                    }
-                    // what is going on, only while it is: Claude
-                    let weak = muted;
-                    // the conversations: finished and not seen yet, waiting for you, working
-                    let (busy, waiting, done) = self.claude_states();
-                    if let Some((id, lit)) = done {
-                        let col = if lit { ok() } else { weak };
-                        if state_chip(ui, icons::ViewIcon::Claude, "✔", col).on_hover_text(t!("Claude a fini de répondre · clic : voir la réponse", "Claude has finished answering · click: see the answer")).clicked() {
-                            self.claude_go_to(id);
-                        }
-                    }
-                    if !waiting.is_empty() {
-                        let n = waiting.len();
-                        let text = if n > 1 { tf!("❓ {n} attendent", "❓ {n} waiting") } else { t!("❓ attend", "❓ waiting").to_string() };
-                        // what it waits for, as Claude Code says it (a permission, a question)
-                        let what = self.claude_waiting_for().unwrap_or_else(|| t!("Claude attend ta réponse à ses questions", "Claude waits for your answer to its questions").to_string());
-                        let tip = tf!("{what} · clic : y aller (Ctrl+Alt+W : la suivante)", "{what} · click: go there (Ctrl+Alt+W: the next one)");
-                        if state_chip(ui, icons::ViewIcon::Claude, &text, warn()).on_hover_text(tip).clicked() {
-                            self.claude_next_waiting();
-                        }
-                    }
-                    if busy > 0 {
-                        let text = if busy > 1 { tf!("{busy} au travail", "{busy} working") } else { t!("au travail", "working").to_string() };
-                        if state_chip(ui, icons::ViewIcon::Claude, &text, self.hl.colors.accent).on_hover_text(t!("Claude répond", "Claude is answering")).clicked() {
-                            self.open_claude();
-                        }
-                    }
-                    if let Some(st) = &self.git.status {
-                        let mut label = match (&self.repo, self.repos.len() > 1) {
-                            (Some(r), true) => format!("🔀 {} · {}", self.repo_label(r), st.branch),
-                            _ => format!("🔀 {}", st.branch),
-                        };
-                        // commits to push / to pull, and the changed files
-                        if let Some((_, ahead, behind)) = st.upstream() {
-                            if ahead > 0 {
-                                label.push_str(&format!(" ↑{ahead}"));
-                            }
-                            if behind > 0 {
-                                label.push_str(&format!(" ↓{behind}"));
+                        // what is going on, only while it is: Claude
+                        let weak = muted;
+                        // the conversations: finished and not seen yet, waiting for you, working
+                        let (busy, waiting, done) = self.claude_states();
+                        if let Some((id, lit)) = done {
+                            let col = if lit { ok() } else { weak };
+                            if state_chip(ui, icons::ViewIcon::Claude, "✔", col).on_hover_text(t!("Claude a fini de répondre · clic : voir la réponse", "Claude has finished answering · click: see the answer")).clicked() {
+                                self.claude_go_to(id);
                             }
                         }
-                        if !st.entries.is_empty() {
-                            label.push_str(&format!(" ●{}", st.entries.len()));
+                        if !waiting.is_empty() {
+                            let n = waiting.len();
+                            let text = if n > 1 { tf!("❓ {n} attendent", "❓ {n} waiting") } else { t!("❓ attend", "❓ waiting").to_string() };
+                            // what it waits for, as Claude Code says it (a permission, a question)
+                            let what = self.claude_waiting_for().unwrap_or_else(|| t!("Claude attend ta réponse à ses questions", "Claude waits for your answer to its questions").to_string());
+                            let tip = tf!("{what} · clic : y aller (Ctrl+Alt+W : la suivante)", "{what} · click: go there (Ctrl+Alt+W: the next one)");
+                            if state_chip(ui, icons::ViewIcon::Claude, &text, warn()).on_hover_text(tip).clicked() {
+                                self.claude_next_waiting();
+                            }
                         }
-                        // the branch, what it tracks and the remotes (what the top of the sidebar showed)
-                        let legend = t!("↑ à pousser, ↓ à récupérer, ● fichiers modifiés · clic : Git", "↑ to push, ↓ to pull, ● changed files · click: Git");
-                        let tip = match self.repo.as_ref().and_then(|r| self.repo_info.get(r)) {
-                            Some((_, t)) => format!("{t}\n\n{legend}"),
-                            None => legend.to_string(),
-                        };
-                        if ui.add(egui::Button::new(label).frame(false)).on_hover_text(tip).clicked() {
-                            self.pending.push(Cmd::ShowGit);
+                        if busy > 0 {
+                            let text = if busy > 1 { tf!("{busy} au travail", "{busy} working") } else { t!("au travail", "working").to_string() };
+                            if state_chip(ui, icons::ViewIcon::Claude, &text, self.hl.colors.accent).on_hover_text(t!("Claude répond", "Claude is answering")).clicked() {
+                                self.open_claude();
+                            }
                         }
-                    }
+                    });
                 });
             });
         });
@@ -528,14 +434,66 @@ impl App {
     }
 }
 
-/// The button of a view in the status bar: its icon alone, in `color` (the accent when shown).
-fn view_button(ui: &mut egui::Ui, icon: icons::ViewIcon, color: Color32) -> egui::Response {
-    let (rect, r) = ui.allocate_exact_size(egui::vec2(24.0, 22.0), Sense::click());
-    if r.hovered() {
-        ui.painter().rect_filled(rect, 4.0, ui.visuals().widgets.hovered.weak_bg_fill);
+impl App {
+    /// The views of the bottom panel as tabs of their icon, at the right end of the status bar
+    /// (laid out right to left): Terminal, Débogueur, Problèmes (their number), Sortie.
+    fn bottom_tabs(&mut self, ui: &mut egui::Ui) {
+        let tc = self.hl.tab_colors();
+        let (accent, muted) = (self.hl.colors.accent, tc.text_inactive);
+        let errs: usize = self.docs.iter().flat_map(|d| d.diagnostics.iter()).filter(|g| g.severity == Severity::Error).count();
+        let warns: usize = self.docs.iter().map(|d| d.diagnostics.len()).sum::<usize>() - errs;
+        let debug_color = match self.debug_status() {
+            Some(true) => Some(warn()),
+            Some(false) => Some(ok()),
+            None => None,
+        };
+        let keys = |c: Cmd| {
+            let k = self.keymap.label(c);
+            if k.is_empty() { String::new() } else { format!(" ({k})") }
+        };
+        let problems = if errs + warns > 0 { Some((format!("{}", errs + warns), if errs > 0 { err() } else { warn() })) } else { None };
+        let tabs = [
+            (BottomTab::Output, icons::ViewIcon::Output, format!("{}{}", t!("Sortie", "Output"), keys(Cmd::ShowOutput)), Cmd::ShowOutput, None, None),
+            (BottomTab::Problems, icons::ViewIcon::Problems, tf!("Problèmes : {errs} erreur(s), {warns} avertissement(s){}", "Problems: {errs} error(s), {warns} warning(s){}", keys(Cmd::ShowProblems)), Cmd::ShowProblems, problems.as_ref().map(|p| p.1), problems.as_ref().map(|p| p.0.clone())),
+            (BottomTab::Debug, icons::ViewIcon::Debug, format!("{}{}", t!("Débogueur", "Debugger"), keys(Cmd::DebugStart)), Cmd::DebugShow, debug_color, None),
+            (BottomTab::Terminal, icons::ViewIcon::Terminal, format!("Terminal{}", keys(Cmd::ToggleTerminal)), Cmd::ToggleTerminal, None, None),
+        ];
+        ui.spacing_mut().item_spacing.x = 0.0;
+        for (k, (tab, icon, tip, cmd, color, note)) in tabs.into_iter().enumerate() {
+            let shown = self.bottom == Some(tab);
+            let color = color.unwrap_or(if shown { accent } else { muted });
+            let note_g = note.map(|n| ui.painter().layout_no_wrap(n, egui::FontId::proportional(11.5), color));
+            let w = 34.0 + note_g.as_ref().map_or(0.0, |g| g.size().x + 4.0);
+            let (rect, r) = ui.allocate_exact_size(egui::vec2(w, ui.available_height()), Sense::click());
+            let rect = egui::Rect::from_min_max(rect.min.round(), rect.max.round());
+            let p = ui.painter();
+            let fill = if shown { tc.active } else if r.hovered() { tc.close_hover } else { tc.bar };
+            p.rect_filled(rect, 0.0, fill);
+            let line = egui::Stroke::new(1.0_f32, tc.border);
+            // laid out from the right: each one draws its left line, the last one (rightmost) its right
+            p.vline(rect.left() + 0.5, rect.y_range(), line);
+            if k == 0 {
+                p.vline(rect.right() - 0.5, rect.y_range(), line);
+            }
+            let icon_at = egui::pos2(rect.left() + 17.0, rect.center().y);
+            icons::paint_view(p, icon_at, icon, color);
+            if let Some(g) = note_g {
+                p.galley(egui::pos2(rect.left() + 28.0, rect.center().y - g.size().y / 2.0), g, color);
+            }
+            if r.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            if r.on_hover_text(tip).clicked() {
+                if shown {
+                    self.bottom = None;
+                } else {
+                    self.pending.push(cmd);
+                }
+            }
+        }
+        ui.spacing_mut().item_spacing.x = 8.0;
+        ui.add_space(6.0);
     }
-    icons::paint_view(ui.painter(), rect.center(), icon, color);
-    r
 }
 
 /// A state of the status bar: the icon of its view and a short text, without a frame.
@@ -565,9 +523,10 @@ fn news_tag(line: &str) -> (Option<(&'static str, Color32)>, &str) {
 mod tests {
     use super::*;
 
-    /// The F at the far left of the status bar opens the menus (the menu bar being hidden).
+    /// The bar at the top (the sidebar hidden: the tab strip): the F opens the menus, the version
+    /// beside it, then the views as tabs of their icon (a click opens the view, not a tab more).
     #[test]
-    fn the_f_of_the_status_bar_opens_the_menus() {
+    fn the_top_bar_has_the_menus_the_version_and_the_views() {
         let dir = std::env::temp_dir().join(format!("florm_status_f_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -576,10 +535,12 @@ mod tests {
         std::env::set_var("FLORM_CONFIG", &dir);
         let ctx = egui::Context::default();
         let mut app = App::with_ctx(&ctx, None);
-        assert!(!app.settings.show_menu_bar);
+        app.show_sidebar = false;
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 700.0));
         let frame = |app: &mut App, events: Vec<egui::Event>| {
-            let out = crate::run_ui(&ctx, egui::RawInput { screen_rect: Some(screen), events, ..Default::default() }, |ui| app.status_bar(ui));
+            let out = crate::run_ui(&ctx, egui::RawInput { screen_rect: Some(screen), events, ..Default::default() }, |ui| {
+                app.tabs_strip(ui, None);
+            });
             let mut texts = Vec::new();
             fn walk(s: &egui::Shape, out: &mut Vec<String>) {
                 match s {
@@ -591,17 +552,30 @@ mod tests {
             out.shapes.iter().for_each(|c| walk(&c.shape, &mut texts));
             texts
         };
+        let mac = crate::os::window_controls() == crate::os::Controls::Mac;
+        let x0 = if mac { crate::app::title_bar::MAC_BUTTONS_W } else { 0.0 };
         let before = frame(&mut app, Vec::new());
+        let before = frame(&mut app, Vec::new()).into_iter().chain(before).collect::<Vec<_>>();
+        assert!(before.iter().any(|t| *t == format!("v{}", crate::update::current())), "{before:?}");
         assert!(!before.iter().any(|t| t == "Édition"));
+        let click = |app: &mut App, at: egui::Pos2| {
+            let press = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+            frame(app, vec![egui::Event::PointerMoved(at)]);
+            frame(app, vec![press(true)]);
+            frame(app, vec![press(false)]);
+            frame(app, Vec::new())
+        };
         // the F: the first thing at the left of the bar
-        let at = egui::pos2(14.0, screen.bottom() - 12.0);
-        let click = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
-        frame(&mut app, vec![egui::Event::PointerMoved(at), click(true)]);
-        frame(&mut app, vec![click(false)]);
-        let after = frame(&mut app, Vec::new());
+        let after = click(&mut app, egui::pos2(x0 + 19.0, TAB_STRIP_H / 2.0));
         for want in ["Fichier", "Édition", "Git", "Outils"] {
             assert!(after.iter().any(|t| t == want), "{want}: {after:?}");
         }
+        // close the menus, then the first icon tab: the preferences
+        frame(&mut app, vec![egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() }]);
+        app.pending.clear();
+        let logo_w = 34.0 + 52.0;
+        click(&mut app, egui::pos2(x0 + logo_w + 19.0, TAB_STRIP_H / 2.0));
+        assert!(app.pending.contains(&Cmd::OpenSettings), "{:?}", app.pending);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

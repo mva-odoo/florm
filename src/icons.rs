@@ -67,28 +67,268 @@ pub fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
 /// Rounded badge with the file-type label. `bg` is the color behind the icon.
 /// Colors are opaque on purpose (translucent fills render inconsistently on some drivers).
 pub fn paint_file(painter: &Painter, rect: Rect, name: &str, bg: Color32, light: bool) {
+    // an icon of Material Icon Theme, drawn at the pixels of the screen
+    if let Some(icon) = material_icon(&name.to_lowercase()) {
+        let side = rect.height().min(rect.width());
+        let ppp = painter.ctx().pixels_per_point();
+        let px = (side * ppp).round().max(8.0) as u32;
+        if let Some(tex) = icon_texture(painter.ctx(), icon, px) {
+            // on whole pixels: the texture drawn as rasterized, sharp
+            let size = px as f32 / ppp;
+            let min = (((rect.center() - Vec2::splat(size / 2.0)).to_vec2() * ppp).round() / ppp).to_pos2();
+            let r = Rect::from_min_size(min, Vec2::splat(size));
+            painter.image(tex.id(), r, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
+            return;
+        }
+    }
     let (label, color) = file_kind(name);
     let r = Rect::from_center_size(rect.center(), Vec2::splat(rect.height().min(rect.width())));
-    if label.is_empty() {
-        // generic document: folded-corner sheet outline
-        let w = r.width() * 0.62;
-        let doc = Rect::from_center_size(r.center(), Vec2::new(w, r.height() * 0.84));
-        let fold = w * 0.35;
-        let pts = vec![
-            doc.left_top(),
-            Pos2::new(doc.right() - fold, doc.top()),
-            Pos2::new(doc.right(), doc.top() + fold),
-            doc.right_bottom(),
-            doc.left_bottom(),
-        ];
-        painter.add(Shape::closed_line(pts, Stroke::new(1.2_f32, mix(bg, color, 0.85))));
-        return;
+    let c = r.center();
+    let s = r.width();
+    let lower = name.to_lowercase();
+    let ext = lower.rsplit_once('.').map(|(_, e)| e).unwrap_or("");
+    let bold = |t: &str, size: f32, col: Color32| {
+        painter.text(c + Vec2::new(0.0, 0.5), Align2::CENTER_CENTER, t, FontId::monospace(size), col);
+    };
+    // a sheet with a folded corner, its outline in `col`
+    let sheet = |col: Color32, lines: bool| {
+        let w = s * 0.66;
+        let doc = Rect::from_center_size(c, Vec2::new(w, s * 0.86));
+        let fold = w * 0.36;
+        let pts = vec![doc.left_top(), Pos2::new(doc.right() - fold, doc.top()), Pos2::new(doc.right(), doc.top() + fold), doc.right_bottom(), doc.left_bottom()];
+        painter.add(Shape::closed_line(pts, Stroke::new(1.2_f32, col)));
+        if lines {
+            for k in 0..3 {
+                let y = doc.top() + doc.height() * (0.42 + k as f32 * 0.18);
+                painter.line_segment([Pos2::new(doc.left() + 2.5, y), Pos2::new(doc.right() - 2.5, y)], Stroke::new(1.0_f32, col.gamma_multiply(0.8)));
+            }
+        }
+    };
+    match ext {
+        // the two snakes of Python, blue and yellow
+        "py" | "pyw" | "pyi" => {
+            let (blue, yellow) = (Color32::from_rgb(0x37, 0x76, 0xab), Color32::from_rgb(0xff, 0xd4, 0x3b));
+            let u = s / 16.0;
+            painter.rect_filled(Rect::from_min_size(r.min + Vec2::new(2.0 * u, 1.5 * u), Vec2::new(8.5 * u, 8.0 * u)), 2.5 * u, blue);
+            painter.rect_filled(Rect::from_min_size(r.min + Vec2::new(5.5 * u, 6.5 * u), Vec2::new(8.5 * u, 8.0 * u)), 2.5 * u, yellow);
+            // where they cross: the blue one's head over the yellow one
+            painter.rect_filled(Rect::from_min_size(r.min + Vec2::new(5.5 * u, 6.5 * u), Vec2::new(5.0 * u, 3.0 * u)), 1.0 * u, blue);
+            painter.circle_filled(r.min + Vec2::new(4.5 * u, 3.8 * u), 0.9 * u, Color32::WHITE);
+            painter.circle_filled(r.min + Vec2::new(11.5 * u, 12.2 * u), 0.9 * u, Color32::WHITE);
+        }
+        "js" | "mjs" | "cjs" | "jsx" | "ts" | "tsx" | "mts" | "cts" => {
+            let ts = ext.contains('t') && ext != "cjs" && ext != "mjs" && ext != "jsx";
+            let (fill, text) = if ts { (Color32::from_rgb(0x31, 0x78, 0xc6), Color32::WHITE) } else { (Color32::from_rgb(0xf7, 0xdf, 0x1e), Color32::from_rgb(0x23, 0x23, 0x23)) };
+            let sq = r.shrink(1.5);
+            painter.rect_filled(sq, 2.0, fill);
+            painter.text(sq.right_bottom() + Vec2::new(-1.0, 0.5), Align2::RIGHT_BOTTOM, if ts { "TS" } else { "JS" }, FontId::monospace(s * 0.42), text);
+        }
+        "xml" | "xsd" | "xsl" | "xslt" | "rng" | "csproj" | "plist" | "html" | "htm" | "jinja" | "j2" | "vue" | "svelte" | "svg" => {
+            let st = Stroke::new(1.6_f32, color);
+            let (h, w) = (s * 0.26, s * 0.2);
+            painter.line_segment([c + Vec2::new(-s * 0.18, -h), c + Vec2::new(-s * 0.18 - w, 0.0)], st);
+            painter.line_segment([c + Vec2::new(-s * 0.18 - w, 0.0), c + Vec2::new(-s * 0.18, h)], st);
+            painter.line_segment([c + Vec2::new(s * 0.18, -h), c + Vec2::new(s * 0.18 + w, 0.0)], st);
+            painter.line_segment([c + Vec2::new(s * 0.18 + w, 0.0), c + Vec2::new(s * 0.18, h)], st);
+            painter.line_segment([c + Vec2::new(s * 0.07, -h - 1.0), c + Vec2::new(-s * 0.07, h + 1.0)], Stroke::new(1.3_f32, color));
+        }
+        "json" | "jsonc" | "json5" => bold("{}", s * 0.78, color),
+        "css" | "scss" | "sass" | "less" => bold("#", s * 0.8, color),
+        "md" | "markdown" => {
+            let box_ = Rect::from_center_size(c, Vec2::new(s * 0.9, s * 0.62));
+            painter.rect_stroke(box_, 2.0, Stroke::new(1.2_f32, color), egui::StrokeKind::Inside);
+            painter.text(box_.center() + Vec2::new(-s * 0.1, 0.5), Align2::CENTER_CENTER, "M", FontId::monospace(s * 0.48), color);
+            let ax = box_.right() - s * 0.2;
+            painter.line_segment([Pos2::new(ax, box_.top() + 3.0), Pos2::new(ax, box_.bottom() - 3.0)], Stroke::new(1.2_f32, color));
+            painter.line_segment([Pos2::new(ax - 2.0, box_.bottom() - 5.0), Pos2::new(ax, box_.bottom() - 3.0)], Stroke::new(1.2_f32, color));
+            painter.line_segment([Pos2::new(ax + 2.0, box_.bottom() - 5.0), Pos2::new(ax, box_.bottom() - 3.0)], Stroke::new(1.2_f32, color));
+        }
+        "sh" | "bash" | "zsh" | "fish" | "ps1" | "bat" | "cmd" => {
+            let st = Stroke::new(1.6_f32, color);
+            painter.line_segment([c + Vec2::new(-s * 0.32, -s * 0.22), c + Vec2::new(-s * 0.08, 0.0)], st);
+            painter.line_segment([c + Vec2::new(-s * 0.08, 0.0), c + Vec2::new(-s * 0.32, s * 0.22)], st);
+            painter.line_segment([c + Vec2::new(s * 0.02, s * 0.26), c + Vec2::new(s * 0.34, s * 0.26)], st);
+        }
+        "png" | "jpg" | "jpeg" | "gif" | "ico" | "webp" | "bmp" => {
+            let pic = Rect::from_center_size(c, Vec2::new(s * 0.86, s * 0.7));
+            painter.rect_stroke(pic, 2.0, Stroke::new(1.2_f32, color), egui::StrokeKind::Inside);
+            painter.circle_filled(pic.left_top() + Vec2::new(s * 0.24, s * 0.22), s * 0.08, color);
+            let pts = vec![pic.left_bottom() + Vec2::new(2.0, -2.0), pic.center() + Vec2::new(-s * 0.05, -s * 0.02), pic.center_bottom() + Vec2::new(s * 0.05, -s * 0.18), pic.right_bottom() + Vec2::new(-2.0, -2.0)];
+            painter.add(Shape::line(pts, Stroke::new(1.3_f32, color)));
+        }
+        "csv" | "tsv" | "xlsx" | "xls" | "ods" => {
+            let g = Rect::from_center_size(c, Vec2::splat(s * 0.76));
+            painter.rect_stroke(g, 1.5, Stroke::new(1.2_f32, color), egui::StrokeKind::Inside);
+            for k in 1..3 {
+                let t = k as f32 / 3.0;
+                painter.line_segment([Pos2::new(g.left(), g.top() + g.height() * t), Pos2::new(g.right(), g.top() + g.height() * t)], Stroke::new(1.0_f32, color));
+                painter.line_segment([Pos2::new(g.left() + g.width() * t, g.top()), Pos2::new(g.left() + g.width() * t, g.bottom())], Stroke::new(1.0_f32, color));
+            }
+        }
+        "zip" | "tar" | "gz" | "tgz" | "bz2" | "xz" | "7z" => {
+            let b = Rect::from_center_size(c, Vec2::new(s * 0.72, s * 0.82));
+            painter.rect_stroke(b, 2.0, Stroke::new(1.2_f32, color), egui::StrokeKind::Inside);
+            for k in 0..4 {
+                let y = b.top() + 2.5 + k as f32 * 2.5;
+                painter.line_segment([Pos2::new(c.x - 1.2, y), Pos2::new(c.x + 1.2, y)], Stroke::new(1.0_f32, color));
+            }
+        }
+        "lock" => {
+            let body = Rect::from_center_size(c + Vec2::new(0.0, s * 0.14), Vec2::new(s * 0.62, s * 0.46));
+            painter.circle_stroke(c + Vec2::new(0.0, -s * 0.1), s * 0.2, Stroke::new(1.4_f32, color));
+            painter.rect_filled(body, 2.0, color);
+        }
+        "txt" | "log" | "rst" | "text" => sheet(color, true),
+        _ if lower.starts_with(".git") => {
+            // the diamond of git with a branch
+            let d = s * 0.42;
+            let pts = vec![c + Vec2::new(0.0, -d), c + Vec2::new(d, 0.0), c + Vec2::new(0.0, d), c + Vec2::new(-d, 0.0)];
+            painter.add(Shape::convex_polygon(pts, color, Stroke::NONE));
+            painter.circle_filled(c + Vec2::new(-s * 0.08, s * 0.12), 1.3, Color32::WHITE);
+            painter.circle_filled(c + Vec2::new(s * 0.12, -s * 0.08), 1.3, Color32::WHITE);
+            painter.line_segment([c + Vec2::new(-s * 0.08, s * 0.12), c + Vec2::new(s * 0.12, -s * 0.08)], Stroke::new(1.0_f32, Color32::WHITE));
+        }
+        _ if label.is_empty() => sheet(mix(bg, color, 0.85), false),
+        // the others: a badge of their color with their letters
+        _ => {
+            let fill = mix(bg, color, if light { 0.85 } else { 0.75 });
+            let l = 0.2126 * fill.r() as f32 + 0.7152 * fill.g() as f32 + 0.0722 * fill.b() as f32;
+            let text = if l > 150.0 { Color32::from_rgb(0x20, 0x20, 0x20) } else { Color32::WHITE };
+            painter.rect_filled(r.shrink(1.0), 3.0, fill);
+            let size = if label.chars().count() >= 2 { s * 0.5 } else { s * 0.64 };
+            bold(label, size, text);
+        }
     }
-    let fill = mix(bg, color, if light { 0.20 } else { 0.24 });
-    let text = if light { mix(color, Color32::BLACK, 0.35) } else { mix(color, Color32::WHITE, 0.15) };
-    painter.rect_filled(r, 3.5, fill);
-    let size = if label.chars().count() >= 2 { r.height() * 0.56 } else { r.height() * 0.68 };
-    painter.text(r.center() + Vec2::new(0.0, 0.5), Align2::CENTER_CENTER, label, FontId::monospace(size), text);
+}
+
+/// The file icons of Material Icon Theme (MIT, assets/file_icons): (name, SVG).
+static FILE_ICONS: &[(&str, &[u8])] = &[
+    ("c", include_bytes!("../assets/file_icons/c.svg")),
+    ("certificate", include_bytes!("../assets/file_icons/certificate.svg")),
+    ("console", include_bytes!("../assets/file_icons/console.svg")),
+    ("cpp", include_bytes!("../assets/file_icons/cpp.svg")),
+    ("csharp", include_bytes!("../assets/file_icons/csharp.svg")),
+    ("css", include_bytes!("../assets/file_icons/css.svg")),
+    ("database", include_bytes!("../assets/file_icons/database.svg")),
+    ("diff", include_bytes!("../assets/file_icons/diff.svg")),
+    ("docker", include_bytes!("../assets/file_icons/docker.svg")),
+    ("document", include_bytes!("../assets/file_icons/document.svg")),
+    ("git", include_bytes!("../assets/file_icons/git.svg")),
+    ("go", include_bytes!("../assets/file_icons/go.svg")),
+    ("h", include_bytes!("../assets/file_icons/h.svg")),
+    ("html", include_bytes!("../assets/file_icons/html.svg")),
+    ("i18n", include_bytes!("../assets/file_icons/i18n.svg")),
+    ("image", include_bytes!("../assets/file_icons/image.svg")),
+    ("java", include_bytes!("../assets/file_icons/java.svg")),
+    ("javascript", include_bytes!("../assets/file_icons/javascript.svg")),
+    ("json", include_bytes!("../assets/file_icons/json.svg")),
+    ("kotlin", include_bytes!("../assets/file_icons/kotlin.svg")),
+    ("less", include_bytes!("../assets/file_icons/less.svg")),
+    ("license", include_bytes!("../assets/file_icons/license.svg")),
+    ("lock", include_bytes!("../assets/file_icons/lock.svg")),
+    ("log", include_bytes!("../assets/file_icons/log.svg")),
+    ("lua", include_bytes!("../assets/file_icons/lua.svg")),
+    ("makefile", include_bytes!("../assets/file_icons/makefile.svg")),
+    ("markdown", include_bytes!("../assets/file_icons/markdown.svg")),
+    ("nodejs", include_bytes!("../assets/file_icons/nodejs.svg")),
+    ("pdf", include_bytes!("../assets/file_icons/pdf.svg")),
+    ("php", include_bytes!("../assets/file_icons/php.svg")),
+    ("python", include_bytes!("../assets/file_icons/python.svg")),
+    ("python-misc", include_bytes!("../assets/file_icons/python-misc.svg")),
+    ("react", include_bytes!("../assets/file_icons/react.svg")),
+    ("react_ts", include_bytes!("../assets/file_icons/react_ts.svg")),
+    ("readme", include_bytes!("../assets/file_icons/readme.svg")),
+    ("ruby", include_bytes!("../assets/file_icons/ruby.svg")),
+    ("rust", include_bytes!("../assets/file_icons/rust.svg")),
+    ("sass", include_bytes!("../assets/file_icons/sass.svg")),
+    ("settings", include_bytes!("../assets/file_icons/settings.svg")),
+    ("svg", include_bytes!("../assets/file_icons/svg.svg")),
+    ("table", include_bytes!("../assets/file_icons/table.svg")),
+    ("toml", include_bytes!("../assets/file_icons/toml.svg")),
+    ("typescript", include_bytes!("../assets/file_icons/typescript.svg")),
+    ("vue", include_bytes!("../assets/file_icons/vue.svg")),
+    ("xml", include_bytes!("../assets/file_icons/xml.svg")),
+    ("yaml", include_bytes!("../assets/file_icons/yaml.svg")),
+    ("zip", include_bytes!("../assets/file_icons/zip.svg")),
+];
+
+/// The icon of Material Icon Theme for the file `name` (lower case), if there is one.
+fn material_icon(lower: &str) -> Option<&'static str> {
+    let by_name = match lower {
+        "dockerfile" | "containerfile" | "docker-compose.yml" | "docker-compose.yaml" | "compose.yml" | "compose.yaml" => Some("docker"),
+        "makefile" | "gnumakefile" => Some("makefile"),
+        ".gitignore" | ".gitattributes" | ".gitmodules" | ".gitkeep" => Some("git"),
+        "license" | "license.md" | "license.txt" | "copying" | "copyright" => Some("license"),
+        "readme" | "readme.md" | "readme.rst" | "readme.txt" => Some("readme"),
+        "package.json" | "package-lock.json" | ".npmrc" | ".nvmrc" => Some("nodejs"),
+        "requirements.txt" | "pyproject.toml" | "setup.py" | "setup.cfg" | "pipfile" | "manifest.in" => Some("python-misc"),
+        "__manifest__.py" | "__openerp__.py" => Some("python-misc"),
+        "cargo.lock" | "package.lock" | "poetry.lock" | "yarn.lock" | "uv.lock" => Some("lock"),
+        _ => None,
+    };
+    if by_name.is_some() {
+        return by_name;
+    }
+    let ext = lower.rsplit_once('.').map(|(_, e)| e)?;
+    Some(match ext {
+        "py" | "pyw" | "pyi" | "pyx" => "python",
+        "js" | "mjs" | "cjs" => "javascript",
+        "jsx" => "react",
+        "ts" | "mts" | "cts" => "typescript",
+        "tsx" => "react_ts",
+        "xml" | "xsd" | "xsl" | "xslt" | "rng" | "csproj" | "plist" | "wsdl" => "xml",
+        "html" | "htm" | "xhtml" | "jinja" | "j2" => "html",
+        "vue" => "vue",
+        "svg" => "svg",
+        "json" | "jsonc" | "json5" | "webmanifest" => "json",
+        "css" => "css",
+        "scss" | "sass" => "sass",
+        "less" => "less",
+        "md" | "markdown" | "mdx" => "markdown",
+        "yml" | "yaml" => "yaml",
+        "toml" => "toml",
+        "ini" | "cfg" | "conf" | "env" | "properties" | "editorconfig" => "settings",
+        "rs" => "rust",
+        "go" => "go",
+        "c" => "c",
+        "h" | "hpp" | "hh" | "hxx" => "h",
+        "cpp" | "cc" | "cxx" | "c++" => "cpp",
+        "cs" => "csharp",
+        "java" => "java",
+        "kt" | "kts" => "kotlin",
+        "lua" => "lua",
+        "php" => "php",
+        "rb" | "rake" | "gemspec" => "ruby",
+        "sh" | "bash" | "zsh" | "fish" | "ps1" | "bat" | "cmd" => "console",
+        "sql" | "sqlite" | "db" | "dump" => "database",
+        "csv" | "tsv" | "xlsx" | "xls" | "ods" => "table",
+        "po" | "pot" | "mo" => "i18n",
+        "png" | "jpg" | "jpeg" | "gif" | "ico" | "webp" | "bmp" | "tif" | "tiff" => "image",
+        "pdf" => "pdf",
+        "zip" | "tar" | "gz" | "tgz" | "bz2" | "xz" | "7z" | "rar" | "whl" => "zip",
+        "lock" => "lock",
+        "log" => "log",
+        "txt" | "rst" | "text" => "document",
+        "diff" | "patch" => "diff",
+        "pem" | "crt" | "cer" | "key" => "certificate",
+        _ => return None,
+    })
+}
+
+/// The texture of icon `name` drawn at `px` pixels (drawn once per size, then kept).
+fn icon_texture(ctx: &egui::Context, name: &'static str, px: u32) -> Option<egui::TextureHandle> {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    static CACHE: OnceLock<Mutex<HashMap<(&'static str, u32), Option<egui::TextureHandle>>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+    if let Some(t) = cache.lock().ok()?.get(&(name, px)) {
+        return t.clone();
+    }
+    let bytes = FILE_ICONS.iter().find(|(n, _)| *n == name)?.1;
+    let hint = egui::load::SizeHint::Size { width: px, height: px, maintain_aspect_ratio: true };
+    let tex = crate::images::rasterize_svg(bytes, hint).ok().map(|img| ctx.load_texture(format!("file_icon_{name}_{px}"), img, egui::TextureOptions::LINEAR));
+    cache.lock().ok()?.insert((name, px), tex.clone());
+    tex
 }
 
 /// Folder (closed or open) in `color`.
@@ -116,6 +356,34 @@ pub fn paint_folder(painter: &Painter, rect: Rect, open: bool, color: Color32, b
     } else {
         let line = Rect::from_min_max(Pos2::new(body.left(), body.top() + 2.0), Pos2::new(body.right(), body.top() + 3.0));
         painter.rect_filled(line, 0.0, mix(bg, color, 1.0));
+    }
+}
+
+/// The update of Florm: a round badge of a bright green with a white arrow going up over a line
+/// (to install), or a circular arrow (installed: restart).
+pub fn paint_upgrade(painter: &Painter, rect: Rect, ready: bool, hovered: bool) {
+    let c = rect.center();
+    let r = rect.height().min(rect.width()) / 2.0;
+    let green = if hovered { Color32::from_rgb(0x16, 0xa3, 0x4a) } else { Color32::from_rgb(0x22, 0xc5, 0x5e) };
+    // a soft halo, then the badge
+    painter.circle_filled(c, r + 1.5, green.gamma_multiply(0.25));
+    painter.circle_filled(c, r, green);
+    let white = Stroke::new(1.8_f32, Color32::WHITE);
+    if ready {
+        let pts: Vec<Pos2> = (0..=18).map(|i| {
+            let a = -0.6 + i as f32 / 18.0 * 4.6;
+            c + Vec2::new(a.cos(), a.sin()) * (r * 0.5)
+        }).collect();
+        let end = pts[0];
+        painter.add(Shape::line(pts, white));
+        painter.line_segment([end, end + Vec2::new(-0.2, -3.0)], white);
+        painter.line_segment([end, end + Vec2::new(-3.0, 0.4)], white);
+    } else {
+        let top = c + Vec2::new(0.0, -r * 0.5);
+        painter.line_segment([top, c + Vec2::new(0.0, r * 0.28)], white);
+        painter.line_segment([top, top + Vec2::new(-r * 0.36, r * 0.36)], white);
+        painter.line_segment([top, top + Vec2::new(r * 0.36, r * 0.36)], white);
+        painter.line_segment([c + Vec2::new(-r * 0.38, r * 0.55), c + Vec2::new(r * 0.38, r * 0.55)], white);
     }
 }
 

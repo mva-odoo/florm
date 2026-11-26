@@ -1,46 +1,23 @@
-//! The menu bar and its menus (under the logo of the sidebar when the bar is hidden, as Zed's ☰).
+//! The menus, under the F at the start of the bar at the top (as Zed's ☰).
 
 use super::*;
 
 impl App {
-    pub(in crate::app) fn menu_bar(&mut self, ui: &mut egui::Ui) {
-        if self.own_title_bar() {
-            // menus hidden: no bar, the window buttons are in the tab strip
-            if self.settings.show_menu_bar {
-                self.title_bar(ui);
-            }
-            return;
+    /// The F of Florm, at the start of the bar at the top (as Zed's ☰): the menus (File, Edit,
+    /// Git…) under it.
+    pub(in crate::app) fn menu_logo(&mut self, ui: &mut egui::Ui) {
+        let mut picked = Vec::new();
+        let km = &self.keymap;
+        let b = egui::Button::new("").frame(false).min_size(egui::vec2(22.0, 22.0));
+        let r = egui::containers::menu::MenuButton::from_button(b).ui(ui, |ui| menus(ui, km, &mut picked)).0;
+        let r = r.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(t!("Menus (Fichier, Édition, Git…)", "Menus (File, Edit, Git…)"));
+        if r.hovered() {
+            ui.painter().rect_filled(r.rect, 4.0, ui.visuals().widgets.hovered.weak_bg_fill);
         }
-        if !self.settings.show_menu_bar {
-            return;
-        }
-        let mut pending = Vec::new();
-        let project = self.root.as_ref().and_then(|r| r.file_name()).map(|n| n.to_string_lossy().into_owned());
-        let panel = self.hl.surfaces().bar;
-        egui::Panel::top("menu")
-            .frame(egui::Frame::NONE.fill(panel).inner_margin(egui::Margin::symmetric(10, 5)))
-            .show_separator_line(true)
-            .show(ui, |ui| {
-            egui::MenuBar::new().ui(ui, |ui| {
-                let (r, _) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), Sense::hover());
-                logo::paint(ui.painter(), r, false);
-                ui.add_space(2.0);
-                self.menus(ui, &mut pending);
-                // project name, right-aligned, after the menus
-                if let Some(p) = &project {
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(RichText::new(p).weak());
-                    });
-                }
-            });
-        });
-        self.pending.extend(pending);
+        crate::logo::paint(ui.painter(), r.rect.shrink(4.0), false);
+        self.pending.extend(picked);
     }
 
-    /// The menus of the menu bar.
-    pub(in crate::app) fn menus(&self, ui: &mut egui::Ui, pending: &mut Vec<Cmd>) {
-        menus(ui, &self.keymap, pending);
-    }
 }
 
 /// The menus (in the menu bar, or under the logo of the sidebar when the bar is hidden).
@@ -130,7 +107,6 @@ pub(in crate::app) fn menus(ui: &mut egui::Ui, km: &crate::keymap::Keymap, pendi
         item(ui, t!("Retour à la ligne automatique", "Word wrap"), Cmd::ToggleWordWrap);
         item(ui, t!("Espaces et tabulations visibles", "Visible spaces and tabs"), Cmd::ToggleWhitespace);
         item(ui, t!("Mode sans distraction", "Distraction-free mode"), Cmd::ToggleZen);
-        item(ui, t!("Barre de menus", "Menu bar"), Cmd::ToggleMenuBar);
         ui.separator();
         item(ui, t!("Syntaxe…", "Syntax…"), Cmd::SetSyntax);
         item(ui, t!("Thème…", "Theme…"), Cmd::SelectTheme);

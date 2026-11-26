@@ -85,14 +85,23 @@ Une règle simple : **les fichiers et les vues qui demandent de la place (Claude
 travail** : terminaux, débogueur, problèmes, sortie. Pour voir deux onglets côte à côte, divise
 l'éditeur.
 
-- **Le panneau du bas a ses onglets** : un par terminal, puis **Débogueur** (● pendant une session,
-  ⏸ en pause), **Problèmes** (leur nombre) et **Sortie**. Un clic passe de l'un à l'autre, **+**
-  ouvre un nouveau terminal, **×** au survol d'un terminal le ferme. **Ctrl+Shift+J** affiche ou
-  masque le panneau.
-- **La barre d'état ne montre que ce qui se passe** : à gauche l'icône des **Préférences**, puis celles de **Claude**, **Git**,
-  **Pull requests** (un clic ouvre son onglet, un autre revient à l'onglet d'avant ; en couleur quand
-  il est affiché), **Terminal** (le terminal du panneau du bas) et **Débogueur** (sa vue dans le
-  panneau du bas ; verte pendant une session, orange quand le programme est en pause) ; à droite la branche (**↑** commits à
+- **Le panneau du bas** : ses vues se choisissent avec les **onglets d'icône en bas à droite** de la
+  barre d'état, **Terminal**, **Débogueur** (vert pendant une session, orange en pause),
+  **Problèmes** (leur nombre) et **Sortie** ; un clic montre la vue, un autre la masque. En haut du
+  panneau, le nom de la vue ; pour le terminal, un onglet par terminal (**×** au survol le ferme) et
+  **+** pour en ouvrir un autre. **Ctrl+Shift+J** affiche ou masque le panneau.
+- **La barre du haut**, comme dans Zed : la barre des onglets continue au-dessus de la barre latérale.
+  À gauche, le **F** (les menus Fichier, Édition, Git…, comme le ☰ de Zed), le **numéro de version**
+  (un clic cherche une mise à jour) et, quand il y en a une, le bouton rond **⬆** de la mise à jour
+  (**⟳** une fois installée : redémarrer) ; puis le dossier et le nom du projet (un clic : changer de
+  projet ; clic droit : nouveau fichier, nouveau dossier, rafraîchir, tout replier…). Ensuite, **les
+  vues en onglets d'icône** : **Préférences** (clic droit : Langages, Extensions), **Claude**,
+  **Git**, **Pull requests** et **Recherche** dans les fichiers (un clic montre la vue à sa place,
+  sans onglet de plus ; un autre revient à l'onglet d'avant) ; puis les onglets des fichiers, et **+**
+  pour un nouveau fichier. Les fichiers ont l'icône de leur type (Material Icon Theme). Au bout, les boutons de
+  la fenêtre (réduire, agrandir, fermer) sous Windows et Linux, ronds à gauche sous macOS, aucun sous
+  un gestionnaire de fenêtres en mosaïque (Hyprland, Sway…). Glisser la barre déplace la fenêtre.
+- **La barre d'état ne montre que ce qui se passe**, à gauche : la branche (**↑** commits à
   pousser, **↓** à récupérer, **●** fichiers modifiés) du dépôt du fichier affiché (il suit les
   onglets ; un dépôt choisi dans la vue Git reste jusqu'au prochain fichier affiché), puis, seulement quand c'est le cas, Claude
   (**au travail**, ou **✔** quand il a fini : un clic montre la réponse), et les problèmes. Au repos, elle est presque vide.
@@ -848,9 +857,9 @@ Florm Light, Florm Minimal et Florm Minimal Light, plus sobres (un fond profond 
 palette douce), et Florm Monokai, One Dark, Dracula, GitHub Light d'après les thèmes habituels des autres
 éditeurs), couleur d'accentuation,
 **texte adouci** (texte moins « gras », utile sur les thèmes clairs), polices de l'éditeur et
-de l'interface, minimap, fil d'Ariane, **barre de menus** (masquée par défaut, comme dans Zed : les menus
-sont sous le **F** en bas à gauche de la barre d'état, et leurs commandes dans la palette, **Ctrl+Shift+P**).
-En haut de la barre latérale, l'icône de dossier devant le nom du projet ouvre la liste des projets.
+de l'interface, minimap, fil d'Ariane. Les menus sont sous le **F** en haut à gauche (comme dans Zed,
+sans barre de menus), et leurs commandes dans la palette, **Ctrl+Shift+P**. L'icône de dossier devant
+le nom du projet ouvre la liste des projets.
 
 Repris de Zed, dans **Apparence → Curseur et marge / Défilement** : forme du curseur (barre, bloc,
 souligné), curseur clignotant, ligne du curseur surlignée, **occurrences de la sélection** (les

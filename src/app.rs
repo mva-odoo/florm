@@ -135,7 +135,10 @@ pub fn font_definitions() -> egui::FontDefinitions {
         (include_bytes!("../assets/fonts/IBMPlexSans-Regular.ttf"), include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf"))
     };
     for (name, bytes, family) in [("plex_sans", sans, egui::FontFamily::Proportional), ("plex_mono", mono, egui::FontFamily::Monospace)] {
-        fonts.font_data.insert(name.into(), std::sync::Arc::new(egui::FontData::from_static(bytes)));
+        // the interface's letters on whole pixels (as the code's, whose letters all have the same
+        // width): at sub-pixel places they looked blurred beside the editor (the tree, the tabs)
+        let tweak = egui::FontTweak { subpixel_binning: Some(family == egui::FontFamily::Monospace), ..Default::default() };
+        fonts.font_data.insert(name.into(), std::sync::Arc::new(egui::FontData::from_static(bytes).tweak(tweak)));
         fonts.families.entry(family).or_default().insert(0, name.into());
     }
     fonts.families.entry(egui::FontFamily::Proportional).or_default().push("Hack".to_owned());
@@ -1340,7 +1343,7 @@ impl App {
             claude_loaded: false,
             claude_limits: claude_ui::load_limits(),
             egui_ctx: egui_ctx.clone(),
-            title_bar_on: crate::os::draws_title_bar(settings.show_menu_bar),
+            title_bar_on: crate::os::draws_title_bar(),
             tree_scroll: None,
             tree_nav: sidebar::Nav::default(),
             repo_info: HashMap::new(),
@@ -1710,7 +1713,6 @@ impl eframe::App for App {
         // tab strip only span the editor area.
         // distraction-free: only the text
         if !self.zen {
-            self.menu_bar(ui);
             self.status_bar(ui);
             self.prof.mark("barres");
             if self.show_sidebar {
@@ -1838,6 +1840,42 @@ fn doc_tab(d: &Document) -> (TabIcon<'_>, String) {
 /// accent). Positions are rounded to whole pixels so the text stays sharp.
 /// Widest title of a tab, in points (the full one shows on hover).
 const TAB_TITLE_MAX_W: f32 = 200.0;
+
+/// A view as a tab of its icon alone (Claude, Git, the pull requests, the terminal…), at the start
+/// of the strip: the tab of the view when it is shown, drawn as the other tabs.
+fn icon_tab(ui: &mut egui::Ui, icon: icons::ViewIcon, active: bool, first: bool, color: Color32, tc: &crate::highlight::TabColors) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(38.0, TAB_STRIP_H), Sense::click());
+    let tab = egui::Rect::from_min_max(rect.min.round(), rect.max.round());
+    let p = ui.painter();
+    let fill = if active {
+        tc.active
+    } else if resp.hovered() {
+        tc.close_hover
+    } else {
+        tc.bar
+    };
+    p.rect_filled(tab, 0.0, fill);
+    let line = egui::Stroke::new(1.0_f32, tc.border);
+    p.vline(tab.right() - 0.5, tab.y_range(), line);
+    // a line on its left: the first one (the preferences) is a tab as the others, the active
+    // one stands out (the one before it has its own on its right)
+    if first || active {
+        p.vline(tab.left() + 0.5, tab.y_range(), line);
+    }
+    if !active {
+        p.hline(tab.x_range(), tab.bottom() - 0.5, line);
+    }
+    icons::paint_view(p, tab.center(), icon, color);
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    resp
+}
+
+/// The views shown as icon tabs: no tab of their own with a title in the strip.
+fn icon_view(v: document::View) -> bool {
+    matches!(v, document::View::Settings | document::View::Claude | document::View::Git | document::View::PullRequests | document::View::Search)
+}
 
 fn tab_widget(
     ui: &mut egui::Ui,
@@ -2814,7 +2852,6 @@ mod font_tests {
                 app.editor_input(&c);
                 app.update_live_lint(&c);
                 app.update_find();
-                app.menu_bar(ui);
                 app.status_bar(ui);
                 app.sidebar(ui);
                 if app.bottom.is_some() {

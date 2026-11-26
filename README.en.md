@@ -100,7 +100,7 @@ cargo build --release
 
 ### Updating
 
-When a new version is out, Florm says so at startup with a **⬆ Update x.y.z** badge at the bottom right. A click shows what changes (the new features, fixes and improvements since your version) and offers **Install and restart**: Florm downloads the version for your system, checks it (SHA-256) and replaces the installed one, then **⟳ Restart** starts it again. With a Linux package (`.deb`, `.rpm`, Arch), the system window asks for the password, as when installing a package. If that is not possible, the menu still offers to **download the file in the browser** (the `.deb` on Ubuntu, the Arch package on Arch, the `.exe` on Windows, the `.dmg` on macOS…) or to open the release notes. To check by hand: **Help → Check for an update**. To stop checking: Preferences → Advanced → “Check for updates”.
+When a new version is out, Florm says so at startup with a round **⬆** button at the top left, beside the version number. A click shows what changes (the new features, fixes and improvements since your version) and offers **Install and restart**: Florm downloads the version for your system, checks it (SHA-256) and replaces the installed one, then **⟳ Restart** starts it again. With a Linux package (`.deb`, `.rpm`, Arch), the system window asks for the password, as when installing a package. If that is not possible, the menu still offers to **download the file in the browser** (the `.deb` on Ubuntu, the Arch package on Arch, the `.exe` on Windows, the `.dmg` on macOS…) or to open the release notes. To check by hand: **Help → Check for an update**. To stop checking: Preferences → Advanced → “Check for updates”.
 
 No need to uninstall the old version: the new one installs **on top of it**, and the preferences are kept.
 
@@ -372,7 +372,7 @@ flake8 --version || ruff --version
 | Markdown preview, images | Ctrl+Shift+V (tab) or Ctrl+K V (beside, follows typing); png, jpg, gif, webp, bmp, ico, svg open in an image tab |
 | Unsaved work kept | When closing or switching projects, the unsaved changes (and the untitled tabs) are kept and reopened, without a question, even without an open folder (can be turned off). They are also copied every 30 s: after a crash, your work comes back, and the error is written to `crash.log` (configuration folder) |
 | Advanced Git | Cherry-pick, revert, interactive rebase (reorder, change a message, squash, drop), compare two commits or a commit with a branch, **stash** (set aside, view, apply, pop, drop) |
-| Appearance | Interface in French or in English (Preferences → Appearance → Language), themes with previews, accent color, **softened text** (less bold text, especially on light themes), menu bar hidden by default (menus under the F at the bottom left of the status bar, commands in the palette), **your own theme** (Preferences → Appearance: all the colors of the editor and of the code, applied live) |
+| Appearance | Interface in French or in English (Preferences → Appearance → Language), themes with previews, accent color, **softened text** (less bold text, especially on light themes), menus under the F at the top left, as in Zed (commands in the palette), views as icon tabs in the top bar, **your own theme** (Preferences → Appearance: all the colors of the editor and of the code, applied live) |
 | Miscellaneous | Command palette (accents optional, the last used ones first), Ctrl+P fuzzy, word wrap (Alt+Z), Tab to complete paths (open, save as), minimap, indentation guides, matching brackets, auto-closing, find/replace (regex), fonts to choose among the installed ones (Preferences → Appearance; by default Consolas / Segoe UI on Windows), `.tmTheme` themes (built in: “Florm” and “Florm Light”, the sober “Florm Minimal” and “Florm Minimal Light”, plus “Florm Monokai”, “Florm One Dark”, “Florm Dracula” and “Florm GitHub Light” after the usual themes of other editors). An unsaved file modified or deleted by another program: a banner asks which version to keep, Ctrl+S does not overwrite the other one without asking. Click on the message of the status bar: the last messages (errors in red) |
 
 ## Shortcuts (like Sublime)
@@ -513,4 +513,4 @@ The `packaging/install.sh` and `packaging/install.ps1` scripts avoid the warning
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). The file icons come from [Material Icon Theme](https://github.com/material-extensions/vscode-material-icon-theme) (MIT, see `assets/file_icons/LICENSE`).

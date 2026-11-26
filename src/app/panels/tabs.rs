@@ -10,8 +10,8 @@ impl App {
         let tc = self.hl.tab_colors();
         let (mut activate, mut close) = (None, None);
         let (mut drag_start, mut menu_act) = (None, None);
-        // « + » (a new text tab) and « ▾ » (a view in a tab) on the right of the strip
-        let (mut new_text, mut new_tab) = (false, None);
+        // « + » (a new text tab) on the right of the strip
+        let mut new_text = false;
         let is_split = self.is_split();
         let mut counts = [0usize; 2];
         for d in &self.docs {
@@ -21,6 +21,12 @@ impl App {
         let mut shown_rect = None;
         let mut strip = (egui::Rect::NOTHING, Vec::new());
         let panel_id = egui::Id::unique("tabs").with(pane);
+        // the views as tabs of their icon, at the start of the first strip: a click shows the view
+        // (its tab), a click on the one shown goes back to the tab before it
+        let first = pane.is_none_or(|p| p == 0);
+        let icon_tabs = if first { self.icon_tabs() } else { Vec::new() };
+        let mut icon_act: Option<IconAct> = None;
+        let logo_here = first && !self.show_sidebar;
         // on the window's background, above the editor's card (its border runs under the tabs)
         egui::Panel::top(panel_id).exact_size(TAB_STRIP_H).show_separator_line(false).frame(egui::Frame::NONE.fill(tc.bar)).show(ui, |ui| {
             let bar = ui.max_rect();
@@ -40,12 +46,62 @@ impl App {
                     _ => scroll.min.x += crate::app::title_bar::MAC_BUTTONS_W,
                 }
             }
+            // the F of the menus (the sidebar hidden: it is on top of it otherwise) and the icon tabs
+            if logo_here || !icon_tabs.is_empty() {
+                // the F with the version and the update beside it
+                let logo_w = if logo_here { 34.0 + 52.0 + if self.upd.found.is_some() { 22.0 } else { 0.0 } } else { 0.0 };
+                let w = logo_w + icon_tabs.len() as f32 * 38.0 + 4.0;
+                let r = egui::Rect::from_min_max(scroll.min, egui::pos2(scroll.min.x + w, scroll.max.y));
+                scroll.min.x += w;
+                ui.scope_builder(egui::UiBuilder::new().max_rect(r), |ui| {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 0.0;
+                        if logo_here {
+                            ui.add_space(6.0);
+                            ui.allocate_ui_with_layout(egui::vec2(logo_w - 8.0, TAB_STRIP_H), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                                ui.set_min_size(egui::vec2(logo_w - 8.0, TAB_STRIP_H));
+                                self.menu_logo(ui);
+                                self.version_and_update(ui);
+                            });
+                            ui.add_space(2.0);
+                        }
+                        for (k, t) in icon_tabs.iter().enumerate() {
+                            let r = crate::app::icon_tab(ui, t.icon, t.shown, k == 0, t.color, &tc).on_hover_text(&t.tip);
+                            if t.shown && t.view.is_some() {
+                                shown_rect = Some(r.rect);
+                            }
+                            if r.clicked() {
+                                icon_act = Some(match (t.view, t.shown) {
+                                    (Some(v), true) => IconAct::Leave(v),
+                                    (None, true) => IconAct::HideBottom,
+                                    _ => IconAct::Cmd(t.cmd),
+                                });
+                            }
+                            if t.view == Some(crate::document::View::Settings) {
+                                // its right click: straight to the languages and the extensions
+                                r.context_menu(|ui| {
+                                    for (label, cmd) in [
+                                        (t!("Préférences", "Preferences"), Cmd::OpenSettings),
+                                        (t!("Langages : outils et tree-sitter…", "Languages: tools and tree-sitter…"), Cmd::ShowLanguages),
+                                        (t!("Extensions et catalogue…", "Extensions and catalogue…"), Cmd::ShowExtensions),
+                                    ] {
+                                        if ui.button(label).clicked() {
+                                            icon_act = Some(IconAct::Cmd(cmd));
+                                            ui.close();
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                    });
+                });
+            }
             // too many tabs for the strip: ‹ › on the right, and the list of all of them in the ▾ menu
             let (over_id, offset_id) = (panel_id.with("over"), panel_id.with("offset"));
             let over = ui.ctx().data(|d| d.get_temp::<bool>(over_id)).unwrap_or(false);
             let (offset, width) = ui.ctx().data(|d| d.get_temp::<(f32, f32)>(offset_id)).unwrap_or((0.0, 0.0));
-            // always on the right: + for a new text tab, ▾ for a view (Git, Claude…) in a tab
-            const NEW_W: f32 = 58.0;
+            // always on the right: + for a new text tab
+            const NEW_W: f32 = 32.0;
             let new_rect = egui::Rect::from_min_max(egui::pos2(scroll.max.x - NEW_W, bar.min.y), egui::pos2(scroll.max.x, bar.max.y));
             scroll.max.x -= NEW_W;
             ui.scope_builder(egui::UiBuilder::new().max_rect(new_rect), |ui| {
@@ -56,36 +112,6 @@ impl App {
                     if plus.on_hover_text(t!("Nouvel onglet texte vide (Ctrl+N)", "New empty text tab (Ctrl+N)")).clicked() {
                         new_text = true;
                     }
-                    let tip = if over {
-                        t!("Onglets ouverts, ou ouvrir une vue : Git, GitHub, Claude, Docker…", "Open tabs, or open a view: Git, GitHub, Claude, Docker…")
-                    } else {
-                        t!("Ouvrir une vue dans un onglet : Git, GitHub, Claude, Docker…", "Open a view in a tab: Git, GitHub, Claude, Docker…")
-                    };
-                    ui.menu_button(egui::RichText::new("▾").size(13.0), |ui| {
-                        if over {
-                            ui.set_min_width(240.0);
-                            ui.label(egui::RichText::new(t!("Onglets ouverts", "Open tabs")).small().weak());
-                            egui::ScrollArea::vertical().id_salt("open_tabs").max_height(320.0).show(ui, |ui| {
-                                for (i, d) in self.docs.iter().enumerate().filter(|(_, d)| pane.is_none_or(|p| p == d.pane)) {
-                                    let (_, title) = doc_tab(d);
-                                    let label = if d.is_dirty() { format!("● {title}") } else { title };
-                                    let r = ui.selectable_label(i == self.active, label);
-                                    let r = match &d.path {
-                                        Some(p) => r.on_hover_text(p.display().to_string()),
-                                        None => r,
-                                    };
-                                    if r.clicked() {
-                                        activate = Some(i);
-                                        ui.close();
-                                    }
-                                }
-                            });
-                            ui.separator();
-                        }
-                        new_tab = self.new_tab_menu(ui);
-                    })
-                    .response
-                    .on_hover_text(tip);
                 });
             });
             const ARROWS_W: f32 = 50.0;
@@ -131,7 +157,7 @@ impl App {
                         // side by side, as in Zed
                         ui.spacing_mut().item_spacing.x = 0.0;
                         for (i, d) in self.docs.iter().enumerate() {
-                            if pane.is_some_and(|p| p != d.pane) {
+                            if pane.is_some_and(|p| p != d.pane) || crate::app::icon_view(d.view) {
                                 continue;
                             }
                             let shown = match pane {
@@ -204,15 +230,17 @@ impl App {
         if let Some(i) = activate {
             self.activate_tab(i);
         }
+        match icon_act {
+            Some(IconAct::Leave(v)) => self.leave_tab(v),
+            Some(IconAct::HideBottom) => self.bottom = None,
+            Some(IconAct::Cmd(c)) => self.pending.push(c),
+            None => {}
+        }
         if let Some(i) = close {
             self.close_tab(i, false);
         }
         if new_text {
             self.pending.push(Cmd::NewFile);
-        }
-        match new_tab {
-            Some(super::bottom::NewTab::Cmd(cmd)) => self.pending.push(cmd),
-            None => {}
         }
         match menu_act {
             Some(TabAct::Split(i, dir)) => self.split_tab(i, Some(dir)),
@@ -259,6 +287,62 @@ impl App {
             None => {}
         }
         shown_rect
+    }
+}
+
+/// A view as a tab of its icon.
+struct IconTab {
+    icon: icons::ViewIcon,
+    /// Its tab (None: a view of the bottom panel).
+    view: Option<crate::document::View>,
+    cmd: Cmd,
+    shown: bool,
+    color: Color32,
+    tip: String,
+}
+
+/// What a click on an icon tab asks.
+enum IconAct {
+    /// Back to the tab before this view.
+    Leave(crate::document::View),
+    HideBottom,
+    Cmd(Cmd),
+}
+
+impl App {
+    /// The icon tabs: the preferences, Claude, Git, the pull requests (their tab), those turned on
+    /// (the views of the bottom panel are at the right of the status bar).
+    fn icon_tabs(&self) -> Vec<IconTab> {
+        use crate::document::View;
+        use crate::features::{on, Feature};
+        let tc = self.hl.tab_colors();
+        let (accent, muted) = (self.hl.colors.accent, tc.text_inactive);
+        let active_view = self.docs.get(self.active).map(|d| d.view);
+        let tip = |label: &str, cmd: Cmd| {
+            let keys = self.keymap.label(cmd);
+            if keys.is_empty() { label.to_string() } else { format!("{label} ({keys})") }
+        };
+        let mut v = Vec::new();
+        for (on, icon, view, label, cmd) in [
+            (true, icons::ViewIcon::Settings, View::Settings, t!("Préférences", "Preferences"), Cmd::OpenSettings),
+            (on(Feature::Claude), icons::ViewIcon::Claude, View::Claude, "Claude", Cmd::Claude),
+            (on(Feature::Git), icons::ViewIcon::Git, View::Git, "Git", Cmd::ShowGit),
+            (on(Feature::GitHub), icons::ViewIcon::PullRequests, View::PullRequests, t!("Pull requests (GitHub)", "Pull requests (GitHub)"), Cmd::PullRequests),
+            (true, icons::ViewIcon::Search, View::Search, t!("Rechercher dans les fichiers", "Find in files"), Cmd::FindInFilesTab),
+        ] {
+            if !on {
+                continue;
+            }
+            let shown = active_view == Some(view);
+            // Claude at work or done (not seen yet): its color, as its tab had
+            let tint = (view == View::Claude).then(|| self.docs.iter().find(|d| d.view == View::Claude).and_then(|d| self.claude_tab_tint(d.uid))).flatten();
+            let mut tip = tip(label, cmd);
+            if view == View::Settings {
+                tip.push_str(t!("\nClic droit : Langages (outils, tree-sitter), Extensions", "\nRight click: Languages (tools, tree-sitter), Extensions"));
+            }
+            v.push(IconTab { icon, view: Some(view), cmd, shown, color: tint.unwrap_or(if shown { accent } else { muted }), tip });
+        }
+        v
     }
 }
 

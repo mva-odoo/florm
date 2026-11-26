@@ -44,15 +44,15 @@ pub fn window_controls() -> Controls {
     }
 }
 
-/// Florm draws a title bar: there is something in it (buttons, or menus).
-pub fn draws_title_bar(show_menu_bar: bool) -> bool {
-    window_controls() != Controls::None || show_menu_bar
+/// Florm draws the window's buttons itself (in the tab strip): the system's title bar is off.
+pub fn draws_title_bar() -> bool {
+    window_controls() != Controls::None
 }
 
 /// Without system decorations (Florm's own title bar, or a tiling compositor that draws none)
 /// the window is transparent, so that Florm can round its corners.
-pub fn rounded_window(show_menu_bar: bool) -> bool {
-    draws_title_bar(show_menu_bar) || window_controls() == Controls::None
+pub fn rounded_window() -> bool {
+    true
 }
 
 /// The window was created transparent: its corners can be rounded.

@@ -35,8 +35,6 @@ pub struct Settings {
     pub rulers: Vec<usize>,
     /// Path and enclosing class / function above the editor.
     pub breadcrumbs: bool,
-    /// Menu bar (Fichier, Édition…) at the top; hidden, its commands are in the palette.
-    pub show_menu_bar: bool,
     /// "Find in files" in an editor tab instead of the bottom panel.
     /// Diffs side by side (old on the left, new on the right) instead of in one column.
     pub diff_side_by_side: bool,
@@ -290,7 +288,6 @@ impl Default for Settings {
             sticky_scroll: true,
             rulers: vec![80],
             breadcrumbs: true,
-            show_menu_bar: false,
             diff_side_by_side: false,
             claude_sandbox: true,
             git: true,
@@ -396,8 +393,6 @@ sticky_scroll = true
 rulers = [80]
 # fil d'Ariane (dossier › fichier › classe › méthode) au-dessus de l'éditeur
 breadcrumbs = true
-# barre de menus en haut (masquée : ses commandes restent dans la palette, Ctrl+Shift+P)
-show_menu_bar = false
 # diffs côte à côte (l'ancienne version à gauche, la nouvelle à droite) plutôt qu'en une colonne
 diff_side_by_side = false
 # Fonctions à activer ou désactiver (false : leurs vues, commandes, menus et boutons disparaissent).

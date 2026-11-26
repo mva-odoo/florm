@@ -376,7 +376,8 @@ impl Highlighting {
         // as in Zed: the strip and the other tabs on the panels' surface, the active one on the
         // editor's background, lines between them
         let s = self.surfaces();
-        let bar = s.surface;
+        // the bar at the top a step darker than the panels, as the status bar at the bottom
+        let bar = s.bar;
         let _ = adj;
         TabColors {
             bar,

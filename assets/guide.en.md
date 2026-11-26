@@ -83,13 +83,23 @@ One simple rule: **files and the views that need room (Claude, Git, Pull request
 the tabs, the search too; the bottom panel keeps what comes along with the work**: terminals,
 debugger, problems, output. To see two tabs side by side, split the editor.
 
-- **The bottom panel has its tabs**: one per terminal, then **Debugger** (● during a session, ⏸
-  paused), **Problems** (their number) and **Output**. A click switches between them, **+** opens a
-  new terminal, **×** on a hovered terminal closes it. **Ctrl+Shift+J** shows or hides the panel.
-- **The status bar only shows what is going on**: on the left the icon of the **Preferences**, then those of **Claude**, **Git**,
-  **Pull requests** (a click opens its tab, another one goes back to the tab before; coloured when
-  it is shown), **Terminal** (the terminal of the bottom panel) and **Debugger** (its view in the
-  bottom panel; green during a session, orange when the program is paused); on the right the branch (**↑** commits to
+- **The bottom panel**: its views are chosen with the **icon tabs at the bottom right** of the status
+  bar, **Terminal**, **Debugger** (green during a session, orange when paused), **Problems** (their
+  number) and **Output**; a click shows the view, another one hides it. At the top of the panel, the
+  name of the view; for the terminal, one tab per terminal (**×** on hover closes it) and **+** for
+  another one. **Ctrl+Shift+J** shows or hides the panel.
+- **The bar at the top**, as in Zed: the tab strip goes on over the sidebar. On the left, the **F**
+  (the menus File, Edit, Git…, as Zed's ☰), the **version number** (a click looks for an update) and,
+  when there is one, the round **⬆** button of the update (**⟳** once installed: restart); then the
+  folder and the name of the project (a click: switch project; right click: new file, new folder,
+  refresh, fold everything…). Then **the views as icon tabs**: **Preferences** (right click:
+  Languages, Extensions), **Claude**, **Git**, **Pull requests** and **Search** in files (a click
+  shows the view in place, without one more tab; another one goes back to the tab before); then the
+  tabs of the files, and **+** for a new file. The files have the icon of their type (Material Icon
+  Theme). At its end, the window's buttons (minimize, maximize, close) on Windows and
+  Linux, round ones on the left on macOS, none under a tiling window manager (Hyprland, Sway…).
+  Dragging the bar moves the window.
+- **The status bar only shows what is going on**, on the left: the branch (**↑** commits to
   push, **↓** to pull, **●** changed files) of the repository of the file shown (it follows the
   tabs; a repository chosen in the Git view stays until the next file shown), then, only when it is the case, Claude (**working**,
   or **✔** when it has finished: a click shows the answer), and the problems. At rest, it is almost empty.
@@ -820,9 +830,9 @@ text does not look thinner and greyer than on a Mac's Retina screen.
 Florm Light, Florm Minimal and Florm Minimal Light, more sober (a deep or cream background, a
 soft palette), and Florm Monokai, One Dark, Dracula, GitHub Light after the usual themes of other editors),
 accent color, **softened text** (less “bold” text, useful on light themes), fonts of the editor
-and of the interface, minimap, breadcrumbs, **menu bar** (hidden by default, as in Zed: the menus are under
-the **F** at the bottom left of the status bar, and their commands in the palette, **Ctrl+Shift+P**).
-At the top of the sidebar, the folder icon before the project's name opens the list of projects.
+and of the interface, minimap, breadcrumbs. The menus are under the **F** at the top left (as in Zed,
+without a menu bar), and their commands in the palette, **Ctrl+Shift+P**. The folder icon before the
+project's name opens the list of projects.
 
 Taken from Zed, in **Appearance → Cursor and gutter / Scrolling**: cursor shape (bar, block,
 underline), blinking cursor, current line highlight, **selection occurrences** (the other places of

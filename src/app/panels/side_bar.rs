@@ -42,12 +42,42 @@ impl App {
             .show(ui, |ui| {
             let edge = ui.max_rect();
             ui.painter().vline(edge.right() - 0.5, edge.y_range(), egui::Stroke::new(1.0_f32, tc.border));
-            let card = egui::Frame::NONE.inner_margin(egui::Margin { left: 4, right: 4, top: 6, bottom: 4 });
+            // at the top, the tab strip goes on over the sidebar: the window's buttons (macOS), the F
+            // of the menus, the folder and the name of the project
+            let projects: Vec<(String, PathBuf)> = self.projects.iter().filter(|p| crate::stat_cache::is_dir(&p.path)).map(|p| (p.name.clone(), p.path.clone())).collect();
+            egui::Panel::top("sidebar_top").exact_size(TAB_STRIP_H).show_separator_line(false).frame(egui::Frame::NONE.fill(tc.bar)).show(ui, |ui| {
+                let bar = ui.max_rect();
+                ui.painter().hline(bar.x_range(), bar.bottom() - 0.5, egui::Stroke::new(1.0_f32, tc.border));
+                ui.visuals_mut().panel_fill = tc.bar;
+                let mut row = bar;
+                if let Some(c) = self.top_controls(true) {
+                    // the empty part moves the window, as a title bar does
+                    let maximized = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
+                    let drag = ui.interact(bar, egui::Id::unique("sidebar_top_drag"), Sense::click_and_drag());
+                    crate::app::title_bar::drag_window(ui.ctx(), &drag, maximized);
+                    crate::app::title_bar::strip_buttons(ui, bar, c, maximized);
+                    row.min.x += crate::app::title_bar::MAC_BUTTONS_W;
+                }
+                row.min.x += 6.0;
+                row.max.x -= 4.0;
+                ui.scope_builder(egui::UiBuilder::new().max_rect(row), |ui| {
+                    ui.horizontal_centered(|ui| {
+                        self.menu_logo(ui);
+                        self.version_and_update(ui);
+                        ui.add_space(4.0);
+                        if let Some(tree) = self.tree.as_mut() {
+                            if let Some(a) = sidebar::header(ui, tree, &projects) {
+                                tree_action = Some(a);
+                            }
+                        }
+                    });
+                });
+            });
+            let card = egui::Frame::NONE.inner_margin(egui::Margin { left: 4, right: 4, top: 4, bottom: 4 });
             card.show(ui, |ui| {
             ui.set_min_size(ui.available_size());
             // what is drawn inside (sticky folders, icons) on the same background
             ui.visuals_mut().panel_fill = panel;
-            let title_at = self.sidebar_mac_buttons(ui);
             let pats = self.settings.exclude.clone();
             // only the tree: the views are reached from the status bar, the bottom panel's ▾ and the palette
             match self.tree.as_mut() {
@@ -55,13 +85,14 @@ impl App {
                     let active = self.docs.get(self.active).and_then(|d| d.path.clone());
                     let empty = HashMap::new();
                     let info = if self.settings.tree_git_info { &self.repo_info } else { &empty };
-                    let projects: Vec<(String, PathBuf)> = self.projects.iter().filter(|p| crate::stat_cache::is_dir(&p.path)).map(|p| (p.name.clone(), p.path.clone())).collect();
                     if !self.tree_ex.as_ref().is_some_and(|(r, p, _)| *r == tree.path && *p == pats) {
                         let ex = crate::walk::Exclusions::new(&tree.path, &pats);
                         self.tree_ex = Some((tree.path.clone(), pats, ex));
                     }
                     let ex = &self.tree_ex.as_ref().expect("just set").2;
-                    tree_action = sidebar::show(ui, tree, &projects, ex, active.as_deref(), &self.git.map, info, title_at, &mut self.tree_scroll, &mut self.tree_nav);
+                    if let Some(a) = sidebar::show(ui, tree, ex, active.as_deref(), &self.git.map, info, &mut self.tree_scroll, &mut self.tree_nav) {
+                        tree_action = Some(a);
+                    }
                 }
                 None => {
                     ui.label(t!("Aucun dossier ouvert.", "No folder open."));
