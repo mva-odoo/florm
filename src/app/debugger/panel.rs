@@ -19,6 +19,10 @@ enum Act {
 
 impl App {
     pub(in crate::app) fn debug_panel(&mut self, ui: &mut egui::Ui) {
+        // the fields with a contour, on white (the whole tab: folder, command, expression)
+        let line = ui.visuals().widgets.noninteractive.bg_stroke.color;
+        let white = ui.visuals().extreme_bg_color;
+        let field_frame = egui::Frame::NONE.fill(white).stroke(egui::Stroke::new(1.0_f32, line)).corner_radius(4.0).inner_margin(egui::Margin::symmetric(6, 3));
         if self.debug.configs.is_empty() && self.debug.configs_err.is_none() && self.debug.phase == Phase::Idle {
             // read once when the panel first shows (and again at each F5)
             self.debug_read_configs();
@@ -109,7 +113,7 @@ impl App {
                     // a folder that does not exist: in red, said on hover (F5 refuses it too)
                     let resolved = super::cmd_dir_of(root.as_deref(), &cmd_dir);
                     let exists = resolved.is_dir();
-                    let mut field = egui::TextEdit::singleline(&mut cmd_dir).desired_width(150.0).font(egui::TextStyle::Monospace).hint_text(t!("le projet", "the project"));
+                    let mut field = egui::TextEdit::singleline(&mut cmd_dir).frame(field_frame).desired_width(150.0).font(egui::TextStyle::Monospace).hint_text(t!("le projet", "the project"));
                     if !exists {
                         field = field.text_color(crate::highlight::red());
                     }
@@ -131,6 +135,7 @@ impl App {
                     }
                     let r = ui.add(
                         egui::TextEdit::singleline(&mut cmd)
+                            .frame(field_frame)
                             .desired_width(f32::INFINITY)
                             .font(egui::TextStyle::Monospace)
                             .hint_text(t!("python app.py --port 8000   (Entrée ou F5)", "python app.py --port 8000   (Enter or F5)")),
@@ -143,14 +148,22 @@ impl App {
             });
         }
         ui.separator();
-        // the three parts on the editor's background (white with a light theme)
-        let fill = ui.visuals().extreme_bg_color;
-        let part = |m: egui::Margin| egui::Frame::NONE.fill(fill).corner_radius(6.0).inner_margin(m);
+        // the three parts in one white block with a contour, a line between each (as the panels
+        // of the editor)
+        let fill = white;
+        let block = ui.available_rect_before_wrap();
+        ui.painter().rect_filled(block, 4.0, white);
+        // the contour over the parts (they fill their rectangles), clipped to the panel
+        ui.ctx()
+            .layer_painter(egui::LayerId::new(egui::Order::Middle, ui.scope_id().with("debug_block")))
+            .with_clip_rect(ui.clip_rect())
+            .rect_stroke(block, 4.0, egui::Stroke::new(1.0_f32, line), egui::StrokeKind::Inside);
+        let part = |m: egui::Margin| egui::Frame::NONE.fill(fill).inner_margin(m);
         // --- the stack on the left, the console on the right, the variables in the middle (each
         // side 40 % at most: the variables keep room in a narrow window)
         let id = ui.scope_id();
         let side_max = (ui.available_width() * 0.4).max(100.0);
-        egui::Panel::left(id.with("debug_stack")).resizable(true).default_size((ui.available_width() * 0.25).min(260.0)).size_range(90.0..=side_max).show_separator_line(false).frame(part(egui::Margin::same(8))).show(ui, |ui| {
+        egui::Panel::left(id.with("debug_stack")).resizable(true).default_size((ui.available_width() * 0.25).min(260.0)).size_range(90.0..=side_max).show_separator_line(true).frame(part(egui::Margin::same(8))).show(ui, |ui| {
             ui.label(RichText::new(t!("PILE D'APPELS", "CALL STACK")).small().strong().color(ui.visuals().weak_text_color()));
             egui::ScrollArea::vertical().id_salt("debug_stack_scroll").auto_shrink([false, false]).show(ui, |ui| {
                 if d.frames.is_empty() {
@@ -171,7 +184,7 @@ impl App {
                 }
             });
         });
-        egui::Panel::right(id.with("debug_console")).resizable(true).default_size((ui.available_width() * 0.35).min(420.0)).size_range(90.0..=side_max).show_separator_line(false).frame(part(egui::Margin::same(8))).show(ui, |ui| {
+        egui::Panel::right(id.with("debug_console")).resizable(true).default_size((ui.available_width() * 0.35).min(420.0)).size_range(90.0..=side_max).show_separator_line(true).frame(part(egui::Margin::same(8))).show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(RichText::new(t!("CONSOLE", "CONSOLE")).small().strong().color(ui.visuals().weak_text_color()));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -183,7 +196,7 @@ impl App {
             // the field at the bottom: an expression evaluated where it is stopped
             egui::Panel::bottom(id.with("debug_input")).frame(egui::Frame::NONE).show_separator_line(false).show(ui, |ui| {
                 let hint = if d.phase == Phase::Stopped { t!("Expression (Entrée) : évaluée là où le programme est arrêté", "Expression (Enter): evaluated where the program is stopped") } else { t!("Expression (Entrée), une fois le programme arrêté", "Expression (Enter), once the program is stopped") };
-                let r = ui.add(egui::TextEdit::singleline(&mut input).hint_text(hint).font(egui::TextStyle::Monospace).desired_width(f32::INFINITY));
+                let r = ui.add(egui::TextEdit::singleline(&mut input).frame(field_frame).hint_text(hint).font(egui::TextStyle::Monospace).desired_width(f32::INFINITY));
                 if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !input.trim().is_empty() {
                     act = Some(Act::Evaluate(std::mem::take(&mut input).trim().to_string()));
                     r.request_focus();
@@ -203,8 +216,7 @@ impl App {
                 }
             });
         });
-        // a gap on each side of the variables, between the three white parts
-        egui::CentralPanel::default().frame(egui::Frame::NONE.outer_margin(egui::Margin::symmetric(6, 0)).fill(fill).corner_radius(6.0).inner_margin(egui::Margin::same(8))).show(ui, |ui| {
+        egui::CentralPanel::default().frame(egui::Frame::NONE.fill(fill).inner_margin(egui::Margin::same(8))).show(ui, |ui| {
             ui.label(RichText::new(t!("VARIABLES", "VARIABLES")).small().strong().color(ui.visuals().weak_text_color()));
             egui::ScrollArea::both().id_salt("debug_vars_scroll").auto_shrink([false, false]).show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 1.0;

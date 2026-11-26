@@ -46,72 +46,90 @@ impl App {
     }
 
     pub(in crate::app) fn bottom_panel(&mut self, ui: &mut egui::Ui) {
-        let ctx = &ui.ctx().clone();
         if let Some(t) = self.bottom {
             self.last_bottom = t;
         }
         let min_h = 80.0;
-        // room on the sides; its content right on the status bar (no gap)
-        let frame = egui::Frame::side_top_panel(&ctx.global_style()).inner_margin(egui::Margin { left: 8, right: 8, top: 2, bottom: 0 });
-        egui::Panel::bottom("bottom").resizable(true).default_size(230.0).size_range(min_h..=900.0).frame(frame).show(
+        // as in Zed: a grey strip at the top (the terminals' tabs, or the name of the view), the
+        // content on an off-white (the tab of the view at the right of the status bar too)
+        let tc = self.hl.tab_colors();
+        let paper = self.hl.bottom_paper();
+        egui::Panel::bottom("bottom").resizable(true).default_size(230.0).size_range(min_h..=900.0).frame(egui::Frame::NONE.fill(paper)).show(
             ui,
             |ui| {
-                // its title bar: the view is chosen at the right of the status bar, so no tabs for
-                // the views; the terminals have theirs (each one, + for another one)
                 let cur = self.bottom.unwrap_or(self.last_bottom);
                 let mut pick = None;
                 let mut close_term = None;
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 2.0;
-                    let sessions = if cur == BottomTab::Terminal { self.term.panel_sessions() } else { Vec::new() };
-                    if cur != BottomTab::Terminal {
-                        let (icon, label, note) = match cur {
-                            BottomTab::Debug => (icons::ViewIcon::Debug, t!("Débogueur", "Debugger"), match self.debug_status() {
-                                Some(true) => Some((t!("en pause", "paused").to_string(), warn())),
-                                Some(false) => Some((t!("en cours", "running").to_string(), ok())),
-                                None => None,
-                            }),
-                            BottomTab::Problems => {
-                                let nd: usize = self.docs.iter().map(|d| d.diagnostics.len()).sum();
-                                (icons::ViewIcon::Problems, t!("Problèmes", "Problems"), (nd > 0).then(|| (nd.to_string(), warn())))
+                let sessions = if cur == BottomTab::Terminal { self.term.panel_sessions() } else { Vec::new() };
+                let (strip, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 30.0), Sense::hover());
+                let p = ui.painter();
+                p.rect_filled(strip, 0.0, tc.bar);
+                p.hline(strip.x_range(), strip.top() + 0.5, egui::Stroke::new(1.0_f32, tc.border));
+                p.hline(strip.x_range(), strip.bottom() - 0.5, egui::Stroke::new(1.0_f32, tc.border));
+                ui.scope_builder(egui::UiBuilder::new().max_rect(strip), |ui| {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 0.0;
+                        if cur == BottomTab::Terminal {
+                            if sessions.is_empty() && term_tab(ui, "Terminal", None, true, false, &tc, paper).0 {
+                                pick = Some(Pick::View(BottomTab::Terminal));
                             }
-                            _ => (icons::ViewIcon::Output, t!("Sortie", "Output"), None),
-                        };
-                        bottom_tab(ui, icon, label, note, true, false);
-                    } else if sessions.is_empty() {
-                        if bottom_tab(ui, icons::ViewIcon::Terminal, "Terminal", None, cur == BottomTab::Terminal, false).0 {
-                            pick = Some(Pick::View(BottomTab::Terminal));
+                            for (id, title, shown, ended) in &sessions {
+                                let note = ended.then(|| t!("terminé", "ended"));
+                                let (open, close) = term_tab(ui, title, note, *shown, true, &tc, paper);
+                                if close {
+                                    close_term = Some(*id);
+                                } else if open {
+                                    pick = Some(Pick::Term(*id));
+                                }
+                            }
+                        } else {
+                            // the name of the view
+                            let (icon, title, note) = match cur {
+                                BottomTab::Debug => (icons::ViewIcon::Debug, t!("Débogueur", "Debugger"), match self.debug_status() {
+                                    Some(true) => Some((t!("en pause", "paused").to_string(), warn())),
+                                    Some(false) => Some((t!("en cours", "running").to_string(), ok())),
+                                    None => None,
+                                }),
+                                BottomTab::Problems => {
+                                    let nd: usize = self.docs.iter().map(|d| d.diagnostics.len()).sum();
+                                    (icons::ViewIcon::Problems, t!("Problèmes", "Problems"), (nd > 0).then(|| (nd.to_string(), warn())))
+                                }
+                                _ => (icons::ViewIcon::Output, t!("Sortie", "Output"), None),
+                            };
+                            ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), 30.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                                ui.spacing_mut().item_spacing.x = 6.0;
+                                ui.add_space(6.0);
+                                let (r, _) = ui.allocate_exact_size(egui::vec2(16.0, 16.0), Sense::hover());
+                                icons::paint_view(ui.painter(), r.center(), icon, tc.text_active);
+                                ui.label(RichText::new(title).size(12.5).color(tc.text_active));
+                                if let Some((n, c)) = note {
+                                    ui.label(RichText::new(n).size(12.0).color(c));
+                                }
+                            });
                         }
-                    }
-                    for (id, title, shown, ended) in &sessions {
-                        let note = ended.then(|| (t!("terminé", "ended").to_string(), ui.visuals().weak_text_color()));
-                        let (open, close, _) = bottom_tab(ui, icons::ViewIcon::Terminal, title, note, cur == BottomTab::Terminal && *shown, true);
-                        if close {
-                            close_term = Some(*id);
-                        } else if open {
-                            pick = Some(Pick::Term(*id));
-                        }
-                    }
-                    if cur == BottomTab::Terminal {
-                        ui.add_space(4.0);
-                        if ui.small_button("+").on_hover_text(t!("Nouveau terminal", "New terminal")).clicked() {
-                            pick = Some(Pick::NewTerm);
-                        }
-                    }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let keys = self.keymap.label(Cmd::TogglePanel);
-                        if ui.small_button("×").on_hover_text(tf!("Fermer le panneau ({keys})", "Close the panel ({keys})")).clicked() {
-                            self.bottom = None;
-                        }
-                        let term = cur == BottomTab::Terminal && !sessions.is_empty();
-                        if term && icons::layout_button(ui, icons::Layout::ToTab, t!("Ce terminal dans un onglet de l'éditeur", "This terminal in an editor tab")).clicked() {
-                            self.term.dock_shown();
-                        }
-                        // the terminal's folder, on the right of the tabs
-                        if let Some(cwd) = self.term.shown_cwd().filter(|_| term) {
-                            ui.label(RichText::new(cwd.display().to_string()).small().weak())
-                                .on_hover_text(t!("Ctrl+C : interrompre (ou copier la sélection) · Ctrl+V : coller · clic droit : menu", "Ctrl+C: interrupt (or copy the selection) · Ctrl+V: paste · right click: menu"));
-                        }
+                        // on the right: + (a terminal), what goes with the view, × to close
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.spacing_mut().item_spacing.x = 4.0;
+                            ui.add_space(6.0);
+                            let keys = self.keymap.label(Cmd::TogglePanel);
+                            if ui.small_button("×").on_hover_text(tf!("Fermer le panneau ({keys})", "Close the panel ({keys})")).clicked() {
+                                self.bottom = None;
+                            }
+                            if cur == BottomTab::Terminal && ui.small_button("+").on_hover_text(t!("Nouveau terminal", "New terminal")).clicked() {
+                                pick = Some(Pick::NewTerm);
+                            }
+                            let term = cur == BottomTab::Terminal && !sessions.is_empty();
+                            if term && icons::layout_button(ui, icons::Layout::ToTab, t!("Ce terminal dans un onglet de l'éditeur", "This terminal in an editor tab")).clicked() {
+                                self.term.dock_shown();
+                            }
+                            if let Some(cwd) = self.term.shown_cwd().filter(|_| term) {
+                                ui.label(RichText::new(cwd.display().to_string()).small().weak())
+                                    .on_hover_text(t!("Ctrl+C : interrompre (ou copier la sélection) · Ctrl+V : coller · clic droit : menu", "Ctrl+C: interrupt (or copy the selection) · Ctrl+V: paste · right click: menu"));
+                            }
+                            if cur == BottomTab::Output && ui.small_button(t!("Effacer", "Clear")).clicked() {
+                                self.output.clear();
+                            }
+                        });
                     });
                 });
                 if let Some(id) = close_term {
@@ -120,32 +138,32 @@ impl App {
                 if let Some(p) = pick {
                     self.apply_pick(p, true);
                 }
-                ui.separator();
-                match self.bottom {
-                    Some(BottomTab::Problems) => self.problems_ui(ui),
-                    Some(BottomTab::Debug) => self.debug_panel(ui),
-                    Some(BottomTab::Terminal) => {
-                        if self.term.cwd.is_none() {
-                            self.term.cwd = self.root.clone();
-                        }
-                        let shell = self.term_shell();
-                        self.term.ui(ui, shell.as_deref(), self.hl.colors, self.hl.is_light());
-                    }
-                    Some(BottomTab::Output) => {
-                        if ui.small_button(t!("Effacer", "Clear")).clicked() {
-                            self.output.clear();
-                        }
-                        // only the lines in sight are laid out (up to 5000 kept)
-                        let row_h = ui.text_style_height(&egui::TextStyle::Monospace);
-                        ui.spacing_mut().item_spacing.y = 0.0;
-                        egui::ScrollArea::both().auto_shrink([false, false]).stick_to_bottom(true).show_rows(ui, row_h, self.output.len(), |ui, range| {
-                            for l in &self.output[range] {
-                                ui.add(egui::Label::new(RichText::new(l).monospace()).extend());
+                let margin = egui::Margin { left: 10, right: 8, top: if cur == BottomTab::Terminal { 4 } else { 6 }, bottom: 0 };
+                egui::Frame::NONE.inner_margin(margin).show(ui, |ui| {
+                    ui.set_min_size(ui.available_size());
+                    match self.bottom {
+                        Some(BottomTab::Problems) => self.problems_ui(ui),
+                        Some(BottomTab::Debug) => self.debug_panel(ui),
+                        Some(BottomTab::Terminal) => {
+                            if self.term.cwd.is_none() {
+                                self.term.cwd = self.root.clone();
                             }
-                        });
+                            let shell = self.term_shell();
+                            self.term.ui(ui, shell.as_deref(), self.hl.colors, self.hl.is_light());
+                        }
+                        Some(BottomTab::Output) => {
+                            // only the lines in sight are laid out (up to 5000 kept)
+                            let row_h = ui.text_style_height(&egui::TextStyle::Monospace);
+                            ui.spacing_mut().item_spacing.y = 0.0;
+                            egui::ScrollArea::both().auto_shrink([false, false]).stick_to_bottom(true).show_rows(ui, row_h, self.output.len(), |ui, range| {
+                                for l in &self.output[range] {
+                                    ui.add(egui::Label::new(RichText::new(l).monospace()).extend());
+                                }
+                            });
+                        }
+                        None => {}
                     }
-                    None => {}
-                }
+                });
             },
         );
     }
@@ -203,52 +221,56 @@ pub(super) enum Pick {
     NewTerm,
 }
 
-/// A tab of the bottom panel: its icon, its name, a note in color after it (a count, a state),
-/// × on hover when `closable`; the one shown on the editor's background, underlined in the
-/// accent. Returns (clicked, × clicked, its response).
-fn bottom_tab(ui: &mut egui::Ui, icon: icons::ViewIcon, label: &str, note: Option<(String, Color32)>, shown: bool, closable: bool) -> (bool, bool, egui::Response) {
+/// A tab of a terminal, right on the terminals (as the tabs of the editor on the text): the one shown
+/// on the white of the terminal, the others a step darker with the line under them; × on hover.
+/// Returns (clicked, × clicked).
+fn term_tab(ui: &mut egui::Ui, title: &str, note: Option<&str>, shown: bool, closable: bool, tc: &crate::highlight::TabColors, white: Color32) -> (bool, bool) {
     let font = egui::FontId::proportional(12.5);
-    let text_w = ui.fonts_mut(|f| f.layout_no_wrap(label.to_string(), font.clone(), Color32::WHITE).size().x).min(180.0);
-    let note_w = note.as_ref().map_or(0.0, |(n, _)| ui.fonts_mut(|f| f.layout_no_wrap(n.clone(), font.clone(), Color32::WHITE).size().x) + 6.0);
-    let w = 10.0 + 16.0 + 6.0 + text_w + note_w + if closable { 20.0 } else { 10.0 };
-    let (rect, r) = ui.allocate_exact_size(egui::vec2(w, 26.0), Sense::click());
-    let x_rect = egui::Rect::from_center_size(egui::pos2(rect.right() - 12.0, rect.center().y), egui::vec2(16.0, 16.0));
+    let color = if shown { tc.text_active } else { tc.text_inactive };
+    let label = match note {
+        Some(n) => format!("{title} · {n}"),
+        None => title.to_string(),
+    };
+    let galley = ui.painter().layout_no_wrap(label, font, color);
+    let text_w = galley.size().x.min(200.0);
+    let w = (12.0 + 16.0 + 6.0 + text_w + if closable { 22.0 } else { 12.0 }).round();
+    let (rect, r) = ui.allocate_exact_size(egui::vec2(w, 30.0), Sense::click());
+    let rect = egui::Rect::from_min_max(rect.min.round(), rect.max.round());
+    let x_rect = egui::Rect::from_center_size(egui::pos2(rect.right() - 13.0, rect.center().y), egui::vec2(16.0, 16.0));
     let x = closable.then(|| ui.interact(x_rect, r.id.with("close"), Sense::click()));
-    let v = ui.visuals();
     let hovered = ui.rect_contains_pointer(rect);
-    let accent = v.selection.stroke.color;
+    let p = ui.painter();
+    let fill = if shown { white } else if hovered { tc.close_hover } else { tc.bar };
+    p.rect_filled(rect, 0.0, fill);
+    let line = egui::Stroke::new(1.0_f32, tc.border);
+    p.vline(rect.right() - 0.5, rect.y_range(), line);
     if shown {
-        ui.painter().rect_filled(rect, egui::CornerRadius { nw: 5, ne: 5, sw: 0, se: 0 }, v.extreme_bg_color);
-        ui.painter().hline(rect.x_range(), rect.bottom() - 1.0, egui::Stroke::new(2.0_f32, accent));
-    } else if hovered {
-        ui.painter().rect_filled(rect, 5.0, v.widgets.hovered.weak_bg_fill);
+        p.vline(rect.left() + 0.5, rect.y_range(), line);
     }
-    let color = if shown || hovered { v.strong_text_color() } else { v.text_color() };
-    let y = rect.center().y;
-    icons::paint_view(ui.painter(), egui::pos2(rect.left() + 10.0 + 8.0, y), icon, color);
-    let clip = ui.painter().with_clip_rect(egui::Rect::from_min_max(rect.min, egui::pos2(rect.left() + 32.0 + text_w, rect.bottom())));
-    let name = clip.text(egui::pos2(rect.left() + 32.0, y), Align2::LEFT_CENTER, label, font.clone(), color);
-    if let Some((n, c)) = &note {
-        ui.painter().text(egui::pos2(name.right().min(rect.left() + 32.0 + text_w) + 6.0, y), Align2::LEFT_CENTER, n, font, *c);
+    if shown {
+        // open onto the terminal: the line under the row stops at it
+        p.hline(rect.shrink2(egui::vec2(1.0, 0.0)).x_range(), rect.bottom() - 0.5, egui::Stroke::new(1.0_f32, white));
     }
+    icons::paint_view(p, egui::pos2(rect.left() + 12.0 + 8.0, rect.center().y), icons::ViewIcon::Terminal, color);
+    p.with_clip_rect(egui::Rect::from_min_max(rect.min, egui::pos2(rect.left() + 34.0 + text_w, rect.bottom())))
+        .galley(egui::pos2(rect.left() + 34.0, rect.center().y - galley.size().y / 2.0), galley, color);
     let mut close = false;
     if let Some(x) = x {
         if hovered {
-            let xc = if x.hovered() { v.strong_text_color() } else { v.weak_text_color() };
-            ui.painter().text(x_rect.center(), Align2::CENTER_CENTER, "×", egui::FontId::proportional(14.0), xc);
+            let xc = if x.hovered() { tc.text_active } else { tc.text_inactive };
+            p.text(x_rect.center(), Align2::CENTER_CENTER, "×", egui::FontId::proportional(14.0), xc);
         }
         close = x.clicked();
     }
-    let r = if text_w >= 180.0 { r.on_hover_text(label) } else { r };
-    (r.clicked() && !close, close, r)
+    (r.clicked() && !close, close)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// The bottom panel: the view shown as its title (no tabs of the views: they are chosen at
-    /// the right of the status bar), the terminals with their tabs and + for another one; the
+    /// The bottom panel: a title line for the views (chosen at the right of the status bar, no tabs
+    /// of theirs), the terminals' tabs and + for another one; the
     /// tabs of the status bar show a view, and hide it again.
     #[test]
     fn the_bottom_panel_shows_its_view() {
@@ -283,7 +305,8 @@ mod tests {
         };
         frame(&mut app, false, Vec::new());
         let names: Vec<String> = frame(&mut app, false, Vec::new()).into_iter().map(|(t, _)| t).collect();
-        assert!(names.iter().any(|t| t == "Sortie") && names.iter().any(|t| t == "Effacer"), "{names:?}");
+        // its title line: its name, its actions
+        assert!(names.iter().any(|t| t == "Sortie") && names.iter().any(|t| t == "Effacer") && names.iter().any(|t| t == "×"), "{names:?}");
         for not in ["Terminal", "Débogueur", "Problèmes", "+"] {
             assert!(!names.iter().any(|t| t == not), "{not}: {names:?}");
         }

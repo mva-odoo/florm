@@ -467,7 +467,8 @@ impl App {
             let (rect, r) = ui.allocate_exact_size(egui::vec2(w, ui.available_height()), Sense::click());
             let rect = egui::Rect::from_min_max(rect.min.round(), rect.max.round());
             let p = ui.painter();
-            let fill = if shown { tc.active } else if r.hovered() { tc.close_hover } else { tc.bar };
+            // the one shown on the panel's background: they join
+            let fill = if shown { self.hl.bottom_paper() } else if r.hovered() { tc.close_hover } else { tc.bar };
             p.rect_filled(rect, 0.0, fill);
             let line = egui::Stroke::new(1.0_f32, tc.border);
             // laid out from the right: each one draws its left line, the last one (rightmost) its right

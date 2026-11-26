@@ -361,6 +361,14 @@ impl Highlighting {
         }
     }
 
+    /// The background of the bottom panel (terminal, debugger, problems, output): the editor's,
+    /// a touch toward the bars (an off-white on a light theme, as Zed's terminal).
+    pub fn bottom_paper(&self) -> Color32 {
+        let (bg, bar) = (self.colors.bg, self.surfaces().surface);
+        let f = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * 0.35) as u8;
+        Color32::from_rgb(f(bg.r(), bar.r()), f(bg.g(), bar.g()), f(bg.b(), bar.b()))
+    }
+
     /// Colors of the editor tab strip, chosen for readable contrast on dark and light themes.
     pub fn tab_colors(&self) -> TabColors {
         let c = self.colors;
