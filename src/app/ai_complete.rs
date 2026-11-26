@@ -159,7 +159,7 @@ impl App {
         let text = d.rope.to_string();
         let line_start = d.rope.line_to_char(line);
         let col: usize = d.slice(line_start, head).encode_utf16().count();
-        let (syntax, tab, spaces) = (d.syntax.clone(), self.settings.tab_size, self.settings.translate_tabs_to_spaces);
+        let (syntax, tab, spaces) = (d.syntax.clone(), d.tab_size, d.use_spaces);
         self.ai.n += 1;
         let n = self.ai.n;
         self.ai.asked = Some((n, key.0, key.1, key.2));

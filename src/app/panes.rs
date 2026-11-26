@@ -94,20 +94,33 @@ impl App {
                 let matches: &[(usize, usize)] = if focused && self.find.open { &self.find.matches } else { &[] };
                 let doc = self.docs.get_mut(i)?;
                 let s = &self.settings;
+                // the settings of the file's language over the general ones
+                let lang = s.lang_of(doc.path.as_deref());
                 let opts = editor_view::ViewOpts {
                     font_size: s.font_size,
                     minimap: s.show_minimap,
-                    wrap: s.word_wrap,
+                    wrap: lang.word_wrap,
                     inline_diff: s.inline_diff,
                     sticky: s.sticky_scroll,
-                    rulers: &s.rulers,
+                    rulers: &lang.rulers,
                     notes: doc.path.as_ref().and_then(|p| self.pr.notes.get(p)).map_or(&[], |v| &v[..]),
                     tests: &tests,
-                    rainbow: s.rainbow_brackets,
-                    whitespace: s.show_whitespace,
+                    rainbow: lang.rainbow_brackets,
+                    whitespace: lang.show_whitespace,
                     debug,
                     exec_line,
                     blame_gutter: self.blame.gutter && doc.path.is_some(),
+                    cursor_shape: &s.cursor_shape,
+                    cursor_blink: s.cursor_blink,
+                    line_numbers: s.line_numbers,
+                    relative_numbers: s.relative_line_numbers,
+                    current_line: s.current_line_highlight,
+                    indent_guides: lang.indent_guides,
+                    scroll_beyond: s.scroll_beyond_last_line,
+                    scroll_margin: s.vertical_scroll_margin,
+                    selection_highlight: s.selection_highlight,
+                    hover_docs: s.hover_popover,
+                    git_gutter: s.git_gutter,
                 };
                 let r = editor_view::show(ui, doc, &self.hl, &opts, matches, id);
                 // a commit clicked in the blame of the gutter: in the Git view

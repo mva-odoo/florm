@@ -25,6 +25,20 @@ pub struct Query {
     pub exclude: String,
     /// Replace keeping the case of each match (chat→chien, Chat→Chien, CHAT→CHIEN).
     pub preserve: bool,
+    /// Smart case: a pattern with a capital letter is case sensitive.
+    pub smart: bool,
+}
+
+impl Query {
+    /// Case sensitive: asked, or a capital letter typed with the smart case.
+    pub fn case_sensitive(&self) -> bool {
+        smart_case(&self.pattern, self.case, self.smart)
+    }
+}
+
+/// Case sensitive: `case`, or `smart` and a capital letter in `pattern`.
+pub fn smart_case(pattern: &str, case: bool, smart: bool) -> bool {
+    case || (smart && pattern.chars().any(char::is_uppercase))
 }
 
 #[derive(Clone)]
@@ -125,7 +139,7 @@ fn normalize(root: &Path, glob: &str, include: bool) -> Result<Vec<String>, Stri
 pub fn run(root: &Path, q: &Query, ex: &crate::walk::Exclusions, gen: u64, current: &Arc<AtomicU64>) -> Outcome {
     let start = Instant::now();
     let fail = |e: String| Outcome { error: Some(e), ..Default::default() };
-    let re = match build_regex(&q.pattern, q.case, q.regex, q.whole) {
+    let re = match build_regex(&q.pattern, q.case_sensitive(), q.regex, q.whole) {
         Ok(r) => r,
         Err(e) => return fail(e),
     };

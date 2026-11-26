@@ -304,6 +304,9 @@ impl App {
         {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.confirm = Some(Confirm::Quit);
+        } else if ctx.input(|i| i.viewport().close_requested()) && !self.quit.confirmed && self.settings.confirm_quit && self.confirm.is_none() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.confirm = Some(Confirm::QuitAsk);
         }
         // « Fermer quand il aura fini »: the last Claude at work is done
         if self.quit.when_idle && working == 0 {
@@ -339,7 +342,7 @@ impl App {
         }
         // Spelling of the Markdown, comments and commit messages, debounced; the dictionary is
         // loaded (downloaded the first time) on a thread when first needed.
-        let spell_on = self.settings.spell_check;
+        let spell_on = self.active_lang().spell_check;
         if let Some(d) = self.docs.get_mut(self.active) {
             let kind = d.path.as_deref().and_then(crate::spell::kind_of).filter(|_| spell_on && d.rope.len_bytes() < 2_000_000);
             match kind {

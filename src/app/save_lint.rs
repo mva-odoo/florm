@@ -7,14 +7,15 @@ impl App {
     /// focus or another tab is shown, "delay" a second after the last keystroke. Not the new files
     /// (no name yet), nor those changed on disk meanwhile, nor formatted with ruff while typing.
     pub(super) fn auto_save(&mut self, ctx: &egui::Context) {
-        let mode = self.settings.auto_save.as_str();
+        let mode = self.settings.auto_save.clone();
+        let mode = mode.as_str();
         if mode != "focus" && mode != "delay" {
             return;
         }
         let focused = ctx.input(|i| i.focused);
         let shown = self.docs.get(self.active).map_or(0, |d| d.uid);
         let (was_focused, was_shown) = std::mem::replace(&mut self.auto_save_seen, (focused, shown));
-        let delay = std::time::Duration::from_secs(1);
+        let delay = std::time::Duration::from_millis(self.settings.auto_save_delay_ms.clamp(100, 60_000));
         let due: Vec<usize> = (0..self.docs.len())
             .filter(|&i| {
                 let d = &self.docs[i];
@@ -29,18 +30,20 @@ impl App {
             ctx.request_repaint_after(delay);
         }
         // while typing, the trailing spaces stay (the space just typed would go)
-        let format = std::mem::replace(&mut self.settings.format_on_save, false);
-        let trim = self.settings.trim_trailing_whitespace_on_save;
-        self.settings.trim_trailing_whitespace_on_save = trim && mode == "focus";
         for i in due {
-            self.save(i);
+            self.save_opts(i, false, mode == "focus");
         }
-        self.settings.format_on_save = format;
-        self.settings.trim_trailing_whitespace_on_save = trim;
     }
 
     pub(super) fn save(&mut self, idx: usize) -> bool {
-        let trim = self.settings.trim_trailing_whitespace_on_save;
+        self.save_opts(idx, true, true)
+    }
+
+    /// Saves document `idx` with the settings of its language: formatted (Python, with ruff)
+    /// unless `format` is false, its trailing spaces trimmed unless `trim` is false.
+    pub(super) fn save_opts(&mut self, idx: usize, format: bool, trim: bool) -> bool {
+        let lang = self.settings.lang_of(self.docs.get(idx).and_then(|d| d.path.as_deref()));
+        let (format, trim, final_newline) = (format && lang.format_on_save, trim && lang.trim_trailing_whitespace_on_save, lang.ensure_final_newline_on_save);
         let Some(doc) = self.docs.get_mut(idx) else { return false };
         if doc.read_only {
             return false;
@@ -56,7 +59,7 @@ impl App {
             self.confirm = Some(Confirm::Overwrite(doc.uid));
             return false;
         }
-        if self.settings.format_on_save && doc.path.as_deref().and_then(lint::lang_of) == Some("python") {
+        if format && doc.path.as_deref().and_then(lint::lang_of) == Some("python") {
             let path = doc.path.clone().unwrap();
             let root = self.repo_for(&path).or_else(|| self.root.clone());
             let doc = &mut self.docs[idx];
@@ -72,7 +75,7 @@ impl App {
         if let Some(p) = &doc.path {
             crate::local_history::keep(p);
         }
-        match doc.save(trim) {
+        match doc.save(trim, final_newline) {
             Ok(()) => {
                 let path = doc.path.clone().unwrap();
                 crate::local_history::keep(&path);
@@ -88,12 +91,16 @@ impl App {
     }
 
     /// Ctrl+S: saved, formatted first with ruff off the UI thread when `format_on_save` asks for
-    /// it (saved when ruff answers). Closing and quitting go through `save`, which waits.
+    /// it (saved when ruff answers). Closing and quitting go through `save`, which waits. The
+    /// other languages: saved, then formatted by their language server and saved again.
     pub(super) fn save_formatted(&mut self, idx: usize) {
         let Some(d) = self.docs.get(idx) else { return };
         let python = d.path.as_deref().and_then(lint::lang_of) == Some("python");
-        if !(self.settings.format_on_save && python && !d.read_only && d.disk_change != Some(document::DiskChange::Changed)) {
-            self.save(idx);
+        let format = self.settings.lang_of(d.path.as_deref()).format_on_save;
+        if !(format && python && !d.read_only && d.disk_change != Some(document::DiskChange::Changed)) {
+            if self.save(idx) && format && !python {
+                self.lsp_format_doc(idx, true);
+            }
             return;
         }
         self.ruff_job(idx, lint::Rewrite::Format, None, true);
@@ -122,9 +129,7 @@ impl App {
             }
         };
         if then_save {
-            let format = std::mem::replace(&mut self.settings.format_on_save, false);
-            self.save(idx);
-            self.settings.format_on_save = format;
+            self.save_opts(idx, false, true);
             return;
         }
         if !fresh {
@@ -189,13 +194,13 @@ impl App {
         if doc.view != document::View::Text {
             return;
         }
-        if let Some(lang) = lint::lang_of(&path).filter(|l| lint::is_in_process(l)) {
+        if let Some(lang) = lint::lang_of(&path).filter(|l| lint::is_in_process(l)).filter(|_| self.settings.lang_of(Some(&path)).lint) {
             let (uid, version, rope) = (doc.uid, doc.version, doc.rope.clone());
             doc.lint_version = version;
             self.jobs.spawn(move || JobResult::LintedInProcess { uid, version, diags: lint::lint_in_process(lang, &rope.to_string()) });
         }
         let uid = doc.uid;
-        let lint_on = self.settings.lint_on_save || !saving;
+        let lint_on = (self.settings.lint_on_save || !saving) && self.settings.lang_of(Some(&path)).lint;
         let root = self.repo_for(&path).or_else(|| self.root.clone());
         let cfg = self.lint_config(&path);
         let text = self.docs[idx].rope.to_string();
@@ -243,7 +248,7 @@ impl App {
         }
         let Some(d) = self.docs.get(self.active) else { return };
         let Some(path) = d.path.clone() else { return };
-        if d.lint_version == d.version || self.lint_inflight.contains(&d.uid) {
+        if d.lint_version == d.version || self.lint_inflight.contains(&d.uid) || !self.settings.lang_of(Some(&path)).lint {
             return;
         }
         // Python, and the other languages with a linter (on the text typed: their standard input)

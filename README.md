@@ -442,7 +442,7 @@ Sous macOS, Ctrl = Cmd, avec les touches habituelles du Mac : Cmd+← / → déb
 
 ## Configuration
 
-**Ctrl+,** (ou Fichier → Préférences) ouvre la page des préférences : sections Apparence, Éditeur, Lint, Git, Terminal, Raccourcis, Avancé, avec une recherche. Chaque changement s'applique immédiatement et est enregistré dans `~/.config/florm/settings.toml` (`%APPDATA%\florm` sous Windows), que l'on peut aussi éditer directement (Fichier → Ouvrir settings.toml).
+**Ctrl+,** (ou Fichier → Préférences) ouvre la page des préférences : sections Apparence, Éditeur, Langages (une page par langage, comme dans Zed : ses outils et ses réglages, `languages` dans settings.toml), Git, Terminal, Raccourcis, Avancé, avec une recherche. Chaque changement s'applique immédiatement et est enregistré dans `~/.config/florm/settings.toml` (`%APPDATA%\florm` sous Windows), que l'on peut aussi éditer directement (Fichier → Ouvrir settings.toml).
 La **langue** de l'interface (français ou anglais) se choisit dans Préférences → Apparence → Langue, ou avec `language = "fr"` / `"en"` (vide : celle du système) ; elle change tout de suite, menus, panneaux, messages et guide compris. En anglais, Claude reçoit aussi ses consignes en anglais.
 Les changements s'appliquent à l'enregistrement. Le thème choisi via « Affichage → Thème… », la minimap, le diff dans l'éditeur et le zoom y sont enregistrés automatiquement.
 

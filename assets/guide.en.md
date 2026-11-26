@@ -326,6 +326,27 @@ The operations started from Florm put the original version between the two sides
 each language with its tools: language server (LSP), linter, formatter, debugger. ✓: installed;
 ✖: missing.
 
+**Each language has its page**, as in Zed: click its row, or its name in the column on the left
+(under “Languages”). It gathers everything of its own:
+
+- its **tools** (and “Syntax · tree-sitter”); its **language server** and its **lint**, which can be
+  turned off for it alone; its linters (for Python: the chosen linter, its arguments, the codes
+  ignored by flake8, ruff and pylint; for JavaScript / TypeScript: ESLint's; shellcheck, yamllint,
+  markdownlint… for the others);
+- **its settings**, which replace for its files those of Editor and Appearance: tab width, indent
+  with spaces, word wrap, vertical rulers, visible whitespace, indent guides, colored brackets,
+  spelling, auto-close brackets, format on save, trim trailing whitespace, final newline. Each row
+  says the value of all the languages; changed, it is marked **its own**, and **↺** puts it back
+  like all. For instance: 2 spaces for JavaScript, word wrap for Markdown, format on save for Rust
+  only. Alt+Z changes the one of the file's language when it has its own.
+
+In settings.toml: `languages = { "JavaScript / TypeScript" = { tab_size = 2 }, Markdown = { word_wrap = true } }`
+(the pack's name; the same keys as the general settings, plus `lsp` and `lint`).
+
+The page of all the languages keeps what applies to all: the automatic install and the kinds of
+tools to install, the language servers (general switch), when to check (while typing, on save), the
+linters declared in settings.toml and the trusted folders.
+
 - **Install** puts what is missing in Florm's tools folder, without touching the system: `pip` in a
   virtual environment of its own (pylsp, ruff, debugpy, yamllint, clangd…), `npm`
   (typescript-language-server, eslint, the YAML, Bash, HTML, CSS, Dockerfile servers…), `go install`
@@ -802,6 +823,14 @@ accent color, **softened text** (less “bold” text, useful on light themes), 
 and of the interface, minimap, breadcrumbs, **menu bar** (hidden by default, as in Zed: the menus are under
 the **F** at the bottom left of the status bar, and their commands in the palette, **Ctrl+Shift+P**).
 At the top of the sidebar, the folder icon before the project's name opens the list of projects.
+
+Taken from Zed, in **Appearance → Cursor and gutter / Scrolling**: cursor shape (bar, block,
+underline), blinking cursor, current line highlight, **selection occurrences** (the other places of
+the selected text framed), line numbers and **relative numbers** (counted from the cursor's line),
+indent guides, scroll past the end of the file, margin of lines around the cursor. In **Editor**:
+completion while typing, documentation on hover, **smart case** (a search with a capital letter is
+case sensitive), final newline on save, delay of the auto-save, ask before quitting. In **Git**: the
+change marks in the gutter, and the line blame from the start.
 
 **Theme colors → Create a theme from “…”**: all the colors of the editor (background, text,
 accent, cursor, selection, gutter…) and of the code (comments, keywords, strings, functions,

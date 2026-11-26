@@ -189,6 +189,11 @@ pub fn all() -> Vec<Pack> {
     cell().read().map(|c| c.packs.clone()).unwrap_or_default()
 }
 
+/// The name of the pack of file `path` (its language), without copying the packs.
+pub fn name_for(path: &Path) -> Option<String> {
+    cell().read().ok()?.packs.iter().find(|p| p.matches(path)).map(|p| p.name.clone())
+}
+
 /// The files of the user's packs that could not be read.
 pub fn errors() -> Vec<String> {
     cell().read().map(|c| c.errors.clone()).unwrap_or_default()

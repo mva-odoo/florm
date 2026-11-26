@@ -847,10 +847,14 @@ impl Document {
         self.view == View::Text && self.path.is_none() && !self.is_dirty() && self.rope.len_chars() == 0
     }
 
-    pub fn save(&mut self, trim_trailing: bool) -> Result<(), String> {
+    pub fn save(&mut self, trim_trailing: bool, final_newline: bool) -> Result<(), String> {
         let path = self.path.clone().ok_or(t!("aucun chemin", "no path"))?;
         if trim_trailing {
             self.trim_trailing_whitespace();
+        }
+        if final_newline && self.rope.len_chars() > 0 && self.rope.char(self.rope.len_chars() - 1) != '\n' {
+            let end = self.rope.len_chars();
+            self.replace_keep(EditKind::Other, vec![(end, end, "\n".to_string())]);
         }
         let mut text = self.rope.to_string();
         if self.crlf {
@@ -3159,7 +3163,7 @@ mod tests {
         let mut d = Document::open(1, &p, 4, true, &hl).unwrap();
         assert_eq!(d.encoding, Encoding::Windows1252);
         assert_eq!(d.rope.to_string(), "Créé le “test”\n");
-        d.save(false).unwrap();
+        d.save(false, false).unwrap();
         assert_eq!(std::fs::read(&p).unwrap(), b"Cr\xe9\xe9 le \x93test\x94\n");
         let _ = std::fs::remove_file(&p);
     }

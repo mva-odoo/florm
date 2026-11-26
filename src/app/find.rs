@@ -4,6 +4,7 @@ use super::*;
 
 impl App {
     pub(super) fn update_find(&mut self) {
+        let smart = self.settings.smartcase_search;
         if !self.find.open {
             if self.find.in_sel {
                 self.find.in_sel = false;
@@ -22,7 +23,7 @@ impl App {
             self.find.matches.clear();
             self.find.error = None;
         } else {
-            match document::build_regex(&f.query, f.case, f.regex, f.whole) {
+            match document::build_regex(&f.query, crate::search::smart_case(&f.query, f.case, smart), f.regex, f.whole) {
                 Ok(re) => {
                     let mut m = doc.find_all(&re);
                     if let Some((s, e)) = scope {
@@ -80,8 +81,9 @@ impl App {
 
     pub(super) fn replace_one(&mut self) {
         self.update_find();
+        let smart = self.settings.smartcase_search;
         let f = &self.find;
-        let Ok(re) = document::build_regex(&f.query, f.case, f.regex, f.whole) else { return };
+        let Ok(re) = document::build_regex(&f.query, crate::search::smart_case(&f.query, f.case, smart), f.regex, f.whole) else { return };
         let Some(doc) = self.docs.get_mut(self.active) else { return };
         if doc.read_only {
             return;
@@ -104,8 +106,9 @@ impl App {
     }
 
     pub(super) fn replace_all(&mut self) {
+        let smart = self.settings.smartcase_search;
         let f = &self.find;
-        let Ok(re) = document::build_regex(&f.query, f.case, f.regex, f.whole) else { return };
+        let Ok(re) = document::build_regex(&f.query, crate::search::smart_case(&f.query, f.case, smart), f.regex, f.whole) else { return };
         let Some(doc) = self.docs.get_mut(self.active) else { return };
         if doc.read_only || f.query.is_empty() {
             return;

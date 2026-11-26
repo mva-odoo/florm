@@ -20,6 +20,7 @@ impl App {
         project::save_state(&self.state);
         self.search.hist_pos = None;
         let gen = self.search.gen.fetch_add(1, Ordering::SeqCst) + 1;
+        self.search.q.smart = self.settings.smartcase_search;
         let (q, current) = (self.search.q.clone(), self.search.gen.clone());
         self.search.done = q.clone();
         self.search.running = true;
@@ -69,7 +70,7 @@ impl App {
     /// Replaces every listed hit, those of one file (`Some((file, None))`) or a single one.
     pub(super) fn replace_in_files(&mut self, only: Option<(usize, Option<usize>)>) {
         let q = &self.search.done;
-        let Ok(re) = document::build_regex(&q.pattern, q.case, q.regex, q.whole) else { return };
+        let Ok(re) = document::build_regex(&q.pattern, q.case_sensitive(), q.regex, q.whole) else { return };
         let (rep, regex_mode, preserve) = (self.search.replacement.clone(), q.regex, self.search.q.preserve);
         let keep_all = |f: &FileHits| f.partial.then(|| f.hits.iter().map(|h| (h.line, h.col)).collect::<HashSet<_>>());
         let targets: Vec<(PathBuf, Option<HashSet<(usize, usize)>>)> = match only {
@@ -304,7 +305,7 @@ impl App {
         let fg = v.text_color();
         let preview_re = if s.show_replace {
             let q = &s.done;
-            document::build_regex(&q.pattern, q.case, q.regex, q.whole).ok()
+            document::build_regex(&q.pattern, q.case_sensitive(), q.regex, q.whole).ok()
         } else {
             None
         };

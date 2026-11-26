@@ -853,6 +853,7 @@ impl App {
                 (t!("Fichier modifié", "File changed"), tf!("Enregistrer les modifications de « {name} » ?", "Save the changes of “{name}”?"))
             }
             Confirm::Quit => (t!("Quitter", "Quit"), t!("Des fichiers ne sont pas enregistrés.", "Some files are not saved.").to_string()),
+            Confirm::QuitAsk => (t!("Quitter", "Quit"), t!("Fermer Florm ?", "Close Florm?").to_string()),
             Confirm::QuitClaude(n) => (
                 t!("Claude travaille", "Claude is working"),
                 tf!("Claude travaille dans {n} conversation(s). Fermer Florm maintenant le coupe au milieu de sa tâche ; à la réouverture, tu pourras lui demander de reprendre.", "Claude is working in {n} conversation(s). Closing Florm now cuts it in the middle of its task; when you open it again, you can ask it to go on."),
@@ -896,6 +897,7 @@ impl App {
         let (yes, no) = match c {
             Confirm::CloseTab(_) => (t!("Enregistrer", "Save"), Some(t!("Ne pas enregistrer", "Don't save"))),
             Confirm::Quit => (t!("Tout enregistrer et quitter", "Save all and quit"), Some(t!("Quitter sans enregistrer", "Quit without saving"))),
+            Confirm::QuitAsk => (t!("Quitter", "Quit"), None),
             Confirm::QuitClaude(_) => (t!("Fermer quand il aura fini", "Close when it is done"), Some(t!("Fermer maintenant", "Close now"))),
             Confirm::Delete(_) => (t!("Mettre à la corbeille", "Move to the trash"), Some(t!("Supprimer définitivement", "Delete for good"))),
             Confirm::SwitchProject(_) => (t!("Tout enregistrer et changer", "Save all and switch"), Some(t!("Changer sans enregistrer", "Switch without saving"))),
@@ -1020,7 +1022,7 @@ impl App {
                 self.quit.confirmed = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
-            (Confirm::Quit, 2) => {
+            (Confirm::Quit, 2) | (Confirm::QuitAsk, 1) => {
                 self.quit.confirmed = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
@@ -1032,7 +1034,7 @@ impl App {
                 }
                 self.do_switch(p);
             }
-            (Confirm::Quit, _) => {
+            (Confirm::Quit | Confirm::QuitAsk, _) => {
                 self.upd.restart = None;
                 self.quit.claude_ok = false;
             }

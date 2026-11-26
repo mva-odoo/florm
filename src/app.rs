@@ -506,6 +506,8 @@ impl StatusMsg {
 enum Confirm {
     CloseTab(u64),
     Quit,
+    /// Quitting with everything saved, `confirm_quit` on.
+    QuitAsk,
     /// Closing Florm while Claude works in this many conversations.
     QuitClaude(usize),
     Delete(PathBuf),
@@ -755,7 +757,7 @@ enum LspReq {
     /// workspace/executeCommand: its edit comes as a workspace/applyEdit.
     Command,
     /// The whole document `uid` formatted by the server (its text edits, at `version`).
-    Format { uid: u64, version: u64 },
+    Format { uid: u64, version: u64, then_save: bool },
 }
 
 /// Interactive rebase prepared in the graph (see rebase.rs).
@@ -1106,7 +1108,6 @@ struct MacroState {
 enum PrefSection {
     Appearance,
     Editor,
-    Lint,
     Languages,
     Git,
     PullRequests,
@@ -1179,11 +1180,15 @@ struct PrefsUi {
     font_list_loading: bool,
     /// Préférences → Claude → Comptes.
     accounts: prefs::AccountsUi,
+    /// The page of a language shown in Préférences → Langages (None: all the languages).
+    lang: Option<String>,
+    /// Its rulers being edited: (language, comma separated columns).
+    lang_rulers: Option<(String, String)>,
 }
 
 impl Default for PrefsUi {
     fn default() -> Self {
-        PrefsUi { skills: None, capture: None, proposed: None, key_action: None, section: PrefSection::Appearance, filter: String::new(), lint_args: String::new(), lint_ignore: Default::default(), theme_draft: None, template: None, shell: String::new(), exclude: String::new(), shared: String::new(), rulers: String::new(), font_list: None, font_list_loading: false, accounts: Default::default() }
+        PrefsUi { skills: None, capture: None, proposed: None, key_action: None, section: PrefSection::Appearance, filter: String::new(), lint_args: String::new(), lint_ignore: Default::default(), theme_draft: None, template: None, shell: String::new(), exclude: String::new(), shared: String::new(), rulers: String::new(), font_list: None, font_list_loading: false, accounts: Default::default(), lang: None, lang_rulers: None }
     }
 }
 
@@ -1324,7 +1329,7 @@ impl App {
             goto_select: false,
             drop_alt_text: None,
             dialog_open: false,
-            blame: BlameState { on: false, req: None, seen: None, gutter: false, lines_req: HashMap::new() },
+            blame: BlameState { on: settings.inline_blame, req: None, seen: None, gutter: false, lines_req: HashMap::new() },
             line_history: None,
             local_history: None,
             state: project::load_state(),
@@ -1492,7 +1497,8 @@ impl App {
             return true;
         }
         let uid = self.next_uid();
-        match Document::open(uid, &path, self.settings.tab_size, self.settings.translate_tabs_to_spaces, &self.hl) {
+        let lang = self.settings.lang_of(Some(&path));
+        match Document::open(uid, &path, lang.tab_size, lang.translate_tabs_to_spaces, &self.hl) {
             Ok(d) => {
                 // an empty document, or the welcome page, gives its place to the file
                 if self.docs.len() == 1 && (self.docs[0].is_pristine_empty() || self.docs[0].view == document::View::Welcome) {

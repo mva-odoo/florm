@@ -76,6 +76,54 @@ pub struct ViewOpts<'a> {
     pub exec_line: Option<usize>,
     /// The blame of every line in a column of the gutter (author, how long ago), as in Zed.
     pub blame_gutter: bool,
+    /// "bar", "block" or "underline".
+    pub cursor_shape: &'a str,
+    pub cursor_blink: bool,
+    pub line_numbers: bool,
+    pub relative_numbers: bool,
+    pub current_line: bool,
+    pub indent_guides: bool,
+    /// The end of the file can go up to the top of the view.
+    pub scroll_beyond: bool,
+    /// Lines kept between the cursor and the edges of the view.
+    pub scroll_margin: usize,
+    /// The other occurrences of the selected text framed.
+    pub selection_highlight: bool,
+    /// The language server's documentation in the tooltip of a name.
+    pub hover_docs: bool,
+    /// The marks of the git changes in the gutter.
+    pub git_gutter: bool,
+}
+
+impl Default for ViewOpts<'_> {
+    fn default() -> Self {
+        ViewOpts {
+            font_size: 14.0,
+            minimap: false,
+            wrap: false,
+            inline_diff: false,
+            sticky: false,
+            rulers: &[],
+            notes: &[],
+            tests: &[],
+            rainbow: false,
+            whitespace: false,
+            debug: false,
+            exec_line: None,
+            blame_gutter: false,
+            cursor_shape: "bar",
+            cursor_blink: false,
+            line_numbers: true,
+            relative_numbers: false,
+            current_line: true,
+            indent_guides: true,
+            scroll_beyond: true,
+            scroll_margin: 1,
+            selection_highlight: false,
+            hover_docs: true,
+            git_gutter: true,
+        }
+    }
 }
 
 /// Columns of the blame of the gutter.
@@ -330,7 +378,7 @@ fn text_area(
     let inline_diff = opts.inline_diff;
     let c = hl.colors;
     let nlines = doc.rope.len_lines();
-    let digits = nlines.to_string().len().max(3);
+    let digits = if opts.line_numbers { nlines.to_string().len().max(3) } else { 0 };
     // numbers, then the fold arrows, then the git marks
     let test_w = if opts.tests.is_empty() { 0.0 } else { TEST_W };
     let test_x = claude_w();
@@ -382,7 +430,8 @@ fn text_area(
     }
     let out = sa.show_viewport(ui, |ui, vp| {
         let content_w = if wrap_cols.is_some() { 0.0 } else { gutter_w + (doc.max_cols as f32 + 8.0) * cw };
-        let content_h = rm.rows(nlines) as f32 * rh + (vp.height() - 3.0 * rh).max(0.0);
+        let beyond = if opts.scroll_beyond { (vp.height() - 3.0 * rh).max(0.0) } else { rh };
+        let content_h = rm.rows(nlines) as f32 * rh + beyond;
         let (rect, _) = ui.allocate_exact_size(egui::vec2(content_w.max(ui.available_width()), content_h), Sense::hover());
         let resp = ui.interact(rect, id, Sense::click_and_drag());
         if resp.has_focus() {
@@ -465,6 +514,7 @@ fn text_area(
         }
         let typing = ui.ctx().data(|d| d.get_temp::<u64>(typed_id)) != Some(doc.version);
         let caret = doc.rope.char_to_line(doc.primary_sel().head.min(doc.rope.len_chars()));
+        let caret_line = caret;
         if let Some(p) = ptr {
             let in_gutter = p.x < gx + gutter_w;
             if (pressed || middle_pressed) && resp.hovered() {
@@ -606,7 +656,7 @@ fn text_area(
                         .map(|d| format!("{} : {}", d.source, d.message))
                         .collect();
                     let mut tip = msgs.join("\n");
-                    if let Some((_, info)) = doc.hover_info.as_ref().filter(|(r, t)| Some(*r) == doc.hover_word && !t.is_empty()) {
+                    if let Some((_, info)) = doc.hover_info.as_ref().filter(|(r, t)| opts.hover_docs && Some(*r) == doc.hover_word && !t.is_empty()) {
                         if !tip.is_empty() {
                             tip.push_str("\n\n");
                         }
@@ -705,7 +755,7 @@ fn text_area(
         }
 
         // current line(s)
-        for s in &doc.sels {
+        for s in doc.sels.iter().filter(|_| opts.current_line) {
             if s.is_empty() {
                 let l = doc.rope.char_to_line(s.head);
                 if (first..=last).contains(&l) {
@@ -881,7 +931,7 @@ fn text_area(
         });
         let guide = mix(c.guide, c.fg, 0.20);
         let guide_on = mix(c.guide, c.fg, 0.50);
-        for l in (first..=last).filter(|&l| !rm.is_hidden(l)) {
+        for l in (first..=last).filter(|&l| opts.indent_guides && !rm.is_hidden(l)) {
             // an empty line inside a block keeps the guides of the lines around it
             let lead = match lead_of(l) {
                 Some(x) => x,
@@ -932,6 +982,29 @@ fn text_area(
         for &(a, b) in matches[i0..].iter().take_while(|m| m.0 <= vis_end) {
             for r in span_rects(doc, &rm, &wraps, a, b, first, last, text_x, origin.y, rh, cw) {
                 painter.rect_stroke(r, 2.0, Stroke::new(1.0_f32, c.find));
+            }
+        }
+
+        // the other occurrences of the selected text (one line, a few characters), framed
+        let prim_sel = doc.primary_sel();
+        if opts.selection_highlight && doc.sels.len() == 1 && !prim_sel.is_empty() && prim_sel.end() - prim_sel.start() <= 200 {
+            let needle = doc.slice(prim_sel.start(), prim_sel.end());
+            if !needle.contains('\n') && needle.trim().chars().count() >= 2 {
+                let n = needle.chars().count();
+                for l in (first..=last).filter(|&l| !rm.is_hidden(l)) {
+                    let ls = doc.rope.line_to_char(l);
+                    let line: String = doc.rope.line(l).chars().collect();
+                    for (bi, _) in line.match_indices(needle.as_str()) {
+                        let a = ls + line[..bi].chars().count();
+                        if a == prim_sel.start() {
+                            continue;
+                        }
+                        for r in span_rects(doc, &rm, &wraps, a, a + n, first, last, text_x, origin.y, rh, cw) {
+                            painter.rect_filled(r, 2.0, c.selection.gamma_multiply(0.45));
+                            painter.rect_stroke(r, 2.0, Stroke::new(1.0_f32, c.selection));
+                        }
+                    }
+                }
             }
         }
 
@@ -1177,14 +1250,44 @@ fn text_area(
             }
         }
 
-        // cursors
+        // cursors; blinking: shown half a second, hidden half a second, always shown just after
+        // the cursor moved or the text changed
         let caret = if focused { c.caret } else { c.caret.gamma_multiply(0.4) };
+        let mut caret_on = true;
+        if opts.cursor_blink && focused {
+            let now = ui.input(|i| i.time);
+            let key = id.with("blink");
+            let state = (prim.head, doc.version);
+            let since = match ui.ctx().data(|d| d.get_temp::<((usize, u64), f64)>(key)) {
+                Some((st, t)) if st == state => t,
+                _ => {
+                    ui.ctx().data_mut(|d| d.insert_temp(key, (state, now)));
+                    now
+                }
+            };
+            let phase = (now - since) % 1.0;
+            caret_on = phase < 0.5;
+            let next = if caret_on { 0.5 - phase } else { 1.0 - phase };
+            ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(next.max(0.01)));
+        }
         let mut caret_screen = None;
         for (k, s) in doc.sels.iter().enumerate() {
             let (l, col) = doc.line_col(s.head);
             if (first..=last).contains(&l) {
                 let p = at(l, doc.vcol(l, col));
-                painter.line_segment([p, Pos2::new(p.x, p.y + rh)], Stroke::new(2.0_f32, caret));
+                if caret_on {
+                    match opts.cursor_shape {
+                        "block" => {
+                            painter.rect_filled(Rect::from_min_size(p, egui::vec2(cw, rh)), 1.0, caret.gamma_multiply(0.55));
+                        }
+                        "underline" => {
+                            painter.line_segment([Pos2::new(p.x, p.y + rh - 1.0), Pos2::new(p.x + cw, p.y + rh - 1.0)], Stroke::new(2.0_f32, caret));
+                        }
+                        _ => {
+                            painter.line_segment([p, Pos2::new(p.x, p.y + rh)], Stroke::new(2.0_f32, caret));
+                        }
+                    }
+                }
                 if k == doc.primary && focused {
                     caret_screen = Some((p.x, p.y + rh));
                 }
@@ -1258,7 +1361,10 @@ fn text_area(
                 None if cursor_lines.contains(&l) => c.fg,
                 None => c.gutter_fg.gamma_multiply(0.75),
             };
-            painter.text(Pos2::new(gx + gutter_w - 22.0, line_y(l)), Align2::RIGHT_TOP, (l + 1).to_string(), font.clone(), color);
+            if opts.line_numbers {
+                let n = if opts.relative_numbers && l != caret_line { l.abs_diff(caret_line) } else { l + 1 };
+                painter.text(Pos2::new(gx + gutter_w - 22.0, line_y(l)), Align2::RIGHT_TOP, n.to_string(), font.clone(), color);
+            }
             // the blame, on the first line of each run of lines of the same commit
             if let Some(b) = blame_at(l) {
                 if l == first || blame_at(l - 1).map(|p| &p.hash) != Some(&b.hash) {
@@ -1319,7 +1425,7 @@ fn text_area(
             } else if gutter_hover && doc.can_fold(l) {
                 crate::icons::paint_chevron(painter, arrow, true, c.gutter_fg);
             }
-            if let Some(m) = doc.git_marks.get(&l) {
+            if let Some(m) = doc.git_marks.get(&l).filter(|_| opts.git_gutter) {
                 let col = match m {
                     GitMark::Added => highlight::green(),
                     GitMark::Modified => highlight::yellow(),
@@ -1412,7 +1518,8 @@ fn text_area(
             doc.scroll_to_cursor = false;
             let (l, col) = doc.line_col(prim.head);
             let p = at(l, doc.vcol(l, col));
-            let r = Rect::from_min_max(Pos2::new(p.x - gutter_w - 2.0 * cw, p.y - rh), Pos2::new(p.x + 4.0 * cw, p.y + 2.0 * rh));
+            let m = opts.scroll_margin.min(20) as f32 * rh;
+            let r = Rect::from_min_max(Pos2::new(p.x - gutter_w - 2.0 * cw, p.y - m), Pos2::new(p.x + 4.0 * cw, p.y + rh + m));
             ui.scroll_to_rect(r, if doc.center_cursor { Some(Align::Center) } else { None });
             doc.center_cursor = false;
         }
@@ -1607,7 +1714,7 @@ mod tests {
         let ctx = egui::Context::default();
         let hl = Highlighting::new("Florm", std::path::Path::new("/nonexistent"));
         let mut doc = Document::from_text(1, "a = 1\nb = 2\nc = 3\nd = 4\n", 4, true);
-        let opts = |debug| ViewOpts { font_size: 14.0, minimap: false, wrap: false, inline_diff: false, sticky: false, rulers: &[], notes: &[], tests: &[], rainbow: false, whitespace: false, debug, exec_line: Some(1), blame_gutter: false };
+        let opts = |debug| ViewOpts { font_size: 14.0, minimap: false, wrap: false, inline_diff: false, sticky: false, rulers: &[], notes: &[], tests: &[], rainbow: false, whitespace: false, debug, exec_line: Some(1), blame_gutter: false, ..Default::default() };
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 400.0));
         let _ = ctx.run(Default::default(), |_| {});
         let rh = ctx.fonts(|f| f.row_height(&FontId::monospace(14.0)));
@@ -1658,7 +1765,7 @@ mod tests {
         let commit = |h: &str, who: &str| crate::git::Blame { hash: h.repeat(40), author: who.into(), time: 0, summary: "s".into() };
         // HEAD's 3 lines (line 2 of the buffer changed: not committed yet)
         doc.blame_lines = Some((doc.base_key(), std::sync::Arc::new(vec![commit("a", "Alice"), commit("b", "Bob"), commit("a", "Alice")])));
-        let opts = ViewOpts { font_size: 14.0, minimap: false, wrap: false, inline_diff: false, sticky: false, rulers: &[], notes: &[], tests: &[], rainbow: false, whitespace: false, debug: false, exec_line: None, blame_gutter: true };
+        let opts = ViewOpts { font_size: 14.0, minimap: false, wrap: false, inline_diff: false, sticky: false, rulers: &[], notes: &[], tests: &[], rainbow: false, whitespace: false, debug: false, exec_line: None, blame_gutter: true, ..Default::default() };
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 400.0));
         let mut texts = Vec::new();
         let mut fills = Vec::new();
@@ -1696,7 +1803,7 @@ mod tests {
         let text = "Alice · il y a 3 mois · First line (abcdef1)".to_string();
         doc.blame = Some((0, doc.version, text.clone()));
         doc.blame_commit = Some(crate::git::Blame { hash: "abcdef1".repeat(6), author: "Alice".into(), time: 0, summary: "First line".into() });
-        let opts = ViewOpts { font_size: 14.0, minimap: false, wrap: false, inline_diff: false, sticky: false, rulers: &[], notes: &[], tests: &[], rainbow: false, whitespace: false, debug: false, exec_line: None, blame_gutter: false };
+        let opts = ViewOpts { font_size: 14.0, minimap: false, wrap: false, inline_diff: false, sticky: false, rulers: &[], notes: &[], tests: &[], rainbow: false, whitespace: false, debug: false, exec_line: None, blame_gutter: false, ..Default::default() };
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 400.0));
         let frame = |doc: &mut Document, pointer: Option<Pos2>| {
             let events = pointer.map(|p| vec![egui::Event::PointerMoved(p)]).unwrap_or_default();
@@ -1732,7 +1839,7 @@ mod tests {
         let ctx = egui::Context::default();
         let hl = Highlighting::new("Florm", std::path::Path::new("/nonexistent"));
         let mut doc = Document::from_text(1, "x = foo()\n", 4, true);
-        let opts = ViewOpts { font_size: 14.0, minimap: false, wrap: false, inline_diff: false, sticky: false, rulers: &[], notes: &[], tests: &[], rainbow: false, whitespace: false, debug: false, exec_line: None, blame_gutter: false };
+        let opts = ViewOpts { font_size: 14.0, minimap: false, wrap: false, inline_diff: false, sticky: false, rulers: &[], notes: &[], tests: &[], rainbow: false, whitespace: false, debug: false, exec_line: None, blame_gutter: false, ..Default::default() };
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 400.0));
         let id = Id::new("ed");
         let frame = |doc: &mut Document, time: f64, pointer: Option<Pos2>, ctrl: bool| {

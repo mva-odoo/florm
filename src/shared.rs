@@ -268,6 +268,9 @@ mod tests {
         "keyboard_hints", "ai_complete", "lint_on_save", "lint_live", "lint_ignore_flake8", "lint_ignore_ruff", "lint_ignore_pylint", "lint_ignore_eslint",
         "trim_trailing_whitespace_on_save", "format_on_save", "hot_exit", "auto_save", "keys", "lsp", "exclude", "index_max_files", "check_updates",
         "pr_default_state", "pr_default_who", "pr_show_resolved", "pr_draft", "packs_auto", "packs_kinds", "packs_ignored", "tree_sitter_off",
+        "languages", "ensure_final_newline_on_save", "cursor_shape", "cursor_blink", "line_numbers", "relative_line_numbers", "current_line_highlight",
+        "indent_guides", "scroll_beyond_last_line", "vertical_scroll_margin", "selection_highlight", "hover_popover", "show_completions_on_input",
+        "auto_save_delay_ms", "smartcase_search", "git_gutter", "inline_blame", "confirm_quit",
     ];
 
     /// Each setting is either shared or local: a new one cannot be taken from a shared

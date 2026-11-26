@@ -338,6 +338,29 @@ Les opérations lancées depuis Florm mettent la version d'origine entre les deu
 liste chaque langage avec ses outils : serveur de langage (LSP), linter, formateur, débogueur.
 ✓ : installé ; ✖ : il manque.
 
+**Chaque langage a sa page**, comme dans Zed : un clic sur sa ligne, ou sur son nom dans la colonne
+de gauche (sous « Langages »). Elle regroupe tout ce qui lui est propre :
+
+- ses **outils** (et « Syntaxe · tree-sitter ») ; son **serveur de langage** et son **lint**, qu'on peut
+  couper pour lui seul ; ses linters (pour Python : le linter choisi, ses arguments, les codes ignorés
+  par flake8, ruff et pylint ; pour JavaScript / TypeScript : ceux d'ESLint ; shellcheck, yamllint,
+  markdownlint… pour les autres) ;
+- **ses réglages**, qui remplacent pour ses fichiers ceux de Éditeur et Apparence : largeur des
+  tabulations, indenter avec des espaces, retour à la ligne automatique, règles verticales, espaces
+  visibles, guides d'indentation, crochets colorés, orthographe, fermeture automatique, formater à
+  l'enregistrement, supprimer les espaces en fin de ligne, retour à la ligne final. Chaque ligne dit
+  la valeur de tous les langages ; changée, elle est marquée **à lui**, et **↺** la remet comme
+  pour tous. Par exemple : 2 espaces pour JavaScript, le retour à la ligne pour Markdown, le
+  formatage à l'enregistrement pour Rust seulement. Alt+Z change celui du langage du fichier quand
+  il en a un à lui.
+
+Dans settings.toml : `languages = { "JavaScript / TypeScript" = { tab_size = 2 }, Markdown = { word_wrap = true } }`
+(le nom du pack ; les mêmes clés que les réglages généraux, plus `lsp` et `lint`).
+
+La page de tous les langages garde ce qui vaut pour tous : l'installation automatique et les types
+d'outils à installer, les serveurs de langage (interrupteur général), quand vérifier (pendant la
+frappe, à l'enregistrement), les linters déclarés dans settings.toml et les dossiers de confiance.
+
 - **Installer** met ce qui manque dans le dossier des outils de Florm, sans toucher au système :
   `pip` dans un environnement virtuel à lui (pylsp, ruff, debugpy, yamllint, clangd…), `npm`
   (typescript-language-server, eslint, les serveurs YAML, Bash, HTML, CSS, Dockerfile…),
@@ -828,6 +851,15 @@ palette douce), et Florm Monokai, One Dark, Dracula, GitHub Light d'après les t
 de l'interface, minimap, fil d'Ariane, **barre de menus** (masquée par défaut, comme dans Zed : les menus
 sont sous le **F** en bas à gauche de la barre d'état, et leurs commandes dans la palette, **Ctrl+Shift+P**).
 En haut de la barre latérale, l'icône de dossier devant le nom du projet ouvre la liste des projets.
+
+Repris de Zed, dans **Apparence → Curseur et marge / Défilement** : forme du curseur (barre, bloc,
+souligné), curseur clignotant, ligne du curseur surlignée, **occurrences de la sélection** (les
+autres endroits du texte sélectionné encadrés), numéros de ligne et **numéros relatifs** (comptés
+depuis la ligne du curseur), guides d'indentation, défiler après la fin du fichier, marge de lignes
+autour du curseur. Dans **Éditeur** : complétion pendant la frappe, documentation au survol,
+**casse intelligente** (une recherche avec une majuscule respecte la casse), retour à la ligne final
+à l'enregistrement, délai de l'enregistrement automatique, demander avant de quitter. Dans **Git** :
+les marques des changements dans la marge, et le blame de la ligne dès le démarrage.
 
 **Couleurs du thème → Créer un thème à partir de « … »** : toutes les couleurs de l'éditeur
 (fond, texte, accent, curseur, sélection, marge…) et du code (commentaires, mots-clés, chaînes,

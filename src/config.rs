@@ -1,5 +1,5 @@
-use serde::Deserialize;
-use std::collections::HashMap;
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
 #[derive(Deserialize, Clone, Debug)]
@@ -135,9 +135,130 @@ pub struct Settings {
     pub shared_config: String,
     /// The folder of the skills of Claude (empty: `skills/` of the shared configuration).
     pub skills_dir: String,
+    /// Settings of one language over the ones above (`[languages."Python"]`, the name of its pack).
+    pub languages: BTreeMap<String, LangOverride>,
+    /// The final newline added on saving when the file has none.
+    pub ensure_final_newline_on_save: bool,
+    /// "bar", "block" or "underline".
+    pub cursor_shape: String,
+    pub cursor_blink: bool,
+    pub line_numbers: bool,
+    /// Line numbers counted from the cursor's line (the cursor's line keeps its own).
+    pub relative_line_numbers: bool,
+    pub current_line_highlight: bool,
+    pub indent_guides: bool,
+    /// The end of the file can go up to the top of the editor.
+    pub scroll_beyond_last_line: bool,
+    /// Lines kept between the cursor and the top or the bottom of the editor.
+    pub vertical_scroll_margin: usize,
+    /// The other occurrences of the selected text framed.
+    pub selection_highlight: bool,
+    /// The documentation of the hovered symbol (language server) in its tooltip.
+    pub hover_popover: bool,
+    /// The completion list opens by itself while typing (else Ctrl+Space).
+    pub show_completions_on_input: bool,
+    /// « Après une pause » of auto_save: milliseconds after the last keystroke.
+    pub auto_save_delay_ms: u64,
+    /// A search with a capital letter is case sensitive.
+    pub smartcase_search: bool,
+    /// The marks of the git changes in the gutter.
+    pub git_gutter: bool,
+    /// The blame of the current line at its end, from the start.
+    pub inline_blame: bool,
+    /// Florm asks before quitting, even with everything saved.
+    pub confirm_quit: bool,
+}
+
+/// The settings a language can have of its own (Préférences → Langages → the language); None:
+/// the general one.
+#[derive(Deserialize, Serialize, Clone, Debug, Default, PartialEq)]
+#[serde(default)]
+pub struct LangOverride {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tab_size: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub translate_tabs_to_spaces: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub word_wrap: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rulers: Option<Vec<usize>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub show_whitespace: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub indent_guides: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rainbow_brackets: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spell_check: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_pair: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub format_on_save: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trim_trailing_whitespace_on_save: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ensure_final_newline_on_save: Option<bool>,
+    /// Its language server.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lsp: Option<bool>,
+    /// Its linters.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lint: Option<bool>,
+}
+
+impl LangOverride {
+    pub fn is_empty(&self) -> bool {
+        *self == LangOverride::default()
+    }
+}
+
+/// The settings of a file: those of its language over the general ones.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Lang {
+    pub tab_size: usize,
+    pub translate_tabs_to_spaces: bool,
+    pub word_wrap: bool,
+    pub rulers: Vec<usize>,
+    pub show_whitespace: bool,
+    pub indent_guides: bool,
+    pub rainbow_brackets: bool,
+    pub spell_check: bool,
+    pub auto_pair: bool,
+    pub format_on_save: bool,
+    pub trim_trailing_whitespace_on_save: bool,
+    pub ensure_final_newline_on_save: bool,
+    pub lsp: bool,
+    pub lint: bool,
 }
 
 impl Settings {
+    /// The settings of language `name` (a pack's name; None: a file of no language).
+    pub fn lang(&self, name: Option<&str>) -> Lang {
+        let o = name.and_then(|n| self.languages.get(n)).cloned().unwrap_or_default();
+        Lang {
+            tab_size: o.tab_size.unwrap_or(self.tab_size).clamp(1, 16),
+            translate_tabs_to_spaces: o.translate_tabs_to_spaces.unwrap_or(self.translate_tabs_to_spaces),
+            word_wrap: o.word_wrap.unwrap_or(self.word_wrap),
+            rulers: o.rulers.unwrap_or_else(|| self.rulers.clone()),
+            show_whitespace: o.show_whitespace.unwrap_or(self.show_whitespace),
+            indent_guides: o.indent_guides.unwrap_or(self.indent_guides),
+            rainbow_brackets: o.rainbow_brackets.unwrap_or(self.rainbow_brackets),
+            spell_check: o.spell_check.unwrap_or(self.spell_check),
+            auto_pair: o.auto_pair.unwrap_or(self.auto_pair),
+            format_on_save: o.format_on_save.unwrap_or(self.format_on_save),
+            trim_trailing_whitespace_on_save: o.trim_trailing_whitespace_on_save.unwrap_or(self.trim_trailing_whitespace_on_save),
+            ensure_final_newline_on_save: o.ensure_final_newline_on_save.unwrap_or(self.ensure_final_newline_on_save),
+            lsp: self.lsp && o.lsp.unwrap_or(true),
+            lint: o.lint.unwrap_or(true),
+        }
+    }
+
+    /// The settings of the language of file `path`.
+    pub fn lang_of(&self, path: Option<&std::path::Path>) -> Lang {
+        let name = path.and_then(crate::packs::name_for);
+        self.lang(name.as_deref())
+    }
+
     /// The codes ignored for `linter` (one of `lint::WITH_CODES`).
     pub fn lint_ignore_mut(&mut self, linter: &str) -> &mut Vec<String> {
         match linter {
@@ -221,6 +342,24 @@ impl Default for Settings {
             pr_draft: false,
             shared_config: String::new(),
             skills_dir: String::new(),
+            languages: BTreeMap::new(),
+            ensure_final_newline_on_save: false,
+            cursor_shape: "bar".into(),
+            cursor_blink: false,
+            line_numbers: true,
+            relative_line_numbers: false,
+            current_line_highlight: true,
+            indent_guides: true,
+            scroll_beyond_last_line: true,
+            vertical_scroll_margin: 1,
+            selection_highlight: true,
+            hover_popover: true,
+            show_completions_on_input: true,
+            auto_save_delay_ms: 1000,
+            smartcase_search: false,
+            git_gutter: true,
+            inline_blame: false,
+            confirm_quit: false,
         }
     }
 }
@@ -332,6 +471,40 @@ shared_config = ""
 # dossier des skills de Claude, donnés à chaque conversation (vide = skills/ de la configuration
 # partagée) ; n'importe quel rangement, chaque SKILL.md trouvé est un skill
 skills_dir = ""
+# Repris de Zed :
+# ajouter le retour à la ligne final manquant à l'enregistrement
+ensure_final_newline_on_save = false
+# curseur : "bar" (barre), "block" (bloc), "underline" (souligné) ; clignotant ou non
+cursor_shape = "bar"
+cursor_blink = false
+# numéros de ligne, comptés depuis la ligne du curseur (relative_line_numbers)
+line_numbers = true
+relative_line_numbers = false
+# ligne du curseur surlignée, guides d'indentation
+current_line_highlight = true
+indent_guides = true
+# défiler au-delà de la dernière ligne ; lignes gardées entre le curseur et le bord de l'éditeur
+scroll_beyond_last_line = true
+vertical_scroll_margin = 1
+# les autres occurrences du texte sélectionné encadrées
+selection_highlight = true
+# documentation du serveur de langage au survol d'un nom ; complétion ouverte pendant la frappe
+hover_popover = true
+show_completions_on_input = true
+# enregistrement automatique « après une pause » : millisecondes après la dernière frappe
+auto_save_delay_ms = 1000
+# une recherche avec une majuscule respecte la casse
+smartcase_search = false
+# marques des changements git dans la marge ; blame de la ligne affiché dès le démarrage
+git_gutter = true
+inline_blame = false
+# demander avant de quitter, même quand tout est enregistré
+confirm_quit = false
+# Réglages d'un langage (le nom de son pack, Préférences → Langages) par-dessus ceux du dessus :
+# tab_size, translate_tabs_to_spaces, word_wrap, rulers, show_whitespace, indent_guides,
+# rainbow_brackets, spell_check, auto_pair, format_on_save, trim_trailing_whitespace_on_save,
+# ensure_final_newline_on_save, lsp, lint ; par ex.
+# languages = { "JavaScript / TypeScript" = { tab_size = 2 }, Markdown = { word_wrap = true } }
 
 [keys]
 # Raccourcis personnalisés : "combinaison" = "id_de_commande"
@@ -557,6 +730,38 @@ pub fn set_setting(key: &str, value: &str) -> Result<(), String> {
     set_setting_in(&settings_path(), key, value)
 }
 
+/// Writes the settings of the languages (`languages = { … }` at the top, the `[languages…]`
+/// sections written by hand replaced), in the shared settings.toml too when it has them.
+pub fn set_languages(langs: &BTreeMap<String, LangOverride>) -> Result<(), String> {
+    let kept: BTreeMap<&String, &LangOverride> = langs.iter().filter(|(_, o)| !o.is_empty()).collect();
+    let value = toml::Value::try_from(&kept).map_err(|e| e.to_string())?.to_string();
+    let write = |p: &std::path::Path| -> Result<(), String> {
+        let text = std::fs::read_to_string(p).unwrap_or_default();
+        let mut out: Vec<&str> = Vec::new();
+        let mut skip = false;
+        for l in text.lines() {
+            let t = l.trim_start();
+            if t.starts_with('[') {
+                skip = t.starts_with("[languages");
+            }
+            if !skip {
+                out.push(l);
+            }
+        }
+        std::fs::write(p, out.join("\n") + "\n").map_err(|e| e.to_string())?;
+        set_setting_in(p, "languages", &value)
+    };
+    if let Some(sp) = crate::shared::settings_path().filter(|_| !crate::shared::LOCAL_KEYS.contains(&"languages")) {
+        if let Ok(text) = std::fs::read_to_string(&sp) {
+            if top_level_index(&text, "languages").is_some() || text.lines().any(|l| l.trim_start().starts_with("[languages")) {
+                let _ = write(&sp);
+            }
+        }
+    }
+    let _ = std::fs::create_dir_all(config_dir());
+    write(&settings_path())
+}
+
 /// Line of `key = …` before the first [section].
 fn top_level_index(text: &str, key: &str) -> Option<usize> {
     text.lines().take_while(|l| !l.trim_start().starts_with('[')).position(|l| {
@@ -616,6 +821,27 @@ mod tests {
         set_setting_in(&p, "exclude", "[]").unwrap();
         assert_eq!(std::fs::read_to_string(&p).unwrap(), "exclude = []\nlsp = true\n");
         let _ = std::fs::remove_file(&p);
+    }
+
+    /// The settings of the languages written over the `[languages.X]` sections written by hand:
+    /// the file stays valid, the other sections are kept, an empty language disappears.
+    #[test]
+    fn languages_are_written_whole() {
+        let _lock = TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = std::env::temp_dir().join(format!("florm_cfg_langs_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        std::env::set_var("FLORM_CONFIG", &dir);
+        std::fs::write(settings_path(), "tab_size = 4\n\n[languages.Go]\ntab_size = 8\n\n[keys]\n\"ctrl+r\" = \"git_push\"\n").unwrap();
+        let mut langs = BTreeMap::new();
+        langs.insert("JavaScript / TypeScript".to_string(), LangOverride { tab_size: Some(2), ..Default::default() });
+        langs.insert("Go".to_string(), LangOverride::default());
+        set_languages(&langs).unwrap();
+        let s: Settings = toml::from_str(&std::fs::read_to_string(settings_path()).unwrap()).unwrap();
+        assert_eq!(s.lang(Some("JavaScript / TypeScript")).tab_size, 2);
+        assert_eq!(s.lang(Some("Go")).tab_size, 4);
+        assert!(!s.languages.contains_key("Go"));
+        assert_eq!(s.keys.get("ctrl+r").map(String::as_str), Some("git_push"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

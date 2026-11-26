@@ -224,20 +224,12 @@ impl App {
         }
     }
 
-    /// The page « Langages » of the preferences.
-    pub(super) fn packs_page(&mut self, ui: &mut egui::Ui) {
+    /// The top of the page « Langages »: what is installed and how (for all the languages).
+    pub(super) fn packs_header(&mut self, ui: &mut egui::Ui) {
         if self.packs.status.is_none() {
             self.packs_check();
         }
         let mut act: Option<PackAct> = None;
-        ui.label(
-            RichText::new(t!(
-                "Les outils de chaque langage : serveur de langage (complétion, F12, renommer), linter, formateur, débogueur. « Installer » les met dans le dossier des outils de Florm (pip dans un environnement virtuel, npm, go install, rustup), sans toucher au système ; les autres se copient ou se tapent dans un terminal.",
-                "The tools of each language: language server (completion, F12, rename), linter, formatter, debugger. « Install » puts them in Florm's tools folder (pip in a virtual environment, npm, go install, rustup), without touching the system; the others are copied or typed in a terminal."
-            ))
-            .weak(),
-        );
-        ui.add_space(6.0);
         let mut auto = self.settings.packs_auto;
         if ui
             .checkbox(&mut auto, t!("Installer tout seul les outils d'un langage quand un de ses fichiers s'ouvre", "Install the tools of a language by themselves when one of its files opens"))
@@ -289,26 +281,43 @@ impl App {
         for e in packs::errors() {
             ui.label(RichText::new(tf!("⚠ Pack illisible : {e}", "⚠ Unreadable pack: {e}")).color(warn()));
         }
-        ui.add_space(8.0);
+        if let Some(a) = act {
+            self.pack_act(a);
+        }
+    }
+
+    /// The languages, one row each: there or what to install, its own settings; a click opens its
+    /// page. Returns the language clicked.
+    pub(super) fn packs_page(&mut self, ui: &mut egui::Ui) -> Option<String> {
+        if self.packs.status.is_none() {
+            self.packs_check();
+        }
         let Some(status) = self.packs.status.clone() else {
             ui.spinner();
-            return;
+            return None;
         };
+        let mut act: Option<PackAct> = None;
+        let mut open = None;
         let code_bg = ui.visuals().extreme_bg_color;
         let accent = self.hl.colors.accent;
         for (k, pack) in self.packs.list.iter().enumerate() {
             let st = status.get(k).cloned().unwrap_or_default();
             let missing = packs::to_install_kinds(pack, &st, &self.settings.packs_kinds);
             let busy = self.packs.busy.as_deref() == Some(pack.name.as_str());
-            egui::Frame::none().fill(code_bg).rounding(6.0).inner_margin(egui::Margin::symmetric(12.0, 8.0)).show(ui, |ui| {
+            let own = lang_settings_count(self.settings.languages.get(&pack.name));
+            let r = egui::Frame::none().fill(code_bg).rounding(6.0).inner_margin(egui::Margin::symmetric(12.0, 7.0)).show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new(&pack.name).strong().size(15.0));
+                    ui.label(RichText::new(&pack.name).strong().size(14.5));
                     if pack.own {
                         ui.label(RichText::new(t!("perso", "own")).small().color(accent));
                     }
                     ui.label(RichText::new(pack.ext.iter().map(|e| if e.chars().next().is_some_and(char::is_uppercase) { e.clone() } else { format!(".{e}") }).collect::<Vec<_>>().join(" ")).small().weak());
+                    if own > 0 {
+                        ui.label(RichText::new(tf!("{own} réglage(s) à lui", "{own} setting(s) of its own")).small().color(accent));
+                    }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(RichText::new("›").size(16.0).weak());
                         if busy {
                             ui.spinner();
                         } else if !missing.is_empty() {
@@ -321,72 +330,127 @@ impl App {
                         }
                     });
                 });
-                // its tools: ✓ there, ✖ missing (a click installs one Florm can install)
-                ui.horizontal_wrapped(|ui| {
-                    // the syntax tree (tree-sitter), compiled in: on or off
-                    if !pack.tree_sitter.is_empty() {
-                        let on = !pack.tree_sitter.iter().any(|g| self.settings.tree_sitter_off.contains(g));
-                        let text = format!("{} {}", if on { "✓" } else { "○" }, t!("Syntaxe · tree-sitter", "Syntax · tree-sitter"));
-                        let rt = if on { RichText::new(text).small().color(ok()) } else { RichText::new(text).small().weak() };
-                        if ui
-                            .add(egui::Button::new(rt).small())
-                            .on_hover_text(t!(
-                                "Coloration précise et sélection par bloc logique (Alt+Maj+→), d'après l'arbre de syntaxe du fichier (intégré à Florm). Clic : activer / désactiver.",
-                                "Precise highlighting and selection by logical block (Alt+Shift+→), from the syntax tree of the file (built into Florm). Click: turn on / off."
-                            ))
-                            .clicked()
-                        {
-                            act = Some(PackAct::TreeSitter(pack.name.clone(), pack.tree_sitter.clone(), !on));
-                        }
-                    }
-                    for (t, there) in pack.tools.iter().zip(st.iter().copied().chain(std::iter::repeat(false))) {
-                        let text = format!("{} {} · {}", if there { "✓" } else { "✖" }, t.kind_label(), if t.builtin { t!("intégré", "built in") } else { t.bin.as_str() });
-                        let rt = if there { RichText::new(text).small().color(ok()) } else { RichText::new(text).small().weak() };
-                        let how = if t.builtin {
-                            t!("Dans Florm, rien à installer", "Inside Florm, nothing to install").to_string()
-                        } else if let Some((m, p)) = t.method() {
-                            tf!("{m} : {p}{}", "{m}: {p}{}", if t.optional { t!(" (facultatif)", " (optional)") } else { "" })
-                        } else {
-                            t.hint().to_string()
-                        };
-                        if !there && t.method().is_some() && !busy && self.packs.busy.is_none() {
-                            if ui.add(egui::Button::new(rt).small()).on_hover_text(tf!("Installer — {how}", "Install — {how}")).clicked() {
-                                act = Some(PackAct::Install(pack.name.clone(), vec![t.clone()]));
-                            }
-                        } else {
-                            ui.label(rt).on_hover_text(how);
-                        }
-                    }
-                });
-                // what only the system installs: its commands, to copy or type in a terminal
-                for (t, _) in pack.tools.iter().zip(st.iter()).filter(|(t, ok)| !**ok && t.method().is_none() && !t.hint().is_empty()) {
-                    ui.horizontal_wrapped(|ui| {
-                        ui.label(RichText::new(format!("{} :", t.bin)).small().weak());
-                        for cmd in t.hint().split(" · ").map(str::trim).filter(|c| !c.is_empty()) {
-                            let is_url = cmd.contains("://") || cmd.starts_with("github.com");
-                            let r = ui.add(egui::Label::new(RichText::new(cmd).small().monospace()).sense(Sense::click()));
-                            if is_url {
-                                if r.on_hover_text(t!("Clic : copier le lien", "Click: copy the link")).clicked() {
-                                    act = Some(PackAct::Copy(cmd.to_string()));
-                                }
-                            } else {
-                                let r = r.on_hover_text(t!("Clic : taper dans un terminal (Entrée pour lancer) ; clic droit : copier", "Click: type in a terminal (Enter to run); right click: copy"));
-                                if r.clicked() {
-                                    act = Some(PackAct::Type(cmd.to_string()));
-                                } else if r.secondary_clicked() {
-                                    act = Some(PackAct::Copy(cmd.to_string()));
-                                }
-                            }
-                        }
-                    });
-                }
             });
-            ui.add_space(6.0);
+            let r = ui.interact(r.response.rect, ui.id().with(("pack_row", k)), Sense::click());
+            if r.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            if r.on_hover_text(t!("Ses outils et ses réglages", "Its tools and its settings")).clicked() && act.is_none() {
+                open = Some(pack.name.clone());
+            }
+            ui.add_space(4.0);
         }
         if let Some(a) = act {
             self.pack_act(a);
         }
+        open
     }
+
+    /// The tools of language `name` (on its page): ✓ there, ✖ missing (a click installs one),
+    /// the syntax tree, the commands of what only the system installs.
+    pub(super) fn pack_tools(&mut self, ui: &mut egui::Ui, name: &str) {
+        if self.packs.status.is_none() {
+            self.packs_check();
+        }
+        let Some(status) = self.packs.status.clone() else {
+            ui.spinner();
+            return;
+        };
+        let Some(k) = self.packs.list.iter().position(|p| p.name == name) else { return };
+        let pack = &self.packs.list[k];
+        let mut act: Option<PackAct> = None;
+        let st = status.get(k).cloned().unwrap_or_default();
+        let missing = packs::to_install_kinds(pack, &st, &self.settings.packs_kinds);
+        let busy = self.packs.busy.as_deref() == Some(pack.name.as_str());
+        let code_bg = ui.visuals().extreme_bg_color;
+        egui::Frame::none().fill(code_bg).rounding(6.0).inner_margin(egui::Margin::symmetric(12.0, 8.0)).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(t!("Outils", "Tools")).strong());
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if busy {
+                        ui.spinner();
+                    } else if !missing.is_empty() {
+                        let names: Vec<&str> = missing.iter().map(|t| t.bin.as_str()).collect();
+                        if ui.button(tf!("Installer ({})", "Install ({})", missing.len())).on_hover_text(names.join(", ")).clicked() {
+                            act = Some(PackAct::Install(pack.name.clone(), missing.clone()));
+                        }
+                    } else if st.iter().zip(&pack.tools).all(|(ok, t)| *ok || t.optional) {
+                        ui.label(RichText::new(t!("✓ Prêt", "✓ Ready")).color(ok()));
+                    }
+                });
+            });
+            // its tools: ✓ there, ✖ missing (a click installs one Florm can install)
+            ui.horizontal_wrapped(|ui| {
+                // the syntax tree (tree-sitter), compiled in: on or off
+                if !pack.tree_sitter.is_empty() {
+                    let on = !pack.tree_sitter.iter().any(|g| self.settings.tree_sitter_off.contains(g));
+                    let text = format!("{} {}", if on { "✓" } else { "○" }, t!("Syntaxe · tree-sitter", "Syntax · tree-sitter"));
+                    let rt = if on { RichText::new(text).small().color(ok()) } else { RichText::new(text).small().weak() };
+                    if ui
+                        .add(egui::Button::new(rt).small())
+                        .on_hover_text(t!(
+                            "Coloration précise et sélection par bloc logique (Alt+Maj+→), d'après l'arbre de syntaxe du fichier (intégré à Florm). Clic : activer / désactiver.",
+                            "Precise highlighting and selection by logical block (Alt+Shift+→), from the syntax tree of the file (built into Florm). Click: turn on / off."
+                        ))
+                        .clicked()
+                    {
+                        act = Some(PackAct::TreeSitter(pack.name.clone(), pack.tree_sitter.clone(), !on));
+                    }
+                }
+                for (t, there) in pack.tools.iter().zip(st.iter().copied().chain(std::iter::repeat(false))) {
+                    let text = format!("{} {} · {}", if there { "✓" } else { "✖" }, t.kind_label(), if t.builtin { t!("intégré", "built in") } else { t.bin.as_str() });
+                    let rt = if there { RichText::new(text).small().color(ok()) } else { RichText::new(text).small().weak() };
+                    let how = if t.builtin {
+                        t!("Dans Florm, rien à installer", "Inside Florm, nothing to install").to_string()
+                    } else if let Some((m, p)) = t.method() {
+                        tf!("{m} : {p}{}", "{m}: {p}{}", if t.optional { t!(" (facultatif)", " (optional)") } else { "" })
+                    } else {
+                        t.hint().to_string()
+                    };
+                    if !there && t.method().is_some() && !busy && self.packs.busy.is_none() {
+                        if ui.add(egui::Button::new(rt).small()).on_hover_text(tf!("Installer — {how}", "Install — {how}")).clicked() {
+                            act = Some(PackAct::Install(pack.name.clone(), vec![t.clone()]));
+                        }
+                    } else {
+                        ui.label(rt).on_hover_text(how);
+                    }
+                }
+            });
+            // what only the system installs: its commands, to copy or type in a terminal
+            for (t, _) in pack.tools.iter().zip(st.iter()).filter(|(t, ok)| !**ok && t.method().is_none() && !t.hint().is_empty()) {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(RichText::new(format!("{} :", t.bin)).small().weak());
+                    for cmd in t.hint().split(" · ").map(str::trim).filter(|c| !c.is_empty()) {
+                        let is_url = cmd.contains("://") || cmd.starts_with("github.com");
+                        let r = ui.add(egui::Label::new(RichText::new(cmd).small().monospace()).sense(Sense::click()));
+                        if is_url {
+                            if r.on_hover_text(t!("Clic : copier le lien", "Click: copy the link")).clicked() {
+                                act = Some(PackAct::Copy(cmd.to_string()));
+                            }
+                        } else {
+                            let r = r.on_hover_text(t!("Clic : taper dans un terminal (Entrée pour lancer) ; clic droit : copier", "Click: type in a terminal (Enter to run); right click: copy"));
+                            if r.clicked() {
+                                act = Some(PackAct::Type(cmd.to_string()));
+                            } else if r.secondary_clicked() {
+                                act = Some(PackAct::Copy(cmd.to_string()));
+                            }
+                        }
+                    }
+                });
+            }
+        });
+        if let Some(a) = act {
+            self.pack_act(a);
+        }
+    }
+}
+
+/// How many settings language `o` has of its own.
+pub(super) fn lang_settings_count(o: Option<&config::LangOverride>) -> usize {
+    let Some(o) = o else { return 0 };
+    let v = toml::Value::try_from(o).ok();
+    v.as_ref().and_then(|v| v.as_table()).map_or(0, |t| t.len())
 }
 
 /// The file « + Nouveau pack » writes.
@@ -438,15 +502,19 @@ mod tests {
         let status: Vec<Vec<bool>> = list.iter().map(|p| p.tools.iter().map(|t| t.builtin).collect()).collect();
         app.on_pack_status(list, status);
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1100.0, 4000.0));
-        let texts = |app: &mut App, page: bool, events: Vec<egui::Event>| {
+        // "": the page of all the languages; "bar": the bar of the file; else a language's tools
+        let texts = |app: &mut App, page: &str, events: Vec<egui::Event>| {
             let out = ctx.run(egui::RawInput { screen_rect: Some(screen), events, ..Default::default() }, |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
-                    if page {
+                egui::CentralPanel::default().show(ctx, |ui| match page {
+                    "" => {
+                        app.packs_header(ui);
                         app.packs_page(ui);
-                    } else {
+                    }
+                    "bar" => {
                         let i = app.active;
                         app.pack_bar(ui, i, 0);
                     }
+                    name => app.pack_tools(ui, name),
                 });
             });
             let mut v = Vec::new();
@@ -460,25 +528,47 @@ mod tests {
             out.shapes.iter().for_each(|c| walk(&c.shape, &mut v));
             v
         };
-        texts(&mut app, true, Vec::new());
-        let page = texts(&mut app, true, Vec::new());
+        texts(&mut app, "", Vec::new());
+        let page = texts(&mut app, "", Vec::new());
         let names: Vec<&str> = page.iter().map(|(t, _)| t.as_str()).collect();
-        for want in ["Python", "Go", "XML", "Installer (2)", "✖ LSP · pylsp", "✓ Lint · intégré", "gdb :", "pacman -S gdb", "+ Nouveau pack…", "✓ Syntaxe · tree-sitter"] {
+        for want in ["Python", "Go", "XML", "Installer (2)", "+ Nouveau pack…"] {
             assert!(names.contains(&want), "{want}: {names:?}");
         }
+        // the page of a language: its tools, what Florm installs and what is to type
+        let mut tools: Vec<String> = Vec::new();
+        for name in ["Python", "XML", "Rust"] {
+            texts(&mut app, name, Vec::new());
+            tools.extend(texts(&mut app, name, Vec::new()).into_iter().map(|(t, _)| t));
+        }
+        for want in ["✖ LSP · pylsp", "✓ Lint · intégré", "gdb :", "pacman -S gdb", "✓ Syntaxe · tree-sitter"] {
+            assert!(tools.iter().any(|t| t == want), "{want}: {tools:?}");
+        }
+        // a click on a language's row: its page
+        let at = page.iter().find(|(t, _)| t == "Go").unwrap().1.center();
+        let click = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+        let mut opened = None;
+        for events in [vec![], vec![egui::Event::PointerMoved(at)], vec![click(true)], vec![click(false)]] {
+            let _ = ctx.run(egui::RawInput { screen_rect: Some(screen), events, ..Default::default() }, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    app.packs_header(ui);
+                    opened = opened.take().or(app.packs_page(ui));
+                });
+            });
+        }
+        assert_eq!(opened.as_deref(), Some("Go"));
         // the bar of the Python file
-        texts(&mut app, false, Vec::new());
-        let bar = texts(&mut app, false, Vec::new());
+        texts(&mut app, "bar", Vec::new());
+        let bar = texts(&mut app, "bar", Vec::new());
         let joined: Vec<&str> = bar.iter().map(|(t, _)| t.as_str()).collect();
         assert!(joined.contains(&"⬇ Python") && joined.contains(&"Installer"), "{joined:?}");
         // the language server and the linter; the debugger only at the first F5
         assert!(joined.iter().any(|t| t.contains("pylsp (LSP)") && t.contains("ruff (Lint)") && !t.contains("debugpy")), "{joined:?}");
         let at = bar.iter().find(|(t, _)| t == "Plus tard").unwrap().1.center();
         let click = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
-        texts(&mut app, false, vec![egui::Event::PointerMoved(at), click(true)]);
-        texts(&mut app, false, vec![click(false)]);
+        texts(&mut app, "bar", vec![egui::Event::PointerMoved(at), click(true)]);
+        texts(&mut app, "bar", vec![click(false)]);
         assert!(app.packs.later.contains("Python"));
-        assert!(texts(&mut app, false, Vec::new()).is_empty());
+        assert!(texts(&mut app, "bar", Vec::new()).is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

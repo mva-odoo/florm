@@ -442,7 +442,7 @@ On macOS, Ctrl = Cmd, with the usual Mac keys: Cmd+← / → line start / end, C
 
 ## Configuration
 
-**Ctrl+,** (or File → Preferences) opens the preferences page: Appearance, Editor, Lint, Git, Terminal, Shortcuts, Advanced sections, with a search. Each change applies immediately and is saved in `~/.config/florm/settings.toml` (`%APPDATA%\florm` on Windows), which can also be edited directly (File → Open settings.toml).
+**Ctrl+,** (or File → Preferences) opens the preferences page: Appearance, Editor, Languages (one page per language, as in Zed: its tools and its settings, `languages` in settings.toml), Git, Terminal, Shortcuts, Advanced sections, with a search. Each change applies immediately and is saved in `~/.config/florm/settings.toml` (`%APPDATA%\florm` on Windows), which can also be edited directly (File → Open settings.toml).
 The interface **language** (French or English) is chosen in Preferences → Appearance → Language, or with `language = "fr"` / `"en"` (empty: the system one); it changes right away, menus, panels, messages and guide included. In English, Claude also gets its instructions in English.
 Changes apply on save. The theme chosen through “View → Theme…”, the minimap, the diff in the editor and the zoom are saved there automatically.
 

@@ -45,6 +45,8 @@ FLORM_BENCH=1 cargo test --release bench_views -- --nocapture # temps d'une imag
   raccourcis par défaut dans `src/keymap.rs`.
 - Préférences : `Settings` dans `src/config.rs` (`~/.config/florm/settings.toml`, `%APPDATA%\florm`),
   page des préférences dans `src/app/prefs.rs`.
+  Réglages par langage (comme Zed) : `languages` (nom du pack → `LangOverride`), lus avec
+  `settings.lang_of(path)` partout où un réglage dépend du fichier ; pages dans `src/app/prefs/languages.rs`.
 - `src/shell_env.rs` : l'environnement du shell de connexion (PATH de pyenv, nvm…), lu au démarrage et
   donné par `os::command` à tous les programmes lancés.
 - Les outils externes (git, gh, claude, ruff, docker…) sont appelés comme processus ; aucune

@@ -117,7 +117,7 @@ impl App {
 
     /// Runs `step` of a macro on the active document.
     fn macro_step(&mut self, step: &MacroStep) {
-        let auto = self.settings.auto_pair;
+        let auto = self.active_lang().auto_pair;
         let Some(d) = self.docs.get_mut(self.active) else { return };
         match step {
             MacroStep::Cmd(c) => d.exec(*c, auto),
@@ -131,7 +131,7 @@ impl App {
             return;
         }
         let events = ctx.input(|i| i.events.clone());
-        let auto = self.settings.auto_pair;
+        let auto = self.active_lang().auto_pair;
         let Some(doc) = self.docs.get_mut(self.active) else { return };
         let mut want_signature = false;
         for ev in events {
@@ -150,7 +150,7 @@ impl App {
                     let head = doc.primary_sel().head;
                     let typed = (head.saturating_sub(2)..head).all(|p| doc.char_at(p).is_some_and(word));
                     let has_server = self.settings.lsp && doc.path.as_deref().and_then(|p| lsp::language_of(p, &self.settings.lsp_servers)).is_some();
-                    if self.lsp.completion.is_none() && ((has_server && last == Some('.')) || (last.is_some_and(word) && typed)) {
+                    if self.settings.show_completions_on_input && self.lsp.completion.is_none() && ((has_server && last == Some('.')) || (last.is_some_and(word) && typed)) {
                         self.lsp.complete_at = Some(Instant::now() + Duration::from_millis(120));
                     }
                     // the parameters of the call: shown after ( and updated after ,
@@ -211,7 +211,7 @@ impl App {
             }
         }
         if cmd.is_editor() {
-            let auto = self.settings.auto_pair;
+            let auto = self.active_lang().auto_pair;
             if let Some(d) = self.docs.get_mut(self.active) {
                 d.exec(cmd, auto);
             }
@@ -489,17 +489,15 @@ impl App {
                 self.persist("breadcrumbs", self.settings.breadcrumbs.to_string());
             }
             ToggleWordWrap => {
-                self.settings.word_wrap = !self.settings.word_wrap;
-                self.persist("word_wrap", self.settings.word_wrap.to_string());
-                self.set_status(if self.settings.word_wrap { t!("Retour à la ligne automatique activé (Alt+Z)", "Word wrap on (Alt+Z)") } else { t!("Retour à la ligne automatique désactivé (Alt+Z)", "Word wrap off (Alt+Z)") });
+                let on = self.toggle_lang_bool("word_wrap");
+                self.set_status(if on { t!("Retour à la ligne automatique activé (Alt+Z)", "Word wrap on (Alt+Z)") } else { t!("Retour à la ligne automatique désactivé (Alt+Z)", "Word wrap off (Alt+Z)") });
             }
             ToggleMinimap => {
                 self.settings.show_minimap = !self.settings.show_minimap;
                 self.persist("show_minimap", self.settings.show_minimap.to_string());
             }
             ToggleWhitespace => {
-                self.settings.show_whitespace = !self.settings.show_whitespace;
-                self.persist("show_whitespace", self.settings.show_whitespace.to_string());
+                self.toggle_lang_bool("show_whitespace");
             }
             ToggleZen => {
                 self.zen = !self.zen;
@@ -730,6 +728,7 @@ impl App {
             }
             ShowLanguages => {
                 self.prefs.section = PrefSection::Languages;
+                self.prefs.lang = None;
                 self.prefs.filter.clear();
                 self.open_settings();
             }
