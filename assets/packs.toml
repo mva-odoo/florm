@@ -1,0 +1,243 @@
+# The language packs Florm ships: per language, its tools and how to install them.
+# A pack of ~/.config/florm/packs/<name>.toml with the same name replaces one of these.
+#
+# kind: lsp, lint, format, debug (what the tool is for)
+# bin: the program looked for (PATH, ~/.local/bin, ~/go/bin, ~/.cargo/bin, Florm's tools folder)
+# how it installs (one of): pip, npm, go (Florm downloads Python, Node.js or Go when the system has
+# none), github = "owner/repo" with asset.<platform> (the file of its latest release), rustup;
+# else hint (the command shown to copy; hint_linux, hint_macos, hint_windows for one system)
+# module: a Python module whose presence is enough (debugpy: no program)
+# builtin: inside Florm, nothing to install
+# optional: not installed by « Installer » (another tool does the same)
+# tree_sitter (of a pack): its tree-sitter grammars compiled into Florm (a switch in the pack turns
+# them off)
+
+[[pack]]
+name = "Python"
+ext = ["py", "pyi"]
+tree_sitter = ["Python"]
+[[pack.tool]]
+kind = "lsp"
+bin = "pylsp"
+pip = "python-lsp-server"
+[[pack.tool]]
+kind = "lint"
+bin = "ruff"
+pip = "ruff"
+[[pack.tool]]
+kind = "format"
+bin = "ruff"
+pip = "ruff"
+[[pack.tool]]
+kind = "lint"
+bin = "flake8"
+pip = "flake8"
+optional = true
+[[pack.tool]]
+kind = "debug"
+bin = "debugpy"
+module = "debugpy"
+pip = "debugpy"
+
+[[pack]]
+name = "JavaScript / TypeScript"
+ext = ["js", "mjs", "cjs", "jsx", "ts", "mts", "cts", "tsx"]
+tree_sitter = ["JavaScript", "TypeScript", "TSX"]
+[[pack.tool]]
+kind = "lsp"
+bin = "typescript-language-server"
+npm = "typescript-language-server typescript"
+[[pack.tool]]
+kind = "lint"
+bin = "eslint"
+npm = "eslint"
+
+[[pack]]
+name = "Go"
+ext = ["go"]
+tree_sitter = ["Go"]
+[[pack.tool]]
+kind = "lsp"
+bin = "gopls"
+go = "golang.org/x/tools/gopls@latest"
+[[pack.tool]]
+kind = "debug"
+bin = "dlv"
+go = "github.com/go-delve/delve/cmd/dlv@latest"
+
+[[pack]]
+name = "Rust"
+ext = ["rs"]
+tree_sitter = ["Rust"]
+[[pack.tool]]
+kind = "lsp"
+bin = "rust-analyzer"
+github = "rust-lang/rust-analyzer"
+asset.linux-x64 = "rust-analyzer-x86_64-unknown-linux-gnu.gz"
+asset.linux-arm64 = "rust-analyzer-aarch64-unknown-linux-gnu.gz"
+asset.macos-x64 = "rust-analyzer-x86_64-apple-darwin.gz"
+asset.macos-arm64 = "rust-analyzer-aarch64-apple-darwin.gz"
+asset.windows-x64 = "rust-analyzer-x86_64-pc-windows-msvc.zip"
+asset.windows-arm64 = "rust-analyzer-aarch64-pc-windows-msvc.zip"
+[[pack.tool]]
+kind = "debug"
+bin = "gdb"
+hint = "pacman -S gdb · apt install gdb · dnf install gdb"
+hint_macos = "brew install gdb"
+hint_windows = "winget install -e --id LLVM.LLVM · scoop install gdb"
+
+[[pack]]
+name = "C / C++"
+ext = ["c", "h", "cpp", "cc", "cxx", "hpp", "hh", "hxx"]
+tree_sitter = ["C", "C++"]
+[[pack.tool]]
+kind = "lsp"
+bin = "clangd"
+pip = "clangd"
+[[pack.tool]]
+kind = "debug"
+bin = "gdb"
+hint = "pacman -S gdb · apt install gdb · dnf install gdb"
+hint_macos = "brew install gdb"
+hint_windows = "winget install -e --id LLVM.LLVM · scoop install gdb"
+
+[[pack]]
+name = "XML"
+ext = ["xml"]
+tree_sitter = ["XML"]
+[[pack.tool]]
+kind = "lint"
+bin = "XML"
+builtin = true
+
+[[pack]]
+name = "JSON"
+ext = ["json"]
+tree_sitter = ["JSON"]
+[[pack.tool]]
+kind = "lint"
+bin = "JSON"
+builtin = true
+
+[[pack]]
+name = "YAML"
+ext = ["yml", "yaml"]
+tree_sitter = ["YAML"]
+[[pack.tool]]
+kind = "lsp"
+bin = "yaml-language-server"
+npm = "yaml-language-server"
+[[pack.tool]]
+kind = "lint"
+bin = "yamllint"
+pip = "yamllint"
+
+[[pack]]
+name = "Shell"
+ext = ["sh", "bash"]
+tree_sitter = ["Shell"]
+[[pack.tool]]
+kind = "lsp"
+bin = "bash-language-server"
+npm = "bash-language-server"
+[[pack.tool]]
+kind = "lint"
+bin = "shellcheck"
+pip = "shellcheck-py"
+
+[[pack]]
+name = "Markdown"
+ext = ["md", "markdown"]
+[[pack.tool]]
+kind = "lsp"
+bin = "marksman"
+github = "artempyanykh/marksman"
+asset.linux-x64 = "marksman-linux-x64"
+asset.linux-arm64 = "marksman-linux-arm64"
+asset.macos-x64 = "marksman-macos"
+asset.macos-arm64 = "marksman-macos"
+asset.windows-x64 = "marksman.exe"
+[[pack.tool]]
+kind = "lint"
+bin = "markdownlint"
+npm = "markdownlint-cli"
+
+[[pack]]
+name = "HTML / CSS"
+ext = ["html", "htm", "css", "scss", "less"]
+tree_sitter = ["HTML", "CSS"]
+[[pack.tool]]
+kind = "lsp"
+bin = "vscode-html-language-server"
+npm = "vscode-langservers-extracted"
+[[pack.tool]]
+kind = "lsp"
+bin = "vscode-css-language-server"
+npm = "vscode-langservers-extracted"
+[[pack.tool]]
+kind = "lint"
+bin = "stylelint"
+npm = "stylelint"
+
+[[pack]]
+name = "Dockerfile"
+ext = ["Dockerfile", "Containerfile", "dockerfile"]
+[[pack.tool]]
+kind = "lsp"
+bin = "docker-langserver"
+npm = "dockerfile-language-server-nodejs"
+[[pack.tool]]
+kind = "lint"
+bin = "hadolint"
+github = "hadolint/hadolint"
+asset.linux-x64 = "hadolint-linux-x86_64"
+asset.linux-arm64 = "hadolint-linux-arm64"
+asset.macos-x64 = "hadolint-macos-x86_64"
+asset.macos-arm64 = "hadolint-macos-arm64"
+asset.windows-x64 = "hadolint-windows-x86_64.exe"
+
+[[pack]]
+name = "TOML"
+ext = ["toml"]
+tree_sitter = ["TOML"]
+[[pack.tool]]
+kind = "lsp"
+bin = "taplo"
+npm = "@taplo/cli"
+
+[[pack]]
+name = "PHP"
+ext = ["php"]
+[[pack.tool]]
+kind = "lsp"
+bin = "intelephense"
+npm = "intelephense"
+
+[[pack]]
+name = "Lua"
+ext = ["lua"]
+[[pack.tool]]
+kind = "lsp"
+bin = "lua-language-server"
+github = "LuaLS/lua-language-server"
+asset.linux-x64 = "lua-language-server-{version}-linux-x64.tar.gz"
+asset.linux-arm64 = "lua-language-server-{version}-linux-arm64.tar.gz"
+asset.macos-x64 = "lua-language-server-{version}-darwin-x64.tar.gz"
+asset.macos-arm64 = "lua-language-server-{version}-darwin-arm64.tar.gz"
+asset.windows-x64 = "lua-language-server-{version}-win32-x64.zip"
+[[pack.tool]]
+kind = "lint"
+bin = "luacheck"
+hint = "luarocks install luacheck"
+
+[[pack]]
+name = "Ruby"
+ext = ["rb", "rake", "gemspec", "Gemfile", "Rakefile"]
+[[pack.tool]]
+kind = "lsp"
+bin = "ruby-lsp"
+hint = "gem install ruby-lsp"
+[[pack.tool]]
+kind = "lint"
+bin = "rubocop"
+hint = "gem install rubocop"

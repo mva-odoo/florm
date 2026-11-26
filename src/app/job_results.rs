@@ -40,6 +40,11 @@ impl App {
                     }
                 }
                 JobResult::ToolInstalled(r) => self.on_tool_installed(r),
+                JobResult::PackStatus(list, status) => self.on_pack_status(list, status),
+                JobResult::PackInstalled(r) => self.on_pack_installed(r),
+                JobResult::PythonReady(r) => self.on_python_ready(r),
+                JobResult::CatalogFetched(errors) => self.on_catalog_fetched(errors),
+                JobResult::DebugStarted(r) => self.debug_started(r),
                 JobResult::FileMatches { gen, query, matched, top } => self.on_file_matches(gen, query, matched, top),
                 JobResult::FileIndex(root, list) => self.on_file_index(root, list),
                 JobResult::GitStatus { selected, statuses, remotes, stashes } => self.on_git_status(selected, statuses, remotes, stashes),
@@ -73,6 +78,19 @@ impl App {
                 JobResult::Compare(title, r) => self.compare_loaded(title, r),
                 JobResult::History(repo, gen, r) => self.on_history(repo, gen, r),
                 JobResult::Blame { uid, line, version, result } => self.on_blame(uid, line, version, result),
+                JobResult::CommitInfo(hash, r) => self.on_commit_info(hash, r),
+                JobResult::BlameLines { uid, version, result } => {
+                    if let Some(d) = self.docs.iter_mut().find(|d| d.uid == uid) {
+                        match result {
+                            Ok(lines) => d.blame_lines = Some((version, std::sync::Arc::new(lines))),
+                            // not in git (or not tracked): nothing in the column, not asked again
+                            Err(e) => {
+                                d.blame_lines = Some((version, std::sync::Arc::new(Vec::new())));
+                                self.log(tf!("Blame : {e}", "Blame: {e}"));
+                            }
+                        }
+                    }
+                }
                 JobResult::LineHistory(result) => self.on_line_history(result),
                 JobResult::LineHistoryDiff(hash, result) => self.on_line_history_diff(hash, result),
                 JobResult::HistoryDiff { hash, path, result } => self.on_history_diff(hash, path, result),

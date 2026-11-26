@@ -15,6 +15,7 @@ Tous les raccourcis se changent dans **Préférences → Raccourcis** (Ctrl+,).
 | **Ctrl+R** | Aller à une classe, une fonction du fichier |
 | **Ctrl+O** / **Ctrl+Shift+S** | Ouvrir / enregistrer sous : **Tab complète le chemin** comme dans un terminal |
 | **F12** | Aller à la définition |
+| **Ctrl + souris sur un nom** | Le nom souligné comme un lien et la liste de ses définitions dans le projet (un clic y va) ; sans Ctrl, le survol ne montre que la documentation et les erreurs |
 | **Ctrl+.** | Corrections rapides du problème sous le curseur (aussi l'ampoule en bout de ligne) : importer un nom du projet, ignorer (`# noqa`), `ruff --fix`, corriger avec Claude, et les corrections du serveur de langage dans tous les langages (importer un nom en Go, Rust, TypeScript…), en tête de liste ; le curseur peut être n'importe où sur la ligne |
 | **Alt+Z** | Retour à la ligne automatique des lignes trop longues (l'affichage seulement ; ↑ ↓ suivent les rangées) |
 | **Maj+F12** | Les usages du symbole (serveur de langage, sinon le mot entier dans le dossier) |
@@ -80,19 +81,18 @@ bas ouvert et la barre latérale affichée ou non.
 ## Panneau du bas et barre d'état
 
 Une règle simple : **les fichiers et les vues qui demandent de la place (Claude, Git, Pull requests
-(GitHub)) vont dans les onglets ; le panneau du bas garde ce qui accompagne le travail** : terminal,
-problèmes, sortie, et aussi la recherche si tu le veux. Pour voir deux onglets côte à
-côte, divise l'éditeur.
+(GitHub), la recherche) vont dans les onglets ; le panneau du bas garde ce qui accompagne le
+travail** : terminaux, débogueur, problèmes, sortie. Pour voir deux onglets côte à côte, divise
+l'éditeur.
 
-- **Le panneau du bas montre une vue à la fois**, sans rangée d'onglets : son nom en haut à gauche,
-  **▾** pour passer à une autre (avec son raccourci, et ce qui attend : nombre de problèmes) ; sous « Terminal » les terminaux ouverts. **Ctrl+Shift+J** l'affiche ou
-  le masque.
-- **⇱ / ⇲ dans l'en-tête de la recherche** la met dans un onglet ou dans le panneau
-  du bas, et Florm s'en souvient : son raccourci, la palette et ▾ l'ouvriront
-  ensuite au même endroit. Une vue qui a déjà son onglet s'y affiche, jamais à deux endroits.
+- **Le panneau du bas a ses onglets** : un par terminal, puis **Débogueur** (● pendant une session,
+  ⏸ en pause), **Problèmes** (leur nombre) et **Sortie**. Un clic passe de l'un à l'autre, **+**
+  ouvre un nouveau terminal, **×** au survol d'un terminal le ferme. **Ctrl+Shift+J** affiche ou
+  masque le panneau.
 - **La barre d'état ne montre que ce qui se passe** : à gauche l'icône des **Préférences**, puis celles de **Claude**, **Git**,
   **Pull requests** (un clic ouvre son onglet, un autre revient à l'onglet d'avant ; en couleur quand
-  il est affiché) et **Terminal** (le terminal du panneau du bas) ; à droite la branche (**↑** commits à
+  il est affiché), **Terminal** (le terminal du panneau du bas) et **Débogueur** (sa vue dans le
+  panneau du bas ; verte pendant une session, orange quand le programme est en pause) ; à droite la branche (**↑** commits à
   pousser, **↓** à récupérer, **●** fichiers modifiés) du dépôt du fichier affiché (il suit les
   onglets ; un dépôt choisi dans la vue Git reste jusqu'au prochain fichier affiché), puis, seulement quand c'est le cas, Claude
   (**au travail**, ou **✔** quand il a fini : un clic montre la réponse), et les problèmes. Au repos, elle est presque vide.
@@ -101,9 +101,8 @@ côte, divise l'éditeur.
 ## Rechercher dans le dossier (Ctrl+Shift+F)
 
 Entrée lance la recherche. Les résultats sont colorés comme dans l'éditeur ; **F4 / Maj+F4**
-passent au résultat suivant / précédent. Le bouton **en onglet** met la recherche dans
-un onglet de l'éditeur (plus de place), **en bas** la remet en bas
-(Préférences → Éditeur pour choisir où elle s'ouvre).
+passent au résultat suivant / précédent. La recherche est une page à part, dans un onglet de
+l'éditeur : toute la place pour les résultats.
 
 ### Filtrer les fichiers
 
@@ -137,15 +136,13 @@ Le `.gitignore` est respecté.
 
 - **Aa** respecte la casse, **« »** cherche le mot entier, **.*** active les expressions régulières :
   `def _compute_\w+` trouve toutes les méthodes de calcul, `^\s*import ` les imports.
-- Avec ⏵, le remplacement s'affiche ; en regex `$1`, `$2` reprennent les groupes :
+- Avec **Remplacer** (à droite de **Rechercher**), le remplacement s'affiche ; en regex `$1`, `$2` reprennent les groupes :
   `fields\.(\w+)\(` → `Fields.$1(`.
 - **Retour à la ligne** dans le remplacement : **Maj+Entrée** dans le champ, ou `\n` en regex
   (`\t` tabulation, `\\` barre oblique inverse). Pour changer les `\n` écrits dans le texte en
   vrais retours à la ligne : regex, chercher `\\n`, remplacer par `\n`. Aussi dans Ctrl+H.
 - **Garder la casse** : chat → chien, Chat → Chien, CHAT → CHIEN.
 - **×** sur un résultat (ou un fichier) l'écarte : il ne sera pas remplacé.
-- **TODO / FIXME** (à droite de la barre, ou Outils → TODO / FIXME du projet) : tous les
-  `TODO`, `FIXME`, `XXX` et `HACK` du projet, rangés par fichier.
 
 ### Comparer, historique local
 
@@ -169,8 +166,9 @@ d'habitude.
 
 - **Les changements dans l'éditeur** : une marque colorée dans la marge montre chaque bloc changé
   depuis le dernier commit. **Un clic sur la marque** (ou **Ctrl+K Ctrl+D** sur la ligne) affiche
-  ce changement seul, dans le texte : les lignes supprimées en rouge au-dessus, les nouvelles en
-  vert, et une petite barre (précédent, suivant, ↺ annuler, Tous, ×). Un nouveau clic, Échap ou
+  ce changement seul, dans le texte, comme dans Zed : les lignes supprimées sur fond rouge au-dessus,
+  les nouvelles sur fond vert (marge comprise), les mots qui ont changé sur un fond plus fort, et une
+  petite barre (précédent, suivant, ↺ annuler, Tous, ×). Un nouveau clic, Échap ou
   Ctrl+K Ctrl+D le masque. **Alt+F5 / Alt+Maj+F5** passent au changement suivant / précédent en
   l'affichant ; **Ctrl+K Ctrl+Z** annule celui de la ligne. **Ctrl+Alt+D** (ou la préférence
   « Diff dans l'éditeur ») les affiche tous en permanence.
@@ -207,7 +205,16 @@ d'habitude.
   interactif à partir d'ici…**. Pour chaque commit : le garder, changer son message, le fusionner
   avec le précédent (avec ou sans son message) ou le supprimer, et ↑ ↓ pour changer l'ordre.
 - **Blame** (**Ctrl+Maj+B**) : l'auteur, la date et le message du dernier commit de la ligne, en
-  gris au bout de celle-ci ; à nouveau pour le masquer.
+  gris au bout de celle-ci ; à nouveau pour le masquer. Au survol de ce texte, une petite fenêtre
+  donne le message entier du commit, avec **Voir dans Florm (Git)**, **Ouvrir sur GitHub ↗** et
+  **Copier le hash**.
+- **Blame de chaque ligne** (**Ctrl+K B**, ou clic droit → Blame de chaque ligne), comme dans Zed :
+  une colonne de la marge donne l'auteur et l'ancienneté de chaque bloc de lignes du même commit ;
+  au survol, une petite fenêtre donne le commit, son auteur, sa date et **son message entier**, avec
+  **Voir dans Florm (Git)**, **Ouvrir sur GitHub ↗** (si le dépôt y est) et **Copier le hash** ; elle
+  reste tant que la souris va vers elle. Un clic sur la colonne ouvre aussi le commit dans la vue Git. Les lignes changées depuis
+  le dernier commit disent « pas encore commité ». Un seul `git blame` par fichier et par commit
+  (quelques secondes sur un très long historique, en arrière-plan) : la frappe ne le relance pas.
 - **Modifier le dernier commit** (case sous le message, ou menu de la branche) : le message du
   dernier commit revient dans la zone ; le bouton le remplace (avec les fichiers indexés en plus).
   S'il était déjà poussé, il faudra un push --force-with-lease.
@@ -313,9 +320,9 @@ Les opérations lancées depuis Florm mettent la version d'origine entre les deu
 - **Ctrl+Shift+`** : un terminal **dans un onglet** de
   l'éditeur. Comme tout onglet, il se glisse sur le bord droit ou bas de l'éditeur pour être à
   côté d'un fichier (ou clic droit sur l'onglet → Diviser à droite / en bas).
-- Dans le panneau du bas, **un terminal à la fois** : son dossier en haut, **+** en ouvre un autre,
-  **⇱** l'envoie dans un onglet (**en bas** dans l'onglet le ramène). Les autres terminaux sont dans
-  **▾**, sous « Terminal » : clic pour y passer, **×** au survol pour le fermer.
+- Dans le panneau du bas, **chaque terminal a son onglet** : son dossier à droite, **+** en ouvre
+  un autre, **⇱** l'envoie dans un onglet de l'éditeur (**en bas** dans l'onglet le ramène), **×**
+  au survol de son onglet le ferme.
 - Toutes les vues (Recherche, Git, Pull requests (GitHub), Claude, Terminal) ont à droite de
   leur en-tête les mêmes boutons, dans le même ordre : **⟳** relire, **en onglet / en bas**
   (une petite fenêtre : avec un onglet en haut, ou une bande en bas ; retenu pour la prochaine fois), **⋯** les autres actions et
@@ -324,26 +331,118 @@ Les opérations lancées depuis Florm mettent la version d'origine entre les deu
   masque un panneau latéral (la revue de Claude), pleine quand il est affiché. Git et les Préférences
   sont des onglets comme les autres : Échap revient à l'onglet d'avant, Ctrl+W les ferme.
 
+## Langages : installer les outils
+
+**Préférences → Langages** (clic droit sur la roue dentée de la barre d'état, menu Outils, ou
+« Langages : installer les outils d'un langage » dans la palette)
+liste chaque langage avec ses outils : serveur de langage (LSP), linter, formateur, débogueur.
+✓ : installé ; ✖ : il manque.
+
+**Chaque langage a sa page**, comme dans Zed : un clic sur sa ligne, ou sur son nom dans la colonne
+de gauche (sous « Langages »). Elle regroupe tout ce qui lui est propre :
+
+- ses **outils** (et « Syntaxe · tree-sitter ») ; son **serveur de langage** et son **lint**, qu'on peut
+  couper pour lui seul ; ses linters (pour Python : le linter choisi, ses arguments, les codes ignorés
+  par flake8, ruff et pylint ; pour JavaScript / TypeScript : ceux d'ESLint ; shellcheck, yamllint,
+  markdownlint… pour les autres) ;
+- **ses réglages**, qui remplacent pour ses fichiers ceux de Éditeur et Apparence : largeur des
+  tabulations, indenter avec des espaces, retour à la ligne automatique, règles verticales, espaces
+  visibles, guides d'indentation, crochets colorés, orthographe, fermeture automatique, formater à
+  l'enregistrement, supprimer les espaces en fin de ligne, retour à la ligne final. Chaque ligne dit
+  la valeur de tous les langages ; changée, elle est marquée **à lui**, et **↺** la remet comme
+  pour tous. Par exemple : 2 espaces pour JavaScript, le retour à la ligne pour Markdown, le
+  formatage à l'enregistrement pour Rust seulement. Alt+Z change celui du langage du fichier quand
+  il en a un à lui.
+
+Dans settings.toml : `languages = { "JavaScript / TypeScript" = { tab_size = 2 }, Markdown = { word_wrap = true } }`
+(le nom du pack ; les mêmes clés que les réglages généraux, plus `lsp` et `lint`).
+
+La page de tous les langages garde ce qui vaut pour tous : l'installation automatique et les types
+d'outils à installer, les serveurs de langage (interrupteur général), quand vérifier (pendant la
+frappe, à l'enregistrement), les linters déclarés dans settings.toml et les dossiers de confiance.
+
+- **Installer** met ce qui manque dans le dossier des outils de Florm, sans toucher au système :
+  `pip` dans un environnement virtuel à lui (pylsp, ruff, debugpy, yamllint, clangd…), `npm`
+  (typescript-language-server, eslint, les serveurs YAML, Bash, HTML, CSS, Dockerfile…),
+  `go install` (gopls, dlv), ou le programme tout prêt de leur release GitHub (rust-analyzer,
+  marksman, hadolint, lua-language-server). **Rien d'autre à installer** : sans Python, Node.js ou
+  Go sur l'ordinateur, Florm télécharge le sien la première fois (dans son dossier, vérifié par sa
+  somme SHA-256). Un clic sur un outil ✖ installe celui-là seul.
+- Ce que seul le système installe (gdb, Ruby, luacheck) est donné en commandes pour ton système :
+  un clic la tape dans un terminal (Entrée pour la lancer), un clic droit la copie.
+- **Tout seul** : en ouvrant un fichier d'un langage auquel il manque des outils, Florm les installe
+  en arrière-plan, sans rien demander (une fois par session ; la barre d'état dit où il en est). Le
+  fichier s'ouvre tout de suite, coloré ; la complétion du serveur de langage et le lint arrivent
+  quand l'installation est finie. Seuls les outils de ce langage sont installés, et seulement ceux
+  que tu as cochés en haut de la page : serveur de langage, linter, formateur (par défaut), débogueur
+  (sinon installé au premier **F5**, puis la session démarre toute seule). Un outil décoché
+  s'installe toujours d'un clic sur sa pastille. Si ça échoue (ou
+  si la case « Installer tout seul » est décochée), une barre au-dessus du fichier propose de les
+  installer ; **Ne plus proposer** l'arrête pour ce langage.
+- **Syntaxe · tree-sitter** (Python, JavaScript, TypeScript, Rust, Go, C, C++, JSON, Shell, CSS,
+  HTML, YAML, XML, TOML) : la coloration vient de l'**arbre de syntaxe**
+  du fichier, comme dans Zed, au lieu d'expressions régulières : elle comprend le code (appels,
+  fonctions intégrées, chaînes et leurs séquences d'échappement…), et Alt+Maj+→ élargit la sélection
+  bloc logique par bloc logique. L'arbre suit chaque frappe sans tout relire (moins d'une
+  milliseconde sur un fichier de 7 000 lignes). La grammaire est intégrée à Florm, sur tous les
+  systèmes ; un clic sur la ligne du pack l'active ou la désactive.
+- **+ Nouveau pack…** : un langage que Florm ne connaît pas, ou d'autres outils pour un langage, dans
+  un fichier TOML de `~/.config/florm/packs/` (un pack du même nom remplace celui de Florm). Un pack
+  peut déclarer un serveur de langage (`cmd` d'un outil `lsp`) et un linter (`cmd` d'un outil `lint`,
+  qui écrit `fichier:ligne:col: message`) : Florm les lance pour ses fichiers, dans un dossier de
+  confiance.
+  ```toml
+  name = "Nim"
+  ext = ["nim", "nims"]
+  [[tool]]
+  kind = "lsp"
+  bin = "nimlangserver"
+  cmd = "nimlangserver"
+  hint = "nimble install nimlangserver"
+  ```
+
 ## Erreurs dans le code
 
 Les problèmes sont soulignés dans le code et listés dans **Problèmes** (panneau du bas) :
 
 - **Python** : le premier linter installé (`flake8`, sinon `ruff`, `pyflakes`, `pylint` ; Préférences →
   Lint), pendant la frappe. **JavaScript** : `eslint`, à l'enregistrement.
-- **Serveurs de langage** (Préférences → Éditeur → Serveurs de langage) : leurs erreurs aussi, pour
+- **Serveurs de langage** (Préférences → Langages → Serveurs de langage) : leurs erreurs aussi, pour
   tous les langages qu'ils connaissent (TypeScript, Rust, Go, C…). **Formater le fichier** (palette)
   passe par `ruff` pour Python, par le serveur de langage pour les autres. Pour formater chaque
   fichier Python à l'enregistrement : Préférences → Éditeur.
 - **XML et JSON** : un fichier mal formé (balise non fermée, mal imbriquée, guillemet oublié), en direct.
+- **Les autres langages**, pendant la frappe, avec le linter s'il est installé : `shellcheck` (shell),
+  `yamllint`, `markdownlint`, `hadolint` (Dockerfile), `luacheck`, `rubocop`, `stylelint` (CSS).
+  N'importe quel autre se déclare dans `settings.toml` : une commande qui écrit des lignes
+  `fichier:ligne:col: message` (le texte du fichier lui arrive sur l'entrée standard, `{file}` est
+  remplacé par son chemin). Une commande vide coupe un linter de Florm, la même clé le remplace :
+  ```toml
+  [linters.nimcheck]
+  cmd = "nim check --stdin"
+  ext = ["nim"]
+  [linters.markdownlint]
+  cmd = ""
+  ```
+  Pour une autre sortie, `pattern` : une regex avec les groupes `line`, `col`, `msg`, `severity`.
+- **Serveurs de langage de tous les langages** : Florm trouve d'office ceux de YAML, Bash, CSS, HTML,
+  Lua, Ruby, PHP, Markdown (`marksman`), TOML (`taplo`), Dockerfile, Terraform, Java, Kotlin, Swift,
+  Zig, C#, Haskell, OCaml, Elixir quand ils sont installés (la barre d'état dit lequel installer).
+  Un autre langage se déclare avec les extensions de ses fichiers :
+  ```toml
+  [lsp_servers]
+  nim = { cmd = "nimlangserver", ext = ["nim", "nims"] }
+  ```
 
 **🔒 Mode restreint.** Un serveur de langage, eslint, les plugins flake8 déclarés par un projet ou la
 configuration d'un dépôt git (`.git/config`, filtres de `.gitattributes`) peuvent exécuter son code.
 Dans un dossier qui n'est pas encore de confiance, une barre au-dessus du fichier le dit : Git, les
-serveurs de langage et eslint ne tournent pas, et flake8 ignore la configuration du projet
+serveurs de langage, eslint et les linters des autres langages ne tournent pas, et flake8 ignore la configuration du projet
 (`node --check` et le lint Python restent) ; la vue Git le dit aussi, avec le même bouton. **Faire confiance à « dossier »** les lance, pour
 ce dossier et ceux qu'il contient (clé `trusted_folders` de `settings.toml`) ; **Plus tard** cache la
-barre jusqu'à la fermeture de Florm. **Préférences → Lint → Dossiers de confiance** les liste ; × retire
-la confiance d'un dossier, qui repasse en mode restreint.
+barre jusqu'à la fermeture de Florm. **Préférences → Langages → Dossiers de confiance** les liste ; × retire
+la confiance d'un dossier, qui repasse en mode restreint. Les dépôts que Florm clone lui-même (la
+configuration partagée, les catalogues d'extensions) n'ont pas besoin d'y être.
 
 ## Tests (pytest, jest, cargo, go)
 
@@ -358,6 +457,46 @@ Les tests de n'importe quel projet se lancent dans le terminal du panneau du bas
   Entrée. Un projet dans un sous-dossier commence par `cd sous-dossier && `.
 - La sortie s'affiche dans le panneau du bas, le résumé (✔ ou ⚠, réussis et en échec) dans la barre d'état.
 - Un `ipdb` dans un test s'arrête dans ce terminal, où il se tape comme d'habitude.
+
+## Déboguer (F5)
+
+Le débogueur de Florm parle le protocole des débogueurs (DAP), comme Zed et VS Code : **debugpy**
+pour Python, **dlv** pour Go, **lldb-dap** ou **gdb** (14 ou plus) pour Rust, C et C++.
+
+- **Point d'arrêt** : un clic dans la colonne à gauche des numéros de ligne (un point rouge pâle
+  la montre au survol), ou **F9** sur la ligne. Ils suivent les lignes quand le texte change.
+- **Une commande, comme dans un terminal** : la vue **Débogueur** (🐞 dans la barre d'état) s'ouvre
+  sur **Commande** (la liste en haut à gauche) ; tape
+  la ligne qui lance ton programme (`python app.py --port 8000`, `python -m flask run`,
+  `pytest tests/test_a.py`, `go run .`, `./mon_programme --verbose`, des variables devant comme
+  `DEBUG=1 ./mon_programme`, le Python d'un environnement virtuel comme
+  `~/venvs/app/bin/python app.py`) et son **dossier** : vide, le projet ; un chemin relatif part du
+  projet ; **📁** ouvre le sélecteur de dossiers du système. Un dossier qui n'existe pas s'affiche en
+  rouge (le survol dit lequel) et F5 le refuse. Le programme tourne avec le **même Python que dans
+  un terminal** : Florm lit au démarrage l'environnement de ton shell (pyenv, nvm, `~/bin`… de
+  `config.fish`, `.zshrc`, `.bashrc`), même lancé depuis le bureau ; pour un script comme `./odoo-bin`,
+  c'est le `.venv` du dossier s'il y en a un, sinon le Python de sa première ligne
+  (`#!/usr/bin/env python3`) trouvé dans ce PATH. Puis **Entrée** ou **F5**. Florm choisit le débogueur d'après la commande ; vide, F5 débogue le fichier ouvert. Chaque commande lancée reste dans **🕘**, par projet ;
+  la dernière revient à la réouverture. Une commande enveloppée (`make`, `docker`…) ne se débogue
+  pas directement : lance le programme avec `debugpy --listen` et attache-toi (voir plus bas).
+- **F5** lance ce qui est choisi dans la vue **Débogueur** (panneau du bas) : la **commande**, le **fichier
+  ouvert**, le **test sous le curseur** (pytest, go test, cargo test ; aussi « Débogueur : déboguer
+  le test sous le curseur » dans la palette) ou une configuration du projet. Les fichiers modifiés
+  sont enregistrés avant. Rust : `cargo build` d'abord, puis le binaire du paquet.
+- Arrêté, la ligne est sur fond jaune avec une flèche dans la marge. **F5** continue, **F10** passe à
+  la ligne suivante, **F11** entre dans la fonction, **Maj+F11** en sort, **Maj+F5** arrête,
+  **Ctrl+Maj+F5** relance (aussi les boutons ▶ ⏸ ↷ ↓ ↑ ⟳ ■ du panneau).
+- La vue **Débogueur** : la **pile d'appels** (un clic montre la ligne d'un appel et ses variables),
+  les **variables** (▸ ouvre une liste, un objet), la **console** : la sortie du programme, et une
+  expression tapée en bas (Entrée) est évaluée là où il est arrêté.
+- **Configurations du projet** : « Débogueur : configurations du projet » crée et ouvre
+  `.florm/debug.toml`, avec des exemples. Une par `[[config]]` : `adapter` (python, go, lldb, gdb),
+  `program` ou `module` (Python), `args`, `cwd`, `env`, `build` (une commande avant, comme
+  `cargo build`) ; `{file}`, `{dir}` et `{root}` sont remplacés. **Attacher** à un programme Python
+  qui tourne déjà, dans un conteneur par exemple (`python -m debugpy --listen 0.0.0.0:5678 …`) :
+  `request = "attach"`, `port = 5678`, `path_mappings = { "/app" = "{root}" }`.
+- debugpy manquant : « Débogueur : installer debugpy » (palette) l'installe pour Florm seul. Comme
+  les serveurs de langage, le débogueur ne tourne que dans un dossier de confiance.
 
 **Ctrl+clic** sur une ligne `File "…", line N` d'une trace d'erreur ouvre le fichier.
 
@@ -385,6 +524,68 @@ texte. **+ Nouveau modèle** en crée un ; un intégré modifié devient le tien
 **Outils → Nouveau modèle…** (ou la palette) : tape le déclencheur (`log`), Florm crée
 `log.py` (extension du fichier courant ; `log.xml` pour un autre type) dans le dossier des
 modèles et l'ouvre. S'il y avait une sélection, elle devient le texte du modèle.
+
+## Extensions
+
+Une extension ajoute des commandes à la palette (avec un raccourci si elle veut) et réagit quand un
+fichier s'ouvre, s'enregistre, se ferme ou s'affiche. C'est un programme, en Python ou dans n'importe
+quel langage, dans un dossier de `~/.config/florm/extensions/` avec son `extension.toml`. Elle tourne
+avec tes droits : n'en installe que de sources sûres. Sans Python sur l'ordinateur, Florm télécharge
+le sien à la première commande d'une extension Python (une seule fois, ~30 Mo).
+
+- **Préférences → Extensions** (clic droit sur la roue dentée de la barre d'état, ou menu Outils) : la liste (une case les coupe), **+ Nouvelle extension…** crée un
+  exemple en Python et l'ouvre, **⟳ Recharger** après un changement, **📁** le dossier.
+- Leurs commandes sont dans la palette, précédées de ✚. Ce qu'elles écrivent (`print`) et leurs
+  erreurs vont dans **Sortie**.
+- `extension.toml` :
+  ```toml
+  name = "Mon extension"
+  cmd = "python3 main.py"        # lancée dans son dossier, au premier besoin
+  events = ["save"]              # open, save, close, focus
+  [[command]]
+  id = "upper"
+  title = "Mettre la sélection en majuscules"
+  key = "ctrl+alt+u"
+  ```
+- `main.py`, avec la bibliothèque que Florm lui donne (`florm.py`) :
+  ```python
+  import florm
+
+  @florm.command("upper")
+  def upper(ctx):                # ctx.file, ctx.root, ctx.selection, ctx.line, ctx.col
+      florm.replace_selection(ctx.selection.upper())
+
+  @florm.on("save")
+  def saved(ctx):
+      florm.status(f"{ctx.file} : {florm.text().count(chr(10))} lignes")
+
+  florm.main()
+  ```
+- Ce qu'une extension peut faire : `status`, `message` (info, warning, error), `output`, `text()`,
+  `replace_selection`, `insert`, `set_text` (annulé par Ctrl+Z), `open(chemin, ligne)`,
+  `pick(liste, titre)` (l'indice choisi, None sur Échap), `input(titre)`, `run("save")` (une
+  commande de Florm, les identifiants de `[keys]`), `terminal("make test")`.
+- Dans un autre langage : Florm lui parle en JSON-RPC sur son entrée et sa sortie, comme à un serveur
+  de langage (en-tête `Content-Length`) ; les méthodes sont celles de `florm.py`.
+
+**Catalogue** (Préférences → Extensions, en bas ; ou « Extensions : installées et catalogue » dans
+la palette) : les extensions et packs de langage livrés avec Florm, ceux de ta configuration
+partagée (ses dossiers `extensions/` et `packs/`), et ceux des dépôts de catalogue que tu ajoutes
+(`propriétaire/dépôt` ou une adresse git : un dossier par extension, et `packs/*.toml`). **Installer**
+copie dans tes dossiers, **Mettre à jour** quand le catalogue a une autre version (l'état que
+l'extension garde reste), **Désinstaller** retire. Une extension qui ne vient pas de Florm demande
+confirmation : elle tournera avec tes droits. **⟳ Mettre à jour les catalogues** les récupère à
+nouveau.
+
+**L'extension Odoo** (dans le catalogue de Florm) :
+- **Ctrl+Alt+O** : lance le test sous le curseur (`--test-tags /sale:TestOrder.test_confirm`, la
+  classe, ou le module hors d'un test) dans un terminal. La première fois, la commande s'affiche pour
+  la compléter (la base `-d`, un `docker compose exec …` devant) ; ensuite seuls les tags changent.
+  « Odoo : modifier la commande des tests » pour en changer.
+- **Alt+F12** : sur `'sale.order'`, va au modèle (`_name`, puis ses `_inherit` au choix) ; sur
+  `'module.xml_id'` ou `ref="…"`, va au record (XML, CSV).
+- « Odoo : mettre à jour le module (-u) », « modèles et records du fichier », « ouvrir le
+  `__manifest__.py` du module ».
 
 ## GitHub
 
@@ -463,14 +664,12 @@ ses nouveautés marchent tels quels. Les changements de Claude se revoient dans 
 - **En haut** : le dossier (choisi avant le premier message : un dépôt du projet, un projet
   récent, ou **📁 Un autre dossier…**), **+ Contexte**, le compte 👤,
   l'**Historique** (les conversations d'avant, gardées entre les sessions) et **⟳** pour relancer
-  Claude (la conversation reprend où elle en était). À droite, le bouton du panneau **Session** ;
-  masqué, la jauge **5 h** du quota est en haut à droite (celles de **7 j** et du **Contexte**
-  au-delà de 70 %, toutes au survol).
-- **Session** (panneau de droite) : le **contexte** en % et le **coût** de la conversation, les
-  **quotas** 5 h et 7 j de ton abonnement (avec quand ils repartent à zéro), le projet, sa branche
-  et le **modèle**. Florm les lit dans la barre d'état de Claude Code. En dessous, les **fichiers
-  modifiés** par Claude dans cette conversation, le dernier en haut : un clic l'ouvre. Florm les
-  recharge et rafraîchit Git dès que Claude les change.
+  Claude (la conversation reprend où elle en était).
+- **La conversation affichée** s'agrandit dans la liste de gauche : son **contexte** en % et son
+  **coût**, son **modèle** (et son compte s'il y en a plusieurs), lus dans la barre d'état de
+  Claude Code. Florm recharge les fichiers et rafraîchit Git dès que Claude les change.
+- **Utilisation**, en bas de la liste : les **quotas** 5 h et 7 j de ton abonnement (au survol,
+  quand ils repartent à zéro).
 - **Ce que Claude attend** : quand il demande une permission ou pose une question, son message
   (« veut utiliser Bash »…) s'affiche au survol de la conversation dans la liste et de **❓ attend**
   dans la barre d'état. Si Florm n'est pas au premier plan, une notification du système te prévient
@@ -482,7 +681,7 @@ ses nouveautés marchent tels quels. Les changements de Claude se revoient dans 
 - **Plusieurs conversations, un seul onglet** : toutes les conversations sont listées à gauche
   de l'onglet Claude, la plus récente en haut, avec leur titre (leur premier message), ce qu'elles
   font (⟳ travaille, ❓ attend ta réponse, ✔ a fini) et depuis quand elles travaillent ; en
-  dessous, leur projet dans sa couleur, leur branche et leur coût. Un clic en affiche une, les
+  dessous, leur projet dans sa couleur et leur branche. **×** au survol d'une ligne la ferme. Un clic en affiche une, les
   autres continuent derrière ; **+** en commence une nouvelle. Clic droit : **⇉ Dupliquer** (une
   copie de sa session, pour essayer autre chose), **⇱ Ouvrir dans son propre onglet**, **× Fermer**
   (Claude s'arrête, elle reste dans l'historique). **Ctrl+Alt+W** : la suivante qui attend ta
@@ -555,8 +754,7 @@ dans l'onglet Claude.
 ### 🗺 Expliquer un changement
 
 Pour comprendre **ce que Claude propose et pourquoi**, idée par idée plutôt que fichier par
-fichier. **🗺 Expliquer** dans la vue Git (à côté de ✳ Revue IA), **🗺 Expliquer ces
-changements** sous les fichiers modifiés du panneau Session de Claude, ou la palette (« Git :
+fichier. **🗺 Expliquer** dans la vue Git (à côté de ✳ Revue IA), ou la palette (« Git :
 expliquer les changements non commités ») : la demande part dans l'onglet Claude, dans la
 conversation qui travaille dans ce dossier (elle sait pourquoi elle a fait ces changements), sinon
 dans une nouvelle. Claude donne le problème et l'idée, puis chaque idée avec les endroits du code
@@ -596,7 +794,9 @@ navigateur que s'ils sont en `http` ou `https`.
   Éditeur → Orthographe.
 - **Alt+Maj+→** élargit la sélection pas à pas : le mot, l'intérieur de la chaîne, la chaîne avec
   ses guillemets, l'intérieur des parenthèses (crochets, accolades), avec elles, la ligne, le bloc
-  de même indentation, tout le fichier. **Alt+Maj+←** revient au pas d'avant.
+  de même indentation, tout le fichier. **Alt+Maj+←** revient au pas d'avant. Dans un langage qui a
+  son **arbre de syntaxe** (Python, JavaScript, TypeScript, Rust, Go, C, C++, JSON…), chaque pas suit le code : le nom, l'argument,
+  la liste des arguments, l'appel, l'instruction, le bloc, la fonction, la classe.
 - **Édition → Casse** : MAJUSCULES, minuscules, **snake_case**, **camelCase**, **Majuscule Au
   Début** des mots, sur la sélection ou le mot du curseur (`parseHTTPRequest` → `parse_http_request`).
   **Édition → Supprimer les lignes en double** garde la première de chaque ligne répétée (la
@@ -639,13 +839,27 @@ L'interface suit le design de Zed : les panneaux, la barre d'onglets et les menu
 fines lignes entre les parties, l'onglet actif sur le fond de l'éditeur. Ces teintes viennent du thème
 choisi : elles suivent tous les thèmes.
 
+Le texte est en IBM Plex, intégrée à Florm : la même police sur Linux, Windows et macOS. Sur un écran
+peu dense (un portable 1080p à 100 %), Florm prend sa graisse « Text », un peu plus pleine, pour que
+le texte ne paraisse pas plus fin et plus gris que sur l'écran Retina d'un Mac.
+
 **Préférences → Apparence** : langue (Français / English), thème (aperçus cliquables : Florm et
 Florm Light, Florm Minimal et Florm Minimal Light, plus sobres (un fond profond ou crème, une
 palette douce), et Florm Monokai, One Dark, Dracula, GitHub Light d'après les thèmes habituels des autres
 éditeurs), couleur d'accentuation,
 **texte adouci** (texte moins « gras », utile sur les thèmes clairs), polices de l'éditeur et
 de l'interface, minimap, fil d'Ariane, **barre de menus** (masquée par défaut, comme dans Zed : les menus
-sont sous le logo F en haut de la barre latérale, et leurs commandes dans la palette, **Ctrl+Shift+P**).
+sont sous le **F** en bas à gauche de la barre d'état, et leurs commandes dans la palette, **Ctrl+Shift+P**).
+En haut de la barre latérale, l'icône de dossier devant le nom du projet ouvre la liste des projets.
+
+Repris de Zed, dans **Apparence → Curseur et marge / Défilement** : forme du curseur (barre, bloc,
+souligné), curseur clignotant, ligne du curseur surlignée, **occurrences de la sélection** (les
+autres endroits du texte sélectionné encadrés), numéros de ligne et **numéros relatifs** (comptés
+depuis la ligne du curseur), guides d'indentation, défiler après la fin du fichier, marge de lignes
+autour du curseur. Dans **Éditeur** : complétion pendant la frappe, documentation au survol,
+**casse intelligente** (une recherche avec une majuscule respecte la casse), retour à la ligne final
+à l'enregistrement, délai de l'enregistrement automatique, demander avant de quitter. Dans **Git** :
+les marques des changements dans la marge, et le blame de la ligne dès le démarrage.
 
 **Couleurs du thème → Créer un thème à partir de « … »** : toutes les couleurs de l'éditeur
 (fond, texte, accent, curseur, sélection, marge…) et du code (commentaires, mots-clés, chaînes,

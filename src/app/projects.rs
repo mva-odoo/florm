@@ -40,6 +40,11 @@ impl App {
     }
 
     /// Writes one value into settings.toml so UI choices survive a restart.
+    /// The settings of the language of the active tab.
+    pub(super) fn active_lang(&self) -> config::Lang {
+        self.settings.lang_of(self.docs.get(self.active).and_then(|d| d.path.as_deref()))
+    }
+
     pub(super) fn persist(&mut self, key: &str, value: String) {
         if let Err(e) = config::set_setting(key, &value) {
             self.log(tf!("Préférences non enregistrées : {e}", "Preferences not saved: {e}"));

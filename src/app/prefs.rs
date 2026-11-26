@@ -3,6 +3,7 @@
 use super::*;
 
 mod accounts;
+mod languages;
 mod trusted;
 pub(super) use accounts::AccountsUi;
 
@@ -169,38 +170,51 @@ fn pref_row_wide(ui: &mut egui::Ui, rc: &mut RowCtx, title: &str, desc: &str, co
 
 impl App {
     pub(super) fn prefs_ui(&mut self, ui: &mut egui::Ui) {
-        let panel = ui.visuals().panel_fill;
+        // the list of sections on the page's background (white with a light theme), a thin line
+        // between them and the settings
+        let panel = self.hl.colors.bg;
         egui::Panel::left("prefs_nav")
             .exact_size(210.0)
             .resizable(false)
+            .show_separator_line(true)
             .frame(egui::Frame::NONE.fill(panel).inner_margin(egui::Margin::symmetric(12, 16)))
             .show(ui, |ui| {
                 ui.label(RichText::new(t!("Préférences", "Preferences")).size(19.0).strong());
                 ui.add_space(12.0);
-                for (sec, fr, en) in PREF_SECTIONS {
-                    let label = t!(fr, en);
-                    let selected = self.prefs.section == sec && self.prefs.filter.is_empty();
-                    let (rect, r) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 32.0), Sense::click());
-                    let v = ui.visuals();
-                    if selected {
-                        ui.painter().rect_filled(rect, 7.0, v.selection.bg_fill);
-                    } else if r.hovered() {
-                        ui.painter().rect_filled(rect, 7.0, v.widgets.hovered.weak_bg_fill);
+                // the languages under « Langages », as in Zed: each one its page
+                let langs: Vec<String> = if self.prefs.section == PrefSection::Languages { self.packs.list.iter().map(|p| p.name.clone()).collect() } else { Vec::new() };
+                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                    let item = |ui: &mut egui::Ui, label: &str, selected: bool, indent: f32, size: f32, h: f32| {
+                        let (rect, r) = ui.allocate_exact_size(egui::vec2(ui.available_width(), h), Sense::click());
+                        let v = ui.visuals();
+                        if selected {
+                            ui.painter().rect_filled(rect, 7.0, v.selection.bg_fill);
+                        } else if r.hovered() {
+                            ui.painter().rect_filled(rect, 7.0, v.widgets.hovered.weak_bg_fill);
+                        }
+                        let color = if selected { v.strong_text_color() } else { v.text_color() };
+                        ui.painter().with_clip_rect(rect).text(egui::pos2(rect.left() + 12.0 + indent, rect.center().y), Align2::LEFT_CENTER, label, egui::FontId::proportional(size), color);
+                        ui.add_space(2.0);
+                        r.clicked()
+                    };
+                    for (sec, fr, en) in PREF_SECTIONS {
+                        let selected = self.prefs.section == sec && self.prefs.filter.is_empty() && (sec != PrefSection::Languages || self.prefs.lang.is_none());
+                        if item(ui, t!(fr, en), selected, 0.0, 14.0, 32.0) {
+                            self.prefs.section = sec;
+                            self.prefs.lang = None;
+                            self.prefs.filter.clear();
+                        }
+                        if sec == PrefSection::Languages {
+                            for name in &langs {
+                                let selected = self.prefs.filter.is_empty() && self.prefs.lang.as_deref() == Some(name.as_str());
+                                if item(ui, name, selected, 14.0, 13.0, 26.0) {
+                                    self.prefs.lang = Some(name.clone());
+                                    self.prefs.filter.clear();
+                                }
+                            }
+                        }
                     }
-                    let color = if selected { v.strong_text_color() } else { v.text_color() };
-                    ui.painter().text(
-                        egui::pos2(rect.left() + 12.0, rect.center().y),
-                        Align2::LEFT_CENTER,
-                        label,
-                        egui::FontId::proportional(14.0),
-                        color,
-                    );
-                    if r.clicked() {
-                        self.prefs.section = sec;
-                        self.prefs.filter.clear();
-                    }
-                    ui.add_space(2.0);
-                }
+                });
             });
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(self.hl.colors.bg).inner_margin(egui::Margin::symmetric(28, 18)))
@@ -214,17 +228,19 @@ impl App {
                 ui.add_space(8.0);
                 egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                     ui.set_max_width(ui.available_width().min(860.0));
-                    let sections: Vec<PrefSection> = if self.prefs.filter.is_empty() {
-                        vec![self.prefs.section]
-                    } else {
-                        PREF_SECTIONS.iter().map(|(s, _, _)| *s).collect()
-                    };
+                    let sections: Vec<PrefSection> = if !self.prefs.filter.is_empty() { PREF_SECTIONS.iter().map(|(s, _, _)| *s).collect() } else { vec![self.prefs.section] };
                     let searching = !self.prefs.filter.is_empty();
                     for sec in sections {
                         let name = PREF_SECTIONS.iter().find(|(s, _, _)| *s == sec).map(|(_, fr, en)| t!(*fr, *en)).unwrap_or("");
                         let mut rc = RowCtx { filter: self.prefs.filter.clone(), header: None };
                         if searching {
                             rc.header = Some((name.to_uppercase(), self.hl.colors.accent));
+                        } else if let Some(lang) = self.prefs.lang.clone().filter(|_| sec == PrefSection::Languages) {
+                            // a language's page: back to all the languages above its name
+                            if ui.link(RichText::new(t!("‹ Tous les langages", "‹ All the languages")).small()).clicked() {
+                                self.prefs.lang = None;
+                            }
+                            ui.label(RichText::new(lang).size(22.0).strong());
                         } else {
                             ui.label(RichText::new(name).size(22.0).strong());
                             ui.add_space(4.0);
@@ -457,8 +473,50 @@ impl App {
                 pref_row(ui, rc, t!("Fil d'Ariane", "Breadcrumbs"), t!("Dossier › fichier › classe › fonction au-dessus de l'éditeur ; clic sur un élément pour y aller.", "Folder › file › class › function above the editor; click an item to go to it."), |ui| {
                     toggle_switch(ui, &mut s.breadcrumbs);
                 });
+                let accent = self_accent;
+                pref_group(ui, rc, t!("Curseur et marge", "Cursor and gutter"), accent);
+                pref_row(ui, rc, t!("Forme du curseur", "Cursor shape"), t!("Une barre entre deux caractères, un bloc sur le caractère, ou un trait dessous.", "A bar between two characters, a block over the character, or a line under it."), |ui| {
+                    let label = |k: &str| match k {
+                        "block" => t!("Bloc", "Block"),
+                        "underline" => t!("Souligné", "Underline"),
+                        _ => t!("Barre", "Bar"),
+                    };
+                    egui::ComboBox::from_id_salt("pref_cursor_shape").selected_text(label(&s.cursor_shape)).show_ui(ui, |ui| {
+                        for k in ["bar", "block", "underline"] {
+                            ui.selectable_value(&mut s.cursor_shape, k.to_string(), label(k));
+                        }
+                    });
+                });
+                pref_row(ui, rc, t!("Curseur clignotant", "Blinking cursor"), t!("Il clignote quand on ne tape pas (toujours visible juste après une frappe).", "It blinks when you are not typing (always visible right after a key)."), |ui| {
+                    toggle_switch(ui, &mut s.cursor_blink);
+                });
+                pref_row(ui, rc, t!("Ligne du curseur surlignée", "Current line highlight"), t!("Un fond un peu plus marqué sur la ligne du curseur.", "A slightly stronger background on the cursor's line."), |ui| {
+                    toggle_switch(ui, &mut s.current_line_highlight);
+                });
+                pref_row(ui, rc, t!("Occurrences de la sélection", "Selection occurrences"), t!("Les autres endroits où se trouve le texte sélectionné sont encadrés.", "The other places where the selected text is are framed."), |ui| {
+                    toggle_switch(ui, &mut s.selection_highlight);
+                });
+                pref_row(ui, rc, t!("Numéros de ligne", "Line numbers"), t!("Dans la marge à gauche du texte.", "In the gutter on the left of the text."), |ui| {
+                    toggle_switch(ui, &mut s.line_numbers);
+                });
+                pref_row(ui, rc, t!("Numéros relatifs", "Relative numbers"), t!("Comptés depuis la ligne du curseur (pratique pour sauter de n lignes) ; la ligne du curseur garde son numéro.", "Counted from the cursor's line (handy to jump n lines); the cursor's line keeps its number."), |ui| {
+                    toggle_switch(ui, &mut s.relative_line_numbers);
+                });
+                pref_row(ui, rc, t!("Guides d'indentation", "Indent guides"), t!("Des traits verticaux à chaque niveau d'indentation, plus marqué pour le bloc du curseur.", "Vertical lines at each indentation level, stronger for the block of the cursor."), |ui| {
+                    toggle_switch(ui, &mut s.indent_guides);
+                });
+                pref_group(ui, rc, t!("Défilement", "Scrolling"), accent);
+                pref_row(ui, rc, t!("Défiler après la fin du fichier", "Scroll past the end"), t!("La dernière ligne peut monter jusqu'en haut de l'éditeur.", "The last line can go up to the top of the editor."), |ui| {
+                    toggle_switch(ui, &mut s.scroll_beyond_last_line);
+                });
+                pref_row(ui, rc, t!("Marge autour du curseur", "Margin around the cursor"), t!("Lignes gardées visibles entre le curseur et le haut ou le bas de l'éditeur quand il se déplace au clavier.", "Lines kept visible between the cursor and the top or the bottom of the editor when it moves with the keyboard."), |ui| {
+                    ui.add(egui::Slider::new(&mut s.vertical_scroll_margin, 0..=10).suffix(t!(" lignes", " lines")));
+                });
             }
             PrefSection::Editor => {
+                if rc.filter.is_empty() {
+                    ui.label(RichText::new(t!("Ces réglages valent pour tous les langages ; chacun peut avoir les siens (indentation, formatage, retour à la ligne…) dans Langages → sa page.", "These settings apply to all the languages; each one can have its own (indentation, formatting, wrapping…) in Languages → its page.")).weak().size(12.5));
+                }
                 pref_row(ui, rc, t!("Largeur des tabulations", "Tab width"), t!("Nombre de colonnes d'une tabulation et d'un niveau d'indentation.", "Number of columns of a tab and of an indentation level."), |ui| {
                     ui.add(egui::Slider::new(&mut s.tab_size, 1..=8));
                 });
@@ -531,14 +589,20 @@ impl App {
                         }
                     });
                 });
+                pref_row(ui, rc, t!("Complétion pendant la frappe", "Completion while typing"), t!("La liste des suggestions s'ouvre seule après un point ou deux lettres ; sinon seulement avec Ctrl+Espace.", "The list of suggestions opens by itself after a dot or two letters; else only with Ctrl+Space."), |ui| {
+                    toggle_switch(ui, &mut s.show_completions_on_input);
+                });
+                pref_row(ui, rc, t!("Documentation au survol", "Documentation on hover"), t!("Survoler un nom montre ce qu'en dit le serveur de langage (signature, documentation) ; les erreurs restent montrées.", "Hovering a name shows what the language server says about it (signature, documentation); the errors are still shown."), |ui| {
+                    toggle_switch(ui, &mut s.hover_popover);
+                });
+                pref_row(ui, rc, t!("Casse intelligente", "Smart case"), t!("Une recherche (Ctrl+F, dans les fichiers) qui contient une majuscule respecte la casse ; tout en minuscules, elle l'ignore.", "A search (Ctrl+F, in files) with a capital letter is case sensitive; all in lower case, it ignores the case."), |ui| {
+                    toggle_switch(ui, &mut s.smartcase_search);
+                });
                 pref_row(ui, rc, t!("Supprimer les espaces en fin de ligne", "Trim trailing whitespace"), t!("À chaque enregistrement.", "On every save."), |ui| {
                     toggle_switch(ui, &mut s.trim_trailing_whitespace_on_save);
                 });
-                pref_row(ui, rc, t!("Serveurs de langage (LSP)", "Language servers (LSP)"), t!("Complétion (Ctrl+Espace), aller à la définition (F12), renommer (F2), leurs erreurs soulignées, et le formatage des fichiers autres que Python. Serveurs détectés : pyright / pylsp, typescript-language-server, rust-analyzer, gopls, clangd.", "Completion (Ctrl+Space), go to definition (F12), rename (F2), their errors underlined, and the formatting of files other than Python. Servers detected: pyright / pylsp, typescript-language-server, rust-analyzer, gopls, clangd."), |ui| {
-                    toggle_switch(ui, &mut s.lsp);
-                });
-                pref_row(ui, rc, t!("Recherche dans le dossier en onglet", "Find in folder in a tab"), t!("Ctrl+Shift+F ouvre la recherche dans un onglet de l'éditeur plutôt que dans le panneau du bas (boutons « en onglet » / « en bas » de son en-tête pour changer).", "Ctrl+Shift+F opens the search in an editor tab rather than in the bottom panel (“in a tab” / “at the bottom” buttons of its header to switch)."), |ui| {
-                    toggle_switch(ui, &mut s.search_in_tab);
+                pref_row(ui, rc, t!("Retour à la ligne final", "Final newline"), t!("Ajouté à l'enregistrement quand le fichier n'en a pas.", "Added on saving when the file has none."), |ui| {
+                    toggle_switch(ui, &mut s.ensure_final_newline_on_save);
                 });
                 pref_row(ui, rc, t!("Enregistrement automatique", "Auto-save"), t!("« En quittant » enregistre les fichiers modifiés quand Florm perd le focus ou qu'on passe à un autre onglet ; « Après une pause », une seconde après la dernière touche. Les nouveaux fichiers sans nom ne sont pas concernés.", "“On leaving” saves the changed files when Florm loses the focus or another tab is shown; “After a pause”, a second after the last key. New files without a name are left out."), |ui| {
                     let label = |m: &str| match m {
@@ -546,90 +610,23 @@ impl App {
                         "delay" => t!("Après une pause", "After a pause"),
                         _ => t!("Non", "Off"),
                     };
+                    if s.auto_save == "delay" {
+                        ui.add(egui::DragValue::new(&mut s.auto_save_delay_ms).range(100..=60_000).speed(50).suffix(" ms"));
+                    }
                     egui::ComboBox::from_id_salt("auto_save").selected_text(label(&s.auto_save)).show_ui(ui, |ui| {
                         for m in ["off", "focus", "delay"] {
                             ui.selectable_value(&mut s.auto_save, m.to_string(), label(m));
                         }
                     });
                 });
-                pref_row(ui, rc, t!("Formater les fichiers Python à l'enregistrement", "Format Python files on save"), t!("Lance « ruff format » (comme Ctrl+Alt+F) avant chaque enregistrement d'un fichier Python.", "Runs “ruff format” (like Ctrl+Alt+F) before each save of a Python file."), |ui| {
+                pref_row(ui, rc, t!("Formater à l'enregistrement", "Format on save"), t!("Python avec ruff (comme Ctrl+Alt+F) avant d'enregistrer ; les autres langages par leur serveur de langage, juste après.", "Python with ruff (like Ctrl+Alt+F) before saving; the other languages by their language server, right after."), |ui| {
                     toggle_switch(ui, &mut s.format_on_save);
+                });
+                pref_row(ui, rc, t!("Demander avant de quitter", "Ask before quitting"), t!("Même quand tout est enregistré.", "Even when everything is saved."), |ui| {
+                    toggle_switch(ui, &mut s.confirm_quit);
                 });
                 pref_row(ui, rc, t!("Garder le travail non enregistré", "Keep unsaved work"), t!("À la fermeture (ou en changeant de projet), les modifications non enregistrées sont gardées et rouvertes ensuite, sans question, même sans dossier ouvert. Elles sont aussi copiées toutes les 30 secondes : après un plantage, on ne perd au plus que les dernières.", "When closing (or switching project), unsaved changes are kept and reopened later, without asking, even without an open folder. They are also copied every 30 seconds: after a crash, only the last ones can be lost."), |ui| {
                     toggle_switch(ui, &mut s.hot_exit);
-                });
-            }
-            PrefSection::Lint => {
-                let accent = self.hl.colors.accent;
-                pref_group(ui, rc, t!("Quand vérifier", "When to check"), accent);
-                pref_row(ui, rc, t!("Vérifier pendant la frappe", "Check while typing"), t!("Les fichiers Python sont vérifiés une demi-seconde après la dernière touche, sans enregistrer.", "Python files are checked half a second after the last key, without saving."), |ui| {
-                    toggle_switch(ui, &mut s.lint_live);
-                });
-                pref_row(ui, rc, t!("Vérifier à l'enregistrement", "Check on save"), t!("Lance le linter (Python, JavaScript) à chaque enregistrement.", "Runs the linter (Python, JavaScript) on every save."), |ui| {
-                    toggle_switch(ui, &mut s.lint_on_save);
-                });
-                let status: Vec<(&str, bool)> =
-                    ["flake8", "ruff", "pyflakes", "pylint"].iter().map(|n| (*n, lint::is_installed(n))).collect();
-                let installed = |n: &str| status.iter().any(|(m, i)| *m == n && *i);
-
-                pref_group(ui, rc, "Python", accent);
-                pref_row(ui, rc, t!("Linter Python", "Python linter"), t!("« Automatique » prend flake8, sinon ruff, sinon pyflakes ; un linter qui plante est signalé en ligne 1 et le suivant prend le relais. ruff est le plus rapide et le plus léger (quelques Mo, en Rust). La configuration du projet (setup.cfg, .flake8, tox.ini, pyproject.toml) est lue.", "“Automatic” takes flake8, else ruff, else pyflakes; a linter that crashes is reported on line 1 and the next one takes over. ruff is the fastest and lightest (a few MB, in Rust). The project configuration (setup.cfg, .flake8, tox.ini, pyproject.toml) is read."), |ui| {
-                    let label = |n: &str| match n {
-                        "auto" => t!("Automatique", "Automatic").to_string(),
-                        n => format!("{n}{}", if installed(n) { t!(" — installé", " — installed") } else { t!(" — non installé", " — not installed") }),
-                    };
-                    egui::ComboBox::from_id_salt("pref_linter").selected_text(label(&s.python_linter)).width(220.0).show_ui(ui, |ui| {
-                        for n in ["auto", "flake8", "ruff", "pyflakes", "pylint"] {
-                            ui.selectable_value(&mut s.python_linter, n.to_string(), label(n));
-                        }
-                    });
-                });
-                let args = &mut self.prefs.lint_args;
-                pref_row(ui, rc, t!("Arguments du linter", "Linter arguments"), t!("Ajoutés à la ligne de commande, séparés par des espaces. Ex. : --max-line-length=120 (en automatique, ruff ne reçoit que la longueur de ligne).", "Added to the command line, separated by spaces. E.g.: --max-line-length=120 (in automatic mode, ruff only gets the line length)."), |ui| {
-                    let r = crate::input::add(ui, egui::TextEdit::singleline(args).desired_width(260.0).font(egui::TextStyle::Monospace).hint_text("--max-line-length=120"));
-                    if r.lost_focus() || r.changed() && ui.input(|i| i.key_pressed(Key::Enter)) {
-                        s.python_lint_args = args.split_whitespace().map(String::from).collect();
-                    }
-                });
-
-                // each linter: where it comes from, then the codes it should not report
-                let about = [
-                    ("flake8", tf!("pycodestyle + pyflakes, codes E / W / F. Installé par Florm dans {} (sans toucher au Python du système).", "pycodestyle + pyflakes, codes E / W / F. Installed by Florm in {} (without touching the system's Python).", lint::tools_dir().display())),
-                    ("ruff", t!("Le plus rapide (en Rust), mêmes codes que flake8 et bien d'autres (I, B, UP…). Cherché dans le PATH (pip install ruff).", "The fastest (in Rust), same codes as flake8 and many more (I, B, UP…). Looked for in the PATH (pip install ruff).").to_string()),
-                    ("pylint", t!("Le plus complet et le plus lent, codes C / R / W / E (ou leur nom). Utilisé seulement quand il est choisi plus haut.", "The most complete and the slowest, codes C / R / W / E (or their name). Used only when chosen above.").to_string()),
-                    ("eslint", t!("JavaScript et TypeScript, à l'enregistrement. Celui du projet (node_modules/.bin) d'abord, sinon celui du PATH ; sa configuration est lue.", "JavaScript and TypeScript, on save. The project's one (node_modules/.bin) first, else the one in the PATH; its configuration is read.").to_string()),
-                ];
-                for (k, (name, example)) in lint::WITH_CODES.iter().enumerate() {
-                    let title = if *name == "eslint" { "JavaScript — ESLint" } else { name };
-                    pref_group(ui, rc, title, accent);
-                    let desc = about.iter().find(|(n, _)| n == name).map_or("", |(_, d)| d.as_str());
-                    pref_row(ui, rc, name, desc, |ui| match *name {
-                        "flake8" => {
-                            if ui.button(if installed(name) { t!("Mettre à jour", "Update") } else { t!("Installer flake8", "Install flake8") }).clicked() {
-                                actions.push(Cmd::InstallFlake8);
-                            }
-                            install_state(ui, installed(name));
-                        }
-                        "eslint" => install_state(ui, crate::lsp::in_path("eslint").is_some()),
-                        _ => install_state(ui, installed(name)),
-                    });
-                    let buf = &mut self.prefs.lint_ignore[k];
-                    let desc = tf!("Problèmes de {name} à ne pas afficher, séparés par des virgules : un code, un préfixe (E5 : tous les E5xx){}.", "Problems of {name} not to show, separated by commas: a code, a prefix (E5: all the E5xx){}.", if matches!(*name, "pylint" | "eslint") { t!(" ou le nom d'une règle", " or the name of a rule") } else { "" });
-                    pref_row(ui, rc, &tf!("Codes ignorés par {name}", "Codes ignored by {name}"), &desc, |ui| {
-                        let r = crate::input::add(ui, egui::TextEdit::singleline(buf).desired_width(260.0).font(egui::TextStyle::Monospace).hint_text(*example));
-                        if r.lost_focus() || r.changed() && ui.input(|i| i.key_pressed(Key::Enter)) {
-                            *s.lint_ignore_mut(name) = codes_of(buf);
-                        }
-                    });
-                }
-
-                pref_group(ui, rc, "pyflakes", accent);
-                pref_row(ui, rc, "pyflakes", t!("Le dernier recours de « Automatique », seulement les erreurs. Ses messages n'ont pas de code : rien à ignorer (flake8 l'inclut, avec des codes).", "The last resort of “Automatic”, errors only. Its messages have no code: nothing to ignore (flake8 includes it, with codes)."), |ui| {
-                    install_state(ui, installed("pyflakes"));
-                });
-                pref_group(ui, rc, t!("XML et JSON", "XML and JSON"), accent);
-                pref_row(ui, rc, t!("XML et JSON", "XML and JSON"), t!("La syntaxe est vérifiée par Florm lui-même, sans rien installer.", "The syntax is checked by Florm itself, with nothing to install."), |ui| {
-                    ui.label(RichText::new(t!("Intégré", "Built in")).color(ok()));
                 });
             }
             PrefSection::Git => {
@@ -640,11 +637,11 @@ impl App {
                 pref_row(ui, rc, t!("Diff dans l'éditeur", "Diff in the editor"), t!("Tous les changements en permanence : lignes ajoutées en vert, anciennes en rouge, dans le code (Ctrl+Alt+D). Sans elle, un clic sur la marque de la marge (ou Ctrl+K Ctrl+D) en montre un seul.", "All the changes all the time: added lines in green, old ones in red, in the code (Ctrl+Alt+D). Without it, a click on the mark in the gutter (or Ctrl+K Ctrl+D) shows one."), |ui| {
                     toggle_switch(ui, &mut s.inline_diff);
                 });
-                let mut blame = self.blame.on;
-                pref_row(ui, rc, t!("Blame de la ligne", "Line blame"), t!("Auteur et commit de la ligne courante en fin de ligne (Ctrl+Maj+B). Non mémorisé entre les sessions.", "Author and commit of the current line at the end of the line (Ctrl+Shift+B). Not kept between sessions."), |ui| {
-                    if toggle_switch(ui, &mut blame).changed() {
-                        actions.push(Cmd::GitBlame);
-                    }
+                pref_row(ui, rc, t!("Marques des changements", "Change marks"), t!("Dans la marge : vert ajouté, jaune modifié, rouge supprimé ; clic : voir le changement.", "In the gutter: green added, yellow changed, red deleted; click: see the change."), |ui| {
+                    toggle_switch(ui, &mut s.git_gutter);
+                });
+                pref_row(ui, rc, t!("Blame de la ligne", "Line blame"), t!("Auteur et commit de la ligne courante en fin de ligne, dès le démarrage (Ctrl+Maj+B l'affiche ou le masque pour la session).", "Author and commit of the current line at the end of the line, from the start (Ctrl+Shift+B shows or hides it for the session)."), |ui| {
+                    toggle_switch(ui, &mut s.inline_blame);
                 });
             }
             PrefSection::PullRequests => {
@@ -872,6 +869,16 @@ impl App {
                     self.prefs.key_action = Some(a);
                 }
             }
+            PrefSection::Languages => match self.prefs.lang.clone().filter(|_| rc.filter.is_empty()) {
+                Some(name) => self.language_page(ui, rc, &name, &mut actions),
+                None => self.languages_overview(ui, rc, &mut actions),
+            },
+            PrefSection::Extensions => {
+                if rc.matches(&["Extensions", "extension", "plugin", "python", "script"]) {
+                    rc.header(ui);
+                    self.extensions_page(ui);
+                }
+            }
             PrefSection::Templates => {
                 if rc.matches(&["Modèles", "modèle", "template", "snippet", "déclencheur", "trigger"]) {
                     rc.header(ui);
@@ -995,9 +1002,6 @@ impl App {
         };
         if sec == PrefSection::Claude && self.settings.claude {
             self.claude_accounts_prefs(ui, rc);
-        }
-        if sec == PrefSection::Lint {
-            self.trusted_folders_prefs(ui, rc);
         }
         if let Some(f) = needs.filter(|_| rc.filter.is_empty()) {
             self.feature_needs(ui, f);
@@ -1154,11 +1158,42 @@ impl App {
             self.persist("ui_font", config::toml_str(&s.ui_font));
         }
         if s.tab_size != before.tab_size || s.translate_tabs_to_spaces != before.translate_tabs_to_spaces {
-            for d in self.docs.iter_mut() {
-                d.tab_size = s.tab_size;
-            }
             self.persist("tab_size", s.tab_size.to_string());
             self.persist("translate_tabs_to_spaces", s.translate_tabs_to_spaces.to_string());
+        }
+        if s.languages != before.languages {
+            if let Err(e) = config::set_languages(&s.languages) {
+                self.log(tf!("Préférences non enregistrées : {e}", "Preferences not saved: {e}"));
+            }
+        }
+        if s.tab_size != before.tab_size || s.translate_tabs_to_spaces != before.translate_tabs_to_spaces || s.languages != before.languages {
+            // only the documents whose language's value changed (a width chosen by hand stays)
+            for d in self.docs.iter_mut() {
+                let (now, was) = (s.lang_of(d.path.as_deref()), before.lang_of(d.path.as_deref()));
+                if now.tab_size != was.tab_size {
+                    d.tab_size = now.tab_size;
+                }
+                if now.translate_tabs_to_spaces != was.translate_tabs_to_spaces {
+                    d.use_spaces = now.translate_tabs_to_spaces;
+                }
+            }
+        }
+        if s.languages != before.languages || s.lint_live != before.lint_live {
+            for d in self.docs.iter_mut() {
+                d.lint_version = u64::MAX;
+            }
+        }
+        if s.cursor_shape != before.cursor_shape {
+            self.persist("cursor_shape", config::toml_str(&s.cursor_shape));
+        }
+        if s.vertical_scroll_margin != before.vertical_scroll_margin {
+            self.persist("vertical_scroll_margin", s.vertical_scroll_margin.to_string());
+        }
+        if s.auto_save_delay_ms != before.auto_save_delay_ms {
+            self.persist("auto_save_delay_ms", s.auto_save_delay_ms.to_string());
+        }
+        if s.inline_blame != before.inline_blame && self.blame.on != s.inline_blame {
+            self.pending.push(Cmd::GitBlame);
         }
         let bools = [
             ("show_minimap", s.show_minimap, before.show_minimap),
@@ -1169,7 +1204,6 @@ impl App {
             ("sticky_scroll", s.sticky_scroll, before.sticky_scroll),
             ("breadcrumbs", s.breadcrumbs, before.breadcrumbs),
             ("show_menu_bar", s.show_menu_bar, before.show_menu_bar),
-            ("search_in_tab", s.search_in_tab, before.search_in_tab),
             ("claude_sandbox", s.claude_sandbox, before.claude_sandbox),
             ("claude_done_blink", s.claude_done_blink, before.claude_done_blink),
             ("git", s.git, before.git),
@@ -1188,6 +1222,20 @@ impl App {
             ("lint_on_save", s.lint_on_save, before.lint_on_save),
             ("inline_diff", s.inline_diff, before.inline_diff),
             ("check_updates", s.check_updates, before.check_updates),
+            ("ensure_final_newline_on_save", s.ensure_final_newline_on_save, before.ensure_final_newline_on_save),
+            ("cursor_blink", s.cursor_blink, before.cursor_blink),
+            ("line_numbers", s.line_numbers, before.line_numbers),
+            ("relative_line_numbers", s.relative_line_numbers, before.relative_line_numbers),
+            ("current_line_highlight", s.current_line_highlight, before.current_line_highlight),
+            ("indent_guides", s.indent_guides, before.indent_guides),
+            ("scroll_beyond_last_line", s.scroll_beyond_last_line, before.scroll_beyond_last_line),
+            ("selection_highlight", s.selection_highlight, before.selection_highlight),
+            ("hover_popover", s.hover_popover, before.hover_popover),
+            ("show_completions_on_input", s.show_completions_on_input, before.show_completions_on_input),
+            ("smartcase_search", s.smartcase_search, before.smartcase_search),
+            ("git_gutter", s.git_gutter, before.git_gutter),
+            ("inline_blame", s.inline_blame, before.inline_blame),
+            ("confirm_quit", s.confirm_quit, before.confirm_quit),
         ];
         for (key, now, was) in bools {
             if now != was {
@@ -1325,4 +1373,80 @@ enum CopilotAct {
     SignIn,
     SignOut,
     Check,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Préférences → Langages, as in Zed: the languages in the column on the left, the page of all
+    /// of them (language servers, when to lint, the linters of settings.toml, trusted folders),
+    /// and the page of one (its linters, its own settings, ↺ back to the general one).
+    #[test]
+    fn languages_have_their_page() {
+        let dir = std::env::temp_dir().join(format!("florm_prefs_lint_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let text = "check_updates = false\nlsp = false\n[linters.nimcheck]\ncmd = \"nim check --stdin\"\next = [\"nim\"]\n[linters.markdownlint]\ncmd = \"\"\n";
+        std::fs::write(dir.join("settings.toml"), text).unwrap();
+        let _lock = config::TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("FLORM_CONFIG", &dir);
+        let ctx = egui::Context::default();
+        let mut app = App::with_ctx(&ctx, None);
+        let list = crate::packs::shipped();
+        let status: Vec<Vec<bool>> = list.iter().map(|p| p.tools.iter().map(|t| t.builtin).collect()).collect();
+        app.on_pack_status(list, status);
+        app.open_settings();
+        app.prefs.section = PrefSection::Languages;
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 6000.0));
+        let page = |app: &mut App| {
+            let mut texts = String::new();
+            for _ in 0..2 {
+                let out = crate::run_ui(&ctx, egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
+                    egui::CentralPanel::default().show(ui, |ui| app.prefs_ui(ui));
+                });
+                fn walk(s: &egui::Shape, out: &mut String) {
+                    match s {
+                        egui::Shape::Text(t) => {
+                            out.push_str(t.galley.text());
+                            out.push('|');
+                        }
+                        egui::Shape::Vec(v) => v.iter().for_each(|x| walk(x, out)),
+                        _ => {}
+                    }
+                }
+                texts.clear();
+                out.shapes.iter().for_each(|c| walk(&c.shape, &mut texts));
+            }
+            texts
+        };
+        let texts = page(&mut app);
+        for want in ["|Langages|", "|Python|", "|Markdown|", "|Serveurs de langage (LSP)|", "|Dossiers de confiance|", "nimcheck", "|Un autre linter|", "|Ouvrir settings.toml|", "|+ Nouveau pack…|"] {
+            assert!(texts.contains(want), "{want} in {texts}");
+        }
+        assert!(!texts.contains("|Lint|") && !texts.contains("Codes ignorés"), "{texts}");
+        // the page of a language: its linters and its settings
+        app.prefs.lang = Some("Markdown".into());
+        let texts = page(&mut app);
+        for want in ["|‹ Tous les langages|", "|markdownlint|", "|Coupé (settings.toml)|", "|Largeur des tabulations|", "|Retour à la ligne automatique|", "|Formater à l'enregistrement|"] {
+            assert!(texts.contains(want), "{want} in {texts}");
+        }
+        assert!(!texts.contains("|shellcheck|") && !texts.contains("|à lui|"), "{texts}");
+        app.prefs.lang = Some("Python".into());
+        let texts = page(&mut app);
+        for want in ["|Linter Python|", "|Codes ignorés par flake8|", "|Codes ignorés par ruff|"] {
+            assert!(texts.contains(want), "{want} in {texts}");
+        }
+        // a setting of its own: written in settings.toml, used for its files only, marked
+        app.settings.languages.insert("Python".into(), config::LangOverride { tab_size: Some(2), word_wrap: Some(true), ..Default::default() });
+        let before = { let mut b = app.settings.clone(); b.languages.clear(); b };
+        app.apply_settings_change(&before);
+        assert!(page(&mut app).contains("|à lui|"));
+        let (back, _) = config::load();
+        assert_eq!(back.lang(Some("Python")).tab_size, 2);
+        assert!(back.lang(Some("Python")).word_wrap && !back.lang(Some("Go")).word_wrap);
+        assert_eq!(back.lang_of(Some(Path::new("a.py"))).tab_size, 2);
+        assert_eq!(back.lang_of(Some(Path::new("a.go"))).tab_size, back.tab_size);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

@@ -8,6 +8,12 @@ use std::process::{Command, Stdio};
 pub fn command(program: impl AsRef<std::ffi::OsStr>) -> Command {
     #[allow(unused_mut)]
     let mut c = Command::new(program);
+    // what Florm downloaded (Node.js, Python, rust-analyzer…) is found by the programs it runs
+    // and what the login shell's configuration sets (pyenv, nvm…): as in a terminal
+    if let Some(path) = crate::runtimes::path_env() {
+        c.env("PATH", path);
+    }
+    c.envs(crate::shell_env::missing());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -474,6 +480,8 @@ pub enum Pick {
     AccountConfig,
     /// The folder of the skills of Claude.
     SkillsDir,
+    /// The folder the debugger's command runs in.
+    DebugDir,
 }
 
 /// File chooser of the desktop (GTK, KDE…) through the xdg portal. Blocks until the dialog is
@@ -496,8 +504,9 @@ pub fn portal_pick(kind: Pick, dir: &Path, name: Option<&str>) -> Result<Vec<Pat
         Pick::AccountProject => ("OpenFile", t!("Un dossier dont les conversations utilisent ce compte", "A folder whose conversations use this account")),
         Pick::AccountConfig => ("OpenFile", t!("Le dossier de configuration de ce compte Claude", "The configuration folder of this Claude account")),
         Pick::SkillsDir => ("OpenFile", t!("Le dossier de tes skills de Claude", "The folder of your skills of Claude")),
+        Pick::DebugDir => ("OpenFile", t!("Le dossier où la commande est lancée", "The folder the command runs in")),
     };
-    if matches!(kind, Pick::Folder | Pick::ClaudeDir | Pick::AccountProject | Pick::AccountConfig | Pick::SkillsDir) {
+    if matches!(kind, Pick::Folder | Pick::ClaudeDir | Pick::AccountProject | Pick::AccountConfig | Pick::SkillsDir | Pick::DebugDir) {
         opts.insert("directory", Value::from(true));
     }
     if kind == Pick::Image {

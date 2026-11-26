@@ -46,19 +46,6 @@ pub fn files_of(file: &Path) -> PathBuf {
     file.with_extension("files")
 }
 
-/// The files changed so far (each once, in the order of their first change).
-pub fn changed_files(file: &Path) -> Vec<PathBuf> {
-    let text = std::fs::read_to_string(files_of(file)).unwrap_or_default();
-    let mut out: Vec<PathBuf> = Vec::new();
-    for l in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
-        let p = PathBuf::from(l);
-        if !out.contains(&p) {
-            out.push(p);
-        }
-    }
-    out
-}
-
 /// The file of conversation `key` (its state), and the settings given to its `claude`.
 pub fn files(key: u64) -> (PathBuf, PathBuf) {
     let d = dir();
@@ -393,7 +380,9 @@ mod tests {
         on_event(&f, "edit", &json!({"tool_input": {"file_path": "/p/b.py"}}));
         on_event(&f, "edit", &json!({"tool_input": {"file_path": "/p/a.py"}}));
         on_event(&f, "edit", &json!({"tool_input": {"notebook_path": "/p/n.ipynb"}}));
-        assert_eq!(changed_files(&f), ["/p/a.py", "/p/b.py", "/p/n.ipynb"].map(PathBuf::from));
+        // each edit is listed (Florm sees the list grow: the files are reloaded, Git refreshed)
+        let listed = std::fs::read_to_string(files_of(&f)).unwrap();
+        assert!(["/p/a.py", "/p/b.py", "/p/n.ipynb"].iter().all(|p| listed.lines().any(|l| l == *p)), "{listed}");
         // an edit does not touch the state
         assert_eq!(read(&f).state, "busy");
         on_event(&f, "end", &json!({"session_id": "s1"}));

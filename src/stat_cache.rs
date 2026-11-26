@@ -39,10 +39,6 @@ pub fn is_dir(p: &Path) -> bool {
     matches!(cached(0, p, || Value::Bool(p.is_dir())), Value::Bool(true))
 }
 
-pub fn exists(p: &Path) -> bool {
-    matches!(cached(1, p, || Value::Bool(p.exists())), Value::Bool(true))
-}
-
 /// `git::head_branch`.
 pub fn head_branch(p: &Path) -> Option<String> {
     match cached(2, p, || Value::Text(crate::git::head_branch(p))) {

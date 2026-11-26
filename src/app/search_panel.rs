@@ -2,27 +2,7 @@
 
 use super::*;
 
-/// What marks work left in the code.
-pub(super) const TODO_PATTERN: &str = r"\b(TODO|FIXME|XXX|HACK)\b";
-
-/// The search of the TODO / FIXME of the project (the filters of files kept).
-pub(super) fn set_todo_query(q: &mut search::Query) {
-    q.pattern = TODO_PATTERN.into();
-    (q.regex, q.case, q.whole) = (true, true, false);
-}
-
 impl App {
-    /// The TODO / FIXME of the project, in the search (panel or tab, as it is set).
-    pub(super) fn list_todos(&mut self) {
-        if self.settings.search_in_tab {
-            self.open_search_tab();
-        } else {
-            self.bottom = Some(BottomTab::Search);
-        }
-        set_todo_query(&mut self.search.q);
-        self.start_search();
-    }
-
     pub(super) fn start_search(&mut self) {
         let Some(root) = self.root.clone() else {
             self.set_status(t!("Ouvre d'abord un dossier", "Open a folder first"));
@@ -40,6 +20,7 @@ impl App {
         project::save_state(&self.state);
         self.search.hist_pos = None;
         let gen = self.search.gen.fetch_add(1, Ordering::SeqCst) + 1;
+        self.search.q.smart = self.settings.smartcase_search;
         let (q, current) = (self.search.q.clone(), self.search.gen.clone());
         self.search.done = q.clone();
         self.search.running = true;
@@ -89,7 +70,7 @@ impl App {
     /// Replaces every listed hit, those of one file (`Some((file, None))`) or a single one.
     pub(super) fn replace_in_files(&mut self, only: Option<(usize, Option<usize>)>) {
         let q = &self.search.done;
-        let Ok(re) = document::build_regex(&q.pattern, q.case, q.regex, q.whole) else { return };
+        let Ok(re) = document::build_regex(&q.pattern, q.case_sensitive(), q.regex, q.whole) else { return };
         let (rep, regex_mode, preserve) = (self.search.replacement.clone(), q.regex, self.search.q.preserve);
         let keep_all = |f: &FileHits| f.partial.then(|| f.hits.iter().map(|h| (h.line, h.col)).collect::<HashSet<_>>());
         let targets: Vec<(PathBuf, Option<HashSet<(usize, usize)>>)> = match only {
@@ -135,7 +116,7 @@ impl App {
         self.git_refresh();
     }
 
-    pub(super) fn search_ui(&mut self, ui: &mut egui::Ui, in_tab: bool) {
+    pub(super) fn search_ui(&mut self, ui: &mut egui::Ui) {
         let (mut go, mut act) = (false, None);
         let accent = self.hl.colors.accent;
         // the results at the size of the code, as excerpts of the editor (Zed)
@@ -151,16 +132,8 @@ impl App {
         // the bar of the search: room around it and between its lines
         egui::Frame::NONE.inner_margin(egui::Margin { left: 10, right: 10, top: 8, bottom: 4 }).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 7.0;
-            // --- search line: [▸ replace] [pattern] [Aa .* « »] [⏷] [Rechercher]
+            // --- search line: [pattern] [Aa .* « »] [🕘 recent] [Rechercher] [Remplacer]
             ui.horizontal(|ui| {
-                let arrow = if s.show_replace { "⏷" } else { "⏵" };
-                if ui
-                    .add(egui::Button::new(RichText::new(arrow).color(accent)).frame(false).min_size(egui::vec2(18.0, 0.0)))
-                    .on_hover_text(t!("Afficher / masquer le remplacement", "Show / hide the replacement"))
-                    .clicked()
-                {
-                    s.show_replace = !s.show_replace;
-                }
                 // the field and its options as one, as in Zed
                 let field = field_frame(ui).show(ui, |ui| {
                     ui.horizontal(|ui| {
@@ -197,24 +170,19 @@ impl App {
                 if ui.button(t!("Rechercher", "Find")).clicked() {
                     go = true;
                 }
+                ui.toggle_value(&mut s.show_replace, t!("Remplacer", "Replace")).on_hover_text(t!("Afficher / masquer le remplacement", "Show / hide the replacement"));
                 if s.running {
                     spinner(ui);
                 }
+                // a page of its own: no button to move it to the bottom panel
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if let Some(crate::view_bar::BarAct::Move(b)) = crate::view_bar::controls(ui, Some(in_tab), None, None) {
-                        act = Some(SearchAct::Move(b));
-                    }
-                    if ui.button("TODO / FIXME").on_hover_text(t!("Les TODO, FIXME, XXX et HACK du projet, par fichier", "The TODO, FIXME, XXX and HACK of the project, by file")).clicked() {
-                        set_todo_query(&mut s.q);
-                        go = true;
-                    }
+                    crate::view_bar::controls(ui, None, None, None);
                 });
             });
 
             // --- replace line
             if s.show_replace {
                 ui.horizontal(|ui| {
-                    ui.add_space(22.0);
                     let hint = if s.q.regex { t!("Remplacer par… ($1, $2 = groupes, \\n = retour à la ligne)", "Replace with… ($1, $2 = groups, \\n = new line)") } else { t!("Remplacer par… (vide = supprimer)", "Replace with… (empty = delete)") };
                     crate::input::add(ui, replace_field(&mut s.replacement, hint).desired_width(field_w)).on_hover_text(replace_tip());
                     let n = s.hit_count();
@@ -224,7 +192,6 @@ impl App {
                     ui.toggle_value(&mut s.q.preserve, t!("Garder la casse", "Keep case")).on_hover_text(t!("chat → chien, Chat → Chien, CHAT → CHIEN", "cat → dog, Cat → Dog, CAT → DOG"));
                 });
                 ui.horizontal(|ui| {
-                    ui.add_space(22.0);
                     ui.spacing_mut().item_spacing.x = 4.0;
                     let small = |t: &str| RichText::new(t).small();
                     ui.label(small(t!("Aperçu :", "Preview:")).weak());
@@ -240,7 +207,6 @@ impl App {
 
             // --- filters line
             ui.horizontal(|ui| {
-                ui.add_space(22.0);
                 let inc_f = field_frame(ui).show(ui, |ui| ui.add(egui::TextEdit::singleline(&mut s.q.include).frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(4, 2))).desired_width(filter_w).hint_text(t!("Inclure : *.py, models/*.py, !tests", "Include: *.py, models/*.py, !tests"))));
                 focus_ring(ui, inc_f.response.rect, inc_f.inner.has_focus());
                 let inc = inc_f.inner
@@ -288,7 +254,6 @@ impl App {
 
             // --- summary
             ui.horizontal(|ui| {
-                ui.add_space(22.0);
                 ui.spacing_mut().item_spacing.x = 0.0;
                 if let Some(e) = &s.error {
                     ui.label(RichText::new(format!("⚠ {e}")).color(err()));
@@ -340,7 +305,7 @@ impl App {
         let fg = v.text_color();
         let preview_re = if s.show_replace {
             let q = &s.done;
-            document::build_regex(&q.pattern, q.case, q.regex, q.whole).ok()
+            document::build_regex(&q.pattern, q.case_sensitive(), q.regex, q.whole).ok()
         } else {
             None
         };
@@ -600,20 +565,6 @@ impl App {
                 ui.ctx().copy_text(t.clone());
                 self.set_status(tf!("Copié : {t}", "Copied: {t}"));
             }
-            Some(SearchAct::Move(true)) => {
-                self.open_search_tab();
-                self.settings.search_in_tab = true;
-                self.persist("search_in_tab", "true".into());
-            }
-            Some(SearchAct::Move(false)) => {
-                if let Some(i) = self.docs.iter().position(|d| d.view == document::View::Search) {
-                    self.close_tab(i, true);
-                }
-                self.bottom = Some(BottomTab::Search);
-                self.search.focus = true;
-                self.settings.search_in_tab = false;
-                self.persist("search_in_tab", "false".into());
-            }
             None => {}
         }
     }
@@ -641,13 +592,12 @@ fn focus_ring(ui: &egui::Ui, rect: egui::Rect, focused: bool) {
 /// Nothing searched yet: what the search can do, in the middle of the view.
 fn search_help(ui: &mut egui::Ui) {
     let weak = ui.visuals().weak_text_color();
-    let rows: [(&str, &str); 6] = [
+    let rows: [(&str, &str); 5] = [
         (t!("Filtrer les fichiers", "Filter the files"), "*.py, !tests"),
-        (t!("Remplacer", "Replace"), "⏵"),
+        (t!("Remplacer dans les fichiers", "Replace in the files"), t!("Remplacer", "Replace")),
         (t!("Respecter la casse", "Match case"), "Aa"),
         (t!("Mot entier", "Whole word"), "« »"),
         (t!("Expression régulière", "Regular expression"), ".*"),
-        (t!("Les TODO et FIXME du projet", "The TODO and FIXME of the project"), "TODO / FIXME"),
     ];
     ui.add_space((ui.available_height() * 0.3).max(16.0));
     ui.vertical_centered(|ui| {

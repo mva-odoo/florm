@@ -1,5 +1,5 @@
-use serde::Deserialize;
-use std::collections::HashMap;
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
 #[derive(Deserialize, Clone, Debug)]
@@ -38,7 +38,6 @@ pub struct Settings {
     /// Menu bar (Fichier, Édition…) at the top; hidden, its commands are in the palette.
     pub show_menu_bar: bool,
     /// "Find in files" in an editor tab instead of the bottom panel.
-    pub search_in_tab: bool,
     /// Diffs side by side (old on the left, new on the right) instead of in one column.
     pub diff_side_by_side: bool,
     /// Claude's commands run in the sandbox of Claude Code (bubblewrap on Linux, Seatbelt on macOS).
@@ -48,8 +47,6 @@ pub struct Settings {
     pub git: bool,
     pub github: bool,
     pub claude: bool,
-    /// The panel of the session (context, cost, quotas) on the right of Claude.
-    pub claude_review: bool,
     /// Claude is done and its conversation is not shown: its tab blinks a few seconds.
     pub claude_done_blink: bool,
     /// Sound played when Claude is done (`sound::SOUNDS`); empty: none.
@@ -61,6 +58,18 @@ pub struct Settings {
     /// Folders whose conversations use an account: "folder=account name" (the longest that
     /// holds the folder of the conversation).
     pub claude_account_folders: Vec<String>,
+    /// The tools of a language installed by themselves when one of its files opens.
+    pub packs_auto: bool,
+    /// The kinds of tools installed (lsp, lint, format, debug): the debugger, else at the first F5.
+    pub packs_kinds: Vec<String>,
+    /// Language packs not proposed any more when one of their files opens.
+    pub packs_ignored: Vec<String>,
+    /// Syntaxes whose tree-sitter grammar is turned off (their pack): the regex highlighting then.
+    pub tree_sitter_off: Vec<String>,
+    /// Extensions turned off (their names).
+    pub extensions_off: Vec<String>,
+    /// Catalogue repositories of extensions and packs ("owner/repo" or a git address).
+    pub extension_catalogs: Vec<String>,
     /// The toolbar of formatting buttons above a Markdown source (the source stays editable).
     pub markdown_toolbar: bool,
     /// Branch and upstream of git repositories on their folder in the tree.
@@ -99,7 +108,9 @@ pub struct Settings {
     /// Language servers: completion, go to definition, rename.
     pub lsp: bool,
     /// Server command per language family ("python", "typescript", "rust", "go", "c"); else detected.
-    pub lsp_servers: HashMap<String, String>,
+    pub lsp_servers: HashMap<String, crate::lsp::ServerCfg>,
+    /// Linters of the other languages (`[linters.<name>]`), added to the ones Florm knows.
+    pub linters: HashMap<String, crate::lint::LinterCfg>,
     /// Folders trusted (with those inside): git, their language servers and the linters set up by the
     /// project run there (they may run its code). Elsewhere Florm is in restricted mode.
     pub trusted_folders: Vec<String>,
@@ -124,9 +135,130 @@ pub struct Settings {
     pub shared_config: String,
     /// The folder of the skills of Claude (empty: `skills/` of the shared configuration).
     pub skills_dir: String,
+    /// Settings of one language over the ones above (`[languages."Python"]`, the name of its pack).
+    pub languages: BTreeMap<String, LangOverride>,
+    /// The final newline added on saving when the file has none.
+    pub ensure_final_newline_on_save: bool,
+    /// "bar", "block" or "underline".
+    pub cursor_shape: String,
+    pub cursor_blink: bool,
+    pub line_numbers: bool,
+    /// Line numbers counted from the cursor's line (the cursor's line keeps its own).
+    pub relative_line_numbers: bool,
+    pub current_line_highlight: bool,
+    pub indent_guides: bool,
+    /// The end of the file can go up to the top of the editor.
+    pub scroll_beyond_last_line: bool,
+    /// Lines kept between the cursor and the top or the bottom of the editor.
+    pub vertical_scroll_margin: usize,
+    /// The other occurrences of the selected text framed.
+    pub selection_highlight: bool,
+    /// The documentation of the hovered symbol (language server) in its tooltip.
+    pub hover_popover: bool,
+    /// The completion list opens by itself while typing (else Ctrl+Space).
+    pub show_completions_on_input: bool,
+    /// « Après une pause » of auto_save: milliseconds after the last keystroke.
+    pub auto_save_delay_ms: u64,
+    /// A search with a capital letter is case sensitive.
+    pub smartcase_search: bool,
+    /// The marks of the git changes in the gutter.
+    pub git_gutter: bool,
+    /// The blame of the current line at its end, from the start.
+    pub inline_blame: bool,
+    /// Florm asks before quitting, even with everything saved.
+    pub confirm_quit: bool,
+}
+
+/// The settings a language can have of its own (Préférences → Langages → the language); None:
+/// the general one.
+#[derive(Deserialize, Serialize, Clone, Debug, Default, PartialEq)]
+#[serde(default)]
+pub struct LangOverride {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tab_size: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub translate_tabs_to_spaces: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub word_wrap: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rulers: Option<Vec<usize>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub show_whitespace: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub indent_guides: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rainbow_brackets: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spell_check: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_pair: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub format_on_save: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trim_trailing_whitespace_on_save: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ensure_final_newline_on_save: Option<bool>,
+    /// Its language server.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lsp: Option<bool>,
+    /// Its linters.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lint: Option<bool>,
+}
+
+impl LangOverride {
+    pub fn is_empty(&self) -> bool {
+        *self == LangOverride::default()
+    }
+}
+
+/// The settings of a file: those of its language over the general ones.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Lang {
+    pub tab_size: usize,
+    pub translate_tabs_to_spaces: bool,
+    pub word_wrap: bool,
+    pub rulers: Vec<usize>,
+    pub show_whitespace: bool,
+    pub indent_guides: bool,
+    pub rainbow_brackets: bool,
+    pub spell_check: bool,
+    pub auto_pair: bool,
+    pub format_on_save: bool,
+    pub trim_trailing_whitespace_on_save: bool,
+    pub ensure_final_newline_on_save: bool,
+    pub lsp: bool,
+    pub lint: bool,
 }
 
 impl Settings {
+    /// The settings of language `name` (a pack's name; None: a file of no language).
+    pub fn lang(&self, name: Option<&str>) -> Lang {
+        let o = name.and_then(|n| self.languages.get(n)).cloned().unwrap_or_default();
+        Lang {
+            tab_size: o.tab_size.unwrap_or(self.tab_size).clamp(1, 16),
+            translate_tabs_to_spaces: o.translate_tabs_to_spaces.unwrap_or(self.translate_tabs_to_spaces),
+            word_wrap: o.word_wrap.unwrap_or(self.word_wrap),
+            rulers: o.rulers.unwrap_or_else(|| self.rulers.clone()),
+            show_whitespace: o.show_whitespace.unwrap_or(self.show_whitespace),
+            indent_guides: o.indent_guides.unwrap_or(self.indent_guides),
+            rainbow_brackets: o.rainbow_brackets.unwrap_or(self.rainbow_brackets),
+            spell_check: o.spell_check.unwrap_or(self.spell_check),
+            auto_pair: o.auto_pair.unwrap_or(self.auto_pair),
+            format_on_save: o.format_on_save.unwrap_or(self.format_on_save),
+            trim_trailing_whitespace_on_save: o.trim_trailing_whitespace_on_save.unwrap_or(self.trim_trailing_whitespace_on_save),
+            ensure_final_newline_on_save: o.ensure_final_newline_on_save.unwrap_or(self.ensure_final_newline_on_save),
+            lsp: self.lsp && o.lsp.unwrap_or(true),
+            lint: o.lint.unwrap_or(true),
+        }
+    }
+
+    /// The settings of the language of file `path`.
+    pub fn lang_of(&self, path: Option<&std::path::Path>) -> Lang {
+        let name = path.and_then(crate::packs::name_for);
+        self.lang(name.as_deref())
+    }
+
     /// The codes ignored for `linter` (one of `lint::WITH_CODES`).
     pub fn lint_ignore_mut(&mut self, linter: &str) -> &mut Vec<String> {
         match linter {
@@ -159,18 +291,23 @@ impl Default for Settings {
             rulers: vec![80],
             breadcrumbs: true,
             show_menu_bar: false,
-            search_in_tab: false,
             diff_side_by_side: false,
             claude_sandbox: true,
             git: true,
             github: true,
             claude: true,
-            claude_review: true,
             claude_done_blink: true,
             claude_done_sound: "chime".into(),
             claude_accounts: Vec::new(),
             claude_account: String::new(),
             claude_account_folders: Vec::new(),
+            // the tests never install anything by themselves (pip, npm…)
+            packs_auto: !cfg!(test),
+            packs_kinds: ["lsp", "lint", "format"].map(String::from).to_vec(),
+            packs_ignored: Vec::new(),
+            tree_sitter_off: Vec::new(),
+            extensions_off: Vec::new(),
+            extension_catalogs: Vec::new(),
             markdown_toolbar: true,
             tree_git_info: true,
             inline_diff: false,
@@ -193,6 +330,7 @@ impl Default for Settings {
             keys: HashMap::new(),
             lsp: true,
             lsp_servers: HashMap::new(),
+            linters: HashMap::new(),
             trusted_folders: Vec::new(),
             exclude: ["__pycache__/", "*.pyc", "node_modules/", ".venv/", "*.egg-info/"].map(String::from).to_vec(),
             index_max_files: 150_000,
@@ -204,6 +342,24 @@ impl Default for Settings {
             pr_draft: false,
             shared_config: String::new(),
             skills_dir: String::new(),
+            languages: BTreeMap::new(),
+            ensure_final_newline_on_save: false,
+            cursor_shape: "bar".into(),
+            cursor_blink: false,
+            line_numbers: true,
+            relative_line_numbers: false,
+            current_line_highlight: true,
+            indent_guides: true,
+            scroll_beyond_last_line: true,
+            vertical_scroll_margin: 1,
+            selection_highlight: true,
+            hover_popover: true,
+            show_completions_on_input: true,
+            auto_save_delay_ms: 1000,
+            smartcase_search: false,
+            git_gutter: true,
+            inline_blame: false,
+            confirm_quit: false,
         }
     }
 }
@@ -242,8 +398,6 @@ rulers = [80]
 breadcrumbs = true
 # barre de menus en haut (masquée : ses commandes restent dans la palette, Ctrl+Shift+P)
 show_menu_bar = false
-# recherche dans le dossier (Ctrl+Shift+F) dans un onglet plutôt que dans le panneau du bas
-search_in_tab = false
 # diffs côte à côte (l'ancienne version à gauche, la nouvelle à droite) plutôt qu'en une colonne
 diff_side_by_side = false
 # Fonctions à activer ou désactiver (false : leurs vues, commandes, menus et boutons disparaissent).
@@ -256,8 +410,6 @@ claude = false
 # réseau filtré (Linux : paquets bubblewrap et socat ; macOS : Seatbelt, intégré ; pas sous Windows).
 # false : aucun bac à sable, même si les réglages de Claude Code en activent un. Pris en compte sans redémarrer Florm
 claude_sandbox = true
-# session de Claude (contexte, coût, quotas) à droite de son terminal
-claude_review = true
 # comptes Claude ("nom=dossier de configuration", dossier vide = celui habituel de Claude Code), par ex.
 # ["Pro=", "Perso=~/.claude-perso"] ; compte des nouvelles conversations et des messages de commit…
 claude_accounts = []
@@ -319,6 +471,40 @@ shared_config = ""
 # dossier des skills de Claude, donnés à chaque conversation (vide = skills/ de la configuration
 # partagée) ; n'importe quel rangement, chaque SKILL.md trouvé est un skill
 skills_dir = ""
+# Repris de Zed :
+# ajouter le retour à la ligne final manquant à l'enregistrement
+ensure_final_newline_on_save = false
+# curseur : "bar" (barre), "block" (bloc), "underline" (souligné) ; clignotant ou non
+cursor_shape = "bar"
+cursor_blink = false
+# numéros de ligne, comptés depuis la ligne du curseur (relative_line_numbers)
+line_numbers = true
+relative_line_numbers = false
+# ligne du curseur surlignée, guides d'indentation
+current_line_highlight = true
+indent_guides = true
+# défiler au-delà de la dernière ligne ; lignes gardées entre le curseur et le bord de l'éditeur
+scroll_beyond_last_line = true
+vertical_scroll_margin = 1
+# les autres occurrences du texte sélectionné encadrées
+selection_highlight = true
+# documentation du serveur de langage au survol d'un nom ; complétion ouverte pendant la frappe
+hover_popover = true
+show_completions_on_input = true
+# enregistrement automatique « après une pause » : millisecondes après la dernière frappe
+auto_save_delay_ms = 1000
+# une recherche avec une majuscule respecte la casse
+smartcase_search = false
+# marques des changements git dans la marge ; blame de la ligne affiché dès le démarrage
+git_gutter = true
+inline_blame = false
+# demander avant de quitter, même quand tout est enregistré
+confirm_quit = false
+# Réglages d'un langage (le nom de son pack, Préférences → Langages) par-dessus ceux du dessus :
+# tab_size, translate_tabs_to_spaces, word_wrap, rulers, show_whitespace, indent_guides,
+# rainbow_brackets, spell_check, auto_pair, format_on_save, trim_trailing_whitespace_on_save,
+# ensure_final_newline_on_save, lsp, lint ; par ex.
+# languages = { "JavaScript / TypeScript" = { tab_size = 2 }, Markdown = { word_wrap = true } }
 
 [keys]
 # Raccourcis personnalisés : "combinaison" = "id_de_commande"
@@ -327,8 +513,19 @@ skills_dir = ""
 
 [lsp_servers]
 # Commande du serveur par langage (sinon détectée : pyright ou pylsp, typescript-language-server,
-# rust-analyzer, gopls, clangd)
+# rust-analyzer, gopls, clangd, yaml-language-server, marksman, taplo…)
 # python = "pyright-langserver --stdio"
+# un autre langage, avec les extensions de ses fichiers (id : son nom LSP s'il diffère) :
+# nim = { cmd = "nimlangserver", ext = ["nim", "nims"] }
+
+[linters]
+# Linters des autres langages (en plus de shellcheck, yamllint, markdownlint, hadolint, luacheck,
+# rubocop, stylelint quand ils sont installés). Le texte arrive sur l'entrée standard, {file} est
+# remplacé par le chemin ; la sortie : des lignes fichier:ligne:col: message (sinon pattern = regex
+# avec les groupes line, col, msg, severity). cmd = "" coupe un linter de Florm.
+# [linters.nimcheck]
+# cmd = "nim check --stdin"
+# ext = ["nim"]
 "#;
 
 pub fn home() -> PathBuf {
@@ -533,6 +730,40 @@ pub fn set_setting(key: &str, value: &str) -> Result<(), String> {
     set_setting_in(&settings_path(), key, value)
 }
 
+/// Writes the settings of the languages (`languages = { … }` at the top, the `[languages…]`
+/// sections written by hand replaced), in the shared settings.toml too when it has them.
+pub fn set_languages(langs: &BTreeMap<String, LangOverride>) -> Result<(), String> {
+    let kept: BTreeMap<&String, &LangOverride> = langs.iter().filter(|(_, o)| !o.is_empty()).collect();
+    let value = toml::Value::try_from(&kept).map_err(|e| e.to_string())?.to_string();
+    let write = |p: &std::path::Path| -> Result<(), String> {
+        let text = std::fs::read_to_string(p).unwrap_or_default();
+        let mut out: Vec<&str> = Vec::new();
+        let (mut skip, mut top) = (false, true);
+        for l in text.lines() {
+            let t = l.trim_start();
+            if t.starts_with('[') {
+                skip = t.starts_with("[languages");
+                top = false;
+            }
+            // `languages.Go.tab_size = 8` written by hand at the top: replaced too
+            if !skip && !(top && t.starts_with("languages.")) {
+                out.push(l);
+            }
+        }
+        std::fs::write(p, out.join("\n") + "\n").map_err(|e| e.to_string())?;
+        set_setting_in(p, "languages", &value)
+    };
+    if let Some(sp) = crate::shared::settings_path().filter(|_| !crate::shared::LOCAL_KEYS.contains(&"languages")) {
+        if let Ok(text) = std::fs::read_to_string(&sp) {
+            if top_level_index(&text, "languages").is_some() || text.lines().any(|l| l.trim_start().starts_with("[languages")) {
+                let _ = write(&sp);
+            }
+        }
+    }
+    let _ = std::fs::create_dir_all(config_dir());
+    write(&settings_path())
+}
+
 /// Line of `key = …` before the first [section].
 fn top_level_index(text: &str, key: &str) -> Option<usize> {
     text.lines().take_while(|l| !l.trim_start().starts_with('[')).position(|l| {
@@ -592,6 +823,27 @@ mod tests {
         set_setting_in(&p, "exclude", "[]").unwrap();
         assert_eq!(std::fs::read_to_string(&p).unwrap(), "exclude = []\nlsp = true\n");
         let _ = std::fs::remove_file(&p);
+    }
+
+    /// The settings of the languages written over the `[languages.X]` sections written by hand:
+    /// the file stays valid, the other sections are kept, an empty language disappears.
+    #[test]
+    fn languages_are_written_whole() {
+        let _lock = TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = std::env::temp_dir().join(format!("florm_cfg_langs_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        std::env::set_var("FLORM_CONFIG", &dir);
+        std::fs::write(settings_path(), "tab_size = 4\n\n[languages.Go]\ntab_size = 8\n\n[keys]\n\"ctrl+r\" = \"git_push\"\n").unwrap();
+        let mut langs = BTreeMap::new();
+        langs.insert("JavaScript / TypeScript".to_string(), LangOverride { tab_size: Some(2), ..Default::default() });
+        langs.insert("Go".to_string(), LangOverride::default());
+        set_languages(&langs).unwrap();
+        let s: Settings = toml::from_str(&std::fs::read_to_string(settings_path()).unwrap()).unwrap();
+        assert_eq!(s.lang(Some("JavaScript / TypeScript")).tab_size, 2);
+        assert_eq!(s.lang(Some("Go")).tab_size, 4);
+        assert!(!s.languages.contains_key("Go"));
+        assert_eq!(s.keys.get("ctrl+r").map(String::as_str), Some("git_push"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

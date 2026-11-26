@@ -107,6 +107,9 @@ struct Snapshot {
     content: u64,
 }
 
+/// Chars between two visual columns kept for a long line (see `Document::vcol_marks`).
+const VCOL_STEP: usize = 1024;
+
 /// Pause in typing after which the symbols drawn at each frame are computed again.
 const SYMBOLS_PAUSE: Duration = Duration::from_millis(300);
 
@@ -170,6 +173,16 @@ pub struct Document {
     pub quick_fix_request: bool,
     /// Inline blame annotation: (line, document version, text).
     pub blame: Option<(usize, u64, String)>,
+    /// The blame of the lines of HEAD (blame of the gutter): (key of the `git_base` it was read
+    /// for, lines). The editor maps the lines of the buffer through `hunks`.
+    pub blame_lines: Option<(u64, std::sync::Arc<Vec<crate::git::Blame>>)>,
+    /// A commit clicked in the blame of the gutter: shown in the Git view by the app.
+    pub blame_open: Option<String>,
+    /// The commit of the line blame (`blame`, Ctrl+Shift+B) when it is committed: its window on hover.
+    pub blame_commit: Option<crate::git::Blame>,
+    /// The commit of the blame under the pointer, where it is, and whether its window opens under
+    /// it (the line blame at the end of a line) or at its right (the column of the gutter).
+    pub blame_hover: Option<(crate::git::Blame, eframe::egui::Rect, bool)>,
     pub mtime: Option<SystemTime>,
     /// The file was changed or deleted by another program while this one had unsaved changes:
     /// saving would lose the other version, the editor asks first.
@@ -189,6 +202,10 @@ pub struct Document {
     pub drag: Option<Drag>,
     pub max_cols: usize,
     max_cols_version: u64,
+    /// Visual columns of the long lines every `VCOL_STEP` chars, for the text as it was at
+    /// (version, length): `vcol` and `col_at_vcol` do not count from the start of a minified line
+    /// of millions of chars at each call (the cursor, the brackets, the text drawn at its end).
+    vcol_marks: std::cell::RefCell<((u64, usize), HashMap<usize, Vec<usize>>)>,
     /// Char range picked in the search results, highlighted while it stays selected.
     pub flash: Option<(usize, usize, Instant)>,
     /// Editor panel showing the document (0 or 1 when split), `NO_PANE` until the app places it.
@@ -201,6 +218,12 @@ pub struct Document {
     hidden_cache: std::cell::RefCell<Option<(u64, Vec<usize>, usize, Vec<(usize, usize)>)>>,
     /// Bookmarked lines, as the char position of their start (moved by the edits, like folds).
     pub bookmarks: Vec<usize>,
+    /// Breakpoints of the debugger, kept like the bookmarks (char position of their line start).
+    pub breakpoints: Vec<usize>,
+    /// A breakpoint was put or taken away in the gutter: the debugger tells its adapter.
+    pub breakpoints_changed: bool,
+    /// The breakpoints kept for this file (closed and opened again) were given back.
+    pub breakpoints_loaded: bool,
     /// Range searched by Ctrl+F "dans la sélection" (tinted in the editor).
     pub find_scope: Option<(usize, usize)>,
     conflicts_cache: Option<(u64, Vec<Conflict>)>,
@@ -719,6 +742,10 @@ impl Document {
             goto_request: None,
             quick_fix_request: false,
             blame: None,
+            blame_lines: None,
+            blame_open: None,
+            blame_commit: None,
+            blame_hover: None,
             mtime: None,
             disk_change: None,
             crlf: false,
@@ -734,12 +761,16 @@ impl Document {
             drag: None,
             max_cols: 0,
             max_cols_version: u64::MAX,
+            vcol_marks: Default::default(),
             flash: None,
             pane: NO_PANE,
             symbols_cache: None,
             folds: Vec::new(),
             hidden_cache: Default::default(),
             bookmarks: Vec::new(),
+            breakpoints: Vec::new(),
+            breakpoints_changed: false,
+            breakpoints_loaded: false,
             find_scope: None,
             conflicts_cache: None,
             had_conflicts: false,
@@ -816,10 +847,17 @@ impl Document {
         self.view == View::Text && self.path.is_none() && !self.is_dirty() && self.rope.len_chars() == 0
     }
 
-    pub fn save(&mut self, trim_trailing: bool) -> Result<(), String> {
+    pub fn save(&mut self, trim_trailing: bool, final_newline: bool) -> Result<(), String> {
         let path = self.path.clone().ok_or(t!("aucun chemin", "no path"))?;
         if trim_trailing {
             self.trim_trailing_whitespace();
+        }
+        if final_newline && self.rope.len_chars() > 0 && self.rope.char(self.rope.len_chars() - 1) != '\n' {
+            // the cursors stay where they were (one at the end must not go onto the new line)
+            let (end, sels, primary) = (self.rope.len_chars(), self.sels.clone(), self.primary);
+            self.replace_keep(EditKind::Other, vec![(end, end, "\n".to_string())]);
+            self.sels = sels;
+            self.primary = primary;
         }
         let mut text = self.rope.to_string();
         if self.crlf {
@@ -937,22 +975,75 @@ impl Document {
     /// Visual column (tabs expanded) of `col` in `line`.
     pub fn vcol(&self, line: usize, col: usize) -> usize {
         let ts = self.tab_size;
-        let mut v = 0;
-        for c in self.rope.line(line).chars().take(col) {
+        // on a long line, from the mark before `col`
+        let (from, mut v) = if col > VCOL_STEP {
+            self.with_vcol_marks(line, |m| {
+                let k = (col / VCOL_STEP).min(m.len() - 1);
+                (k * VCOL_STEP, m[k])
+            })
+        } else {
+            (0, 0)
+        };
+        for c in self.rope.line(line).chars_at(from).take(col - from) {
             v = if c == '\t' { (v / ts + 1) * ts } else { v + 1 };
         }
         v
+    }
+
+    /// `f` given the visual columns of `line` at chars 0, `VCOL_STEP`, 2 × `VCOL_STEP`… (counted
+    /// once per version of the text).
+    fn with_vcol_marks<R>(&self, line: usize, f: impl FnOnce(&[usize]) -> R) -> R {
+        let mut cache = self.vcol_marks.borrow_mut();
+        let key = (self.version, self.rope.len_chars());
+        if cache.0 != key {
+            *cache = (key, HashMap::new());
+        }
+        let ts = self.tab_size;
+        let marks = cache.1.entry(line).or_insert_with(|| {
+            let mut marks = Vec::new();
+            let mut v = 0;
+            for (i, c) in self.rope.line(line).chars().enumerate() {
+                if i % VCOL_STEP == 0 {
+                    marks.push(v);
+                }
+                v = if c == '\t' { (v / ts + 1) * ts } else { v + 1 };
+            }
+            if marks.is_empty() {
+                marks.push(0);
+            }
+            marks
+        });
+        f(marks)
+    }
+
+    /// Whether line `line` takes more than `cols` visual columns: counted only up to there (a line
+    /// of a minified file has millions of chars).
+    pub fn wider_than(&self, line: usize, cols: usize) -> bool {
+        let ts = self.tab_size;
+        // at least one column per char, at most a tab's
+        let n = self.line_len(line);
+        if n > cols || n * ts.max(1) <= cols {
+            return n > cols;
+        }
+        self.vcol(line, n) > cols
     }
 
     /// Char column whose visual position contains `target`.
     pub fn col_at_vcol(&self, line: usize, target: usize) -> usize {
         let ts = self.tab_size;
         let len = self.line_len(line);
-        let mut v = 0;
-        for (i, c) in self.rope.line(line).chars().take(len).enumerate() {
+        let (from, mut v) = if target > VCOL_STEP && len > VCOL_STEP {
+            self.with_vcol_marks(line, |m| {
+                let k = m.partition_point(|&mv| mv <= target).saturating_sub(1);
+                (k * VCOL_STEP, m[k])
+            })
+        } else {
+            (0, 0)
+        };
+        for (i, c) in self.rope.line(line).chars_at(from).take(len.saturating_sub(from)).enumerate() {
             let nv = if c == '\t' { (v / ts + 1) * ts } else { v + 1 };
             if nv > target {
-                return i;
+                return from + i;
             }
             v = nv;
         }
@@ -1164,6 +1255,10 @@ impl Document {
             let n = t.chars().count();
             if e2 > s2 || n > 0 {
                 min_line = min_line.min(self.rope.char_to_line(s2));
+                // the syntax tree follows the edit (parsed again incrementally)
+                if self.highlight.uses_tree() {
+                    self.highlight.tree_edit(crate::syntax_tree::input_edit(&self.rope, s2, e2, t));
+                }
                 if e2 > s2 {
                     self.rope.remove(s2..e2);
                 }
@@ -1190,17 +1285,16 @@ impl Document {
             f.dedup();
             self.folds = f;
         }
-        if !self.bookmarks.is_empty() {
+        for marks in [&mut self.bookmarks, &mut self.breakpoints] {
+            if marks.is_empty() {
+                continue;
+            }
             let spans: Vec<(usize, usize, usize)> = edits.iter().map(|(s, e, t)| (*s, *e, t.chars().count())).collect();
             let len = self.rope.len_chars();
-            let mut b: Vec<usize> = self
-                .bookmarks
-                .iter()
-                .map(|&p| self.rope.line_to_char(self.rope.char_to_line(map_pos(p, &spans).min(len))))
-                .collect();
+            let mut b: Vec<usize> = marks.iter().map(|&p| self.rope.line_to_char(self.rope.char_to_line(map_pos(p, &spans).min(len)))).collect();
             b.sort_unstable();
             b.dedup();
-            self.bookmarks = b;
+            *marks = b;
         }
         starts
     }
@@ -2109,6 +2203,10 @@ impl Document {
     /// Empty before `ensure_bracket_depths`, or for a very large file.
     pub fn bracket_levels(&self, l: usize) -> Vec<(usize, u32)> {
         let Some(d0) = self.bracket_depths.1.get(l).copied() else { return Vec::new() };
+        // not on a very long line (a minified file), like the syntax colors: read again each frame
+        if self.rope.line(l).len_bytes() > 10_000 {
+            return Vec::new();
+        }
         let mut out = Vec::new();
         scan_brackets(self.rope.line(l).chars(), d0, &BracketRules::of(&self.syntax), Some(&mut out));
         out
@@ -2139,8 +2237,16 @@ impl Document {
         }
     }
 
-    /// The smallest unit strictly larger than `a..b` (see `expand_selection`).
+    /// The smallest unit strictly larger than `a..b` (see `expand_selection`): the next syntax
+    /// node when the language has a tree (word, argument, call, statement, function…), else the
+    /// word, the string, the brackets, the block.
     fn expanded(&self, a: usize, b: usize) -> Option<(usize, usize)> {
+        if let Some(tree) = self.highlight.tree().filter(|t| t.root_node().end_byte() == self.rope.len_bytes()) {
+            let (ba, bb) = (self.rope.char_to_byte(a), self.rope.char_to_byte(b));
+            if let Some((x, y)) = crate::syntax_tree::grow(tree, ba, bb) {
+                return Some((self.rope.byte_to_char(x), self.rope.byte_to_char(y)));
+            }
+        }
         let mut cands: Vec<(usize, usize)> = Vec::new();
         let (ws, we) = self.word_at(a);
         if ws <= a && we >= b {
@@ -2277,7 +2383,9 @@ impl Document {
         let edits: Vec<(usize, usize, String)> = (0..self.rope.len_lines())
             .filter_map(|l| {
                 let t = self.line_text(l);
-                let trimmed = t.trim_end().chars().count();
+                // only spaces and tabs: ropey also ends lines at a form feed, a lone \r or
+                // U+2028, which must stay
+                let trimmed = t.trim_end_matches([' ', '\t']).chars().count();
                 let full = t.chars().count();
                 let ls = self.rope.line_to_char(l);
                 (trimmed < full).then(|| (ls + trimmed, ls + full, String::new()))
@@ -2287,6 +2395,20 @@ impl Document {
     }
 
     // ------------------------------------------------------------------ git diff
+
+    /// A key of the HEAD version of the file (`git_base`): the blame of the gutter is read again
+    /// when it changes (after a commit), not at each edit.
+    pub fn base_key(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        self.git_base.hash(&mut h);
+        h.finish()
+    }
+
+    /// The hunks as (new_start, new_end, old_start, old count), for `committed_line_in`.
+    pub fn hunk_spans(&self) -> Vec<(usize, usize, usize, usize)> {
+        self.hunks.iter().map(|h| (h.new_start, h.new_end, h.old_start, h.old_lines.len())).collect()
+    }
 
     pub fn refresh_diff(&mut self) {
         let hunks = match &self.git_base {
@@ -2447,6 +2569,39 @@ impl Document {
         self.bookmarks = lines.iter().filter(|&&l| l < n).map(|&l| self.rope.line_to_char(l)).collect();
         self.bookmarks.sort_unstable();
         self.bookmarks.dedup();
+    }
+
+    pub fn breakpoint_lines(&self) -> Vec<usize> {
+        let len = self.len();
+        let mut v: Vec<usize> = self.breakpoints.iter().map(|&p| self.rope.char_to_line(p.min(len))).collect();
+        v.dedup();
+        v
+    }
+
+    pub fn set_breakpoint_lines(&mut self, lines: &[usize]) {
+        let n = self.rope.len_lines();
+        self.breakpoints = lines.iter().filter(|&&l| l < n).map(|&l| self.rope.line_to_char(l)).collect();
+        self.breakpoints.sort_unstable();
+        self.breakpoints.dedup();
+    }
+
+    /// Puts or takes away the breakpoint of `line`; true when there is one now.
+    pub fn toggle_breakpoint(&mut self, line: usize) -> bool {
+        let mut lines = self.breakpoint_lines();
+        let on = match lines.iter().position(|&l| l == line) {
+            Some(i) => {
+                lines.remove(i);
+                false
+            }
+            None => {
+                lines.push(line);
+                true
+            }
+        };
+        lines.sort_unstable();
+        self.set_breakpoint_lines(&lines);
+        self.breakpoints_changed = true;
+        on
     }
 
     /// Adds or removes the bookmark of the cursor line; true when it is now bookmarked.
@@ -2779,6 +2934,21 @@ impl Document {
     }
 }
 
+/// `Document::committed_line` on hunk spans (the editor keeps them while it borrows the document).
+pub fn committed_line_in(spans: &[(usize, usize, usize, usize)], l: usize) -> Option<usize> {
+    let mut old = l;
+    for &(new_start, new_end, old_start, old_len) in spans {
+        if l < new_start {
+            break;
+        }
+        if l < new_end {
+            return None;
+        }
+        old = old_start + old_len + (l - new_end);
+    }
+    Some(old)
+}
+
 /// What another program did to the file of a document with unsaved changes.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum DiskChange {
@@ -2895,6 +3065,47 @@ fn read_text(path: &Path) -> Result<(String, Encoding), String> {
 mod tests {
     use super::*;
 
+    /// On long lines `vcol` and `col_at_vcol` start from kept marks: the same answers as counting
+    /// from the start of the line, also after an edit.
+    #[test]
+    fn visual_columns_of_long_lines() {
+        let naive_vcol = |d: &Document, l: usize, col: usize| {
+            let mut v = 0;
+            for c in d.rope.line(l).chars().take(col) {
+                v = if c == '\t' { (v / d.tab_size + 1) * d.tab_size } else { v + 1 };
+            }
+            v
+        };
+        let naive_col = |d: &Document, l: usize, target: usize| {
+            let (len, mut v) = (d.line_len(l), 0);
+            for (i, c) in d.rope.line(l).chars().take(len).enumerate() {
+                let nv = if c == '\t' { (v / d.tab_size + 1) * d.tab_size } else { v + 1 };
+                if nv > target {
+                    return i;
+                }
+                v = nv;
+            }
+            len
+        };
+        let line: String = (0..900).map(|i| if i % 7 == 0 { "\tab" } else { "é x " }).collect();
+        let mut d = Document::from_text(1, &format!("short\n{line}\n{line}"), 4, true);
+        for round in 0..2 {
+            for l in 0..3 {
+                for col in (0..d.line_len(l) + 3).step_by(97) {
+                    assert_eq!(d.vcol(l, col), naive_vcol(&d, l, col), "vcol line {l} col {col} round {round}");
+                }
+                let width = naive_vcol(&d, l, d.line_len(l));
+                for target in (0..width + 20).step_by(89) {
+                    assert_eq!(d.col_at_vcol(l, target), naive_col(&d, l, target), "col line {l} at {target} round {round}");
+                }
+                assert!(!d.wider_than(l, width) && (width == 0 || d.wider_than(l, width - 1)));
+            }
+            // an edit near the start of the long line moves everything after it
+            d.goto_line(1, 0);
+            d.insert_text("\t\tzz", false);
+        }
+    }
+
     #[test]
     fn bookmarks_follow_the_edits() {
         let mut d = Document::from_text(1, "a\nb\nc\nd\n", 4, true);
@@ -2949,6 +3160,22 @@ mod tests {
         assert!(err.contains("ligne 2"), "{err}");
     }
 
+    /// Saving adds the final newline without moving the cursor onto it, and trims only spaces and
+    /// tabs (a form feed, which ropey takes for a line end, stays).
+    #[test]
+    fn saving_keeps_the_cursor_and_the_form_feeds() {
+        let p = std::env::temp_dir().join(format!("florm_save_nl_{}.py", std::process::id()));
+        let mut d = Document::from_text(1, "a = 1  \n\x0c\nb = 2", 4, true);
+        d.path = Some(p.clone());
+        let end = d.len();
+        d.sels = vec![Sel::cursor(end)];
+        d.save(true, true).unwrap();
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), "a = 1\n\x0c\nb = 2\n");
+        // at the end of the text (2 spaces trimmed before it), not after the new \n
+        assert_eq!((end, d.primary_sel().head), (15, d.len() - 1));
+        let _ = std::fs::remove_file(&p);
+    }
+
     #[test]
     fn latin1_file_saved_unchanged() {
         let p = std::env::temp_dir().join(format!("florm_enc_{}.txt", std::process::id()));
@@ -2957,7 +3184,7 @@ mod tests {
         let mut d = Document::open(1, &p, 4, true, &hl).unwrap();
         assert_eq!(d.encoding, Encoding::Windows1252);
         assert_eq!(d.rope.to_string(), "Créé le “test”\n");
-        d.save(false).unwrap();
+        d.save(false, false).unwrap();
         assert_eq!(std::fs::read(&p).unwrap(), b"Cr\xe9\xe9 le \x93test\x94\n");
         let _ = std::fs::remove_file(&p);
     }
@@ -3237,6 +3464,10 @@ mod tests {
         del.refresh_diff();
         assert_eq!(del.head_line(0), Some(0));
         assert_eq!(del.head_line(1), Some(3));
+        // for the blame: a changed line is not committed, the others are HEAD's lines
+        assert_eq!(committed_line_in(&d.hunk_spans(), 1), None);
+        assert_eq!(committed_line_in(&d.hunk_spans(), 4), Some(3));
+        assert_eq!(committed_line_in(&del.hunk_spans(), 1), Some(3));
         d.revert_hunk(1);
         assert_eq!(d.rope.to_string(), "a\nB\nc\nd");
         d.revert_hunk(0);

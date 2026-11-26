@@ -117,7 +117,7 @@ impl App {
 
     /// Runs `step` of a macro on the active document.
     fn macro_step(&mut self, step: &MacroStep) {
-        let auto = self.settings.auto_pair;
+        let auto = self.active_lang().auto_pair;
         let Some(d) = self.docs.get_mut(self.active) else { return };
         match step {
             MacroStep::Cmd(c) => d.exec(*c, auto),
@@ -131,7 +131,7 @@ impl App {
             return;
         }
         let events = ctx.input(|i| i.events.clone());
-        let auto = self.settings.auto_pair;
+        let auto = self.active_lang().auto_pair;
         let Some(doc) = self.docs.get_mut(self.active) else { return };
         let mut want_signature = false;
         for ev in events {
@@ -149,8 +149,8 @@ impl App {
                     let word = |c: char| c.is_alphanumeric() || c == '_';
                     let head = doc.primary_sel().head;
                     let typed = (head.saturating_sub(2)..head).all(|p| doc.char_at(p).is_some_and(word));
-                    let has_server = self.settings.lsp && doc.path.as_deref().and_then(lsp::language_of).is_some();
-                    if self.lsp.completion.is_none() && ((has_server && last == Some('.')) || (last.is_some_and(word) && typed)) {
+                    let has_server = self.settings.lsp && doc.path.as_deref().and_then(|p| lsp::language_of(p, &self.settings.lsp_servers)).is_some();
+                    if self.settings.show_completions_on_input && self.lsp.completion.is_none() && ((has_server && last == Some('.')) || (last.is_some_and(word) && typed)) {
                         self.lsp.complete_at = Some(Instant::now() + Duration::from_millis(120));
                     }
                     // the parameters of the call: shown after ( and updated after ,
@@ -211,7 +211,7 @@ impl App {
             }
         }
         if cmd.is_editor() {
-            let auto = self.settings.auto_pair;
+            let auto = self.active_lang().auto_pair;
             if let Some(d) = self.docs.get_mut(self.active) {
                 d.exec(cmd, auto);
             }
@@ -279,11 +279,8 @@ impl App {
                 }
             }
             FindInFiles | FindInFilesTab => {
-                if cmd == FindInFilesTab || self.settings.search_in_tab {
-                    self.open_search_tab();
-                } else {
-                    self.bottom = Some(BottomTab::Search);
-                }
+                // a page of its own (an editor tab)
+                self.open_search_tab();
                 self.search.focus = true;
                 if let Some(d) = self.docs.get(self.active) {
                     let p = d.primary_sel();
@@ -362,7 +359,6 @@ impl App {
                     let tab = self.last_bottom;
                     self.bottom = Some(tab);
                     match tab {
-                        BottomTab::Search => self.search.focus = true,
                         BottomTab::Terminal => self.term.want_focus = true,
                         _ => {}
                     }
@@ -427,7 +423,6 @@ impl App {
                 }
             }
             LocalHistory => self.open_local_history(),
-            ListTodos => self.list_todos(),
             KeyboardHints => {
                 self.hints.open_in = 3;
                 self.egui_ctx.request_repaint();
@@ -494,17 +489,15 @@ impl App {
                 self.persist("breadcrumbs", self.settings.breadcrumbs.to_string());
             }
             ToggleWordWrap => {
-                self.settings.word_wrap = !self.settings.word_wrap;
-                self.persist("word_wrap", self.settings.word_wrap.to_string());
-                self.set_status(if self.settings.word_wrap { t!("Retour à la ligne automatique activé (Alt+Z)", "Word wrap on (Alt+Z)") } else { t!("Retour à la ligne automatique désactivé (Alt+Z)", "Word wrap off (Alt+Z)") });
+                let on = self.toggle_lang_bool("word_wrap");
+                self.set_status(if on { t!("Retour à la ligne automatique activé (Alt+Z)", "Word wrap on (Alt+Z)") } else { t!("Retour à la ligne automatique désactivé (Alt+Z)", "Word wrap off (Alt+Z)") });
             }
             ToggleMinimap => {
                 self.settings.show_minimap = !self.settings.show_minimap;
                 self.persist("show_minimap", self.settings.show_minimap.to_string());
             }
             ToggleWhitespace => {
-                self.settings.show_whitespace = !self.settings.show_whitespace;
-                self.persist("show_whitespace", self.settings.show_whitespace.to_string());
+                self.toggle_lang_bool("show_whitespace");
             }
             ToggleZen => {
                 self.zen = !self.zen;
@@ -583,7 +576,7 @@ impl App {
                 let w = self.word_under_cursor();
                 if !w.is_empty() {
                     self.search.q.pattern = w;
-                    self.bottom = Some(BottomTab::Search);
+                    self.open_search_tab();
                     self.start_search();
                 }
             }
@@ -626,6 +619,8 @@ impl App {
                     }
                 }
             }
+            DebugStart | DebugStop | DebugRestart | DebugPause | DebugStepOver | DebugStepInto | DebugStepOut | DebugToggleBreakpoint | DebugClearBreakpoints | DebugTest | DebugShow | DebugConfigs
+            | DebugInstallDebugpy => self.debug_command(cmd),
             InstallFlake8 => {
                 self.set_status(t!("Installation de flake8 (pip)…", "Installing flake8 (pip)…"));
                 self.log(format!("pip install --target {} flake8", lint::tools_dir().display()));
@@ -648,6 +643,20 @@ impl App {
                 self.state.exclude_history.clear();
                 project::save_state(&self.state);
                 self.set_status(t!("Historique de recherche effacé", "Search history cleared"));
+            }
+            GitBlameGutter => {
+                self.blame.gutter = !self.blame.gutter;
+                self.blame.lines_req.clear();
+                if !self.blame.gutter {
+                    for d in self.docs.iter_mut() {
+                        d.blame_lines = None;
+                    }
+                }
+                self.set_status(if self.blame.gutter {
+                    t!("Blame de chaque ligne dans la marge (Ctrl+K B pour le masquer) ; clic : voir le commit", "Blame of every line in the gutter (Ctrl+K B to hide it); click: see the commit")
+                } else {
+                    t!("Blame de la marge masqué", "Gutter blame hidden")
+                });
             }
             GitBlame => {
                 self.blame.on = !self.blame.on;
@@ -711,6 +720,18 @@ impl App {
                 self.bottom = Some(BottomTab::Problems);
             }
             OpenSettings => self.open_settings(),
+            ShowExtensions => {
+                self.prefs.section = PrefSection::Extensions;
+                self.prefs.filter.clear();
+                self.ext.catalog = None;
+                self.open_settings();
+            }
+            ShowLanguages => {
+                self.prefs.section = PrefSection::Languages;
+                self.prefs.lang = None;
+                self.prefs.filter.clear();
+                self.open_settings();
+            }
             OpenSettingsFile => {
                 self.open_path(config::settings_path());
             }
@@ -810,7 +831,8 @@ pub(super) enum MacroStep {
 
 /// Whether a shortcut still works while a terminal has the keyboard. The shell keeps plain keys,
 /// Alt+key, Ctrl+key (Ctrl+C, Ctrl+R, Ctrl+D…) and the Ctrl+Shift keys it uses (copy, paste,
-/// search, Ctrl+_); Florm takes the F-keys, Ctrl+Alt, the other Ctrl+Shift combos, and tab switching.
+/// search, Ctrl+_); Florm takes the F-keys, Ctrl+Alt, the other Ctrl+Shift combos, tab switching and
+/// the preferences (Ctrl+, means nothing to a shell).
 fn terminal_lets_through(cmd: Cmd, c: Combo) -> bool {
     use Cmd::*;
     let fkey = matches!(
@@ -820,7 +842,7 @@ fn terminal_lets_through(cmd: Cmd, c: Combo) -> bool {
     let shell_ctrl_shift = matches!(c.key, Key::C | Key::V | Key::X | Key::F | Key::Minus);
     fkey || (c.ctrl && c.alt)
         || (c.ctrl && c.shift && !shell_ctrl_shift)
-        || matches!(cmd, ToggleTerminal | CommandPalette | QuickOpen | ToggleSidebar | NextTab | PrevTab | Claude | ClaudeNextWaiting)
+        || matches!(cmd, ToggleTerminal | CommandPalette | QuickOpen | ToggleSidebar | NextTab | PrevTab | Claude | ClaudeNextWaiting | OpenSettings)
         // Cmd+Q on macOS, where Cmd means nothing to a shell
         || (cfg!(target_os = "macos") && cmd == Quit)
 }
@@ -857,7 +879,7 @@ mod tests {
         // Florm's global shortcuts
         for s in [
             "ctrl+shift+g", "ctrl+alt+r", "ctrl+shift+j", "ctrl+tab", "ctrl+pageup", "ctrl+pagedown", "ctrl+f6",
-            "ctrl+shift+f6", "ctrl+shift+p", "ctrl+p", "ctrl+b", "ctrl+alt+c",
+            "ctrl+shift+f6", "ctrl+shift+p", "ctrl+p", "ctrl+b", "ctrl+alt+c", "ctrl+,",
         ] {
             assert!(through(s), "{s} should reach Florm");
         }

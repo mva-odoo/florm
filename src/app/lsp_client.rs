@@ -13,7 +13,10 @@ impl App {
             return None;
         }
         let path = d.path.clone()?;
-        let (family, lang) = lsp::language_of(&path)?;
+        if !self.settings.lang_of(Some(&path)).lsp {
+            return None;
+        }
+        let (family, lang) = lsp::language_of(&path, &self.settings.lsp_servers)?;
         // a language server may run the code of the project (build.rs, macros, its own tsserver)
         if !self.trusted(&path) {
             return None;
@@ -251,12 +254,12 @@ impl App {
         self.search_word_everywhere(word);
     }
 
-    /// Whole word search of `word` in the folder (bottom panel).
+    /// Whole word search of `word` in the folder (the search page).
     pub(super) fn search_word_everywhere(&mut self, word: String) {
         self.search.q.pattern = word;
         self.search.q.whole = true;
         self.search.q.regex = false;
-        self.bottom = Some(BottomTab::Search);
+        self.open_search_tab();
         self.start_search();
     }
 
@@ -464,11 +467,14 @@ impl App {
                 }
             }
             LspReq::Command => {}
-            LspReq::Format { uid, version } => {
-                let Some(d) = self.docs.iter_mut().find(|d| d.uid == uid) else { return };
+            LspReq::Format { uid, version, then_save } => {
+                let Some(idx) = self.docs.iter().position(|d| d.uid == uid) else { return };
+                let d = &mut self.docs[idx];
                 // typed meanwhile: the edits would go to the wrong places
                 if d.version != version {
-                    self.set_status(t!("Le fichier a changé pendant le formatage : relance-le", "The file changed during the formatting: run it again"));
+                    if !then_save {
+                        self.set_status(t!("Le fichier a changé pendant le formatage : relance-le", "The file changed during the formatting: run it again"));
+                    }
                     return;
                 }
                 let edits = v.as_array().cloned().unwrap_or_default();
@@ -479,6 +485,12 @@ impl App {
                 let n = changes.len();
                 if n > 0 {
                     d.replace_keep(EditKind::Other, changes);
+                }
+                if then_save {
+                    if n > 0 {
+                        self.save_opts(idx, false, true);
+                    }
+                    return;
                 }
                 self.set_status(if n > 0 { t!("Fichier formaté (serveur de langage)", "File formatted (language server)") } else { t!("Déjà formaté", "Already formatted") });
             }
@@ -513,19 +525,29 @@ impl App {
     }
 
     /// The file formatted by its language server (`textDocument/formatting`).
-    pub(super) fn lsp_format(&mut self, ctx: &egui::Context) {
-        let i = self.active;
+    pub(super) fn lsp_format(&mut self, _ctx: &egui::Context) {
+        self.lsp_format_doc(self.active, false);
+    }
+
+    /// Document `i` formatted by its language server; `then_save`: just saved (format on save),
+    /// saved again once formatted, and nothing said when it has no server.
+    pub(super) fn lsp_format_doc(&mut self, i: usize, then_save: bool) {
         let Some(d) = self.docs.get(i).filter(|d| !d.read_only) else { return };
         let (uid, version) = (d.uid, d.version);
-        let options = serde_json::json!({ "tabSize": self.settings.tab_size, "insertSpaces": self.settings.translate_tabs_to_spaces });
-        let Some((ci, _)) = self.lsp_for(i, ctx, true) else {
-            self.set_status(t!("Pas de serveur de langage pour ce fichier (Préférences → Éditeur → Serveurs de langage)", "No language server for this file (Preferences → Editor → Language servers)"));
+        let options = serde_json::json!({ "tabSize": d.tab_size, "insertSpaces": d.use_spaces });
+        let ctx = self.egui_ctx.clone();
+        let Some((ci, _)) = self.lsp_for(i, &ctx, true) else {
+            if !then_save {
+                self.set_status(t!("Pas de serveur de langage pour ce fichier (Préférences → Langages)", "No language server for this file (Preferences → Languages)"));
+            }
             return;
         };
         let (Some((doc, _)), Some(cl)) = (self.lsp_text_position(i), self.lsp.manager.client(ci)) else { return };
         let id = cl.request("textDocument/formatting", serde_json::json!({ "textDocument": doc, "options": options }));
-        self.lsp.requests.insert((ci, id), LspReq::Format { uid, version });
-        self.set_status(t!("Formatage…", "Formatting…"));
+        self.lsp.requests.insert((ci, id), LspReq::Format { uid, version, then_save });
+        if !then_save {
+            self.set_status(t!("Formatage…", "Formatting…"));
+        }
     }
 
     /// Makes the text edits of a workspace edit (files not open are opened, the active tab stays);

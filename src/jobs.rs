@@ -100,6 +100,21 @@ pub enum JobResult {
     /// Live lint of the buffer while typing.
     Lint { uid: u64, version: u64, diags: Vec<Diagnostic>, linter: String },
     ToolInstalled(Result<String, String>),
+    /// The language packs, and for each of their tools whether it is there.
+    PackStatus(Vec<crate::packs::Pack>, Vec<Vec<bool>>),
+    /// Tools of a language pack installed (or the log of what failed).
+    PackInstalled(Result<String, String>),
+    /// A commit's whole message and its address on GitHub (window of the blame).
+    CommitInfo(String, Result<crate::app::CommitInfo, String>),
+    /// The blame of every line of a document (for its version).
+    BlameLines { uid: u64, version: u64, result: Result<Vec<crate::git::Blame>, String> },
+    /// Python downloaded for the extensions (or why not).
+    PythonReady(Result<(), String>),
+    /// The catalogue repositories cloned again (the errors).
+    CatalogFetched(Vec<String>),
+    /// A debug session started on a thread (its adapter found, the program built): the session
+    /// and its `launch` / `attach` request, or why it could not.
+    DebugStarted(Result<crate::app::DebugStart, String>),
     GitStatus {
         selected: PathBuf,
         /// Of the repositories looked at (all of them, or those asked).

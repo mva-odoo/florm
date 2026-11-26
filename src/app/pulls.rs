@@ -571,92 +571,96 @@ impl App {
                         });
                         // like GitHub: everything that happened, oldest first, on a line; then whether it
                         // can be merged, and the field to write
-                        egui::ScrollArea::vertical().id_salt("pr_conv").auto_shrink([false, false]).show(ui, |ui| {
-                            ui.set_max_width(ui.available_width());
-                            ui.add_space(4.0);
-                            let resolved = d.threads.len() - open_threads;
-                            if resolved > 0 {
-                                ui.checkbox(&mut p.show_resolved, RichText::new(tf!("afficher les {resolved} conversation(s) résolue(s)", "show the {resolved} resolved conversation(s)")).small());
-                            }
-                            if open_threads > 0 && crate::features::on(crate::features::Feature::Claude) {
-                                to_claude_bar(ui, d, &mut p.to_claude, checked_out, accent, &mut act);
-                            }
-                            let neutral = ui.visuals().text_color();
-                            for (date, ev) in timeline(d, p.show_resolved) {
-                                match ev {
-                                    Event::Opened => {
-                                        comment_block(ui, &d.author, &date, None, |ui| {
-                                            if d.body.trim().is_empty() {
-                                                ui.label(RichText::new(t!("Pas de description.", "No description.")).weak().italics());
-                                            } else {
-                                                super::md::remote_viewer().show(ui, cache, &super::md::remote(&d.body));
-                                            }
-                                        });
-                                    }
-                                    Event::Comment(k) => {
-                                        let c = &d.comments[k];
-                                        let review = match c.state.as_str() {
-                                            "APPROVED" => Some((t!("a approuvé ces changements", "approved these changes"), ok(), "✔")),
-                                            "CHANGES_REQUESTED" => Some((t!("a demandé des changements", "requested changes"), err(), "✖")),
-                                            _ => None,
-                                        };
-                                        if c.body.trim().is_empty() {
-                                            let (t, color, icon) = review.unwrap_or((t!("a fait une revue", "reviewed"), neutral, "👁"));
-                                            tracking(ui, icon, color, &c.author.login, &date, t);
-                                        } else {
-                                            comment_block(ui, &c.author.login, &date, review.map(|(t, c, _)| (t, c)), |ui| {
-                                                super::md::remote_viewer().show(ui, cache, &super::md::remote(&c.body));
-                                            });
-                                        }
-                                    }
-                                    Event::Thread(k) => {
-                                        let t = &d.threads[k];
-                                        ui.add_space(8.0);
-                                        ui.horizontal_top(|ui| {
-                                            // ticked: handled by Claude (« Envoyer à Claude »)
-                                            if !t.resolved && crate::features::on(crate::features::Feature::Claude) {
-                                                to_claude_tick(ui, &mut p.to_claude, &t.id);
-                                            }
-                                            ui.vertical(|ui| {
-                                                thread_ui(ui, t, cache, &p.applied, &p.shifts, checked_out, accent, false, &mut act);
-                                                if crate::features::on(crate::features::Feature::Claude) && explain_button(ui) {
-                                                    act = Some(PrAct::ExplainThread(t.id.clone()));
+                        // in its own panel: a scroll area alone would go on under the column on the right (its
+                        // bar over it), and room between them
+                        egui::CentralPanel::default().frame(egui::Frame::NONE.inner_margin(egui::Margin { right: 12, ..Default::default() })).show(ui, |ui| {
+                            egui::ScrollArea::vertical().id_salt("pr_conv").auto_shrink([false, false]).show(ui, |ui| {
+                                ui.set_max_width(ui.available_width());
+                                ui.add_space(4.0);
+                                let resolved = d.threads.len() - open_threads;
+                                if resolved > 0 {
+                                    ui.checkbox(&mut p.show_resolved, RichText::new(tf!("afficher les {resolved} conversation(s) résolue(s)", "show the {resolved} resolved conversation(s)")).small());
+                                }
+                                if open_threads > 0 && crate::features::on(crate::features::Feature::Claude) {
+                                    to_claude_bar(ui, d, &mut p.to_claude, checked_out, accent, &mut act);
+                                }
+                                let neutral = ui.visuals().text_color();
+                                for (date, ev) in timeline(d, p.show_resolved) {
+                                    match ev {
+                                        Event::Opened => {
+                                            comment_block(ui, &d.author, &date, None, |ui| {
+                                                if d.body.trim().is_empty() {
+                                                    ui.label(RichText::new(t!("Pas de description.", "No description.")).weak().italics());
+                                                } else {
+                                                    super::md::remote_viewer().show(ui, cache, &super::md::remote(&d.body));
                                                 }
                                             });
-                                        });
-                                    }
-                                    Event::Push { author, commits } => {
-                                        // one line per commit, as on GitHub: its title, its short hash on the right
-                                        for &k in &commits {
-                                            let c = &d.commits[k];
-                                            let headline = c.message_headline.clone();
-                                            let short = c.oid[..c.oid.len().min(7)].to_string();
-                                            let clicked = event_row(ui, "●", neutral, |ui| {
-                                                avatar(ui, &author, 18.0);
-                                                // the title cut before the hash, which keeps its room on the right
-                                                let room = (ui.available_width() - 80.0).max(60.0);
-                                                let a = ui
-                                                    .scope(|ui| {
-                                                        ui.set_max_width(room);
-                                                        ui.add(egui::Label::new(RichText::new(&headline).monospace()).truncate().sense(Sense::click()))
-                                                    })
-                                                    .inner
-                                                    .on_hover_text(tf!("{author} · {} — clic : voir ce commit", "{author} · {} — click: show this commit", ago(&date)));
-                                                let b = ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| ui.link(RichText::new(&short).monospace().color(accent))).inner;
-                                                a.clicked() || b.clicked()
+                                        }
+                                        Event::Comment(k) => {
+                                            let c = &d.comments[k];
+                                            let review = match c.state.as_str() {
+                                                "APPROVED" => Some((t!("a approuvé ces changements", "approved these changes"), ok(), "✔")),
+                                                "CHANGES_REQUESTED" => Some((t!("a demandé des changements", "requested changes"), err(), "✖")),
+                                                _ => None,
+                                            };
+                                            if c.body.trim().is_empty() {
+                                                let (t, color, icon) = review.unwrap_or((t!("a fait une revue", "reviewed"), neutral, "👁"));
+                                                tracking(ui, icon, color, &c.author.login, &date, t);
+                                            } else {
+                                                comment_block(ui, &c.author.login, &date, review.map(|(t, c, _)| (t, c)), |ui| {
+                                                    super::md::remote_viewer().show(ui, cache, &super::md::remote(&c.body));
+                                                });
+                                            }
+                                        }
+                                        Event::Thread(k) => {
+                                            let t = &d.threads[k];
+                                            ui.add_space(8.0);
+                                            ui.horizontal_top(|ui| {
+                                                // ticked: handled by Claude (« Envoyer à Claude »)
+                                                if !t.resolved && crate::features::on(crate::features::Feature::Claude) {
+                                                    to_claude_tick(ui, &mut p.to_claude, &t.id);
+                                                }
+                                                ui.vertical(|ui| {
+                                                    thread_ui(ui, t, cache, &p.applied, &p.shifts, checked_out, accent, false, &mut act);
+                                                    if crate::features::on(crate::features::Feature::Claude) && explain_button(ui) {
+                                                        act = Some(PrAct::ExplainThread(t.id.clone()));
+                                                    }
+                                                });
                                             });
-                                            if clicked {
-                                                act = Some(PrAct::Commit(c.oid.clone()));
-                                                p.section = PrSection::Commits;
+                                        }
+                                        Event::Push { author, commits } => {
+                                            // one line per commit, as on GitHub: its title, its short hash on the right
+                                            for &k in &commits {
+                                                let c = &d.commits[k];
+                                                let headline = c.message_headline.clone();
+                                                let short = c.oid[..c.oid.len().min(7)].to_string();
+                                                let clicked = event_row(ui, "●", neutral, |ui| {
+                                                    avatar(ui, &author, 18.0);
+                                                    // the title cut before the hash, which keeps its room on the right
+                                                    let room = (ui.available_width() - 80.0).max(60.0);
+                                                    let a = ui
+                                                        .scope(|ui| {
+                                                            ui.set_max_width(room);
+                                                            ui.add(egui::Label::new(RichText::new(&headline).monospace()).truncate().sense(Sense::click()))
+                                                        })
+                                                        .inner
+                                                        .on_hover_text(tf!("{author} · {} — clic : voir ce commit", "{author} · {} — click: show this commit", ago(&date)));
+                                                    let b = ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| ui.link(RichText::new(&short).monospace().color(accent))).inner;
+                                                    a.clicked() || b.clicked()
+                                                });
+                                                if clicked {
+                                                    act = Some(PrAct::Commit(c.oid.clone()));
+                                                    p.section = PrSection::Commits;
+                                                }
                                             }
                                         }
                                     }
                                 }
-                            }
-                            // what it takes to merge it (reading here, writing on GitHub)
-                            ui.add_space(12.0);
-                            merge_box(ui, d, &mut p.merge_method, &mut p.delete_branch, &mut p.all_checks, p.busy, accent, &mut act);
-                            ui.add_space(20.0);
+                                // what it takes to merge it (reading here, writing on GitHub)
+                                ui.add_space(12.0);
+                                merge_box(ui, d, &mut p.merge_method, &mut p.delete_branch, &mut p.all_checks, p.busy, accent, &mut act);
+                                ui.add_space(20.0);
+                            });
                         });
                     }
                     PrSection::Commits => {
@@ -1932,6 +1936,104 @@ mod render_check {
         for want in ["Checks", "CI / tests", "Logs", "17.0", "alice", "✔", "bob", "salut"] {
             assert!(t.contains(want), "{want}: {t}");
         }
+    }
+
+    /// The column of the reviewers, as in the view: its texts wrap inside it, none goes past its
+    /// right edge (cut by the window or the panel).
+    #[test]
+    fn side_column_texts_stay_inside() {
+        let d = github::PrDetail {
+            review_decision: "REVIEW_REQUIRED".into(),
+            reviewers: vec![("tfr-odoo".into(), "PENDING".into()), ("xavieralt".into(), String::new())],
+            ..Default::default()
+        };
+        for (screen_w, side_w) in [(1000.0, 230.0), (700.0, 170.0), (1400.0, 420.0), (1000.0, 190.0)] {
+        let ctx = egui::Context::default();
+        let mut panel = egui::Rect::NOTHING;
+        let mut shapes = Vec::new();
+        for _ in 0..3 {
+            let out = crate::run_ui(&ctx, egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(screen_w, 800.0))), ..Default::default() }, |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
+                    let r = egui::Panel::right("pr_side").frame(crate::app::work_side(ui)).resizable(true).default_size(side_w).size_range(170.0..=420.0).show(ui, |ui| {
+                        egui::ScrollArea::vertical().id_salt("pr_side_scroll").auto_shrink([false, false]).show(ui, |ui| {
+                            side_info(ui, &d);
+                        });
+                    });
+                    panel = r.response.rect;
+                });
+            });
+            shapes = out.shapes;
+        }
+        fn walk(s: &egui::Shape, out: &mut Vec<(String, egui::Rect)>) {
+            match s {
+                egui::Shape::Text(t) => out.push((t.galley.text().to_string(), t.galley.rect.translate(t.pos.to_vec2()))),
+                egui::Shape::Vec(v) => v.iter().for_each(|x| walk(x, out)),
+                _ => {}
+            }
+        }
+        let mut texts = Vec::new();
+        shapes.iter().for_each(|c| walk(&c.shape, &mut texts));
+        assert!(texts.iter().any(|(t, _)| t.contains("Relecture requise")), "{texts:?}");
+        for (t, r) in texts.iter().filter(|(_, r)| r.left() >= panel.left()) {
+            assert!(r.right() <= panel.right() - 4.0, "{t:?} {r:?} goes past the column {panel:?}");
+        }
+        }
+    }
+
+    /// The whole view of a pull request, in windows of several widths: no text goes past the
+    /// right edge of the window (cut there).
+    #[test]
+    fn pr_view_texts_stay_in_the_window() {
+        let dir = std::env::temp_dir().join(format!("florm_pr_view_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("settings.toml"), "check_updates = false\nlsp = false\n").unwrap();
+        let _lock = config::TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("FLORM_CONFIG", &dir);
+        let commit = |oid: &str, title: &str| github::Commit { oid: oid.into(), message_headline: title.into(), message_body: String::new(), authors: Vec::new(), committed_date: String::new() };
+        let d = github::PrDetail {
+            number: 4644,
+            title: "[FIX] account: a payment in an unrelated currency".into(),
+            author: "tfr-odoo".into(),
+            state: "OPEN".into(),
+            base: "17.0".into(),
+            head: "17.0-fix-currency-tfr".into(),
+            body: "The rate was taken from an unrelated currency.".into(),
+            review_decision: "REVIEW_REQUIRED".into(),
+            reviewers: vec![("tfr-odoo".into(), "PENDING".into()), ("xavieralt".into(), String::new())],
+            commits: vec![commit("e0487abcdef", "[FIX] account: use the currency of the payment"), commit("1234567890", "x")],
+            ..Default::default()
+        };
+        let ctx = egui::Context::default();
+        let mut app = App::with_ctx(&ctx, None);
+        app.pr.detail = Some(Ok(d));
+        for w in [900.0, 1280.0, 1600.0, 2400.0] {
+            let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(w, 900.0));
+            let mut shapes = Vec::new();
+            for _ in 0..4 {
+                let out = crate::run_ui(&ctx, egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
+                    egui::CentralPanel::default().show(ui, |ui| app.pulls_ui(ui));
+                });
+                shapes = out.shapes;
+            }
+            fn walk(s: &egui::Shape, clip: egui::Rect, out: &mut Vec<(String, egui::Rect, egui::Rect)>) {
+                match s {
+                    egui::Shape::Text(t) => out.push((t.galley.text().to_string(), t.galley.rect.translate(t.pos.to_vec2()), clip)),
+                    egui::Shape::Vec(v) => v.iter().for_each(|x| walk(x, clip, out)),
+                    _ => {}
+                }
+            }
+            let mut texts = Vec::new();
+            shapes.iter().for_each(|c| walk(&c.shape, c.clip_rect, &mut texts));
+            for (t, r, _) in &texts {
+                assert!(r.right() <= w, "window {w}: {t:?} {r:?} past the window");
+            }
+            // the conversation stops before the column on the right, with room
+            let side = texts.iter().find(|(t, ..)| t.starts_with("Relecture requise")).map(|(_, _, clip)| *clip).unwrap();
+            let (_, hash, clip) = texts.iter().find(|(t, ..)| t == "e0487ab").unwrap();
+            assert!(hash.right() <= side.left() - 8.0 && clip.right() <= side.left(), "window {w}: {hash:?} {clip:?} side {side:?}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

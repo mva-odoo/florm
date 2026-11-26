@@ -187,6 +187,13 @@ const DEFAULTS: &[(&str, &str)] = &[
     ("ctrl+f9", "sort_lines"),
     ("ctrl+f6", "test_again"),
     ("ctrl+shift+f6", "test_here"),
+    ("f5", "debug_start"),
+    ("shift+f5", "debug_stop"),
+    ("ctrl+shift+f5", "debug_restart"),
+    ("f9", "debug_toggle_breakpoint"),
+    ("f10", "debug_step_over"),
+    ("f11", "debug_step_into"),
+    ("shift+f11", "debug_step_out"),
     ("alt+f5", "git_next_change"),
     ("alt+shift+f5", "git_prev_change"),
     ("backspace", "backspace"),
@@ -282,6 +289,7 @@ const CHORDS: &[(&str, &str)] = &[
     ("ctrl+shift+z", "git_revert_file"),
     ("v", "markdown_preview_side"),
     ("z", "toggle_zen"),
+    ("b", "git_blame_gutter"),
     ("ctrl+j", "unfold_all"),
 ];
 

@@ -15,10 +15,115 @@ const IDLE_STOP: Duration = Duration::from_secs(10 * 60);
 /// How often the servers are looked at for that.
 const IDLE_CHECK: Duration = Duration::from_secs(60);
 
-/// Language family (one server each) and LSP language id of a file.
-pub fn language_of(path: &Path) -> Option<(&'static str, &'static str)> {
-    let ext = path.extension()?.to_str()?.to_lowercase();
-    Some(match ext.as_str() {
+/// What `[lsp_servers]` of settings.toml says for a language: the command of its server alone
+/// (a language Florm knows), or with the extensions of its files (any other language) and its
+/// LSP language id when it is not the name of the entry.
+#[derive(Clone, Debug, PartialEq, serde::Deserialize)]
+#[cfg_attr(test, derive(serde::Serialize))]
+#[serde(untagged)]
+pub enum ServerCfg {
+    Cmd(String),
+    Full {
+        cmd: String,
+        /// Extensions ("yml"), or whole file names ("Dockerfile").
+        #[serde(default)]
+        ext: Vec<String>,
+        #[serde(default)]
+        id: String,
+    },
+}
+
+impl ServerCfg {
+    pub fn cmd(&self) -> &str {
+        match self {
+            ServerCfg::Cmd(c) | ServerCfg::Full { cmd: c, .. } => c,
+        }
+    }
+}
+
+/// The servers Florm looks for, per language family: the first one installed is used.
+const SERVERS: &[(&str, &[(&str, &[&str])])] = &[
+    ("typescript", &[("typescript-language-server", &["--stdio"])]),
+    ("rust", &[("rust-analyzer", &[])]),
+    ("go", &[("gopls", &[])]),
+    ("c", &[("clangd", &[])]),
+    ("bash", &[("bash-language-server", &["start"])]),
+    ("yaml", &[("yaml-language-server", &["--stdio"])]),
+    ("css", &[("vscode-css-language-server", &["--stdio"]), ("css-languageserver", &["--stdio"])]),
+    ("html", &[("vscode-html-language-server", &["--stdio"]), ("html-languageserver", &["--stdio"])]),
+    ("lua", &[("lua-language-server", &[])]),
+    ("ruby", &[("ruby-lsp", &[]), ("solargraph", &["stdio"])]),
+    ("php", &[("intelephense", &["--stdio"]), ("phpactor", &["language-server"])]),
+    ("markdown", &[("marksman", &["server"])]),
+    ("toml", &[("taplo", &["lsp", "stdio"])]),
+    ("dockerfile", &[("docker-langserver", &["--stdio"])]),
+    ("terraform", &[("terraform-ls", &["serve"])]),
+    ("java", &[("jdtls", &[])]),
+    ("kotlin", &[("kotlin-language-server", &[])]),
+    ("swift", &[("sourcekit-lsp", &[])]),
+    ("zig", &[("zls", &[])]),
+    ("csharp", &[("csharp-ls", &[])]),
+    ("haskell", &[("haskell-language-server-wrapper", &["--lsp"])]),
+    ("ocaml", &[("ocamllsp", &[])]),
+    ("elixir", &[("elixir-ls", &[]), ("lexical", &[])]),
+];
+
+/// The families whose missing server is a warning (the usual languages of code); for the others
+/// the status bar only says which server to install.
+pub fn usually_wanted(family: &str) -> bool {
+    matches!(family, "python" | "typescript" | "rust" | "go" | "c")
+}
+
+/// The servers to install for `family`, as said in the status bar ("marksman").
+pub fn servers_for(family: &str) -> String {
+    let names: Vec<&str> = SERVERS.iter().filter(|(f, _)| *f == family).flat_map(|(_, s)| s.iter().map(|(b, _)| *b)).collect();
+    names.join(t!(" ou ", " or "))
+}
+
+/// A string kept for the whole run (the few languages of the settings), so that families and
+/// ids stay `&'static str` like the built-in ones.
+fn intern(s: &str) -> &'static str {
+    static SEEN: std::sync::Mutex<Vec<&'static str>> = std::sync::Mutex::new(Vec::new());
+    let mut seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(x) = seen.iter().find(|x| **x == s) {
+        return x;
+    }
+    let x: &'static str = Box::leak(s.to_string().into_boxed_str());
+    seen.push(x);
+    x
+}
+
+/// Language family (one server each) and LSP language id of a file: a language of the settings
+/// first (its extensions), else one Florm knows.
+pub fn language_of(path: &Path, cfg: &HashMap<String, ServerCfg>) -> Option<(&'static str, &'static str)> {
+    let name = path.file_name()?.to_str()?;
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+    for (family, c) in cfg {
+        if let ServerCfg::Full { ext: exts, id, .. } = c {
+            let matches = exts.iter().map(|e| e.trim().trim_start_matches('.')).any(|e| (!ext.is_empty() && e.eq_ignore_ascii_case(&ext)) || e == name);
+            if matches {
+                return Some((intern(family), intern(if id.trim().is_empty() { family } else { id.trim() })));
+            }
+        }
+    }
+    // the servers the language packs declare
+    for (family, _, exts) in crate::packs::servers() {
+        if exts.iter().map(|e| e.trim().trim_start_matches('.')).any(|e| (!ext.is_empty() && e.eq_ignore_ascii_case(&ext)) || e == name) {
+            let f = intern(&family);
+            return Some((f, f));
+        }
+    }
+    known_language(name, &ext)
+}
+
+fn known_language(name: &str, ext: &str) -> Option<(&'static str, &'static str)> {
+    // files known by their name
+    match name {
+        "Dockerfile" | "Containerfile" => return Some(("dockerfile", "dockerfile")),
+        "Gemfile" | "Rakefile" => return Some(("ruby", "ruby")),
+        _ => {}
+    }
+    Some(match ext {
         "py" | "pyi" => ("python", "python"),
         "js" | "mjs" | "cjs" => ("typescript", "javascript"),
         "jsx" => ("typescript", "javascriptreact"),
@@ -28,6 +133,27 @@ pub fn language_of(path: &Path) -> Option<(&'static str, &'static str)> {
         "go" => ("go", "go"),
         "c" | "h" => ("c", "c"),
         "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" => ("c", "cpp"),
+        "sh" | "bash" => ("bash", "shellscript"),
+        "yml" | "yaml" => ("yaml", "yaml"),
+        "css" => ("css", "css"),
+        "scss" => ("css", "scss"),
+        "less" => ("css", "less"),
+        "html" | "htm" => ("html", "html"),
+        "lua" => ("lua", "lua"),
+        "rb" | "rake" | "gemspec" => ("ruby", "ruby"),
+        "php" => ("php", "php"),
+        "md" | "markdown" => ("markdown", "markdown"),
+        "toml" => ("toml", "toml"),
+        "dockerfile" => ("dockerfile", "dockerfile"),
+        "tf" | "tfvars" => ("terraform", "terraform"),
+        "java" => ("java", "java"),
+        "kt" | "kts" => ("kotlin", "kotlin"),
+        "swift" => ("swift", "swift"),
+        "zig" => ("zig", "zig"),
+        "cs" => ("csharp", "csharp"),
+        "hs" => ("haskell", "haskell"),
+        "ml" | "mli" => ("ocaml", "ocaml"),
+        "ex" | "exs" => ("elixir", "elixir"),
         _ => return None,
     })
 }
@@ -36,7 +162,7 @@ pub fn language_of(path: &Path) -> Option<(&'static str, &'static str)> {
 /// --user` put them (often missing from the PATH of a program started from the desktop).
 pub fn in_path(name: &str) -> Option<PathBuf> {
     let exts: &[&str] = if cfg!(windows) { &[".exe", ".cmd", ".bat", ""] } else { &[""] };
-    let path: Vec<PathBuf> = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
+    let path: Vec<PathBuf> = crate::shell_env::path().map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
     path.into_iter().chain(tool_dirs()).find_map(|d| exts.iter().map(|e| d.join(format!("{name}{e}"))).find(|p| p.is_file()))
 }
 
@@ -52,6 +178,9 @@ fn tool_dirs() -> Vec<PathBuf> {
         out.push(h.join(".cargo").join("bin"));
         out.push(h.join(".local").join("bin"));
     }
+    // what Florm installed itself (language packs)
+    out.extend(crate::packs::bin_dirs());
+    out.extend(crate::runtimes::bin_dirs());
     out
 }
 
@@ -91,8 +220,8 @@ pub fn private_pylsp() -> bool {
     crate::lint::tools_dir().join("pylsp").is_dir()
 }
 
-pub fn find_server(family: &str, overrides: &HashMap<String, String>) -> Option<ServerSpec> {
-    if let Some(cmd) = overrides.get(family).filter(|c| !c.trim().is_empty()) {
+pub fn find_server(family: &str, overrides: &HashMap<String, ServerCfg>) -> Option<ServerSpec> {
+    if let Some(cmd) = overrides.get(family).map(ServerCfg::cmd).filter(|c| !c.trim().is_empty()) {
         let cmd: Vec<String> = cmd.split_whitespace().map(String::from).collect();
         return Some(ServerSpec { name: cmd[0].clone(), cmd, env: Vec::new() });
     }
@@ -114,11 +243,15 @@ pub fn find_server(family: &str, overrides: &HashMap<String, String>) -> Option<
                     env: vec![("PYTHONPATH".into(), crate::lint::tools_dir().display().to_string())],
                 })
             }),
-        "typescript" => simple("typescript-language-server", &["--stdio"]),
-        "rust" => simple("rust-analyzer", &[]),
-        "go" => simple("gopls", &[]),
-        "c" => simple("clangd", &[]),
-        _ => None,
+        _ => SERVERS.iter().filter(|(f, _)| *f == family).flat_map(|(_, s)| s.iter()).find_map(|(bin, args)| simple(bin, args)).or_else(|| {
+            // a server declared by a language pack
+            let (_, cmd, _) = crate::packs::servers().into_iter().find(|(f, _, _)| f == family)?;
+            let mut cmd: Vec<String> = cmd.split_whitespace().map(String::from).collect();
+            let bin = in_path(&cmd[0])?;
+            let name = cmd[0].clone();
+            cmd[0] = bin.display().to_string();
+            Some(ServerSpec { name, cmd, env: Vec::new() })
+        }),
     }
 }
 
@@ -455,7 +588,7 @@ impl Default for Manager {
 
 impl Manager {
     /// Index of the running server for (family, root), started if needed. Err: why there is none.
-    pub fn ensure(&mut self, family: &str, root: &Path, overrides: &HashMap<String, String>, ctx: &eframe::egui::Context) -> Result<usize, String> {
+    pub fn ensure(&mut self, family: &str, root: &Path, overrides: &HashMap<String, ServerCfg>, ctx: &eframe::egui::Context) -> Result<usize, String> {
         if let Some(i) = self.clients.iter().position(|c| c.as_ref().is_some_and(|c| c.family == family && c.root == root)) {
             return Ok(i);
         }
@@ -465,7 +598,12 @@ impl Manager {
         }
         let Some(spec) = find_server(family, overrides) else {
             self.failed.insert(key);
-            return Err(tf!("aucun serveur de langage pour {family}", "no language server for {family}"));
+            let to_install = servers_for(family);
+            return Err(if to_install.is_empty() {
+                tf!("aucun serveur de langage pour {family}", "no language server for {family}")
+            } else {
+                tf!("{family} : installer {to_install}", "{family}: install {to_install}")
+            });
         };
         let idx = self.clients.len();
         let ctx = ctx.clone();
@@ -716,6 +854,34 @@ mod tests {
     }
 
     use super::*;
+
+    /// The languages Florm knows, and those of `[lsp_servers]` (a command alone, or with the
+    /// extensions of their files).
+    #[test]
+    fn languages_known_and_from_the_settings() {
+        let none = HashMap::new();
+        let of = |p: &str, cfg: &HashMap<String, ServerCfg>| language_of(Path::new(p), cfg);
+        assert_eq!(of("a/x.py", &none), Some(("python", "python")));
+        assert_eq!(of("deploy.yml", &none), Some(("yaml", "yaml")));
+        assert_eq!(of("s.scss", &none), Some(("css", "scss")));
+        assert_eq!(of("run.sh", &none), Some(("bash", "shellscript")));
+        assert_eq!(of("app/Dockerfile", &none), Some(("dockerfile", "dockerfile")));
+        assert_eq!(of("notes.nim", &none), None);
+        let settings: crate::config::Settings = toml::from_str(
+            "[lsp_servers]\npython = \"pylsp\"\nnim = { cmd = \"nimlangserver\", ext = [\"nim\", \".nims\"] }\njustfile = { cmd = \"just-lsp\", ext = [\"justfile\"], id = \"just\" }\n",
+        )
+        .unwrap();
+        let cfg = &settings.lsp_servers;
+        assert_eq!(cfg["python"].cmd(), "pylsp");
+        assert_eq!(of("notes.nim", cfg), Some(("nim", "nim")));
+        assert_eq!(of("build.nims", cfg), Some(("nim", "nim")));
+        assert_eq!(of("x/justfile", cfg), Some(("justfile", "just")));
+        // the command of a known language is changed, its files stay its own
+        assert_eq!(of("a/x.py", cfg), Some(("python", "python")));
+        assert_eq!(find_server("nim", cfg).unwrap().cmd, ["nimlangserver"]);
+        assert!(servers_for("markdown").contains("marksman") && servers_for("nim").is_empty());
+        assert!(usually_wanted("rust") && !usually_wanted("markdown"));
+    }
 
     #[test]
     fn hover_and_references_answers() {

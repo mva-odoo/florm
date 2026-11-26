@@ -2,7 +2,13 @@
 
 Florm : éditeur de texte en Rust (egui/eframe 0.29), inspiré de Sublime Text, un seul binaire.
 Intègre Git, GitHub (pull requests), Claude Code, terminal, LSP, linters, orthographe, tests (pytest,
-jest, cargo, go, dans le terminal). Pas de débogueur : un `ipdb` tapé dans le code s'arrête dans le terminal.
+jest, cargo, go, dans le terminal), débogueur DAP (`src/dap.rs`, `src/app/debugger.rs` : debugpy, dlv,
+lldb-dap, gdb), packs de langage (`src/packs.rs`, `assets/packs.toml` : installer les outils d'un
+langage), extensions (`src/ext.rs`, `src/app/extensions.rs`, bibliothèque `assets/florm_ext.py`) et leur
+catalogue (`src/catalog.rs` ; extensions livrées dans `assets/extensions/`, ex. Odoo). Ce qui manque
+(Python, Node.js, Go, binaires des releases GitHub) est téléchargé et vérifié par `src/runtimes.rs`.
+Coloration par arbre de syntaxe (tree-sitter, grammaires compilées dans Florm, `src/syntax_tree.rs`,
+branché dans `HlCache` de `src/highlight.rs`) pour les langages qui en ont une (choisie par l'extension du fichier) ; syntect pour les autres.
 
 ## Commandes
 
@@ -10,10 +16,10 @@ jest, cargo, go, dans le terminal). Pas de débogueur : un `ipdb` tapé dans le 
 cargo build                 # debug (les dépendances sont optimisées même en debug, voir Cargo.toml)
 cargo run -- .              # lancer sur le dossier courant
 cargo test                  # tests unitaires (#[cfg(test)] dans les modules)
-cargo test -- --ignored     # tests qui lancent des outils installés (ruff, flake8, clangd, gopls, go)
+cargo test -- --ignored     # tests qui lancent des outils installés (ruff, flake8, clangd, gopls, go, debugpy, gdb)
 cargo build --release       # LTO fat, long : seulement si nécessaire
 scripts/build-windows.sh    # binaire Windows depuis Linux/WSL
-FLORM_PROFILE=1 cargo run -- .                              # temps par image et causes des redessins (coin + stderr)
+FLORM_PROFILE=1 cargo run -- .                              # temps de démarrage, temps par image et causes des redessins (coin + stderr)
 FLORM_BENCH=1 cargo test --release bench_views -- --nocapture # temps d'une image des vues lourdes, sans fenêtre
 ```
 
@@ -39,6 +45,10 @@ FLORM_BENCH=1 cargo test --release bench_views -- --nocapture # temps d'une imag
   raccourcis par défaut dans `src/keymap.rs`.
 - Préférences : `Settings` dans `src/config.rs` (`~/.config/florm/settings.toml`, `%APPDATA%\florm`),
   page des préférences dans `src/app/prefs.rs`.
+  Réglages par langage (comme Zed) : `languages` (nom du pack → `LangOverride`), lus avec
+  `settings.lang_of(path)` partout où un réglage dépend du fichier ; pages dans `src/app/prefs/languages.rs`.
+- `src/shell_env.rs` : l'environnement du shell de connexion (PATH de pyenv, nvm…), lu au démarrage et
+  donné par `os::command` à tous les programmes lancés.
 - Les outils externes (git, gh, claude, ruff, docker…) sont appelés comme processus ; aucune
   dépendance système autre qu'OpenGL. Préférer éviter d'ajouter des crates (taille du binaire).
 - Multiplateforme : Linux (X11/Wayland), Windows, macOS. Le code spécifique passe par `#[cfg(...)]`

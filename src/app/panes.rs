@@ -77,6 +77,7 @@ impl App {
         self.conflict_bar(ui, i, pane);
         self.disk_bar(ui, i, pane);
         self.trust_bar(ui, i, pane);
+        self.pack_bar(ui, i, pane);
         self.md_toolbar_ui(ui, i, pane);
         let focused = pane == self.panes.focused;
         let id = if focused { editor_id() } else { editor_view::other_editor_id() };
@@ -89,23 +90,49 @@ impl App {
         match self.docs.get(i)?.view {
             document::View::Text => {
                 let tests = self.test_marks(i);
+                let (debug, exec_line) = self.debug_marks(i);
                 let matches: &[(usize, usize)] = if focused && self.find.open { &self.find.matches } else { &[] };
                 let doc = self.docs.get_mut(i)?;
                 let s = &self.settings;
+                // the settings of the file's language over the general ones
+                let lang = s.lang_of(doc.path.as_deref());
                 let opts = editor_view::ViewOpts {
                     font_size: s.font_size,
                     minimap: s.show_minimap,
-                    wrap: s.word_wrap,
+                    wrap: lang.word_wrap,
                     inline_diff: s.inline_diff,
                     sticky: s.sticky_scroll,
-                    rulers: &s.rulers,
+                    rulers: &lang.rulers,
                     notes: doc.path.as_ref().and_then(|p| self.pr.notes.get(p)).map_or(&[], |v| &v[..]),
                     tests: &tests,
-                    rainbow: s.rainbow_brackets,
-                    whitespace: s.show_whitespace,
+                    rainbow: lang.rainbow_brackets,
+                    whitespace: lang.show_whitespace,
+                    debug,
+                    exec_line,
+                    blame_gutter: self.blame.gutter && doc.path.is_some(),
+                    cursor_shape: &s.cursor_shape,
+                    cursor_blink: s.cursor_blink,
+                    line_numbers: s.line_numbers,
+                    relative_numbers: s.relative_line_numbers,
+                    current_line: s.current_line_highlight,
+                    indent_guides: lang.indent_guides,
+                    scroll_beyond: s.scroll_beyond_last_line,
+                    scroll_margin: s.vertical_scroll_margin,
+                    selection_highlight: s.selection_highlight,
+                    hover_docs: s.hover_popover,
+                    git_gutter: s.git_gutter,
                 };
                 let r = editor_view::show(ui, doc, &self.hl, &opts, matches, id);
-                if let Some(t) = doc.test_pick.take() {
+                // a commit clicked in the blame of the gutter: in the Git view
+                let open = doc.blame_open.take().zip(doc.path.clone());
+                let test = doc.test_pick.take();
+                self.blame_popup(ui.ctx(), i);
+                if let Some((hash, path)) = open {
+                    if let Some(repo) = self.repo_for(&path) {
+                        self.git_show_commit(repo, hash);
+                    }
+                }
+                if let Some(t) = test {
                     self.run_tests(t);
                 }
                 self.conflict_picked(i);
@@ -173,7 +200,7 @@ impl App {
                 let bg = ui.visuals().extreme_bg_color;
                 egui::CentralPanel::default()
                     .frame(egui::Frame::NONE.fill(bg).inner_margin(egui::Margin { left: 12, right: 12, top: 10, bottom: 4 }))
-                    .show(ui, |ui| self.search_ui(ui, true));
+                    .show(ui, |ui| self.search_ui(ui));
                 None
             }
             document::View::Terminal(id) => {
@@ -204,9 +231,6 @@ impl App {
 
     /// The "find in files" panel in an editor tab (instead of the bottom panel).
     pub(super) fn open_search_tab(&mut self) {
-        if self.bottom == Some(BottomTab::Search) {
-            self.bottom = None;
-        }
         self.open_view_tab(document::View::Search, t!("Recherche", "Search").into());
         self.search.focus = true;
     }
@@ -792,7 +816,11 @@ impl App {
             return;
         }
         let was_active = idx == self.active;
+        if doc.path.is_some() {
+            self.ext_event("close", idx);
+        }
         let d = self.docs.remove(idx);
+        self.debug_keep_breakpoints(&d);
         if d.view == document::View::History {
             self.line_history = None;
         }

@@ -175,6 +175,7 @@ pub enum ViewIcon {
     Settings,
     Problems,
     Output,
+    Debug,
 }
 
 /// Claude's color (its asterisk), whatever the theme.
@@ -252,6 +253,18 @@ pub fn paint_view(painter: &Painter, center: Pos2, icon: ViewIcon, color: Color3
                 painter.line_segment([Pos2::new(r.left() + 2.5, y), Pos2::new(r.left() + 2.5 + w * 0.85, y)], Stroke::new(1.1_f32, color));
             }
         }
+        ViewIcon::Debug => {
+            // a bug: its body, its head, three legs on each side
+            let body = Rect::from_center_size(center + Vec2::new(0.0, 1.5), Vec2::new(8.0, 10.0));
+            painter.rect_stroke(body, 4.0, st, eframe::egui::StrokeKind::Middle);
+            painter.circle_stroke(center + Vec2::new(0.0, -5.0), 2.2, st);
+            painter.line_segment([Pos2::new(body.left(), center.y + 1.5), Pos2::new(body.right(), center.y + 1.5)], Stroke::new(1.1_f32, color));
+            for dy in [-1.5_f32, 1.5, 4.5] {
+                let y = center.y + dy;
+                painter.line_segment([Pos2::new(body.left(), y), Pos2::new(body.left() - 3.0, y - 1.0)], Stroke::new(1.1_f32, color));
+                painter.line_segment([Pos2::new(body.right(), y), Pos2::new(body.right() + 3.0, y - 1.0)], Stroke::new(1.1_f32, color));
+            }
+        }
     }
 }
 
@@ -280,8 +293,6 @@ pub enum Layout {
     ToTab,
     /// The view goes to the bottom panel: a window with its bottom band filled.
     ToBottom,
-    /// A panel on the right, shown (filled) or hidden (outlined).
-    SidePanel(bool),
 }
 
 /// A 20×20 button with a `Layout` icon.
@@ -321,14 +332,6 @@ pub fn paint_layout(p: &Painter, c: Pos2, kind: Layout, color: Color32) {
         Layout::ToBottom => {
             p.rect_stroke(win, 2.0, stroke, eframe::egui::StrokeKind::Middle);
             p.rect_filled(Rect::from_min_max(Pos2::new(win.min.x, win.max.y - 4.5), win.max), 1.0, fill);
-        }
-        Layout::SidePanel(shown) => {
-            p.rect_stroke(win, 2.0, stroke, eframe::egui::StrokeKind::Middle);
-            let x = win.max.x - 5.0;
-            if shown {
-                p.rect_filled(Rect::from_min_max(Pos2::new(x, win.min.y), win.max), 1.0, fill);
-            }
-            p.line_segment([Pos2::new(x, win.min.y), Pos2::new(x, win.max.y)], stroke);
         }
     }
 }

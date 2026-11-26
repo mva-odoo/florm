@@ -33,15 +33,21 @@ mod keymap;
 mod lint;
 mod local_history;
 mod logo;
+mod catalog;
+mod dap;
+mod ext;
 mod lsp;
 mod npm;
 mod test_cmd;
 mod os;
+mod packs;
+mod runtimes;
 mod pick;
 mod project;
 mod rebase;
 mod search;
 mod shared;
+mod shell_env;
 mod skills;
 mod sidebar;
 mod sound;
@@ -50,6 +56,7 @@ mod stat_cache;
 mod update;
 mod view_bar;
 mod symbols;
+mod syntax_tree;
 mod templates;
 mod terminal;
 mod tools;
@@ -68,6 +75,7 @@ pub(crate) fn run_ui(ctx: &egui::Context, input: egui::RawInput, f: impl FnMut(&
 }
 
 fn main() -> eframe::Result<()> {
+    let _ = app::profile::PROCESS_START.set(std::time::Instant::now());
     // Called by `git rebase -i` as sequence editor for an interactive rebase prepared in the UI.
     if std::env::args().nth(1).as_deref() == Some(rebase::PLAN_FLAG) {
         let (plan, todo) = (std::env::args().nth(2), std::env::args().nth(3));
@@ -79,12 +87,15 @@ fn main() -> eframe::Result<()> {
         std::process::exit(0);
     }
     crash::install();
+    // the PATH of the login shell (pyenv, nvm…) for the programs Florm runs, read meanwhile
+    std::thread::spawn(shell_env::load);
     #[cfg(target_os = "macos")]
     os::macos_path();
     config::make_private();
     let arg = std::env::args().nth(1).map(PathBuf::from);
     // Florm's own title bar (menus and ─ □ ✕ in the window), see app/title_bar.rs
     let settings = config::load().0;
+    app::profile::startup_mark("main : préférences");
     let own_title_bar = os::draws_title_bar(settings.show_menu_bar);
     os::TRANSPARENT_WINDOW.store(os::rounded_window(settings.show_menu_bar), std::sync::atomic::Ordering::Relaxed);
     let options = eframe::NativeOptions {
@@ -110,6 +121,7 @@ fn main() -> eframe::Result<()> {
         })),
         ..Default::default()
     };
+    app::profile::startup_mark("main : icône");
     eframe::run_native(
         "Florm",
         options,

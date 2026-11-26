@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 mod git_view;
-mod profile;
+pub(crate) mod profile;
 mod ai_review;
 mod ai_complete;
 mod hints;
@@ -49,6 +49,12 @@ mod trust;
 mod panes;
 mod compare;
 mod lsp_client;
+mod debugger;
+mod packs_ui;
+mod blame_popup;
+mod extensions;
+pub(crate) use debugger::DebugStart;
+pub(crate) use blame_popup::CommitInfo;
 mod maximize;
 mod navigation;
 mod projects;
@@ -115,12 +121,20 @@ fn apply_visuals(ctx: &egui::Context, v: egui::Visuals) {
 /// IBM Plex, Zed's fonts (assets/fonts, SIL Open Font License): Sans for the interface, Mono for
 /// the code; then egui's fonts, and Hack as a fallback for the interface text (the arrows and
 /// triangles → ↑ ▾ ● … that Plex Sans lacks).
+/// The screen has fewer than 1.5 pixels per point (a 1080p laptop at 100 %, unlike a Retina Mac):
+/// the text is drawn with the « Text » weight of IBM Plex, a little fuller. With 4 times fewer
+/// pixels per letter, the regular weight looks thin and grey next to the same text on a Mac.
+pub static LOW_DENSITY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 pub fn font_definitions() -> egui::FontDefinitions {
     let mut fonts = egui::FontDefinitions::default();
-    for (name, bytes, family) in [
-        ("plex_sans", &include_bytes!("../assets/fonts/IBMPlexSans-Regular.ttf")[..], egui::FontFamily::Proportional),
-        ("plex_mono", &include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf")[..], egui::FontFamily::Monospace),
-    ] {
+    let low = LOW_DENSITY.load(std::sync::atomic::Ordering::Relaxed);
+    let (sans, mono): (&'static [u8], &'static [u8]) = if low {
+        (include_bytes!("../assets/fonts/IBMPlexSans-Text.ttf"), include_bytes!("../assets/fonts/IBMPlexMono-Text.ttf"))
+    } else {
+        (include_bytes!("../assets/fonts/IBMPlexSans-Regular.ttf"), include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf"))
+    };
+    for (name, bytes, family) in [("plex_sans", sans, egui::FontFamily::Proportional), ("plex_mono", mono, egui::FontFamily::Monospace)] {
         fonts.font_data.insert(name.into(), std::sync::Arc::new(egui::FontData::from_static(bytes)));
         fonts.families.entry(family).or_default().insert(0, name.into());
     }
@@ -216,10 +230,10 @@ pub(crate) const TAB_STRIP_H: f32 = 34.0;
 
 #[derive(PartialEq, Clone, Copy, Debug)]
 enum BottomTab {
-    Search,
     Problems,
     Terminal,
     Output,
+    Debug,
 }
 
 impl BottomTab {
@@ -229,10 +243,11 @@ impl BottomTab {
     }
 
     /// The views of the bottom panel, in the order of its ▾ menu.
+    /// The search is a page of its own (an editor tab), not here.
     const ALL: [(BottomTab, icons::ViewIcon, &'static str); 4] = [
-        (BottomTab::Search, icons::ViewIcon::Search, "Recherche"),
-        (BottomTab::Problems, icons::ViewIcon::Problems, "Problèmes"),
         (BottomTab::Terminal, icons::ViewIcon::Terminal, "Terminal"),
+        (BottomTab::Debug, icons::ViewIcon::Debug, "Débogueur"),
+        (BottomTab::Problems, icons::ViewIcon::Problems, "Problèmes"),
         (BottomTab::Output, icons::ViewIcon::Output, "Sortie"),
     ];
 
@@ -240,9 +255,9 @@ impl BottomTab {
     fn shown() -> impl Iterator<Item = (BottomTab, icons::ViewIcon, &'static str)> {
         Self::ALL.into_iter().map(|(t, i, l)| {
             let l = match l {
-                "Recherche" => t!(l, "Search"),
                 "Problèmes" => t!(l, "Problems"),
                 "Sortie" => t!(l, "Output"),
+                "Débogueur" => t!(l, "Debugger"),
                 _ => l,
             };
             (t, i, l)
@@ -257,10 +272,10 @@ impl BottomTab {
     /// The command that opens it, for the shortcut shown in the ▾ menu of the bottom panel.
     fn cmd(self) -> Cmd {
         match self {
-            BottomTab::Search => Cmd::FindInFiles,
             BottomTab::Problems => Cmd::ShowProblems,
             BottomTab::Terminal => Cmd::ToggleTerminal,
             BottomTab::Output => Cmd::ShowOutput,
+            BottomTab::Debug => Cmd::DebugShow,
         }
     }
 }
@@ -284,6 +299,8 @@ enum Prompt {
     AddRemote,
     /// "url [folder]" of a new submodule.
     AddSubmodule,
+    /// A text asked by an extension (its title).
+    ExtInput(String),
     /// What to look for in the history.
     HistorySearch(git::SearchKind),
     /// New name of the symbol under the cursor (LSP rename).
@@ -316,6 +333,8 @@ enum Mode {
     References(String),
     Bookmarks,
     Prompt(Prompt),
+    /// A list shown for an extension (its title).
+    ExtPick(String),
 }
 
 #[derive(Clone)]
@@ -339,6 +358,10 @@ enum Action {
     Terminal(u64),
     /// Show a Claude conversation (its id), where it is (`#` in the palette).
     Conversation(u64),
+    /// Run command (id) of extension n.
+    Ext(usize, String),
+    /// Entry n of a list shown for an extension.
+    ExtPick(usize),
 }
 
 struct Item {
@@ -498,6 +521,8 @@ impl StatusMsg {
 enum Confirm {
     CloseTab(u64),
     Quit,
+    /// Quitting with everything saved, `confirm_quit` on.
+    QuitAsk,
     /// Closing Florm while Claude works in this many conversations.
     QuitClaude(usize),
     Delete(PathBuf),
@@ -619,8 +644,6 @@ enum SearchAct {
     ReplaceAll,
     Reveal(usize),
     Copy(String),
-    /// Into an editor tab (true) or back into the bottom panel.
-    Move(bool),
 }
 
 impl SearchUi {
@@ -749,7 +772,7 @@ enum LspReq {
     /// workspace/executeCommand: its edit comes as a workspace/applyEdit.
     Command,
     /// The whole document `uid` formatted by the server (its text edits, at `version`).
-    Format { uid: u64, version: u64 },
+    Format { uid: u64, version: u64, then_save: bool },
 }
 
 /// Interactive rebase prepared in the graph (see rebase.rs).
@@ -937,6 +960,13 @@ pub struct App {
     watch: WatchState,
     /// Folders not trusted for which « Plus tard » was clicked (until Florm is closed).
     trust_later: HashSet<PathBuf>,
+    /// Language packs: their tools there or not, the one being installed.
+    packs: packs_ui::PacksUi,
+    /// The window of a commit hovered in the blame of the gutter, and the commits' details read.
+    blame_pop: Option<blame_popup::BlamePop>,
+    commit_info: HashMap<String, Option<Result<blame_popup::CommitInfo, String>>>,
+    /// Extensions: their processes, what they wait for.
+    ext: extensions::ExtUi,
     last_line_copy: Option<String>,
     /// Closing Florm: what was confirmed, and « Fermer quand il aura fini ».
     quit: QuitState,
@@ -1013,6 +1043,7 @@ pub struct App {
     nav: NavState,
     index: Indexes,
     lsp: LspUi,
+    debug: debugger::DebugUi,
 }
 
 /// Blame mode: the author of the cursor line, asked as the cursor moves.
@@ -1022,6 +1053,9 @@ struct BlameState {
     req: Option<(u64, usize, u64)>,
     /// The line of the cursor (as `req`) and since when it is there.
     seen: Option<((u64, usize, u64), Instant)>,
+    /// The blame of every line in the gutter (as in Zed), and the version asked per document.
+    gutter: bool,
+    lines_req: HashMap<u64, u64>,
 }
 
 /// Closing Florm: what was confirmed, and « Fermer quand il aura fini ».
@@ -1089,27 +1123,29 @@ struct MacroState {
 enum PrefSection {
     Appearance,
     Editor,
-    Lint,
+    Languages,
     Git,
     PullRequests,
     Claude,
     Terminal,
     Keys,
     Templates,
+    Extensions,
     Advanced,
 }
 
 /// (section, French name, English name).
-const PREF_SECTIONS: [(PrefSection, &str, &str); 10] = [
+const PREF_SECTIONS: [(PrefSection, &str, &str); 11] = [
     (PrefSection::Appearance, "Apparence", "Appearance"),
     (PrefSection::Editor, "Éditeur", "Editor"),
-    (PrefSection::Lint, "Lint", "Lint"),
+    (PrefSection::Languages, "Langages", "Languages"),
     (PrefSection::Git, "Git", "Git"),
     (PrefSection::PullRequests, "Pull requests", "Pull requests"),
     (PrefSection::Claude, "Claude", "Claude"),
     (PrefSection::Terminal, "Terminal", "Terminal"),
     (PrefSection::Keys, "Raccourcis", "Shortcuts"),
     (PrefSection::Templates, "Modèles", "Templates"),
+    (PrefSection::Extensions, "Extensions", "Extensions"),
     (PrefSection::Advanced, "Avancé", "Advanced"),
 ];
 
@@ -1159,16 +1195,21 @@ struct PrefsUi {
     font_list_loading: bool,
     /// Préférences → Claude → Comptes.
     accounts: prefs::AccountsUi,
+    /// The page of a language shown in Préférences → Langages (None: all the languages).
+    lang: Option<String>,
+    /// Its rulers being edited: (language, comma separated columns).
+    lang_rulers: Option<(String, String)>,
 }
 
 impl Default for PrefsUi {
     fn default() -> Self {
-        PrefsUi { skills: None, capture: None, proposed: None, key_action: None, section: PrefSection::Appearance, filter: String::new(), lint_args: String::new(), lint_ignore: Default::default(), theme_draft: None, template: None, shell: String::new(), exclude: String::new(), shared: String::new(), rulers: String::new(), font_list: None, font_list_loading: false, accounts: Default::default() }
+        PrefsUi { skills: None, capture: None, proposed: None, key_action: None, section: PrefSection::Appearance, filter: String::new(), lint_args: String::new(), lint_ignore: Default::default(), theme_draft: None, template: None, shell: String::new(), exclude: String::new(), shared: String::new(), rulers: String::new(), font_list: None, font_list_loading: false, accounts: Default::default(), lang: None, lang_rulers: None }
     }
 }
 
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, arg: Option<PathBuf>) -> Self {
+        profile::startup_mark("fenêtre");
         Self::with_ctx(&cc.egui_ctx, arg)
     }
 
@@ -1201,19 +1242,24 @@ impl App {
             s.text_styles.insert(TextStyle::Heading, FontId::proportional(19.0));
             s.text_styles.insert(TextStyle::Monospace, FontId::monospace(13.5));
         });
+        profile::startup_mark("préférences");
         let mut hl = Highlighting::new(&settings.theme, &config::config_dir().join("themes"));
         if let Some(d) = crate::shared::sub("themes") {
             hl.add_folder(&d);
             hl.set_theme(&settings.theme);
         }
         hl.set_overrides(highlight::parse_hex(&settings.accent_color), settings.text_softness);
+        hl.prepare_on_thread(egui_ctx.clone());
         history::SIDE_BY_SIDE.store(settings.diff_side_by_side, Ordering::Relaxed);
         git::set_trusted(&settings.trusted_folders);
+        crate::syntax_tree::set_off(&settings.tree_sitter_off);
+        profile::startup_mark("coloration (syntect)");
         apply_visuals(egui_ctx, hl.visuals());
         egui_ctx.set_fonts(crate::fonts::definitions(&settings.editor_font, &settings.ui_font));
         egui_extras::install_image_loaders(egui_ctx);
         crate::images::install(egui_ctx);
         install_link_opener(egui_ctx);
+        profile::startup_mark("polices, images");
         let (keymap, _) = Keymap::new(&settings.keys);
         let mut app = App {
             hl,
@@ -1253,11 +1299,19 @@ impl App {
             status: None,
             status_log: Default::default(),
             upd: UpdateState { found: None, installing: false, ready: None, restart: None, shared_busy: false, shared_op: None },
-            paced_frame: std::env::var_os("WAYLAND_DISPLAY").is_some().then(Instant::now),
+            // as if the last frame was long ago: the window has no focus yet at startup, and the first
+            // frame must not wait the 250 ms of a window in the background
+            paced_frame: std::env::var_os("WAYLAND_DISPLAY")
+                .is_some()
+                .then(|| Instant::now().checked_sub(BACKGROUND_FRAME).unwrap_or_else(Instant::now)),
             prof: profile::Profiler::new(),
             pending: Vec::new(),
             watch: WatchState { last_check: Instant::now(), busy: false, git_stamps: HashMap::new(), term_enter: None, was_focused: true },
             trust_later: HashSet::new(),
+            packs: packs_ui::PacksUi::default(),
+            blame_pop: None,
+            commit_info: HashMap::new(),
+            ext: extensions::ExtUi::default(),
             last_line_copy: None,
             quit: QuitState { confirmed: false, claude_ok: false, when_idle: false },
             closed: Vec::new(),
@@ -1293,7 +1347,7 @@ impl App {
             goto_select: false,
             drop_alt_text: None,
             dialog_open: false,
-            blame: BlameState { on: false, req: None, seen: None },
+            blame: BlameState { on: settings.inline_blame, req: None, seen: None, gutter: false, lines_req: HashMap::new() },
             line_history: None,
             local_history: None,
             state: project::load_state(),
@@ -1304,12 +1358,14 @@ impl App {
             nav: NavState::default(),
             index: Indexes::default(),
             lsp: LspUi::default(),
+            debug: debugger::DebugUi::default(),
             templates: Vec::new(),
             settings,
         };
         if let Some(e) = settings_err {
             app.log(e);
         }
+        profile::startup_mark("état (projets, Claude…)");
         app.search = app.fresh_search();
         crate::update::cleanup();
         if app.settings.check_updates {
@@ -1341,6 +1397,7 @@ impl App {
         if app.root.is_none() {
             app.restore_loose();
         }
+        profile::startup_mark("projet et fichiers");
         if crate::crash::take_pending() {
             let log = crate::crash::log_path();
             app.log(tf!("Florm s'est fermé à cause d'une erreur. Détails : {}", "Florm closed because of an error. Details: {}", log.display()));
@@ -1458,7 +1515,8 @@ impl App {
             return true;
         }
         let uid = self.next_uid();
-        match Document::open(uid, &path, self.settings.tab_size, self.settings.translate_tabs_to_spaces, &self.hl) {
+        let lang = self.settings.lang_of(Some(&path));
+        match Document::open(uid, &path, lang.tab_size, lang.translate_tabs_to_spaces, &self.hl) {
             Ok(d) => {
                 // an empty document, or the welcome page, gives its place to the file
                 if self.docs.len() == 1 && (self.docs[0].is_pristine_empty() || self.docs[0].view == document::View::Welcome) {
@@ -1468,6 +1526,7 @@ impl App {
                 // linted and compared with git once shown (`analyze_shown`): the tabs of a
                 // session do not each start a linter and git at startup
                 self.activate_tab(self.docs.len() - 1);
+                self.ext_event("open", self.docs.len() - 1);
                 true
             }
             Err(e) => {
@@ -1577,6 +1636,12 @@ impl eframe::App for App {
             self.paced_frame = Some(Instant::now());
         }
         self.prof.begin();
+        // the weight of the text follows the density of the screen (a window moved to another
+        // screen too): « Text » under 1.5 pixels per point, regular on a Retina screen
+        let low = ctx.pixels_per_point() < 1.5;
+        if low != LOW_DENSITY.swap(low, std::sync::atomic::Ordering::Relaxed) {
+            ctx.set_fonts(crate::fonts::definitions(&self.settings.editor_font, &self.settings.ui_font));
+        }
         crate::view_bar::set_font_size(self.settings.font_size);
         if std::mem::take(&mut self.visuals_dirty) {
             apply_visuals(ctx, self.hl.visuals());
@@ -1625,6 +1690,8 @@ impl eframe::App for App {
         }
         self.prof.mark("début");
         self.lsp_frame(ctx);
+        self.debug_frame(ctx);
+        self.ext_frame(ctx);
         self.update_hover(ctx);
         self.completion_keys(ctx);
         self.ai_complete_keys(ctx);
@@ -2127,7 +2194,24 @@ fn welcome_row(ui: &mut egui::Ui, label: &str, detail: &str, shortcut: bool) -> 
 /// "▾" button listing previous values; returns true when one was picked.
 fn history_menu(ui: &mut egui::Ui, list: &[String], target: &mut String, title: &str) -> bool {
     let mut picked = false;
-    ui.menu_button("⏷", |ui| {
+    // a small clock: clearer than an arrow for « the recent ones »
+    let (rect, r) = ui.allocate_exact_size(egui::vec2(22.0, 22.0), Sense::click());
+    let r = r.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(title);
+    let popup = ui.make_persistent_id(("history_menu", title));
+    let open = egui::Popup::is_id_open(ui.ctx(), popup);
+    let color = if r.hovered() || open { ui.visuals().strong_text_color() } else { ui.visuals().text_color() };
+    if r.hovered() || open {
+        ui.painter().rect_filled(rect, 4.0, ui.visuals().widgets.hovered.weak_bg_fill);
+    }
+    let (c, st) = (rect.center(), egui::Stroke::new(1.3_f32, color));
+    ui.painter().circle_stroke(c, 6.0, st);
+    ui.painter().line_segment([c, c + egui::vec2(0.0, -3.5)], st);
+    ui.painter().line_segment([c, c + egui::vec2(2.5, 1.5)], st);
+    if r.clicked() {
+        egui::Popup::toggle_id(ui.ctx(), popup);
+    }
+    egui::Popup::from_response(&r).id(popup).open_memory(None).close_behavior(egui::PopupCloseBehavior::CloseOnClick).width(240.0).show(|ui| {
+        ui.set_min_width(220.0);
         ui.label(RichText::new(title).small().strong());
         if list.is_empty() {
             ui.label(RichText::new(t!("(vide)", "(empty)")).weak());
@@ -2136,12 +2220,9 @@ fn history_menu(ui: &mut egui::Ui, list: &[String], target: &mut String, title: 
             if ui.button(RichText::new(h).monospace()).clicked() {
                 *target = h.clone();
                 picked = true;
-                ui.close();
             }
         }
-    })
-    .response
-    .on_hover_text(title);
+    });
     picked
 }
 
@@ -2616,7 +2697,7 @@ mod font_tests {
         app.save_session();
         let again = App::with_ctx(&ctx, Some(proj.clone()));
         assert_eq!(views(&again), views(&app));
-        // every view, large in a tab then in the bottom panel
+        // every view of the bottom panel, and the search page
         let all = |app: &mut App| {
             let _ = crate::run_ui(&ctx, egui::RawInput { screen_rect: screen, ..Default::default() }, |ui| {
                 app.sidebar(ui);
@@ -2626,10 +2707,11 @@ mod font_tests {
                 app.central(ui);
             });
         };
+        app.open_search_tab();
+        all(&mut app);
+        all(&mut app);
+        assert!(app.docs.iter().any(|d| d.view == document::View::Search));
         for (tab, ..) in BottomTab::ALL {
-            app.show_big(tab);
-            all(&mut app);
-            all(&mut app);
             app.show_bottom(tab, false);
             all(&mut app);
             all(&mut app);
@@ -2726,6 +2808,12 @@ mod font_tests {
             let t = Instant::now();
             app.process_jobs();
             let out = crate::run_ui(&ctx, egui::RawInput { screen_rect: screen, events, ..Default::default() }, |ui| {
+                // the keys and the work that follows an edit, as in `update`
+                let c = ui.ctx().clone();
+                app.handle_keys(&c);
+                app.editor_input(&c);
+                app.update_live_lint(&c);
+                app.update_find();
                 app.menu_bar(ui);
                 app.status_bar(ui);
                 app.sidebar(ui);
@@ -2762,6 +2850,8 @@ mod font_tests {
             }
         };
         let none = |_: usize| Vec::new();
+        let key = |k: egui::Key| egui::Event::Key { key: k, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() };
+        let key_mod = |k: egui::Key, modifiers| egui::Event::Key { key: k, physical_key: None, pressed: true, repeat: false, modifiers };
         let editor_at = egui::pos2(900.0, 500.0);
         let wheel = move |k: usize| {
             let dy = if (k / 40) % 2 == 0 { -120.0 } else { 120.0 };
@@ -2780,6 +2870,39 @@ mod font_tests {
         app.file_history(root.clone(), "src/app.rs".into());
         wait(&mut app, &|a| a.line_history.as_ref().is_some_and(|l| !l.loading));
         run(&mut app, "historique du fichier", 60, &hover);
+        // extreme files: a minified line of 2 MB (as it is, then wrapped), a log of 40 MB
+        let typing = move |k: usize| {
+            let e = if k % 2 == 0 { egui::Event::Text("a".into()) } else { key(egui::Key::Backspace) };
+            vec![egui::Event::PointerMoved(editor_at), e]
+        };
+        let key_end = vec![key_mod(egui::Key::End, egui::Modifiers::COMMAND)];
+        let min = dir.join("min.js");
+        std::fs::write(&min, "var a={b:1,c:[2,3]};function f(x){return x*2+a.b}".repeat(40_000)).unwrap();
+        app.open_path(min);
+        app.focus_editor(&ctx);
+        run(&mut app, "minifié 2 Mo, début", 60, &none);
+        let v = app.docs[app.active].version;
+        run(&mut app, "minifié 2 Mo, frappe début", 60, &typing);
+        assert!(app.docs[app.active].version > v, "the typing reached the editor");
+        frame(&mut app, key_end.clone());
+        assert!(app.docs[app.active].primary_sel().head > 1_000_000, "at the end of the line");
+        run(&mut app, "minifié 2 Mo, fin", 60, &none);
+        run(&mut app, "minifié 2 Mo, frappe fin", 60, &typing);
+        app.settings.word_wrap = true;
+        run(&mut app, "minifié 2 Mo, à la ligne, fin", 60, &none);
+        run(&mut app, "minifié, à la ligne, frappe", 60, &typing);
+        app.settings.word_wrap = false;
+        let log = dir.join("big.log");
+        let line = "2026-11-25 14:03:12,345 INFO odoo.modules.loading: 42 modules loaded in 0.12s, 0 queries\n";
+        std::fs::write(&log, line.repeat(40_000_000 / line.len())).unwrap();
+        let t = Instant::now();
+        app.open_path(log);
+        app.focus_editor(&ctx);
+        eprintln!("{:<28} {:>6.0} ms", "ouvrir un journal de 40 Mo", t.elapsed().as_secs_f64() * 1000.0);
+        run(&mut app, "journal 40 Mo, défilement", 160, &wheel);
+        run(&mut app, "journal 40 Mo, frappe début", 60, &typing);
+        frame(&mut app, key_end);
+        run(&mut app, "journal 40 Mo, frappe fin", 60, &typing);
         app.output = (0..5000).map(|k| format!("ligne de sortie numéro {k} : quelque chose s'est passé dans un outil")).collect();
         app.bottom = Some(BottomTab::Output);
         run(&mut app, "sortie, 5000 lignes", 60, &hover);

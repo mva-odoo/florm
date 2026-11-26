@@ -104,17 +104,56 @@ impl App {
             let muted = crate::icons::mix(ui.visuals().text_color(), s.bar, 0.22);
             ui.visuals_mut().override_text_color = Some(muted);
             ui.horizontal_centered(|ui| {
+                // the F of Florm, at the far left: the menus (File, Edit, Git…) above it, when the
+                // menu bar is hidden (as Zed's ☰)
+                if !self.settings.show_menu_bar {
+                    let mut picked = Vec::new();
+                    let km = &self.keymap;
+                    let b = egui::Button::new("").frame(false).min_size(egui::vec2(22.0, 22.0));
+                    let r = egui::containers::menu::MenuButton::from_button(b)
+                        .ui(ui, |ui| {
+                            ui.visuals_mut().override_text_color = None;
+                            super::menus::menus(ui, km, &mut picked);
+                        })
+                        .0;
+                    let r = r.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(t!("Menus (Fichier, Édition, Git…)", "Menus (File, Edit, Git…)"));
+                    if r.hovered() {
+                        ui.painter().rect_filled(r.rect, 4.0, ui.visuals().widgets.hovered.weak_bg_fill);
+                    }
+                    crate::logo::paint(ui.painter(), r.rect.shrink(4.0), false);
+                    self.pending.extend(picked);
+                }
                 // the preferences, one click away (a click on them shown goes back to the tab before)
                 let shown = self.docs.get(self.active).is_some_and(|d| d.view == crate::document::View::Settings);
                 let keys = self.keymap.label(Cmd::OpenSettings);
                 let tip = if keys.is_empty() { t!("Préférences", "Preferences").to_string() } else { tf!("Préférences ({keys})", "Preferences ({keys})") };
+                let tip = tf!("{tip}\nClic droit : Langages (outils, tree-sitter), Extensions", "{tip}\nRight click: Languages (tools, tree-sitter), Extensions");
                 let color = if shown { self.hl.colors.accent } else { muted };
-                if view_button(ui, icons::ViewIcon::Settings, color).on_hover_text(tip).clicked() {
+                let gear = view_button(ui, icons::ViewIcon::Settings, color).on_hover_text(tip);
+                if gear.clicked() {
                     if shown {
                         self.leave_tab(crate::document::View::Settings);
                     } else {
                         self.pending.push(Cmd::OpenSettings);
                     }
+                }
+                // its right click: straight to the languages and the extensions
+                let mut go = None;
+                gear.context_menu(|ui| {
+                    ui.visuals_mut().override_text_color = None;
+                    for (label, cmd) in [
+                        (t!("Préférences", "Preferences"), Cmd::OpenSettings),
+                        (t!("Langages : outils et tree-sitter…", "Languages: tools and tree-sitter…"), Cmd::ShowLanguages),
+                        (t!("Extensions et catalogue…", "Extensions and catalogue…"), Cmd::ShowExtensions),
+                    ] {
+                        if ui.button(label).clicked() {
+                            go = Some(cmd);
+                            ui.close();
+                        }
+                    }
+                });
+                if let Some(c) = go {
+                    self.pending.push(c);
                 }
                 // the views of every day, one click away: Claude, Git, the pull requests (their tab;
                 // a click on the one shown goes back to the tab before it) and the terminal
@@ -141,6 +180,24 @@ impl App {
                             Some(v) if shown => self.leave_tab(v),
                             _ => self.pending.push(cmd),
                         }
+                    }
+                }
+                // the debugger, beside the terminal: in color while a session runs (green) or is
+                // paused (orange); a click shows its view, or hides it when shown
+                let shown = self.bottom == Some(BottomTab::Debug);
+                let (color, state) = match self.debug_status() {
+                    Some(true) => (warn(), t!(" — en pause", " — paused")),
+                    Some(false) => (ok(), t!(" — en cours", " — running")),
+                    None if shown => (accent, ""),
+                    None => (muted, ""),
+                };
+                let keys = self.keymap.label(Cmd::DebugStart);
+                let tip = tf!("Débogueur{state} ({keys} : lancer, continuer)", "Debugger{state} ({keys}: start, continue)");
+                if view_button(ui, icons::ViewIcon::Debug, color).on_hover_text(tip).clicked() {
+                    if shown {
+                        self.bottom = None;
+                    } else {
+                        self.pending.push(Cmd::DebugShow);
                     }
                 }
                 ui.separator();
@@ -217,9 +274,14 @@ impl App {
                         if let Some((text, warning, install)) = &lsp_line {
                             ui.separator();
                             let t = if *warning { RichText::new(text).color(warn()) } else { RichText::new(text) };
-                            if *install {
-                                if ui.button(t).on_hover_text(t!("Installe python-lsp-server pour Florm (pip --target, sans toucher au Python système). Ou installe pyright.", "Installs python-lsp-server for Florm (pip --target, without touching the system Python). Or install pyright.")).clicked() {
-                                    pending.push(Cmd::InstallPylsp);
+                            if let Some(cmd) = install {
+                                let tip = if *cmd == Cmd::InstallPylsp {
+                                    t!("Installe python-lsp-server pour Florm (pip --target, sans toucher au Python système). Ou installe pyright.", "Installs python-lsp-server for Florm (pip --target, without touching the system Python). Or install pyright.")
+                                } else {
+                                    t!("Préférences → Langages : les outils de ce langage, à installer", "Preferences → Languages: the tools of this language, to install")
+                                };
+                                if ui.button(t).on_hover_text(tip).clicked() {
+                                    pending.push(*cmd);
                                     ui.close();
                                 }
                             } else {
@@ -326,14 +388,22 @@ impl App {
 
     /// Language server of the active file, for the status bar menu: (text, is a warning, the
     /// click installs pylsp).
-    pub(super) fn lsp_status_line(&self) -> Option<(String, bool, bool)> {
-        let fam = self.settings.lsp.then(|| self.docs.get(self.active).and_then(|d| d.path.as_deref()).and_then(lsp::language_of)).flatten()?.0;
+    /// What the language server of the current file does: (text, a warning, the command a click runs).
+    pub(super) fn lsp_status_line(&self) -> Option<(String, bool, Option<Cmd>)> {
+        let path = self.docs.get(self.active).and_then(|d| d.path.as_deref()).filter(|_| self.settings.lsp)?;
+        let fam = lsp::language_of(path, &self.settings.lsp_servers)?.0;
         let running = self.lsp.manager.clients.iter().flatten().find(|c| c.family == fam);
         match (running, self.lsp.notes.get(fam)) {
-            (Some(c), _) if c.ready => Some((tf!("Serveur de langage : {}", "Language server: {}", c.name), false, false)),
-            (Some(c), _) => Some((tf!("Serveur de langage : {} (démarrage…)", "Language server: {} (starting…)", c.name), false, false)),
-            (None, Some(_)) if fam == "python" => Some((t!("Serveur de langage : installer pylsp", "Language server: install pylsp").into(), true, true)),
-            (None, Some(why)) => Some((tf!("Pas de serveur de langage : {why}", "No language server: {why}"), true, false)),
+            (Some(c), _) if c.ready => Some((tf!("Serveur de langage : {}", "Language server: {}", c.name), false, None)),
+            (Some(c), _) => Some((tf!("Serveur de langage : {} (démarrage…)", "Language server: {} (starting…)", c.name), false, None)),
+            (None, Some(_)) if fam == "python" => Some((t!("Serveur de langage : installer pylsp", "Language server: install pylsp").into(), true, Some(Cmd::InstallPylsp))),
+            // a language one does not always want a server for: said, not a warning; its pack
+            // (Preferences → Languages) installs it
+            (None, Some(why)) => Some((
+                tf!("Pas de serveur de langage : {why} — ⬇ Langages…", "No language server: {why} — ⬇ Languages…"),
+                lsp::usually_wanted(fam) || self.settings.lsp_servers.contains_key(fam),
+                Some(Cmd::ShowLanguages),
+            )),
             _ => None,
         }
     }
@@ -489,4 +559,49 @@ fn news_tag(line: &str) -> (Option<(&'static str, Color32)>, &str) {
         }
     }
     (None, line)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The F at the far left of the status bar opens the menus (the menu bar being hidden).
+    #[test]
+    fn the_f_of_the_status_bar_opens_the_menus() {
+        let dir = std::env::temp_dir().join(format!("florm_status_f_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("settings.toml"), "check_updates = false\nlsp = false\n").unwrap();
+        let _lock = config::TEST_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("FLORM_CONFIG", &dir);
+        let ctx = egui::Context::default();
+        let mut app = App::with_ctx(&ctx, None);
+        assert!(!app.settings.show_menu_bar);
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 700.0));
+        let frame = |app: &mut App, events: Vec<egui::Event>| {
+            let out = crate::run_ui(&ctx, egui::RawInput { screen_rect: Some(screen), events, ..Default::default() }, |ui| app.status_bar(ui));
+            let mut texts = Vec::new();
+            fn walk(s: &egui::Shape, out: &mut Vec<String>) {
+                match s {
+                    egui::Shape::Text(t) => out.push(t.galley.text().to_string()),
+                    egui::Shape::Vec(v) => v.iter().for_each(|x| walk(x, out)),
+                    _ => {}
+                }
+            }
+            out.shapes.iter().for_each(|c| walk(&c.shape, &mut texts));
+            texts
+        };
+        let before = frame(&mut app, Vec::new());
+        assert!(!before.iter().any(|t| t == "Édition"));
+        // the F: the first thing at the left of the bar
+        let at = egui::pos2(14.0, screen.bottom() - 12.0);
+        let click = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+        frame(&mut app, vec![egui::Event::PointerMoved(at), click(true)]);
+        frame(&mut app, vec![click(false)]);
+        let after = frame(&mut app, Vec::new());
+        for want in ["Fichier", "Édition", "Git", "Outils"] {
+            assert!(after.iter().any(|t| t == want), "{want}: {after:?}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

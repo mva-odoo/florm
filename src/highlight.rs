@@ -3,7 +3,9 @@ use ropey::Rope;
 use std::collections::BTreeMap;
 use std::ops::Range;
 use std::path::Path;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use syntect::highlighting::{Color, HighlightIterator, HighlightState, Highlighter, Theme, ThemeSet};
 use syntect::parsing::{ParseState, ScopeStack, SyntaxSet};
@@ -58,7 +60,11 @@ pub struct Surfaces {
 }
 
 pub struct Highlighting {
-    pub ss: SyntaxSet,
+    pub ss: Arc<SyntaxSet>,
+    /// The languages prepared on a thread (true once done, see `ready`), and what redraws the
+    /// window then. Without it (tests) every language is highlighted at once.
+    warm: Arc<Mutex<HashMap<String, bool>>>,
+    repaint: Option<egui::Context>,
     themes: BTreeMap<String, Theme>,
     pub theme: Theme,
     pub theme_name: String,
@@ -145,7 +151,9 @@ impl Highlighting {
             let _ = ts.add_from_folder(extra_themes);
         }
         let mut h = Highlighting {
-            ss,
+            ss: Arc::new(ss),
+            warm: Default::default(),
+            repaint: None,
             themes: ts.themes,
             theme: Theme::default(),
             theme_name: String::new(),
@@ -170,6 +178,43 @@ impl Highlighting {
             h.set_theme(replacement(theme_name));
         }
         h
+    }
+
+    /// Languages are prepared on a thread from now on, and the window redrawn when one is ready.
+    pub fn prepare_on_thread(&mut self, ctx: egui::Context) {
+        self.repaint = Some(ctx);
+    }
+
+    /// Whether `syntax` can be highlighted at once. syntect compiles the expressions of a language
+    /// the first time they are used: 20 to 50 ms for the first lines, which the frame budget cannot
+    /// cut (the first image of the window waited for it). The first lines of the file are parsed on
+    /// a thread instead: the text is shown at once, its colors a moment later.
+    fn ready(&self, syntax: &str, rope: &Rope) -> bool {
+        let Some(ctx) = self.repaint.as_ref().filter(|_| syntax != "Plain Text") else { return true };
+        let mut warm = self.warm.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(done) = warm.get(syntax) {
+            return *done;
+        }
+        warm.insert(syntax.to_string(), false);
+        /// Ready even if the parser panicked: highlighting then goes on (or fails) on the UI thread.
+        struct Done(Arc<Mutex<HashMap<String, bool>>>, String, egui::Context);
+        impl Drop for Done {
+            fn drop(&mut self) {
+                self.0.lock().unwrap_or_else(|e| e.into_inner()).insert(std::mem::take(&mut self.1), true);
+                self.2.request_repaint();
+            }
+        }
+        let done = Done(self.warm.clone(), syntax.to_string(), ctx.clone());
+        let (ss, rope) = (self.ss.clone(), rope.clone());
+        std::thread::spawn(move || {
+            let syn = ss.find_syntax_by_name(&done.1).unwrap_or_else(|| ss.find_syntax_plain_text());
+            let mut ps = ParseState::new(syn);
+            for line in rope.lines().take(200) {
+                let _ = ps.parse_line(&line.to_string(), &ss);
+            }
+            drop(done);
+        });
+        false
     }
 
     /// Adds (or replaces) theme `name` from the text of a .tmTheme.
@@ -524,92 +569,282 @@ const CHECKPOINT: usize = 16;
 /// Time given to highlighting in a frame: the rest comes in the next frames.
 pub const FRAME_BUDGET: Duration = Duration::from_millis(6);
 
-/// Incremental highlighting cache: parser state at the start of every `CHECKPOINT`-th line plus
-/// colored byte spans for every line already highlighted.
+type State = (ParseState, HighlightState);
+type Spans = Vec<(Color32, Range<usize>)>;
+
+/// One highlighted line: its colored byte spans, and a hash of its text (to know, after an edit
+/// above it, whether it is still the same line).
+#[derive(Default)]
+struct Line {
+    hash: u64,
+    spans: Spans,
+}
+
+fn line_hash(rope: &Rope, line: usize) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    for c in rope.line(line).chunks() {
+        c.hash(&mut h);
+    }
+    h.finish()
+}
+
+/// The lines that were after an edit, kept aside: when the parser reaches one of their states
+/// again (same state, same text after it), the rest is taken back as it was instead of being
+/// parsed again. Typing a letter costs one line, not every line down to the bottom of the screen.
+struct Tail {
+    /// The line of the document `lines[0]` was expected at when the document had `nlines` lines.
+    base: usize,
+    nlines: usize,
+    lines: Vec<Line>,
+    /// States at the start of `lines[k]` (k may be `lines.len()`: the state after the last one).
+    states: Vec<(usize, State)>,
+}
+
+/// Incremental highlighting cache: parser states every `CHECKPOINT` lines or so, plus colored
+/// byte spans for every line already highlighted.
 #[derive(Default)]
 pub struct HlCache {
-    /// State at the start of lines 0, CHECKPOINT, 2 × CHECKPOINT…
-    states: Vec<(ParseState, HighlightState)>,
-    spans: Vec<Vec<(Color32, Range<usize>)>>,
-    /// State at the start of line `spans.len()`, where highlighting goes on (None: from a checkpoint).
-    next: Option<(ParseState, HighlightState)>,
+    /// States at the start of some lines (line 0 first, ascending, one every ~`CHECKPOINT`).
+    states: Vec<(usize, State)>,
+    lines: Vec<Line>,
+    /// State at the start of line `lines.len()`, where highlighting goes on (None: from the last
+    /// state of `states`, which is then at `lines.len()`).
+    next: Option<State>,
     /// The line last changed and its state when known: typing on it again starts from there,
     /// not from the checkpoint before it.
-    hot: Option<(usize, Option<(ParseState, HighlightState)>)>,
+    hot: Option<(usize, Option<State>)>,
+    tail: Option<Tail>,
+    /// Lines of the document when it was last highlighted.
+    nlines: usize,
+    /// Lines parsed so far (the tests check that an edit does not parse everything again).
+    #[cfg(test)]
+    parsed: usize,
     syntax: String,
     generation: u64,
+    /// The syntax tree, for the languages with a grammar (tree-sitter): the colors come from it
+    /// instead of the regexes, line by line for the lines shown.
+    ts: Option<crate::syntax_tree::SyntaxTree>,
+    /// Colors read from the tree, per line (None: to read).
+    ts_lines: Vec<Option<Spans>>,
+    /// The first line changed since the colors were read.
+    ts_dirty: Option<usize>,
+    /// The edits since the last parse were told to the tree (else: parsed from scratch).
+    ts_told: bool,
+    ts_untold: bool,
+    /// Colors of the scopes of the grammar in the theme.
+    ts_colors: std::collections::HashMap<&'static str, Color32>,
+    /// The first line shown (set by the editor): the tree's colors are read from there.
+    pub view_from: usize,
+    /// The regexes even when the language has a grammar (the tests of the regex highlighting).
+    pub regex_only: bool,
+    /// The extension of the file (set by the editor): it chooses the grammar (TypeScript and
+    /// JavaScript share a syntax, TOML has none of its own).
+    pub ext: String,
 }
 
 impl HlCache {
+    /// The syntax tree, when the language has a grammar (as last parsed).
+    pub fn tree(&self) -> Option<&tree_sitter::Tree> {
+        self.ts.as_ref().and_then(|t| t.tree())
+    }
+
+    /// The text is about to change (`syntax_tree::input_edit`): told to the tree, if any.
+    pub fn tree_edit(&mut self, e: tree_sitter::InputEdit) {
+        if let Some(t) = self.ts.as_mut() {
+            t.edit(e);
+            self.ts_told = true;
+        }
+    }
+
+    /// The colors come from a syntax tree.
+    pub fn uses_tree(&self) -> bool {
+        self.ts.is_some()
+    }
+
     pub fn invalidate(&mut self, line: usize) {
-        if line >= self.spans.len() {
+        if self.ts.is_some() {
+            self.ts_dirty = Some(self.ts_dirty.map_or(line, |d| d.min(line)));
+            // changed without its edits told (undo restores a whole text): parsed from scratch
+            if !self.ts_told {
+                self.ts_untold = true;
+            }
+            self.ts_told = false;
+            return;
+        }
+        if line >= self.lines.len() {
             // not highlighted yet: only the state kept for a line after it is no longer right
+            // (the lines kept aside are checked against the text when they are taken back)
             if self.hot.as_ref().is_some_and(|(l, _)| *l > line) {
                 self.hot = None;
             }
             return;
         }
+        let end = self.next.take();
+        let old_len = self.lines.len();
         let hot = match self.hot.take() {
             Some((l, Some(st))) if l == line => Some(st),
             _ => None,
         };
-        match hot {
+        let from = match hot {
             Some(st) => {
-                self.spans.truncate(line);
                 self.next = Some(st.clone());
                 self.hot = Some((line, Some(st)));
+                line
             }
             None => {
-                let c = line / CHECKPOINT;
-                self.spans.truncate(c * CHECKPOINT);
-                self.next = None;
                 self.hot = Some((line, None));
+                self.states.iter().rev().find(|(l, _)| *l <= line).map_or(0, |(l, _)| *l)
             }
+        };
+        // the lines from `from` and the states after `line` are set aside: they may still be right
+        // further down (the state at `line` only depends on the lines above it)
+        let keep = self.states.partition_point(|(l, _)| *l <= line);
+        let mut states: Vec<(usize, State)> = self.states.drain(keep..).map(|(l, st)| (l - from, st)).collect();
+        let mut lines: Vec<Line> = self.lines.drain(from..).collect();
+        if let Some(st) = end {
+            states.push((old_len - from, st));
         }
-        self.states.truncate(line / CHECKPOINT + 1);
+        match self.tail.take() {
+            // lines set aside by an edit just before, not highlighted again since: one after the other
+            Some(mut t) if t.base == old_len => {
+                let n = lines.len();
+                states.extend(t.states.drain(..).map(|(k, st)| (k + n, st)));
+                lines.append(&mut t.lines);
+                self.tail = Some(Tail { base: from, nlines: t.nlines, lines, states });
+            }
+            _ => self.tail = Some(Tail { base: from, nlines: self.nlines, lines, states }),
+        }
     }
 
     pub fn spans(&self, line: usize) -> Option<&[(Color32, Range<usize>)]> {
-        self.spans.get(line).map(|v| v.as_slice())
+        if self.ts.is_some() {
+            return self.ts_lines.get(line).and_then(|l| l.as_deref());
+        }
+        self.lines.get(line).map(|l| l.spans.as_slice())
+    }
+
+    /// With a syntax tree: the colors of some lines out of the ones shown (the pinned lines at
+    /// the top of the editor), after `ensure` (the tree is in sync).
+    pub fn ensure_lines(&mut self, hl: &Highlighting, rope: &Rope, lines: &[usize]) {
+        let Some(ts) = self.ts.as_ref() else { return };
+        if ts.tree().is_none_or(|t| t.root_node().end_byte() != rope.len_bytes()) {
+            return;
+        }
+        let colors = &self.ts_colors;
+        let color = |s: &'static str| -> Color32 { colors.get(s).copied().unwrap_or(hl.colors.fg) };
+        for &l in lines {
+            if l >= rope.len_lines() || self.ts_lines.get(l).is_some_and(|x| x.is_some()) {
+                continue;
+            }
+            if self.ts_lines.len() <= l {
+                self.ts_lines.resize(l + 1, None);
+            }
+            self.ts_lines[l] = ts.line_spans(rope, l..l + 1, &color).into_iter().next();
+        }
+    }
+
+    /// `ensure` with a syntax tree: parsed again if the text changed, the colors of the lines
+    /// from `view_from` to `upto` read from it.
+    fn ensure_tree(&mut self, hl: &Highlighting, rope: &Rope, upto: usize) -> bool {
+        let Some(ts) = self.ts.as_mut() else { return true };
+        if std::mem::take(&mut self.ts_untold) {
+            if let Some(g) = crate::syntax_tree::grammar_for(ts.name()) {
+                if let Some(fresh) = crate::syntax_tree::SyntaxTree::new(g) {
+                    *ts = fresh;
+                }
+            }
+            self.ts_lines.clear();
+        }
+        if ts.sync(rope).is_none() {
+            return true;
+        }
+        let changed = ts.changed_from.take();
+        let from = match (changed, self.ts_dirty.take()) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
+        if let Some(f) = from {
+            self.ts_lines.truncate(f);
+        }
+        let nlines = rope.len_lines();
+        let upto = upto.min(nlines.saturating_sub(1));
+        if self.ts_lines.len() <= upto {
+            self.ts_lines.resize(upto + 1, None);
+        }
+        // the lines to read: from the first one shown not read yet, at most 2000 at a time
+        let start = self.view_from.min(upto);
+        let Some(a) = (start..=upto).find(|&l| self.ts_lines[l].is_none()) else { return true };
+        let b = (a..=upto).rev().find(|&l| self.ts_lines[l].is_none()).unwrap_or(a).min(a + 2000);
+        let colors = &mut self.ts_colors;
+        // the colors of the scopes, once per theme
+        if colors.is_empty() {
+            for s in crate::syntax_tree::all_scopes() {
+                colors.insert(s, hl.code_color(hl.scope_style(s).0));
+            }
+        }
+        let colors = &self.ts_colors;
+        let color = |s: &'static str| -> Color32 { colors.get(s).copied().unwrap_or(hl.colors.fg) };
+        let spans = self.ts.as_ref().map(|t| t.line_spans(rope, a..b + 1, &color)).unwrap_or_default();
+        for (k, sp) in spans.into_iter().enumerate() {
+            self.ts_lines[a + k] = Some(sp);
+        }
+        (start..=upto).all(|l| self.ts_lines[l].is_some())
     }
 
     /// Highlights up to `upto` (inclusive), for at most `budget` of time (the UI thread: a frame
     /// must not freeze on a long file). Returns false when the budget ran out (caller should repaint).
     pub fn ensure(&mut self, hl: &Highlighting, syntax: &str, rope: &Rope, upto: usize, budget: Duration) -> bool {
-        if self.syntax != syntax || self.generation != hl.generation {
-            self.states.clear();
-            self.spans.clear();
-            self.next = None;
-            self.hot = None;
-            self.syntax = syntax.to_string();
-            self.generation = hl.generation;
+        let grammar = if rope.len_bytes() <= crate::syntax_tree::MAX_BYTES && !self.regex_only { crate::syntax_tree::grammar_for_file(syntax, &self.ext) } else { None };
+        if self.syntax != syntax || self.generation != hl.generation || grammar.map(|g| g.name) != self.ts.as_ref().map(|t| t.name()) {
+            let (view_from, regex_only, ext) = (self.view_from, self.regex_only, std::mem::take(&mut self.ext));
+            *self = HlCache { syntax: syntax.to_string(), generation: hl.generation, view_from, regex_only, ext, ..Default::default() };
+            self.ts = grammar.and_then(crate::syntax_tree::SyntaxTree::new);
         }
-        if rope.len_bytes() > 30_000_000 {
+        if self.ts.is_some() {
+            return self.ensure_tree(hl, rope, upto);
+        }
+        if rope.len_bytes() > 30_000_000 || !hl.ready(syntax, rope) {
             return true;
         }
-        let upto = upto.min(rope.len_lines().saturating_sub(1));
-        if self.spans.len() > upto {
+        let nlines = rope.len_lines();
+        let upto = upto.min(nlines.saturating_sub(1));
+        if self.lines.len() > upto {
             return true;
         }
         let syn = hl.ss.find_syntax_by_name(syntax).unwrap_or_else(|| hl.ss.find_syntax_plain_text());
         let highlighter = Highlighter::new(&hl.theme);
         if self.states.is_empty() {
-            self.states.push((ParseState::new(syn), HighlightState::new(&highlighter, ScopeStack::new())));
+            self.lines.clear();
+            self.states.push((0, (ParseState::new(syn), HighlightState::new(&highlighter, ScopeStack::new()))));
         }
         let (mut ps, mut hs) = match self.next.take() {
             Some(st) => st,
-            None => self.states[self.spans.len() / CHECKPOINT].clone(),
+            None => {
+                // the last state is where highlighting goes on (lines after it, if any, dropped)
+                let (l, st) = self.states.last().expect("state of line 0");
+                self.lines.truncate(*l);
+                st.clone()
+            }
         };
+        // lines set aside: the line `k` of the tail is expected at the line `k + shift` now
+        let shift = self.tail.as_ref().map_or(0, |t| t.base as isize + nlines as isize - t.nlines as isize);
+        let mut taken = 0usize;
         let deadline = Instant::now().checked_add(budget);
         let mut done = 0usize;
-        while self.spans.len() <= upto {
+        while self.lines.len() <= upto {
             // the clock read every few lines only
             if done.is_multiple_of(32) && done > 0 && deadline.is_some_and(|d| Instant::now() >= d) {
                 break;
             }
-            let i = self.spans.len();
-            if i.is_multiple_of(CHECKPOINT) && self.states.len() == i / CHECKPOINT {
-                self.states.push((ps.clone(), hs.clone()));
+            let i = self.lines.len();
+            if let Some(n) = self.take_back(rope, i, shift, &mut ps, &mut hs) {
+                taken = (i as isize - shift) as usize + n;
+                done += n;
+                continue;
+            }
+            if self.states.last().is_none_or(|(l, _)| i >= l + CHECKPOINT) {
+                self.states.push((i, (ps.clone(), hs.clone())));
             }
             if let Some((l, st @ None)) = &mut self.hot {
                 if *l == i {
@@ -629,11 +864,52 @@ impl HlCache {
                 }
             }
             spans.shrink_to_fit();
-            self.spans.push(spans);
+            self.lines.push(Line { hash: line_hash(rope, i), spans });
+            #[cfg(test)]
+            {
+                self.parsed += 1;
+            }
             done += 1;
         }
         self.next = Some((ps, hs));
-        self.spans.len() > upto
+        self.nlines = nlines;
+        // what is left of the lines set aside: from where they were last taken back (now known to
+        // be the next lines), else as they were; dropped once nothing of them is ahead
+        if let Some(mut t) = self.tail.take() {
+            if taken > 0 {
+                t.lines.drain(..taken);
+                t.states.retain(|(k, _)| *k >= taken);
+                t.states.iter_mut().for_each(|(k, _)| *k -= taken);
+                t.base = (taken as isize + shift) as usize;
+                t.nlines = nlines;
+            }
+            let ahead = t.base + t.lines.len() + nlines > t.nlines + self.lines.len();
+            if ahead && !t.lines.is_empty() {
+                self.tail = Some(t);
+            }
+        }
+        self.lines.len() > upto
+    }
+
+    /// Line `i` is about to be highlighted from the state `ps`, `hs`: when the lines set aside have
+    /// that same state at that place, with the same text up to their next state, they are taken back
+    /// (and the state moved to theirs). Returns how many.
+    fn take_back(&mut self, rope: &Rope, i: usize, shift: isize, ps: &mut ParseState, hs: &mut HighlightState) -> Option<usize> {
+        let t = self.tail.as_mut()?;
+        let k = usize::try_from(i as isize - shift).ok()?;
+        let at = t.states.binary_search_by_key(&k, |(k, _)| *k).ok()?;
+        let ((_, st), (end, next)) = (&t.states[at], t.states.get(at + 1)?);
+        if (&st.0, &st.1) != (&*ps, &*hs) {
+            return None;
+        }
+        let n = end - k;
+        if i + n > rope.len_lines() || (0..n).any(|d| t.lines[k + d].hash != line_hash(rope, i + d)) {
+            return None;
+        }
+        (*ps, *hs) = next.clone();
+        self.lines.extend(t.lines[k..k + n].iter_mut().map(std::mem::take));
+        self.states.push((i + n, next.clone()));
+        Some(n)
     }
 }
 
@@ -694,7 +970,7 @@ mod tests {
         assert_eq!(hl.colors.accent, Color32::from_rgb(0x09, 0x69, 0xda));
         // colors of a Python line, like in VS Code
         let rope = Rope::from_str("def f(x):  # note\n    return 'a'\n");
-        let mut cache = HlCache::default();
+        let mut cache = HlCache { regex_only: true, ..Default::default() };
         assert!(cache.ensure(&hl, "Python", &rope, 1, Duration::MAX));
         let color_of = |line: usize, word: &str| {
             let text = rope.line(line).to_string();
@@ -730,7 +1006,7 @@ mod tests {
         let hl = Highlighting::new("Florm", Path::new("/nonexistent"));
         let text: String = (0..200).map(|i| format!("def f{i}(x):\n    '''doc {i}'''\n    return x + {i}  # c\n")).collect();
         let mut rope = Rope::from_str(&text);
-        let mut cache = HlCache::default();
+        let mut cache = HlCache { regex_only: true, ..Default::default() };
         assert!(cache.ensure(&hl, "Python", &rope, usize::MAX, Duration::MAX));
         // (line, text inserted at its start, lines removed after it): typing on one line, a quote
         // that changes all the lines after it, lines added and removed
@@ -744,12 +1020,195 @@ mod tests {
             }
             cache.invalidate(line);
             assert!(cache.ensure(&hl, "Python", &rope, usize::MAX, Duration::MAX));
-            let mut fresh = HlCache::default();
+            let mut fresh = HlCache { regex_only: true, ..Default::default() };
             assert!(fresh.ensure(&hl, "Python", &rope, usize::MAX, Duration::MAX));
             for l in 0..rope.len_lines() {
                 assert_eq!(cache.spans(l), fresh.spans(l), "line {l} after editing line {line}");
             }
         }
+    }
+
+    /// Edits anywhere (several before the next highlighting, some not highlighted to the end, as
+    /// on a screen) always give the colors of a highlighting from scratch.
+    #[test]
+    fn cache_after_random_edits_matches_a_fresh_highlight() {
+        let hl = Highlighting::new("Florm", Path::new("/nonexistent"));
+        let text: String = (0..120).map(|i| format!("def f{i}(x):\n    s = '''doc {i}\n    more'''\n    return x + {i}  # c\n")).collect();
+        let mut rope = Rope::from_str(&text);
+        let mut cache = HlCache { regex_only: true, ..Default::default() };
+        let mut seed = 7u64;
+        let mut rand = |n: usize| {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (seed >> 33) as usize % n.max(1)
+        };
+        let pieces = ["a", "\n", "'''", "\"", "#", "\n\n\n", "def g():\n", "x"];
+        for round in 0..300 {
+            for _ in 0..1 + rand(3) {
+                let line = rand(rope.len_lines());
+                let at = rope.line_to_char(line) + rand(rope.line(line).len_chars());
+                if rand(4) == 0 {
+                    let end = (at + 1 + rand(80)).min(rope.len_chars());
+                    rope.remove(at..end);
+                } else {
+                    rope.insert(at, pieces[rand(pieces.len())]);
+                }
+                cache.invalidate(line);
+            }
+            // a screen somewhere, or the whole file
+            let upto = if rand(3) == 0 { usize::MAX } else { rand(rope.len_lines()) + 40 };
+            assert!(cache.ensure(&hl, "Python", &rope, upto, Duration::MAX));
+            let mut fresh = HlCache { regex_only: true, ..Default::default() };
+            assert!(fresh.ensure(&hl, "Python", &rope, usize::MAX, Duration::MAX));
+            for l in 0..cache.lines.len() {
+                assert_eq!(cache.spans(l), fresh.spans(l), "line {l}, round {round}");
+            }
+        }
+    }
+
+    /// With a syntax tree (Python): random edits told to the cache as the document does, the
+    /// colors of the lines shown always those of a fresh parse.
+    #[test]
+    fn tree_colors_follow_the_edits() {
+        let hl = Highlighting::new("Florm", Path::new("/nonexistent"));
+        let text: String = (0..200).map(|i| format!("def f{i}(x):\n    return x + {i}  # c\n    s = 'a{i}'\n")).collect();
+        let mut rope = Rope::from_str(&text);
+        let mut cache = HlCache::default();
+        cache.view_from = 0;
+        assert!(cache.ensure(&hl, "Python", &rope, 80, Duration::MAX));
+        assert!(cache.uses_tree());
+        let mut seed = 7u64;
+        let mut rnd = |n: usize| {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (seed >> 33) as usize % n.max(1)
+        };
+        for round in 0..60 {
+            let len = rope.len_chars();
+            let a = rnd(len);
+            let b = (a + rnd(6)).min(len);
+            let ins = ["x", "\n", "'", "def ", "", "# ", "(", ")"][rnd(8)];
+            cache.tree_edit(crate::syntax_tree::input_edit(&rope, a, b, ins));
+            rope.remove(a..b);
+            rope.insert(a, ins);
+            cache.invalidate(rope.char_to_line(a));
+            let from = rnd(rope.len_lines().saturating_sub(40));
+            cache.view_from = from;
+            assert!(cache.ensure(&hl, "Python", &rope, from + 40, Duration::MAX));
+            let mut fresh = HlCache { view_from: from, ..Default::default() };
+            assert!(fresh.ensure(&hl, "Python", &rope, from + 40, Duration::MAX));
+            for l in from..from + 40 {
+                assert_eq!(cache.spans(l), fresh.spans(l), "line {l}, round {round}");
+            }
+        }
+    }
+
+    /// With a syntax tree, only the lines shown are colored; the pinned lines above them on demand.
+    #[test]
+    fn tree_colors_the_lines_shown_and_the_pinned_ones() {
+        let hl = Highlighting::new("Florm", Path::new("/nonexistent"));
+        let text: String = (0..300).map(|i| format!("def f{i}(x):\n    return x\n")).collect();
+        let rope = Rope::from_str(&text);
+        let mut cache = HlCache { view_from: 400, ..Default::default() };
+        assert!(cache.ensure(&hl, "Python", &rope, 450, Duration::MAX));
+        assert!(cache.spans(400).is_some() && cache.spans(10).is_none());
+        cache.ensure_lines(&hl, &rope, &[10]);
+        assert!(cache.spans(10).is_some_and(|s| !s.is_empty()));
+    }
+
+    /// `FLORM_BENCH_HL=<fichier> cargo test --release bench_tree_typing -- --nocapture`: keys typed
+    /// in the middle of a file highlighted by its syntax tree, the screen read again after each.
+    #[test]
+    fn bench_tree_typing() {
+        let Ok(file) = std::env::var("FLORM_BENCH_HL") else { return };
+        let hl = Highlighting::new("Florm", Path::new("/nonexistent"));
+        let mut rope = Rope::from_str(&std::fs::read_to_string(&file).unwrap());
+        let mut cache = HlCache::default();
+        let mid = rope.len_lines() / 2;
+        cache.view_from = mid;
+        let t = Instant::now();
+        assert!(cache.ensure(&hl, "Python", &rope, mid + 60, Duration::MAX));
+        println!("opening: {:?} ({} lines)", t.elapsed(), rope.len_lines());
+        let t = Instant::now();
+        let n = 50;
+        for k in 0..n {
+            let at = rope.line_to_char(mid + 10) + 4 + k;
+            cache.tree_edit(crate::syntax_tree::input_edit(&rope, at, at, "x"));
+            rope.insert(at, "x");
+            cache.invalidate(mid + 10);
+            assert!(cache.ensure(&hl, "Python", &rope, mid + 60, Duration::MAX));
+        }
+        println!("per key: {:?}", t.elapsed() / n as u32);
+    }
+
+    /// With a window, a language is first prepared on a thread: nothing highlighted until then
+    /// (the frame is not held), then the colors as usual.
+    #[test]
+    fn language_prepared_on_a_thread() {
+        let mut hl = Highlighting::new("Florm", Path::new("/nonexistent"));
+        hl.prepare_on_thread(egui::Context::default());
+        let rope = Rope::from_str("def f(x):\n    return 'a'\n");
+        let mut cache = HlCache { regex_only: true, ..Default::default() };
+        assert!(cache.ensure(&hl, "Python", &rope, 1, Duration::MAX));
+        assert!(cache.spans(0).is_none());
+        let t = Instant::now();
+        while !hl.warm.lock().unwrap().get("Python").copied().unwrap_or(false) {
+            assert!(t.elapsed() < Duration::from_secs(10));
+            std::thread::yield_now();
+        }
+        assert!(cache.ensure(&hl, "Python", &rope, 1, Duration::MAX));
+        assert!(cache.spans(1).is_some_and(|s| s.len() > 1));
+        // plain text needs no preparing
+        let mut plain = HlCache { regex_only: true, ..Default::default() };
+        assert!(plain.ensure(&hl, "Plain Text", &rope, 1, Duration::MAX) && plain.spans(1).is_some());
+    }
+
+    /// Typing on a line parses that line and a few after it, not all the lines below.
+    #[test]
+    fn typing_parses_a_few_lines() {
+        let hl = Highlighting::new("Florm", Path::new("/nonexistent"));
+        let text: String = (0..500).map(|i| format!("def f{i}(x):\n    return x + {i}  # c\n")).collect();
+        let mut rope = Rope::from_str(&text);
+        let mut cache = HlCache { regex_only: true, ..Default::default() };
+        assert!(cache.ensure(&hl, "Python", &rope, usize::MAX, Duration::MAX));
+        for (n, ins) in ["a", "\n", "b", "\n\n"].iter().enumerate() {
+            let before = cache.parsed;
+            let at = rope.line_to_char(100 + n) + 4;
+            rope.insert(at, ins);
+            cache.invalidate(100 + n);
+            assert!(cache.ensure(&hl, "Python", &rope, usize::MAX, Duration::MAX));
+            // at worst from the state before the line to the state after the lines typed
+            assert!(cache.parsed - before <= 2 * CHECKPOINT + 3, "{} lines parsed for {ins:?}", cache.parsed - before);
+            let mut fresh = HlCache { regex_only: true, ..Default::default() };
+            assert!(fresh.ensure(&hl, "Python", &rope, usize::MAX, Duration::MAX));
+            assert!((0..rope.len_lines()).all(|l| cache.spans(l) == fresh.spans(l)));
+        }
+        // an opened string changes every line after it: all of them parsed again
+        let before = cache.parsed;
+        rope.insert(rope.line_to_char(10), "'''");
+        cache.invalidate(10);
+        assert!(cache.ensure(&hl, "Python", &rope, usize::MAX, Duration::MAX));
+        assert!(cache.parsed - before > 900);
+    }
+
+    /// `FLORM_BENCH_HL=<fichier> cargo test bench_typing -- --nocapture`: typing near the top of
+    /// a file, the screen and the minimap highlighted again after each key.
+    #[test]
+    fn bench_typing() {
+        let Ok(file) = std::env::var("FLORM_BENCH_HL") else { return };
+        let hl = Highlighting::new("Florm", Path::new("/nonexistent"));
+        let syntax = crate::symbols::syntax_for(Path::new(&file)).unwrap_or("Plain Text");
+        let mut rope = Rope::from_str(&std::fs::read_to_string(&file).unwrap());
+        let mut cache = HlCache { regex_only: true, ..Default::default() };
+        cache.ensure(&hl, syntax, &rope, usize::MAX, Duration::MAX);
+        let t = std::time::Instant::now();
+        for k in 0..200 {
+            let line = 20 + k % 3;
+            let at = rope.line_to_char(line) + 2;
+            if k % 2 == 0 { rope.insert(at, "x"); } else { rope.remove(at..at + 1); }
+            cache.invalidate(line);
+            cache.ensure(&hl, syntax, &rope, 60, Duration::MAX);
+            cache.ensure(&hl, syntax, &rope, 700, Duration::MAX);
+        }
+        eprintln!("200 frappes ligne 20 (écran + minimap) : {:?} soit {:?} par frappe", t.elapsed(), t.elapsed() / 200);
     }
 
     /// `FLORM_BENCH_HL=<fichier> cargo test --release bench_highlight -- --nocapture`
@@ -761,7 +1220,7 @@ mod tests {
         let syntax = crate::symbols::syntax_for(Path::new(&file)).unwrap_or("Plain Text");
         let rope = Rope::from_str(&std::fs::read_to_string(&file).unwrap());
         let before = rss();
-        let mut cache = HlCache::default();
+        let mut cache = HlCache { regex_only: true, ..Default::default() };
         let t = std::time::Instant::now();
         cache.ensure(&hl, syntax, &rope, usize::MAX, Duration::MAX);
         eprintln!("{} lignes {syntax} : {:?}, cache {} Mo", rope.len_lines(), t.elapsed(), rss() - before);

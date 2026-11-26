@@ -148,6 +148,7 @@ impl App {
     /// The blame of a line, shown at its end.
     pub(super) fn on_blame(&mut self, uid: u64, line: usize, version: u64, result: Result<git::Blame, String>) {
         if let Some(d) = self.docs.iter_mut().find(|d| d.uid == uid) {
+            d.blame_commit = result.as_ref().ok().filter(|b| !b.uncommitted()).cloned();
             let text = match result {
                 Ok(b) if b.uncommitted() => t!("Vous · pas encore commité", "You · not committed yet").to_string(),
                 Ok(b) => format!(

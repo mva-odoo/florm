@@ -68,8 +68,9 @@ impl App {
     pub(super) fn trust_bar(&mut self, ui: &mut egui::Ui, i: usize, pane: u8) {
         let Some(d) = self.docs.get(i).filter(|d| d.view == document::View::Text) else { return };
         let Some(path) = d.path.clone() else { return };
-        let waits = (self.settings.lsp && lsp::language_of(&path).is_some())
+        let waits = (self.settings.lsp && lsp::language_of(&path, &self.settings.lsp_servers).is_some())
             || matches!(lint::lang_of(&path), Some("python" | "javascript"))
+            || !lint::generic_linters(&path, &self.settings.linters).is_empty()
             || (crate::features::on(crate::features::Feature::Git) && self.repo_for(&path).is_some());
         if !waits || self.trusted(&path) {
             return;

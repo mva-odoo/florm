@@ -76,6 +76,7 @@ impl App {
                 self.conflict_bar(ui, self.active, 0);
                 self.disk_bar(ui, self.active, 0);
                 self.trust_bar(ui, self.active, 0);
+                self.pack_bar(ui, self.active, 0);
             }
             if self.active < self.docs.len() {
                 editor_resp = self.doc_body(ui, self.active, editor_id(), true);
@@ -123,11 +124,11 @@ impl App {
         let noqa = noqa_codes(d, line);
         let has_path = d.path.is_some();
         let has_folds = !d.folds.is_empty();
-        let has_lsp = self.settings.lsp && d.path.as_deref().and_then(lsp::language_of).is_some();
+        let has_lsp = self.settings.lsp && d.path.as_deref().and_then(|p| lsp::language_of(p, &self.settings.lsp_servers)).is_some();
         let is_python = d.path.as_deref().and_then(lint::lang_of) == Some("python");
         let has_selection = !d.primary_sel().is_empty();
         let in_repo = d.path.as_deref().and_then(|p| self.repo_for(p)).is_some();
-        let (km, blame_on, has_root) = (&self.keymap, self.blame.on, self.root.is_some());
+        let (km, blame_on, blame_gutter, has_root) = (&self.keymap, self.blame.on, self.blame.gutter, self.root.is_some());
         let mut chosen = None;
         let mut item = |ui: &mut egui::Ui, label: &str, cmd: Cmd, enabled: bool| {
             if !crate::features::cmd_on(cmd) {
@@ -188,6 +189,7 @@ impl App {
         if in_repo {
             ui.separator();
             item(ui, if blame_on { t!("Masquer le blame", "Hide the blame") } else { t!("Blame de la ligne", "Line blame") }, Cmd::GitBlame, true);
+            item(ui, if blame_gutter { t!("Masquer le blame de la marge", "Hide the gutter blame") } else { t!("Blame de chaque ligne", "Blame of every line") }, Cmd::GitBlameGutter, true);
             item(ui, t!("Historique de la ligne", "Line history"), Cmd::GitLineHistory, true);
             item(ui, t!("Historique du fichier", "File history"), Cmd::GitFileHistory, true);
             if has_change {
@@ -303,6 +305,9 @@ impl App {
         {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.confirm = Some(Confirm::Quit);
+        } else if ctx.input(|i| i.viewport().close_requested()) && !self.quit.confirmed && self.settings.confirm_quit && self.confirm.is_none() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.confirm = Some(Confirm::QuitAsk);
         }
         // « Fermer quand il aura fini »: the last Claude at work is done
         if self.quit.when_idle && working == 0 {
@@ -338,7 +343,7 @@ impl App {
         }
         // Spelling of the Markdown, comments and commit messages, debounced; the dictionary is
         // loaded (downloaded the first time) on a thread when first needed.
-        let spell_on = self.settings.spell_check;
+        let spell_on = self.active_lang().spell_check;
         if let Some(d) = self.docs.get_mut(self.active) {
             let kind = d.path.as_deref().and_then(crate::spell::kind_of).filter(|_| spell_on && d.rope.len_bytes() < 2_000_000);
             match kind {

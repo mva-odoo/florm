@@ -47,6 +47,8 @@ fn claude_w() -> f32 {
 }
 /// Width of the ▶ of the tests (right of the ✳), in test files only.
 const TEST_W: f32 = 14.0;
+/// Width of the column of the breakpoints (right of the ▶), in the files that can be debugged.
+const BP_W: f32 = 14.0;
 
 /// How the editor shows a document (from the settings).
 pub struct ViewOpts<'a> {
@@ -68,9 +70,143 @@ pub struct ViewOpts<'a> {
     pub rainbow: bool,
     /// Spaces and tabs shown (· and →).
     pub whitespace: bool,
+    /// The file can be debugged: a column of breakpoints in the gutter (a click puts one).
+    pub debug: bool,
+    /// The line where the debugger is stopped in this file (a yellow band and an arrow).
+    pub exec_line: Option<usize>,
+    /// The blame of every line in a column of the gutter (author, how long ago), as in Zed.
+    pub blame_gutter: bool,
+    /// "bar", "block" or "underline".
+    pub cursor_shape: &'a str,
+    pub cursor_blink: bool,
+    pub line_numbers: bool,
+    pub relative_numbers: bool,
+    pub current_line: bool,
+    pub indent_guides: bool,
+    /// The end of the file can go up to the top of the view.
+    pub scroll_beyond: bool,
+    /// Lines kept between the cursor and the edges of the view.
+    pub scroll_margin: usize,
+    /// The other occurrences of the selected text framed.
+    pub selection_highlight: bool,
+    /// The language server's documentation in the tooltip of a name.
+    pub hover_docs: bool,
+    /// The marks of the git changes in the gutter.
+    pub git_gutter: bool,
+}
+
+impl Default for ViewOpts<'_> {
+    fn default() -> Self {
+        ViewOpts {
+            font_size: 14.0,
+            minimap: false,
+            wrap: false,
+            inline_diff: false,
+            sticky: false,
+            rulers: &[],
+            notes: &[],
+            tests: &[],
+            rainbow: false,
+            whitespace: false,
+            debug: false,
+            exec_line: None,
+            blame_gutter: false,
+            cursor_shape: "bar",
+            cursor_blink: false,
+            line_numbers: true,
+            relative_numbers: false,
+            current_line: true,
+            indent_guides: true,
+            scroll_beyond: true,
+            scroll_margin: 1,
+            selection_highlight: false,
+            hover_docs: true,
+            git_gutter: true,
+        }
+    }
+}
+
+/// Columns of the blame of the gutter.
+const BLAME_COLS: usize = 22;
+
+/// « 3 mois », « 2 h »: how long ago, short, for the blame of the gutter.
+fn short_ago(t: i64) -> String {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(t);
+    let d = (now - t).max(0);
+    match d {
+        0..=3599 => tf!("{} min", "{} min", (d / 60).max(1)),
+        3600..=86_399 => tf!("{} h", "{} h", d / 3600),
+        86_400..=2_591_999 => tf!("{} j", "{} d", d / 86_400),
+        2_592_000..=31_535_999 => tf!("{} mois", "{} mo", d / 2_592_000),
+        _ => {
+            let n = d / 31_536_000;
+            if crate::i18n::en() { format!("{n} y") } else { format!("{n} an{}", if n > 1 { "s" } else { "" }) }
+        }
+    }
+}
+
+/// The text of the blame of a line in the gutter: author (cut) and how long ago.
+fn blame_label(b: &crate::git::Blame) -> String {
+    if b.uncommitted() {
+        return t!("pas encore commité", "not committed yet").to_string();
+    }
+    let when = short_ago(b.time);
+    let room = BLAME_COLS.saturating_sub(when.chars().count() + 1);
+    let mut who: String = b.author.chars().take(room).collect();
+    if b.author.chars().count() > room && room > 1 {
+        who.pop();
+        who.push('…');
+    }
+    format!("{who:<room$} {when}")
+}
+
+/// Changed words between an old and a new line: (char ranges in the old, in the new), words only
+/// (the spaces between them are not marked, as in Zed).
+fn changed_words(old: &str, new: &str) -> (Vec<(usize, usize)>, Vec<(usize, usize)>) {
+    use similar::{ChangeTag, TextDiff};
+    let diff = TextDiff::from_words(old, new);
+    let (mut a, mut b) = (Vec::new(), Vec::new());
+    let (mut ia, mut ib) = (0usize, 0usize);
+    for ch in diff.iter_all_changes() {
+        let v = ch.value();
+        let n = v.chars().count();
+        let word = !v.trim().is_empty();
+        match ch.tag() {
+            ChangeTag::Equal => {
+                ia += n;
+                ib += n;
+            }
+            ChangeTag::Delete => {
+                if word {
+                    a.push((ia, ia + n));
+                }
+                ia += n;
+            }
+            ChangeTag::Insert => {
+                if word {
+                    b.push((ib, ib + n));
+                }
+                ib += n;
+            }
+        }
+    }
+    (a, b)
+}
+
+fn added_strong(light: bool) -> Color32 {
+    if light { Color32::from_rgba_unmultiplied(0x2e, 0xa0, 0x43, 0x55) } else { Color32::from_rgba_unmultiplied(0x3f, 0xb9, 0x50, 0x50) }
+}
+
+fn removed_strong(light: bool) -> Color32 {
+    if light { Color32::from_rgba_unmultiplied(0xd0, 0x3a, 0x4c, 0x5a) } else { Color32::from_rgba_unmultiplied(0xf8, 0x51, 0x49, 0x55) }
 }
 
 pub fn show(ui: &mut Ui, doc: &mut Document, hl: &Highlighting, opts: &ViewOpts, matches: &[(usize, usize)], id: Id) -> egui::Response {
+    // the extension chooses the syntax tree's grammar (set before the minimap highlights)
+    let ext = doc.path.as_deref().and_then(|p| p.extension()).and_then(|e| e.to_str()).unwrap_or("");
+    if doc.highlight.ext != ext {
+        doc.highlight.ext = ext.to_string();
+    }
     let font = FontId::monospace(opts.font_size);
     let (rh, cw) = ui.fonts_mut(|f| (f.row_height(&font), char_width(f, &font)));
     let rh = line_height(opts.font_size, rh);
@@ -104,16 +240,21 @@ fn bracket_color(level: u32, light: bool) -> Color32 {
 }
 
 /// `brackets`: the brackets of the line with their color (char index in the line, color).
-fn line_job(doc: &Document, l: usize, font: &FontId, fg: Color32, vstart: usize, vend: usize, brackets: &[(usize, Color32)]) -> (Option<usize>, LayoutJob) {
+/// `from`: (char of the line, its visual column) to start reading at, before `vstart` (a row of a
+/// wrapped line: not the whole line before it).
+#[allow(clippy::too_many_arguments)]
+fn line_job(doc: &Document, l: usize, font: &FontId, fg: Color32, vstart: usize, vend: usize, brackets: &[(usize, Color32)], from: (usize, usize)) -> (Option<usize>, LayoutJob) {
     let ts = doc.tab_size;
     let spans = doc.highlight.spans(l);
     let mut job = LayoutJob::default();
     let mut buf = String::new();
     let mut cur = fg;
-    let (mut v, mut byte, mut si) = (0usize, 0usize, 0usize);
-    let (mut idx, mut bi) = (0usize, 0usize);
+    let line = doc.rope.line(l);
+    let byte = if from.0 > 0 && spans.is_some() { line.char_to_byte(from.0) } else { 0 };
+    let (mut v, mut byte, mut si) = (from.1, byte, 0usize);
+    let (mut idx, mut bi) = (from.0, 0usize);
     let mut start_v = None;
-    for ch in doc.rope.line(l).chars() {
+    for ch in line.chars_at(from.0) {
         if ch == '\n' || ch == '\r' {
             break;
         }
@@ -155,6 +296,16 @@ fn line_job(doc: &Document, l: usize, font: &FontId, fg: Color32, vstart: usize,
         job.append(&buf, 0.0, TextFormat::simple(font.clone(), cur));
     }
     (start_v, job)
+}
+
+/// (char, visual column) to read line `l` from to draw it from visual column `vstart`: at the
+/// start, unless the view is scrolled far to the right (the end of a long minified line).
+fn line_from(doc: &Document, l: usize, vstart: usize) -> (usize, usize) {
+    if vstart < 512 {
+        return (0, 0);
+    }
+    let c = doc.col_at_vcol(l, vstart);
+    (c, doc.vcol(l, c))
 }
 
 /// Lines of the classes / functions enclosing `top` whose header is above it (at most 3, the
@@ -235,11 +386,29 @@ fn text_area(
     let pad = ((rh - ui.fonts_mut(|f| f.row_height(font))) / 2.0).round();
     let c = hl.colors;
     let nlines = doc.rope.len_lines();
-    let digits = nlines.to_string().len().max(3);
+    let digits = if opts.line_numbers { nlines.to_string().len().max(3) } else { 0 };
     // numbers, then the fold arrows, then the git marks
     let test_w = if opts.tests.is_empty() { 0.0 } else { TEST_W };
     let test_x = claude_w();
-    let gutter_w = (digits as f32 + 1.0) * cw + 30.0 + test_w;
+    let bp_w = if opts.debug { BP_W } else { 0.0 };
+    let bp_x = test_x + test_w;
+    // the blame of each line (as in Zed): read by the app with one `git blame` (it may lag
+    // behind the text while typing: asked again once the typing stops)
+    let blame_rows = if opts.blame_gutter { doc.blame_lines.as_ref().map(|(_, a)| a.clone()) } else { None };
+    let blame_w = if opts.blame_gutter { BLAME_COLS as f32 * cw * 0.9 + 12.0 } else { 0.0 };
+    let blame_x = bp_x + bp_w;
+    // a line changed since HEAD is « not committed yet », the others are their line in HEAD
+    let not_yet = crate::git::Blame { hash: "0".repeat(40), author: String::new(), time: 0, summary: String::new() };
+    let spans = if blame_rows.is_some() { doc.hunk_spans() } else { Vec::new() };
+    let blame_at = |l: usize| {
+        let rows = blame_rows.as_ref()?;
+        match (l < nlines).then(|| crate::document::committed_line_in(&spans, l)).flatten() {
+            Some(old) => rows.get(old).filter(|b| !b.hash.is_empty()),
+            None if l < nlines && !rows.is_empty() => Some(&not_yet),
+            None => None,
+        }
+    };
+    let gutter_w = (digits as f32 + 1.0) * cw + 30.0 + test_w + bp_w + blame_w;
     let test_at = |l: usize| opts.tests.iter().find(|(t, _)| *t == l).map(|(_, tags)| tags);
     doc.update_max_cols();
     doc.reveal_cursors(); // whatever placed a cursor in a folded block, open it
@@ -269,7 +438,8 @@ fn text_area(
     }
     let out = sa.show_viewport(ui, |ui, vp| {
         let content_w = if wrap_cols.is_some() { 0.0 } else { gutter_w + (doc.max_cols as f32 + 8.0) * cw };
-        let content_h = rm.rows(nlines) as f32 * rh + (vp.height() - 3.0 * rh).max(0.0);
+        let beyond = if opts.scroll_beyond { (vp.height() - 3.0 * rh).max(0.0) } else { rh };
+        let content_h = rm.rows(nlines) as f32 * rh + beyond;
         let (rect, _) = ui.allocate_exact_size(egui::vec2(content_w.max(ui.available_width()), content_h), Sense::hover());
         let resp = ui.interact(rect, id, Sense::click_and_drag());
         if resp.has_focus() {
@@ -343,6 +513,8 @@ fn text_area(
         let (pressed, middle_pressed) = (pressed && !on_sticky, middle_pressed && !on_sticky);
         // the popup of the definitions of the hovered symbol, opened this frame: (where, text above them)
         let mut defs_popup: Option<(TipAt, String)> = None;
+        // the symbol under the pointer with Ctrl held, underlined like a link (drawn over the text)
+        let mut link_line: Option<(Pos2, Pos2)> = None;
         // the mouse has not moved since the text changed: no tooltip over what is being typed
         let typed_id = id.with("hover_version");
         if ui.ctx().input(|i| i.pointer.delta() != egui::Vec2::ZERO) {
@@ -350,23 +522,31 @@ fn text_area(
         }
         let typing = ui.ctx().data(|d| d.get_temp::<u64>(typed_id)) != Some(doc.version);
         let caret = doc.rope.char_to_line(doc.primary_sel().head.min(doc.rope.len_chars()));
+        let caret_line = caret;
         if let Some(p) = ptr {
             let in_gutter = p.x < gx + gutter_w;
             if (pressed || middle_pressed) && resp.hovered() {
                 resp.request_focus();
                 let pos = hit(doc, p);
                 let line = doc.rope.char_to_line(pos);
-                let on_marker = in_gutter && p.x >= gx + gutter_w - 8.0 && doc.hunks.iter().any(|h| h.contains(line));
+                let on_marker = in_gutter && p.x >= gx + gutter_w - 12.0 && doc.hunks.iter().any(|h| h.contains(line));
+                let on_blame = in_gutter && pressed && blame_w > 0.0 && p.x >= gx + blame_x && p.x < gx + blame_x + blame_w;
                 let on_fold = in_gutter
                     && p.x >= gx + gutter_w - 21.0
-                    && p.x < gx + gutter_w - 8.0
+                    && p.x < gx + gutter_w - 12.0
                     && (folded.contains(&line) || doc.can_fold(line));
                 let end = at(line, doc.vcol(line, doc.line_len(line)));
                 let on_pill = !in_gutter && folded.contains(&line) && p.x >= end.x + cw && p.y >= end.y;
                 // ✳ on the left of the numbers: the line, or the lines selected around it, for Claude
                 let on_claude = in_gutter && pressed && p.x < gx + claude_w();
                 let on_test = in_gutter && pressed && p.x >= gx + test_x && p.x < gx + test_x + test_w && test_at(line).is_some();
-                if on_test {
+                let on_bp = in_gutter && pressed && p.x >= gx + bp_x && p.x < gx + bp_x + bp_w;
+                if on_blame {
+                    // its commit, in the Git view
+                    doc.blame_open = blame_at(line).filter(|b| !b.uncommitted()).map(|b| b.hash.clone());
+                } else if on_bp {
+                    doc.toggle_breakpoint(line);
+                } else if on_test {
                     doc.test_pick = test_at(line).cloned();
                 } else if on_claude {
                     let s = doc.primary_sel();
@@ -484,26 +664,34 @@ fn text_area(
                         .map(|d| format!("{} : {}", d.source, d.message))
                         .collect();
                     let mut tip = msgs.join("\n");
-                    if let Some((_, info)) = doc.hover_info.as_ref().filter(|(r, t)| Some(*r) == doc.hover_word && !t.is_empty()) {
+                    if let Some((_, info)) = doc.hover_info.as_ref().filter(|(r, t)| opts.hover_docs && Some(*r) == doc.hover_word && !t.is_empty()) {
                         if !tip.is_empty() {
                             tip.push_str("\n\n");
                         }
                         tip.push_str(info);
                     }
-                    // the symbol is defined in the project: a popup the mouse can go into, to click
+                    // the symbol is defined in the project: with Ctrl held (as in Sublime, VS Code),
+                    // underlined like a link, and a popup of its definitions the mouse can go into
                     let ready = doc.hover_info.as_ref().is_some_and(|(r, _)| Some(*r) == doc.hover_word);
                     let has_defs = doc.hover_defs.as_ref().is_some_and(|(r, d, _)| Some(*r) == doc.hover_word && !d.is_empty());
+                    let ctrl = ui.ctx().input(|i| i.modifiers.command);
+                    let place = at;
                     let at = tip_at(p.x, origin.y + ((p.y - origin.y) / rh).floor() * rh, rh, l, caret);
                     if typing {
                         // nothing until the mouse moves again
-                    } else if ready && has_defs {
-                        let delay = ui.style().interaction.tooltip_delay;
-                        let still = ui.ctx().input(|i| i.pointer.time_since_last_movement());
-                        if still < delay {
-                            ui.ctx().request_repaint_after(std::time::Duration::from_secs_f32(delay - still + 0.01));
-                        } else {
-                            defs_popup = Some((at, tip));
+                    } else if ready && has_defs && ctrl {
+                        ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+                        if let Some((a, b)) = doc.hover_word {
+                            let (la, lb) = (doc.rope.char_to_line(a), doc.rope.char_to_line(b));
+                            if la == lb {
+                                let ls = doc.rope.line_to_char(la);
+                                let (pa, pb) = (place(la, doc.vcol(la, a - ls)), place(la, doc.vcol(la, b - ls)));
+                                if (pa.y - pb.y).abs() < 1.0 {
+                                    link_line = Some((Pos2::new(pa.x, pa.y + rh - pad - 1.0), Pos2::new(pb.x, pa.y + rh - pad - 1.0)));
+                                }
+                            }
                         }
+                        defs_popup = Some((at, tip));
                     } else if !tip.is_empty() {
                         tooltip_by_line(ui, &resp, at, tip);
                     }
@@ -514,13 +702,32 @@ fn text_area(
                     msgs.extend(opts.notes.iter().filter(|(n, _)| *n == l).map(|(_, t)| t.clone()));
                     if p.x < gx + claude_w() {
                         msgs.push(t!("✳ Clic : ajouter cette ligne (ou les lignes sélectionnées) au contexte de Claude", "✳ Click: add this line (or the selected lines) to Claude's context").into());
+                    } else if opts.debug && p.x >= gx + bp_x && p.x < gx + bp_x + bp_w {
+                        ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+                        msgs.push(t!("● Clic : mettre ou enlever un point d'arrêt (F9) ; F5 lance le débogueur", "● Click: put or take away a breakpoint (F9); F5 starts the debugger").into());
                     } else if let Some(tags) = test_at(l).filter(|_| p.x >= gx + test_x && p.x < gx + test_x + test_w) {
                         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
                         msgs.push(tf!("▶ Clic : lancer « {tags} » (Ctrl+F6 : relancer)", "▶ Click: run “{tags}” (Ctrl+F6: run again)"));
                     }
-                    if p.x >= gx + gutter_w - 8.0 && doc.hunks.iter().any(|h| h.contains(l)) {
+                    if p.x >= gx + gutter_w - 12.0 && doc.hunks.iter().any(|h| h.contains(l)) {
                         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
-                        msgs.push(t!("Modifié depuis le dernier commit — clic pour voir le diff", "Changed since the last commit — click to see the diff").into());
+                        msgs.push(t!(
+                            "Modifié depuis le dernier commit — clic : voir le changement (Ctrl+K Ctrl+D), Alt+F5 / Maj+Alt+F5 : le suivant / le précédent",
+                            "Changed since the last commit — click: see the change (Ctrl+K Ctrl+D), Alt+F5 / Shift+Alt+F5: the next / previous one"
+                        )
+                        .into());
+                    }
+                    if blame_w > 0.0 && p.x >= gx + blame_x && p.x < gx + blame_x + blame_w {
+                        if let Some(b) = blame_at(l) {
+                            if b.uncommitted() {
+                                msgs.push(t!("Pas encore commité", "Not committed yet").into());
+                            } else {
+                                // the commit's window (its whole message, its links): drawn by the app
+                                ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+                                let cell = Rect::from_min_size(Pos2::new(gx + blame_x, line_y(l)), egui::vec2(blame_w, rh));
+                                doc.blame_hover = Some((b.clone(), cell, false));
+                            }
+                        }
                     }
                     if !msgs.is_empty() {
                         let at = tip_at(p.x, origin.y + ((p.y - origin.y) / rh).floor() * rh, rh, l, caret);
@@ -535,7 +742,13 @@ fn text_area(
         definitions_popup(ui, doc, id, defs_popup);
 
         // ---------------------------------------------------------------- highlighting
-        if !doc.highlight.ensure(hl, &doc.syntax, &doc.rope, last, crate::highlight::FRAME_BUDGET) {
+        doc.highlight.view_from = first;
+        let done = doc.highlight.ensure(hl, &doc.syntax, &doc.rope, last, crate::highlight::FRAME_BUDGET);
+        // a syntax tree colors the lines shown only: the pinned lines above them too
+        if doc.highlight.uses_tree() && !sticky.is_empty() {
+            doc.highlight.ensure_lines(hl, &doc.rope, &sticky);
+        }
+        if !done {
             ui.ctx().request_repaint();
         }
 
@@ -543,8 +756,14 @@ fn text_area(
         let vis_start = doc.rope.line_to_char(first);
         let vis_end = doc.line_end_incl(last);
 
+        // the line where the debugger is stopped: a yellow band under the text
+        if let Some(l) = opts.exec_line.filter(|l| (first..=last).contains(l) && !rm.is_hidden(*l)) {
+            let r = Rect::from_min_size(Pos2::new(gx, line_y(l)), egui::vec2(vp.width(), line_h(l)));
+            painter.rect_filled(r, 0.0, mix(c.bg, highlight::yellow(), 0.22));
+        }
+
         // current line(s)
-        for s in &doc.sels {
+        for s in doc.sels.iter().filter(|_| opts.current_line) {
             if s.is_empty() {
                 let l = doc.rope.char_to_line(s.head);
                 if (first..=last).contains(&l) {
@@ -607,12 +826,52 @@ fn text_area(
                 }
                 let n_old = h.old_lines.len();
                 let top_row = rm.row(h.new_start) - n_old;
+                // the words that changed, line by line (the old line k against the new line k), on
+                // a stronger background
+                let pairs = n_old.min(h.new_end.saturating_sub(h.new_start));
+                let words: Vec<(Vec<(usize, usize)>, Vec<(usize, usize)>)> = (0..pairs)
+                    .map(|k| {
+                        let old = h.old_lines[k].trim_end_matches(['\n', '\r']);
+                        let l = h.new_start + k;
+                        let new = doc.rope.line(l).to_string();
+                        changed_words(old, new.trim_end_matches(['\n', '\r']))
+                    })
+                    .collect();
+                for (k, (_, new_words)) in words.iter().enumerate() {
+                    let l = h.new_start + k;
+                    if l < first || l > last || rm.is_hidden(l) {
+                        continue;
+                    }
+                    for &(a, b) in new_words {
+                        let (pa, pb) = (at(l, doc.vcol(l, a)), at(l, doc.vcol(l, b)));
+                        if (pa.y - pb.y).abs() < 1.0 {
+                            painter.rect_filled(Rect::from_min_max(pa, Pos2::new(pb.x, pb.y + rh)), 2.0, added_strong(hl.is_light()));
+                        }
+                    }
+                }
                 for (k, old) in h.old_lines.iter().enumerate() {
                     let y = origin.y + (top_row + k) as f32 * rh;
                     if y + rh < origin.y + vp.min.y || y > origin.y + vp.max.y {
                         continue;
                     }
                     painter.rect_filled(Rect::from_min_size(Pos2::new(gx, y), egui::vec2(text_w, rh)), 0.0, removed_bg(hl.is_light()));
+                    if let Some((old_words, _)) = words.get(k) {
+                        // visual columns of the old line's characters (tabs widen)
+                        let mut cols = Vec::new();
+                        let mut v = 0;
+                        for ch in old.chars().take_while(|c| *c != '\n' && *c != '\r') {
+                            cols.push(v);
+                            v += if ch == '\t' { doc.tab_size - v % doc.tab_size } else { 1 };
+                        }
+                        cols.push(v);
+                        for &(a, b) in old_words {
+                            let (va, vb) = (cols.get(a).copied().unwrap_or(v), cols.get(b).copied().unwrap_or(v));
+                            if vb > vstart && va < vend {
+                                let (va, vb) = (va.max(vstart), vb.min(vend));
+                                painter.rect_filled(Rect::from_min_size(Pos2::new(text_x + va as f32 * cw, y), egui::vec2((vb - va) as f32 * cw, rh)), 2.0, removed_strong(hl.is_light()));
+                            }
+                        }
+                    }
                     let mut shown = String::new();
                     let mut v = 0;
                     for ch in old.chars().take_while(|c| *c != '\n' && *c != '\r') {
@@ -631,7 +890,7 @@ fn text_area(
                         Align2::LEFT_TOP,
                         shown,
                         font.clone(),
-                        c.fg.gamma_multiply(0.75),
+                        c.fg,
                     );
                 }
                 // small "revert" button at the right of the hunk's first row
@@ -680,7 +939,7 @@ fn text_area(
         });
         let guide = mix(c.guide, c.fg, 0.20);
         let guide_on = mix(c.guide, c.fg, 0.50);
-        for l in (first..=last).filter(|&l| !rm.is_hidden(l)) {
+        for l in (first..=last).filter(|&l| opts.indent_guides && !rm.is_hidden(l)) {
             // an empty line inside a block keeps the guides of the lines around it
             let lead = match lead_of(l) {
                 Some(x) => x,
@@ -731,6 +990,44 @@ fn text_area(
         for &(a, b) in matches[i0..].iter().take_while(|m| m.0 <= vis_end) {
             for r in span_rects(doc, &rm, &wraps, a, b, first, last, text_x, origin.y, rh, cw) {
                 painter.rect_stroke(r, 2.0, Stroke::new(1.0_f32, c.find), egui::StrokeKind::Middle);
+            }
+        }
+
+        // the other occurrences of the selected text (one line, a few characters), framed
+        let prim_sel = doc.primary_sel();
+        if opts.selection_highlight && doc.sels.len() == 1 && !prim_sel.is_empty() && prim_sel.end() - prim_sel.start() <= 200 {
+            let needle = doc.slice(prim_sel.start(), prim_sel.end());
+            if !needle.contains('\n') && needle.trim().chars().count() >= 2 {
+                let n = needle.chars().count();
+                // only the visible part of each line, and at most a few hundred: a selection of
+                // `),` in a minified file of 2 MB on one line must not cost a second per frame
+                let mut budget = 400usize;
+                for l in (first..=last).filter(|&l| !rm.is_hidden(l)) {
+                    let ls = doc.rope.line_to_char(l);
+                    let ll = doc.line_len(l);
+                    let (c0, c1) = if opts.wrap { (0, ll) } else { (doc.col_at_vcol(l, vstart).saturating_sub(n), (doc.col_at_vcol(l, vend) + n).min(ll)) };
+                    if c0 >= c1 {
+                        continue;
+                    }
+                    let part = doc.slice(ls + c0, ls + c1);
+                    let (mut counted, mut chars) = (0usize, 0usize);
+                    for (bi, _) in part.match_indices(needle.as_str()) {
+                        if budget == 0 {
+                            break;
+                        }
+                        budget -= 1;
+                        chars += part[counted..bi].chars().count();
+                        counted = bi;
+                        let a = ls + c0 + chars;
+                        if a == prim_sel.start() {
+                            continue;
+                        }
+                        for r in span_rects(doc, &rm, &wraps, a, a + n, first, last, text_x, origin.y, rh, cw) {
+                            painter.rect_filled(r, 2.0, c.selection.gamma_multiply(0.45));
+                            painter.rect_stroke(r, 2.0, Stroke::new(1.0_f32, c.selection), egui::StrokeKind::Middle);
+                        }
+                    }
+                }
             }
         }
 
@@ -787,8 +1084,8 @@ fn text_area(
         if opts.whitespace {
             let ws = c.fg.gamma_multiply(0.28);
             for l in (first..=last).filter(|&l| !rm.is_hidden(l)) {
-                let mut v = 0usize;
-                for ch in doc.rope.line(l).chars() {
+                let (c0, mut v) = line_from(doc, l, vstart);
+                for ch in doc.rope.line(l).chars_at(c0) {
                     if ch == '\n' || ch == '\r' {
                         break;
                     }
@@ -832,17 +1129,21 @@ fn text_area(
             }
             match wraps.of(l) {
                 None => {
-                    let (start_v, job) = line_job(doc, l, font, c.fg, vstart, vend, &brackets);
+                    let (start_v, job) = line_job(doc, l, font, c.fg, vstart, vend, &brackets, line_from(doc, l, vstart));
                     if let Some(sv) = start_v {
                         let galley = ui.fonts_mut(|f| f.layout_job(job));
                         painter.galley(Pos2::new(text_x + sv as f32 * cw, line_y(l) + pad), galley, c.fg);
                     }
                 }
-                // one row after the other, each with its part of the line
+                // one row after the other, each with its part of the line (the rows on the screen:
+                // a minified line has thousands)
                 Some(w) => {
-                    for k in 0..=w.starts.len() {
+                    let top = rm.row(l) as f32;
+                    let k0 = ((vp.min.y / rh - top).floor().max(0.0) as usize).min(w.starts.len());
+                    let k1 = ((vp.max.y / rh - top).ceil().max(0.0) as usize).min(w.starts.len());
+                    for k in k0..=k1 {
                         let (a, b) = w.row_span(k);
-                        let (start_v, job) = line_job(doc, l, font, c.fg, a, b, &brackets);
+                        let (start_v, job) = line_job(doc, l, font, c.fg, a, b, &brackets, w.row_start(k));
                         if let Some(sv) = start_v {
                             let galley = ui.fonts_mut(|f| f.layout_job(job));
                             let x = (sv.saturating_sub(a) + if k > 0 { w.indent } else { 0 }) as f32 * cw;
@@ -859,8 +1160,9 @@ fn text_area(
             let fade = (3.0 * cw).min(36.0);
             let mut mesh = egui::Mesh::default();
             let clear = Color32::from_rgba_premultiplied(0, 0, 0, 0);
+            let cols = ((right - text_x) / cw).max(0.0).floor() as usize;
             for l in (first..=last).filter(|&l| !rm.is_hidden(l)) {
-                if doc.vcol(l, doc.line_len(l)) as f32 * cw + text_x <= right {
+                if !doc.wider_than(l, cols) {
                     continue;
                 }
                 let r = Rect::from_min_max(Pos2::new(right - fade, line_y(l)), Pos2::new(right, line_y(l) + rh));
@@ -877,17 +1179,26 @@ fn text_area(
             }
         }
 
+        if let Some((a, b)) = link_line {
+            painter.line_segment([a, b], Stroke::new(1.0_f32, c.accent));
+        }
+
         // inline blame at the end of its line
-        if let Some((bl, _, text)) = &doc.blame {
-            if (first..=last).contains(bl) {
-                let end = at(*bl, doc.vcol(*bl, doc.line_len(*bl)));
-                painter.text(
+        if let Some((bl, text)) = doc.blame.as_ref().map(|(l, _, t)| (*l, t.clone())) {
+            if (first..=last).contains(&bl) {
+                let end = at(bl, doc.vcol(bl, doc.line_len(bl)));
+                let r = painter.text(
                     Pos2::new(end.x + 4.0 * cw, end.y + rh / 2.0),
                     Align2::LEFT_CENTER,
-                    text,
+                    &text,
                     FontId::proportional(font.size * 0.9),
                     c.gutter_fg.gamma_multiply(1.2),
                 );
+                // hovered: the commit's window (its whole message, its links), drawn by the app
+                if let Some(b) = doc.blame_commit.clone().filter(|_| ui.ctx().pointer_hover_pos().is_some_and(|p| r.expand(2.0).contains(p))) {
+                    ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+                    doc.blame_hover = Some((b, r, true));
+                }
             }
         }
 
@@ -962,14 +1273,46 @@ fn text_area(
             }
         }
 
-        // cursors
+        // cursors; blinking: shown half a second, hidden half a second, always shown just after
+        // the cursor moved or the text changed
         let caret = if focused { c.caret } else { c.caret.gamma_multiply(0.4) };
+        let mut caret_on = true;
+        if opts.cursor_blink && focused {
+            let now = ui.input(|i| i.time);
+            let key = id.with("blink");
+            let state = (prim.head, doc.version);
+            let since = match ui.ctx().data(|d| d.get_temp::<((usize, u64), f64)>(key)) {
+                Some((st, t)) if st == state => t,
+                _ => {
+                    ui.ctx().data_mut(|d| d.insert_temp(key, (state, now)));
+                    now
+                }
+            };
+            let phase = (now - since) % 1.0;
+            caret_on = phase < 0.5;
+            let next = if caret_on { 0.5 - phase } else { 1.0 - phase };
+            ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(next.max(0.01)));
+        }
         let mut caret_screen = None;
         for (k, s) in doc.sels.iter().enumerate() {
             let (l, col) = doc.line_col(s.head);
             if (first..=last).contains(&l) {
                 let p = at(l, doc.vcol(l, col));
-                painter.line_segment([p, Pos2::new(p.x, p.y + rh)], Stroke::new(2.0_f32, caret));
+                if caret_on {
+                    match opts.cursor_shape {
+                        "block" => {
+                            // the box of the character (the text is centered in the taller row)
+                            painter.rect_filled(Rect::from_min_size(p + egui::vec2(0.0, pad), egui::vec2(cw, rh - 2.0 * pad)), 1.0, caret.gamma_multiply(0.55));
+                        }
+                        "underline" => {
+                            let y = p.y + rh - pad;
+                            painter.line_segment([Pos2::new(p.x, y), Pos2::new(p.x + cw, y)], Stroke::new(2.0_f32, caret));
+                        }
+                        _ => {
+                            painter.line_segment([p, Pos2::new(p.x, p.y + rh)], Stroke::new(2.0_f32, caret));
+                        }
+                    }
+                }
                 if k == doc.primary && focused {
                     caret_screen = Some((p.x, p.y + rh));
                 }
@@ -997,8 +1340,28 @@ fn text_area(
         // gutter
         let gutter = Rect::from_min_size(Pos2::new(gx, origin.y + vp.min.y), egui::vec2(gutter_w, vp.height()));
         painter.rect_filled(gutter, 0.0, c.bg);
+        // the change shown (or all of them): its rows tinted in the gutter too, as in Zed
+        if inline_diff || peek_hunk.is_some() {
+            for (hi, h) in doc.hunks.iter().enumerate() {
+                if !inline_diff && Some(hi) != peek_hunk {
+                    continue;
+                }
+                for l in (h.new_start.max(first)..h.new_end.min(last + 1)).filter(|&l| !rm.is_hidden(l)) {
+                    painter.rect_filled(Rect::from_min_size(Pos2::new(gx, line_y(l)), egui::vec2(gutter_w, line_h(l))), 0.0, added_bg(hl.is_light()));
+                }
+                if h.new_start <= last + 1 && !rm.is_hidden(h.new_start) {
+                    let top_row = rm.row(h.new_start) - h.old_lines.len();
+                    for k in 0..h.old_lines.len() {
+                        let y = origin.y + (top_row + k) as f32 * rh;
+                        painter.rect_filled(Rect::from_min_size(Pos2::new(gx, y), egui::vec2(gutter_w, rh)), 0.0, removed_bg(hl.is_light()));
+                    }
+                }
+            }
+        }
         let cursor_lines: HashSet<usize> = doc.sels.iter().map(|s| doc.rope.char_to_line(s.head)).collect();
         let bookmarks: HashSet<usize> = doc.bookmark_lines().into_iter().collect();
+        let breakpoints: HashSet<usize> = if opts.debug { doc.breakpoint_lines().into_iter().collect() } else { HashSet::new() };
+        let bp_hover = ui.ctx().pointer_hover_pos().filter(|p| p.x >= gx + bp_x && p.x < gx + bp_x + bp_w);
         let mut problems: HashMap<usize, Severity> = HashMap::new();
         for d in &doc.diagnostics {
             let e = problems.entry(d.line).or_insert(d.severity);
@@ -1023,7 +1386,17 @@ fn text_area(
                 None if cursor_lines.contains(&l) => c.fg,
                 None => c.gutter_fg.gamma_multiply(0.75),
             };
-            painter.text(Pos2::new(gx + gutter_w - 22.0, line_y(l) + pad), Align2::RIGHT_TOP, (l + 1).to_string(), font.clone(), color);
+            if opts.line_numbers {
+                let n = if opts.relative_numbers && l != caret_line { l.abs_diff(caret_line) } else { l + 1 };
+                painter.text(Pos2::new(gx + gutter_w - 22.0, line_y(l) + pad), Align2::RIGHT_TOP, n.to_string(), font.clone(), color);
+            }
+            // the blame, on the first line of each run of lines of the same commit
+            if let Some(b) = blame_at(l) {
+                if l == first || blame_at(l - 1).map(|p| &p.hash) != Some(&b.hash) {
+                    let col = if b.uncommitted() { c.gutter_fg.gamma_multiply(0.45) } else { c.gutter_fg.gamma_multiply(0.9) };
+                    painter.text(Pos2::new(gx + blame_x + 4.0, line_y(l) + rh * 0.5), Align2::LEFT_CENTER, blame_label(b), FontId::monospace(opts.font_size * 0.9), col);
+                }
+            }
             if hover_line == Some(l) {
                 painter.text(Pos2::new(gx + 2.0, line_y(l) + rh * 0.5), Align2::LEFT_CENTER, "✳", FontId::proportional(opts.font_size * 0.85), c.accent);
             }
@@ -1047,6 +1420,25 @@ fn text_area(
                     egui::Stroke::NONE,
                 ));
             }
+            if opts.debug {
+                // breakpoint: a red dot; on the hovered line, a faint one (where to click)
+                let m = Pos2::new(gx + bp_x + BP_W / 2.0, line_y(l) + rh * 0.5);
+                let rad = (rh * 0.28).min(5.0);
+                if breakpoints.contains(&l) {
+                    painter.circle_filled(m, rad, highlight::red());
+                } else if bp_hover.is_some() && hover_line == Some(l) {
+                    painter.circle_filled(m, rad, highlight::red().gamma_multiply(0.35));
+                }
+                if opts.exec_line == Some(l) {
+                    // where it is stopped: a yellow arrow over the dot
+                    let s = rad * 1.1;
+                    painter.add(egui::Shape::convex_polygon(
+                        vec![m + egui::vec2(-s, -s * 0.7), m + egui::vec2(s * 0.2, -s * 0.7), m + egui::vec2(s, 0.0), m + egui::vec2(s * 0.2, s * 0.7), m + egui::vec2(-s, s * 0.7)],
+                        highlight::yellow(),
+                        egui::Stroke::new(1.0_f32, c.bg),
+                    ));
+                }
+            }
             if bookmarks.contains(&l) {
                 // bookmark: a small ribbon on the left of the number
                 let r = Rect::from_min_size(Pos2::new(gx + 4.0, line_y(l) + 3.0), egui::vec2(4.0, rh - 6.0));
@@ -1058,7 +1450,7 @@ fn text_area(
             } else if gutter_hover && doc.can_fold(l) {
                 crate::icons::paint_chevron(painter, arrow, true, c.gutter_fg);
             }
-            if let Some(m) = doc.git_marks.get(&l) {
+            if let Some(m) = doc.git_marks.get(&l).filter(|_| opts.git_gutter) {
                 let col = match m {
                     GitMark::Added => highlight::green(),
                     GitMark::Modified => highlight::yellow(),
@@ -1096,7 +1488,7 @@ fn text_area(
             painter.rect_filled(band, 0.0, c.bg);
             for (k, &l) in sticky.iter().enumerate() {
                 let y = sticky_top + k as f32 * rh;
-                let (start_v, job) = line_job(doc, l, font, c.fg, vstart, vend, &[]);
+                let (start_v, job) = line_job(doc, l, font, c.fg, vstart, vend, &[], (0, 0));
                 if let Some(sv) = start_v {
                     let galley = ui.fonts_mut(|f| f.layout_job(job));
                     painter.galley(Pos2::new(text_x + sv as f32 * cw, y + pad), galley, c.fg);
@@ -1151,7 +1543,10 @@ fn text_area(
             doc.scroll_to_cursor = false;
             let (l, col) = doc.line_col(prim.head);
             let p = at(l, doc.vcol(l, col));
-            let r = Rect::from_min_max(Pos2::new(p.x - gutter_w - 2.0 * cw, p.y - rh), Pos2::new(p.x + 4.0 * cw, p.y + 2.0 * rh));
+            // never more than half the rows shown (else the rect covers the view: no scroll)
+            let rows = (ui.clip_rect().height() / rh).floor().max(1.0) as usize;
+            let m = opts.scroll_margin.min(rows.saturating_sub(1) / 2) as f32 * rh;
+            let r = Rect::from_min_max(Pos2::new(p.x - gutter_w - 2.0 * cw, p.y - m), Pos2::new(p.x + 4.0 * cw, p.y + rh + m));
             ui.scroll_to_rect(r, if doc.center_cursor { Some(Align::Center) } else { None });
             doc.center_cursor = false;
         }
@@ -1218,7 +1613,12 @@ fn minimap_ui(ui: &mut Ui, doc: &mut Document, hl: &Highlighting, rh: f32) {
     let off = (total - rect.height()).max(0.0) * frac;
     let first = (off / lh) as usize;
     let last = (first + (rect.height() / lh) as usize + 1).min(nlines);
-    if last > 0 && !doc.highlight.ensure(hl, &doc.syntax, &doc.rope, last - 1, crate::highlight::FRAME_BUDGET) {
+    // a syntax tree colors from the first line asked: the minimap's, then the editor's again
+    let editor_from = doc.highlight.view_from;
+    doc.highlight.view_from = first;
+    let done = last == 0 || doc.highlight.ensure(hl, &doc.syntax, &doc.rope, last - 1, crate::highlight::FRAME_BUDGET);
+    doc.highlight.view_from = editor_from;
+    if !done {
         ui.ctx().request_repaint();
     }
     let painter = ui.painter_at(rect);
@@ -1332,6 +1732,179 @@ mod tests {
         assert!(shown(&ctx).is_some());
         frame(&mut doc, 2.1 + DEFS_GRACE + 0.05, egui::pos2(600.0, 600.0), None);
         assert!(shown(&ctx).is_none());
+    }
+
+    /// A click in the column of the breakpoints puts one on its line, a second one takes it away;
+    /// the line where the debugger stopped gets its band, the other files no column.
+    #[test]
+    fn a_click_in_the_gutter_puts_a_breakpoint() {
+        let ctx = egui::Context::default();
+        let hl = Highlighting::new("Florm", std::path::Path::new("/nonexistent"));
+        let mut doc = Document::from_text(1, "a = 1\nb = 2\nc = 3\nd = 4\n", 4, true);
+        let opts = |debug| ViewOpts { font_size: 14.0, minimap: false, wrap: false, inline_diff: false, sticky: false, rulers: &[], notes: &[], tests: &[], rainbow: false, whitespace: false, debug, exec_line: Some(1), blame_gutter: false, ..Default::default() };
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 400.0));
+        let _ = crate::run_ui(&ctx, Default::default(), |_| {});
+        let rh = line_height(14.0, ctx.fonts_mut(|f| f.row_height(&FontId::monospace(14.0))));
+        let frame = |doc: &mut Document, events: Vec<egui::Event>, debug: bool| {
+            let _ = crate::run_ui(&ctx, egui::RawInput { screen_rect: Some(screen), events, ..Default::default() }, |ui| {
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| show(ui, doc, &hl, &opts(debug), &[], Id::unique("ed")));
+            });
+        };
+        frame(&mut doc, Vec::new(), true);
+        // the column right of the ✳: line 3 (index 2)
+        let at = egui::pos2(claude_w() + BP_W / 2.0, rh * 2.5);
+        let click = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+        for (expect, changed) in [(vec![2], true), (vec![], true)] {
+            frame(&mut doc, vec![egui::Event::PointerMoved(at), click(true)], true);
+            frame(&mut doc, vec![click(false)], true);
+            assert_eq!(doc.breakpoint_lines(), expect);
+            assert_eq!(std::mem::take(&mut doc.breakpoints_changed), changed);
+        }
+        // no column: the same click selects the line instead
+        frame(&mut doc, vec![egui::Event::PointerMoved(at), click(true)], false);
+        frame(&mut doc, vec![click(false)], false);
+        assert!(doc.breakpoint_lines().is_empty());
+    }
+
+    /// The words that changed, without the spaces between them.
+    #[test]
+    fn changed_words_of_two_lines() {
+        let (a, b) = changed_words("\"syndic transfer wizard\",crud", "\"truc machin\", \"coucou\",");
+        assert!(!a.is_empty() && !b.is_empty());
+        let old: Vec<char> = "\"syndic transfer wizard\",crud".chars().collect();
+        for (x, y) in &a {
+            let w: String = old[*x..*y].iter().collect();
+            assert!(!w.trim().is_empty() && !w.contains(' '), "{w:?}");
+        }
+        assert_eq!(changed_words("same line", "same line"), (vec![], vec![]));
+    }
+
+    /// The change shown as in Zed: the old line on red, the words changed on a stronger red, the
+    /// new on green; the blame of each line in the gutter, once per run of the same commit.
+    #[test]
+    fn a_change_and_the_blame_drawn_as_in_zed() {
+        let ctx = egui::Context::default();
+        let hl = Highlighting::new("Florm", std::path::Path::new("/nonexistent"));
+        let mut doc = Document::from_text(1, "a = 1\nb = 22\nc = 3\n", 4, true);
+        doc.git_base = Some("a = 1\nb = 2\nc = 3\n".into());
+        doc.refresh_diff();
+        doc.peek = Some(1);
+        let commit = |h: &str, who: &str| crate::git::Blame { hash: h.repeat(40), author: who.into(), time: 0, summary: "s".into() };
+        // HEAD's 3 lines (line 2 of the buffer changed: not committed yet)
+        doc.blame_lines = Some((doc.base_key(), std::sync::Arc::new(vec![commit("a", "Alice"), commit("b", "Bob"), commit("a", "Alice")])));
+        let opts = ViewOpts { font_size: 14.0, minimap: false, wrap: false, inline_diff: false, sticky: false, rulers: &[], notes: &[], tests: &[], rainbow: false, whitespace: false, debug: false, exec_line: None, blame_gutter: true, ..Default::default() };
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 400.0));
+        let mut texts = Vec::new();
+        let mut fills = Vec::new();
+        for _ in 0..2 {
+            let out = crate::run_ui(&ctx, egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| show(ui, &mut doc, &hl, &opts, &[], Id::unique("ed")));
+            });
+            texts.clear();
+            fills.clear();
+            fn walk(s: &egui::Shape, t: &mut Vec<String>, f: &mut Vec<Color32>) {
+                match s {
+                    egui::Shape::Text(x) => t.push(x.galley.text().to_string()),
+                    egui::Shape::Rect(r) => f.push(r.fill),
+                    egui::Shape::Vec(v) => v.iter().for_each(|x| walk(x, t, f)),
+                    _ => {}
+                }
+            }
+            out.shapes.iter().for_each(|c| walk(&c.shape, &mut texts, &mut fills));
+        }
+        let light = hl.is_light();
+        assert!(texts.iter().any(|t| t == "b = 2"), "the old line: {texts:?}");
+        assert!(fills.contains(&removed_strong(light)) && fills.contains(&added_strong(light)), "the changed words");
+        let alice: Vec<&String> = texts.iter().filter(|t| t.starts_with("Alice")).collect();
+        assert_eq!(alice.len(), 2, "once per run: {texts:?}");
+        assert!(texts.iter().any(|t| t == "pas encore commité" || t == "not committed yet"));
+    }
+
+    /// The line blame at the end of a line (Ctrl+Shift+B), hovered: its commit for the app's window,
+    /// opening under it; a line not committed has none.
+    #[test]
+    fn hovering_the_line_blame_gives_its_commit() {
+        let ctx = egui::Context::default();
+        let hl = Highlighting::new("Florm", std::path::Path::new("/nonexistent"));
+        let mut doc = Document::from_text(1, "a = 1\nb = 2\n", 4, true);
+        let text = "Alice · il y a 3 mois · First line (abcdef1)".to_string();
+        doc.blame = Some((0, doc.version, text.clone()));
+        doc.blame_commit = Some(crate::git::Blame { hash: "abcdef1".repeat(6), author: "Alice".into(), time: 0, summary: "First line".into() });
+        let opts = ViewOpts { font_size: 14.0, minimap: false, wrap: false, inline_diff: false, sticky: false, rulers: &[], notes: &[], tests: &[], rainbow: false, whitespace: false, debug: false, exec_line: None, blame_gutter: false, ..Default::default() };
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 400.0));
+        let frame = |doc: &mut Document, pointer: Option<Pos2>| {
+            let events = pointer.map(|p| vec![egui::Event::PointerMoved(p)]).unwrap_or_default();
+            let out = crate::run_ui(&ctx, egui::RawInput { screen_rect: Some(screen), events, ..Default::default() }, |ui| {
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| show(ui, doc, &hl, &opts, &[], Id::unique("ed")));
+            });
+            let mut found = None;
+            fn walk(s: &egui::Shape, want: &str, out: &mut Option<Rect>) {
+                match s {
+                    egui::Shape::Text(t) if t.galley.text() == want => *out = Some(t.galley.rect.translate(t.pos.to_vec2())),
+                    egui::Shape::Vec(v) => v.iter().for_each(|x| walk(x, want, out)),
+                    _ => {}
+                }
+            }
+            out.shapes.iter().for_each(|c| walk(&c.shape, &text, &mut found));
+            found
+        };
+        frame(&mut doc, None);
+        let r = frame(&mut doc, None).expect("the line blame drawn");
+        frame(&mut doc, Some(r.center()));
+        let (b, at, below) = doc.blame_hover.take().expect("hovered");
+        assert!(below && b.summary == "First line" && at.contains(r.center()));
+        // not committed: no window
+        doc.blame_commit = None;
+        frame(&mut doc, Some(r.center()));
+        assert!(doc.blame_hover.is_none());
+    }
+
+    /// The definitions of a symbol open only with Ctrl held over it (as in Sublime), not on a plain
+    /// hover, however long the mouse stays.
+    #[test]
+    fn definitions_only_with_ctrl() {
+        let ctx = egui::Context::default();
+        let hl = Highlighting::new("Florm", std::path::Path::new("/nonexistent"));
+        let mut doc = Document::from_text(1, "x = foo()\n", 4, true);
+        let opts = ViewOpts { font_size: 14.0, minimap: false, wrap: false, inline_diff: false, sticky: false, rulers: &[], notes: &[], tests: &[], rainbow: false, whitespace: false, debug: false, exec_line: None, blame_gutter: false, ..Default::default() };
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 400.0));
+        let id = Id::unique("ed");
+        let frame = |doc: &mut Document, time: f64, pointer: Option<Pos2>, ctrl: bool| {
+            let events = pointer.map(|p| vec![egui::Event::PointerMoved(p)]).unwrap_or_default();
+            let modifiers: egui::Modifiers = if ctrl { egui::Modifiers::COMMAND } else { egui::Modifiers::NONE };
+            let out = crate::run_ui(&ctx, egui::RawInput { screen_rect: Some(screen), time: Some(time), events: std::iter::once(egui::Event::ModifiersChanged(modifiers)).chain(events).collect(), ..Default::default() }, |ui| {
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| show(ui, doc, &hl, &opts, &[], id));
+            });
+            let mut line = None;
+            fn walk(s: &egui::Shape, out: &mut Option<Rect>) {
+                match s {
+                    egui::Shape::Text(t) if t.galley.text().starts_with("x = foo") => *out = Some(t.galley.rect.translate(t.pos.to_vec2())),
+                    egui::Shape::Vec(v) => v.iter().for_each(|x| walk(x, out)),
+                    _ => {}
+                }
+            }
+            out.shapes.iter().for_each(|c| walk(&c.shape, &mut line));
+            line
+        };
+        frame(&mut doc, 0.0, None, false);
+        let r = frame(&mut doc, 0.1, None, false).expect("the line drawn");
+        let cw = r.width() / "x = foo()".chars().count() as f32;
+        let on_foo = Pos2::new(r.left() + 5.5 * cw, r.center().y);
+        // what the app looked up for the word under the pointer
+        let word = (4, 7);
+        doc.hover_info = Some((word, String::new()));
+        doc.hover_defs = Some((word, vec![(PathBuf::from("/p/a.py"), 3, "def foo".into(), "a.py:4".into())], 0));
+        let shown = |ctx: &egui::Context| ctx.data(|d| d.get_temp::<DefsPopup>(id.with("defs_popup"))).is_some();
+        // the mouse moves a little over the word (a pointer that never moved shows nothing)
+        let wiggle = |k: usize| on_foo + egui::vec2((k % 2) as f32, 0.0);
+        for k in 0..6 {
+            frame(&mut doc, 0.2 + k as f64 * 0.5, Some(wiggle(k)), false);
+        }
+        assert_eq!(doc.hover_word, Some(word));
+        assert!(!shown(&ctx), "no popup without Ctrl");
+        frame(&mut doc, 4.0, Some(wiggle(1)), true);
+        frame(&mut doc, 4.1, Some(wiggle(2)), true);
+        assert!(shown(&ctx), "Ctrl over the word: its definitions");
     }
 
     #[test]

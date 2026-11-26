@@ -22,13 +22,18 @@ impl App {
     /// A lint run done: its diagnostics, if the text did not change meanwhile.
     pub(super) fn on_lint(&mut self, uid: u64, version: u64, diags: Vec<Diagnostic>, linter: String) {
         self.lint_inflight.remove(&uid);
+        let mut python = false;
         if let Some(d) = self.docs.iter_mut().find(|d| d.uid == uid) {
+            python = lint::lang_of(d.path.as_deref().unwrap_or(Path::new(""))) == Some("python");
             if d.version == version {
                 d.set_lint_diagnostics(diags);
                 d.lint_version = version;
             }
         }
-        self.python_linter = Some(linter);
+        // the linter of the other languages (shellcheck…) is not the Python one
+        if python {
+            self.python_linter = Some(linter);
+        }
     }
 
     /// The files matching the query of the quick open (Ctrl+P).
@@ -102,7 +107,7 @@ impl App {
             crate::os::Pick::Folder => Some(Prompt::OpenFolder),
             crate::os::Pick::File => Some(Prompt::OpenFile),
             crate::os::Pick::SaveAs => Some(Prompt::SaveAs),
-            crate::os::Pick::Image | crate::os::Pick::ClaudeDir | crate::os::Pick::AccountProject | crate::os::Pick::AccountConfig | crate::os::Pick::SkillsDir => None,
+            crate::os::Pick::Image | crate::os::Pick::ClaudeDir | crate::os::Pick::AccountProject | crate::os::Pick::AccountConfig | crate::os::Pick::SkillsDir | crate::os::Pick::DebugDir => None,
         };
         match prompt {
             Some(prompt) => {
@@ -113,6 +118,11 @@ impl App {
             None if matches!(kind, crate::os::Pick::AccountProject | crate::os::Pick::AccountConfig) => {
                 if let Some(p) = paths.first() {
                     self.claude_account_picked(kind, p.clone());
+                }
+            }
+            None if kind == crate::os::Pick::DebugDir => {
+                if let Some(p) = paths.first() {
+                    self.debug_dir_picked(p.clone());
                 }
             }
             None if kind == crate::os::Pick::SkillsDir => {

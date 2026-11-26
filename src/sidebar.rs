@@ -357,7 +357,6 @@ pub fn show(
     title_at: Option<Rect>,
     scroll_to: &mut Option<PathBuf>,
     nav: &mut Nav,
-    app_menu: Option<&mut dyn FnMut(&mut Ui)>,
 ) -> Option<TreeAction> {
     let mut act = None;
     // the header's buttons show while the pointer is over the panel
@@ -417,7 +416,9 @@ pub fn show(
     });
     area.show(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 0.0;
-        // the folder name, centered: a click shows the projects to switch to
+        // the folder name, centered: a click shows the projects to switch to (the folder icon before
+        // it too)
+        let mut folder_click = false;
         let r = match in_bar {
             Some(r) => {
                 ui.add_space(2.0);
@@ -428,21 +429,17 @@ pub fn show(
                 // the name on the left (the projects), the actions of the tree on the right
                 ui.horizontal(|ui| {
                     ui.add_space(2.0);
-                    // the logo, small, before the name of the project; the menus under it when the
-                    // menu bar is hidden (as Zed's ☰)
-                    let logo = match app_menu {
-                        Some(menus) => {
-                            let b = egui::Button::new("").frame(false).min_size(egui::vec2(16.0, 16.0));
-                            let r = egui::containers::menu::MenuButton::from_button(b).ui(ui, |ui| menus(ui)).0;
-                            let r = r.on_hover_cursor(CursorIcon::PointingHand).on_hover_text(t!("Menus (Fichier, Édition, Git…)", "Menus (File, Edit, Git…)"));
-                            if r.hovered() {
-                                ui.painter().rect_filled(r.rect.expand(3.0), 4.0, ui.visuals().widgets.hovered.weak_bg_fill);
-                            }
-                            r.rect
-                        }
-                        None => ui.allocate_exact_size(egui::vec2(16.0, 16.0), Sense::hover()).0,
-                    };
-                    crate::logo::paint(ui.painter(), logo, false);
+                    // a folder before the name of the project (the menus are under the F of the
+                    // status bar): a click shows the projects, as the name does
+                    let (icon, fr) = ui.allocate_exact_size(egui::vec2(16.0, 16.0), Sense::click());
+                    let fr = fr.on_hover_cursor(CursorIcon::PointingHand).on_hover_text(t!("Changer de projet (Ctrl+Alt+P)", "Switch project (Ctrl+Alt+P)"));
+                    if fr.hovered() {
+                        ui.painter().rect_filled(icon.expand(3.0), 4.0, ui.visuals().widgets.hovered.weak_bg_fill);
+                    }
+                    let v = ui.visuals();
+                    let color = crate::icons::mix(v.hyperlink_color, v.weak_text_color(), 0.75);
+                    crate::icons::paint_folder(ui.painter(), icon, false, color, v.panel_fill);
+                    folder_click = fr.clicked();
                     ui.add_space(2.0);
                     // the name stops before the four buttons of the right (22 px each)
                     let w = (ui.available_width() - 4.0 * 22.0 - 6.0).max(20.0);
@@ -463,7 +460,7 @@ pub fn show(
         };
         let r = r.on_hover_cursor(CursorIcon::PointingHand).on_hover_text(t!("Changer de projet (Ctrl+Alt+P)", "Switch project (Ctrl+Alt+P)"));
         let popup = Id::unique("project_menu");
-        if r.clicked() {
+        if r.clicked() || folder_click {
             egui::Popup::toggle_id(ui.ctx(), popup);
         }
         // clicks in its filter field must not close it
