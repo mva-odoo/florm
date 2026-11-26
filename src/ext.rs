@@ -106,12 +106,17 @@ pub enum Incoming {
     Msg(usize, Value),
     /// A line it wrote on stderr (its print(), its errors).
     Log(usize, String),
-    Exited(usize),
+    /// Its process ended (the number of that process: an old one stopped meanwhile is ignored).
+    Exited(usize, u64),
 }
 
 struct Proc {
     child: Child,
-    stdin: ChildStdin,
+    /// Its standard input, written by a thread of its own (an extension busy elsewhere does not
+    /// read it: the UI must not wait for it).
+    stdin: Sender<Vec<u8>>,
+    /// Which start of the extension it is.
+    gen: u64,
 }
 
 /// The extensions and their processes (started when first needed).
@@ -120,6 +125,8 @@ pub struct Host {
     pub errors: Vec<String>,
     procs: Vec<Option<Proc>>,
     next_id: i64,
+    /// Starts of extensions so far (`Proc::gen`).
+    starts: u64,
     tx: Sender<Incoming>,
     rx: Receiver<Incoming>,
 }
@@ -127,7 +134,7 @@ pub struct Host {
 impl Default for Host {
     fn default() -> Self {
         let (tx, rx) = channel();
-        Host { list: Vec::new(), errors: Vec::new(), procs: Vec::new(), next_id: 1, tx, rx }
+        Host { list: Vec::new(), errors: Vec::new(), procs: Vec::new(), next_id: 1, starts: 0, tx, rx }
     }
 }
 
@@ -178,7 +185,17 @@ impl Host {
             .map_err(|e| crate::tf!("{} : « {} » ne démarre pas : {e}", "{}: “{}” does not start: {e}", m.name, m.cmd))?;
         let stdout = child.stdout.take().ok_or("stdout")?;
         let stderr = child.stderr.take().ok_or("stderr")?;
-        let stdin = child.stdin.take().ok_or("stdin")?;
+        let mut pipe: ChildStdin = child.stdin.take().ok_or("stdin")?;
+        self.starts += 1;
+        let gen = self.starts;
+        let (stdin, frames) = channel::<Vec<u8>>();
+        std::thread::spawn(move || {
+            for f in frames {
+                if pipe.write_all(&f).and_then(|_| pipe.flush()).is_err() {
+                    return;
+                }
+            }
+        });
         let (tx, c) = (self.tx.clone(), ctx.clone());
         std::thread::spawn(move || {
             let mut r = BufReader::new(stdout);
@@ -190,7 +207,7 @@ impl Host {
                     c.request_repaint();
                 }
             }
-            let _ = tx.send(Incoming::Exited(k));
+            let _ = tx.send(Incoming::Exited(k, gen));
             c.request_repaint();
         });
         let (tx, c) = (self.tx.clone(), ctx.clone());
@@ -212,7 +229,7 @@ impl Host {
             }
         });
         if let Some(slot) = self.procs.get_mut(k) {
-            *slot = Some(Proc { child, stdin });
+            *slot = Some(Proc { child, stdin, gen });
         }
         let lang = if crate::i18n::en() { "en" } else { "fr" };
         self.request(k, "initialize", json!({"florm": env!("CARGO_PKG_VERSION"), "lang": lang, "name": m.name}));
@@ -223,7 +240,7 @@ impl Host {
         let Some(Some(p)) = self.procs.get_mut(k) else { return };
         let body = msg.to_string();
         let frame = format!("Content-Length: {}\r\n\r\n{body}", body.len());
-        if p.stdin.write_all(frame.as_bytes()).and_then(|_| p.stdin.flush()).is_err() {
+        if p.stdin.send(frame.into_bytes()).is_err() {
             self.stop(k);
         }
     }
@@ -247,19 +264,25 @@ impl Host {
         self.send(k, msg);
     }
 
-    /// What came since the last frame.
+    /// What came since the last frame. The end of a process already stopped (and maybe started
+    /// again) is dropped; an output that broke the framing ends it for good (killed, not awaited
+    /// alive: it could be waiting on its input).
     pub fn poll(&mut self) -> Vec<Incoming> {
         let v: Vec<Incoming> = self.rx.try_iter().collect();
-        for m in &v {
-            if let Incoming::Exited(k) = m {
-                if let Some(slot) = self.procs.get_mut(*k) {
-                    if let Some(mut p) = slot.take() {
-                        let _ = p.child.wait();
-                    }
+        v.into_iter()
+            .filter(|m| {
+                let Incoming::Exited(k, gen) = m else { return true };
+                let Some(slot) = self.procs.get_mut(*k) else { return false };
+                if !slot.as_ref().is_some_and(|p| p.gen == *gen) {
+                    return false;
                 }
-            }
-        }
-        v
+                if let Some(mut p) = slot.take() {
+                    let _ = p.child.kill();
+                    let _ = p.child.wait();
+                }
+                true
+            })
+            .collect()
     }
 
     pub fn stop(&mut self, k: usize) {
@@ -345,6 +368,42 @@ florm.main()
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The end of an extension stopped then started again is dropped: the new process, alive and
+    /// waiting on its input, is not awaited (Florm froze). Its own end is seen, and it is gone.
+    #[cfg(unix)]
+    #[test]
+    fn an_old_end_does_not_wait_on_the_new_process() {
+        let dir = std::env::temp_dir().join(format!("florm_ext_gen_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("x")).unwrap();
+        std::fs::write(dir.join("x").join("extension.toml"), "name = \"X\"\ncmd = \"cat\"\n").unwrap();
+        let mut h = Host::default();
+        h.reload(&dir);
+        let ctx = eframe::egui::Context::default();
+        h.ensure(0, &ctx).unwrap();
+        h.stop(0);
+        h.ensure(0, &ctx).unwrap();
+        // the reader of the first one says it ended: dropped, the second one runs on
+        let t = std::time::Instant::now();
+        let mut ended = Vec::new();
+        while t.elapsed() < std::time::Duration::from_secs(2) {
+            ended.extend(h.poll().into_iter().filter(|m| matches!(m, Incoming::Exited(..))));
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(ended.is_empty() && h.running(0));
+        // it ends: its own end is seen
+        let pid = h.procs[0].as_ref().unwrap().child.id();
+        let _ = std::process::Command::new("kill").arg(pid.to_string()).status();
+        let t = std::time::Instant::now();
+        while h.running(0) {
+            assert!(t.elapsed() < std::time::Duration::from_secs(5));
+            ended.extend(h.poll().into_iter().filter(|m| matches!(m, Incoming::Exited(..))));
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert_eq!(ended.len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// Extensions read from their folders; a broken one said, the others kept.
     #[test]

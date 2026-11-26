@@ -170,7 +170,7 @@ impl App {
                     let name = self.ext.host.list.get(k).map(|m| m.name.clone()).unwrap_or_default();
                     self.log(format!("[{name}] {line}"));
                 }
-                Incoming::Exited(k) => {
+                Incoming::Exited(k, _) => {
                     let name = self.ext.host.list.get(k).map(|m| m.name.clone()).unwrap_or_default();
                     self.ext.asked.retain(|_, (e, _)| *e != k);
                     if self.ext.wait.as_ref().is_some_and(|(e, _)| *e == k) {

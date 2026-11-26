@@ -29,9 +29,16 @@ __all__ = [
 
 _commands = {}
 _events = {}
-_out = sys.stdout.buffer
 _in = sys.stdin.buffer
-# print() must not break the messages on stdout: it goes to stderr, read by Florm into Output
+# the messages to Florm on a copy of stdout; print(), and the programs run without capturing
+# their output (subprocess, os.system), go to stderr, read by Florm into Output: they must not
+# break the messages
+try:
+    import os as _os
+    _out = _os.fdopen(_os.dup(1), "wb")
+    _os.dup2(2, 1)
+except OSError:
+    _out = sys.stdout.buffer
 sys.stdout = sys.stderr
 _lock = threading.Lock()
 _next = [0]
