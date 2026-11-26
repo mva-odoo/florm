@@ -64,12 +64,6 @@ impl App {
                     ui.horizontal_centered(|ui| {
                         self.menu_logo(ui);
                         self.version_and_update(ui);
-                        ui.add_space(4.0);
-                        if let Some(tree) = self.tree.as_mut() {
-                            if let Some(a) = sidebar::header(ui, tree, &projects) {
-                                tree_action = Some(a);
-                            }
-                        }
                     });
                 });
             });
@@ -82,6 +76,15 @@ impl App {
             // only the tree: the views are reached from the status bar, the bottom panel's ▾ and the palette
             match self.tree.as_mut() {
                 Some(tree) => {
+                    // the name of the project above the tree, staying there while it scrolls
+                    let (row, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 24.0), Sense::hover());
+                    ui.scope_builder(egui::UiBuilder::new().max_rect(row.shrink2(egui::vec2(6.0, 0.0))), |ui| {
+                        ui.horizontal_centered(|ui| {
+                            if let Some(a) = sidebar::header(ui, tree, &projects) {
+                                tree_action = Some(a);
+                            }
+                        });
+                    });
                     let active = self.docs.get(self.active).and_then(|d| d.path.clone());
                     let empty = HashMap::new();
                     let info = if self.settings.tree_git_info { &self.repo_info } else { &empty };

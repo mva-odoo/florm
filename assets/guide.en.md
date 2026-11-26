@@ -90,9 +90,9 @@ debugger, problems, output. To see two tabs side by side, split the editor.
   another one. **Ctrl+Shift+J** shows or hides the panel.
 - **The bar at the top**, as in Zed: the tab strip goes on over the sidebar. On the left, the **F**
   (the menus File, Edit, Git…, as Zed's ☰), the **version number** (a click looks for an update) and,
-  when there is one, the round **⬆** button of the update (**⟳** once installed: restart); then the
-  folder and the name of the project (a click: switch project; right click: new file, new folder,
-  refresh, fold everything…). Then **the views as icon tabs**: **Preferences** (right click:
+  when there is one, the round **⬆** button of the update (**⟳** once installed: restart). The name
+  of the project is right above the tree (a click: switch project; right click: new file, new
+  folder, refresh, fold everything…). Then **the views as icon tabs**: **Preferences** (right click:
   Languages, Extensions), **Claude**, **Git**, **Pull requests** and **Search** in files (a click
   shows the view in place, without one more tab; another one goes back to the tab before); then the
   tabs of the files, and **+** for a new file. The files have the icon of their type (Material Icon

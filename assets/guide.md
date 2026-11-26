@@ -93,8 +93,9 @@ l'éditeur.
 - **La barre du haut**, comme dans Zed : la barre des onglets continue au-dessus de la barre latérale.
   À gauche, le **F** (les menus Fichier, Édition, Git…, comme le ☰ de Zed), le **numéro de version**
   (un clic cherche une mise à jour) et, quand il y en a une, le bouton rond **⬆** de la mise à jour
-  (**⟳** une fois installée : redémarrer) ; puis le dossier et le nom du projet (un clic : changer de
-  projet ; clic droit : nouveau fichier, nouveau dossier, rafraîchir, tout replier…). Ensuite, **les
+  (**⟳** une fois installée : redémarrer). Le nom du projet est juste au-dessus de l'arborescence (un
+  clic : changer de projet ; clic droit : nouveau fichier, nouveau dossier, rafraîchir, tout
+  replier…). Ensuite, **les
   vues en onglets d'icône** : **Préférences** (clic droit : Langages, Extensions), **Claude**,
   **Git**, **Pull requests** et **Recherche** dans les fichiers (un clic montre la vue à sa place,
   sans onglet de plus ; un autre revient à l'onglet d'avant) ; puis les onglets des fichiers, et **+**
