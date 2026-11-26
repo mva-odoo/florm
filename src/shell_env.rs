@@ -105,9 +105,52 @@ pub fn missing() -> Vec<(String, String)> {
         .unwrap_or_default()
 }
 
+/// The program behind a pyenv shim (`~/.pyenv/shims/flake8` → `~/.pyenv/versions/3.12.12/bin/flake8`),
+/// for the tools Florm runs again and again (linters, its Python): a shim costs ~160 ms per run.
+/// The global version of pyenv (PYENV_VERSION, else `~/.pyenv/version`); any other path as is.
+pub fn unshim(p: std::path::PathBuf) -> std::path::PathBuf {
+    let (Some(dir), Some(name)) = (p.parent(), p.file_name()) else { return p };
+    if dir.file_name().is_none_or(|n| n != "shims") || !dir.parent().is_some_and(|r| r.join("versions").is_dir()) {
+        return p;
+    }
+    let root = dir.parent().unwrap();
+    let var = |k: &str| ENV.get().and_then(|e| e.get(k).cloned()).or_else(|| std::env::var(k).ok());
+    let wanted = var("PYENV_VERSION").unwrap_or_else(|| std::fs::read_to_string(root.join("version")).unwrap_or_default());
+    let installed: Vec<String> = std::fs::read_dir(root.join("versions")).into_iter().flatten().flatten().filter_map(|e| e.file_name().to_str().map(String::from)).collect();
+    // « 3.12 » is the newest 3.12.x installed
+    let key = |v: &str| v.split('.').map(|x| x.parse::<u32>().unwrap_or(0)).collect::<Vec<_>>();
+    for v in wanted.split(|c: char| c == ':' || c.is_whitespace()).filter(|v| !v.is_empty() && *v != "system") {
+        let best = installed.iter().filter(|i| *i == v || i.starts_with(&format!("{v}."))).max_by_key(|i| key(i));
+        if let Some(bin) = best.map(|b| root.join("versions").join(b).join("bin").join(name)).filter(|b| b.is_file()) {
+            return bin;
+        }
+    }
+    p
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A pyenv shim: the program of the global version (« 3.12 » → the newest 3.12.x).
+    #[test]
+    fn the_program_behind_a_shim() {
+        let root = std::env::temp_dir().join(format!("florm_pyenv_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        for v in ["3.12.3", "3.12.12", "3.11.9"] {
+            std::fs::create_dir_all(root.join("versions").join(v).join("bin")).unwrap();
+            std::fs::write(root.join("versions").join(v).join("bin").join("flake8"), "").unwrap();
+        }
+        std::fs::create_dir_all(root.join("shims")).unwrap();
+        std::fs::write(root.join("version"), "3.12\n").unwrap();
+        let shim = root.join("shims").join("flake8");
+        if std::env::var_os("PYENV_VERSION").is_none() {
+            assert_eq!(unshim(shim.clone()), root.join("versions/3.12.12/bin/flake8"));
+        }
+        assert_eq!(unshim(root.join("shims").join("nothing")), root.join("shims").join("nothing"));
+        assert_eq!(unshim("/usr/bin/flake8".into()), std::path::PathBuf::from("/usr/bin/flake8"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn the_environment_after_the_greeting() {
