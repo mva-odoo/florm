@@ -419,6 +419,29 @@ fn resolve(word: &str, dir: &Path) -> String {
     }
 }
 
+/// The Python that runs script `p` from `dir`, as in a terminal: the virtual environment of the
+/// folder (.venv, venv, env), else the one of its first line (`#!/usr/bin/env python3`: looked for
+/// in the PATH of the login shell, pyenv included). None: the project's.
+fn script_python(p: &Path, dir: &Path) -> Option<String> {
+    for venv in [".venv", "venv", "env"] {
+        let bin = if cfg!(windows) { dir.join(venv).join("Scripts").join("python.exe") } else { dir.join(venv).join("bin").join("python") };
+        if bin.is_file() {
+            return Some(bin.display().to_string());
+        }
+    }
+    let first = std::fs::read_to_string(p).ok()?.lines().next()?.to_string();
+    let mut words = first.strip_prefix("#!")?.split_whitespace();
+    let prog = words.next()?;
+    let prog = if prog.ends_with("/env") { words.find(|w| !w.starts_with('-'))? } else { prog };
+    if !Path::new(prog).file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("python")) {
+        return None;
+    }
+    if Path::new(prog).is_absolute() {
+        return Some(prog.to_string());
+    }
+    crate::lsp::in_path(prog).map(|p| p.display().to_string())
+}
+
 /// The first line of the file says it is a Python script (`#!/usr/bin/env python3`).
 fn python_script(path: &Path) -> bool {
     let Ok(f) = std::fs::File::open(path) else { return false };
@@ -510,7 +533,7 @@ pub fn from_command(cmd: &str, dir: &Path) -> Result<LaunchCfg, String> {
     let found = if path.is_file() { Some(path.clone()) } else { crate::lsp::in_path(&first) };
     match found {
         // a Python script (odoo-bin, manage.py): run by the Python of the project
-        Some(p) if p.extension().is_some_and(|e| e == "py") || python_script(&p) => Ok(python(None, LaunchCfg { program: p.display().to_string(), args: rest, ..base })),
+        Some(p) if p.extension().is_some_and(|e| e == "py") || python_script(&p) => Ok(python(script_python(&p, dir), LaunchCfg { program: p.display().to_string(), args: rest, ..base })),
         Some(p) if !matches!(name.as_str(), "make" | "docker" | "docker-compose" | "npm" | "npx" | "yarn" | "sh" | "bash" | "cargo") => {
             Ok(LaunchCfg { adapter: "native".into(), program: p.display().to_string(), args: rest, ..base })
         }
@@ -537,6 +560,28 @@ pub fn run_build(cmd: &str, cwd: &Path) -> Result<(), String> {
 mod tests {
     use super::*;
     use std::sync::mpsc::Receiver;
+
+    /// `./odoo-bin` (`#!/usr/bin/env python3`): the Python of the PATH (pyenv's in a terminal),
+    /// or the virtual environment of the folder; a script of another language: none.
+    #[test]
+    fn the_python_of_a_script() {
+        let dir = std::env::temp_dir().join(format!("florm_dap_py_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("odoo-bin"), "#!/usr/bin/env python3\nprint(1)\n").unwrap();
+        std::fs::write(dir.join("run.sh"), "#!/bin/sh\necho\n").unwrap();
+        std::fs::write(dir.join("abs"), "#!/opt/py/bin/python3.12 -u\n").unwrap();
+        let py = script_python(&dir.join("odoo-bin"), &dir);
+        assert_eq!(py.map(PathBuf::from), crate::lsp::in_path("python3"));
+        assert_eq!(script_python(&dir.join("abs"), &dir).as_deref(), Some("/opt/py/bin/python3.12"));
+        assert_eq!(script_python(&dir.join("run.sh"), &dir), None);
+        let venv = dir.join(".venv").join(if cfg!(windows) { "Scripts" } else { "bin" });
+        std::fs::create_dir_all(&venv).unwrap();
+        let exe = venv.join(if cfg!(windows) { "python.exe" } else { "python" });
+        std::fs::write(&exe, "").unwrap();
+        assert_eq!(script_python(&dir.join("odoo-bin"), &dir), Some(exe.display().to_string()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn configurations_of_the_project() {

@@ -126,7 +126,7 @@ The preferences open with **Ctrl+,** and are saved in `~/.config/florm/settings.
 
 ## Tools and connections
 
-Editing, search, highlighting, the symbol index (F12, completion) and the XML / JSON lint work **without installing anything**. The other features rely on external programs, looked for in the `PATH`. None is required: without it, only the feature concerned is unavailable.
+Editing, search, highlighting, the symbol index (F12, completion) and the XML / JSON lint work **without installing anything**. The other features rely on external programs, looked for in the `PATH`, your shell's (Linux, macOS: at startup Florm reads the environment of your login shell, with pyenv, nvm… even started from the desktop). None is required: without it, only the feature concerned is unavailable.
 
 | Feature | Program | Required for |
 |---|---|---|

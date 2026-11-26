@@ -47,6 +47,7 @@ mod project;
 mod rebase;
 mod search;
 mod shared;
+mod shell_env;
 mod skills;
 mod sidebar;
 mod sound;
@@ -78,6 +79,8 @@ fn main() -> eframe::Result<()> {
         std::process::exit(0);
     }
     crash::install();
+    // the PATH of the login shell (pyenv, nvm…) for the programs Florm runs, read meanwhile
+    std::thread::spawn(shell_env::load);
     #[cfg(target_os = "macos")]
     os::macos_path();
     config::make_private();

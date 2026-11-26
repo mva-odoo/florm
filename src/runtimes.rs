@@ -126,10 +126,10 @@ pub fn refresh() {
 /// The PATH for the programs Florm runs: the process's, with the folders of `bin_dirs` after it.
 pub fn path_env() -> Option<std::ffi::OsString> {
     let extra = bin_dirs();
+    let cur = crate::shell_env::path().unwrap_or_default();
     if extra.is_empty() {
-        return None;
+        return Some(cur);
     }
-    let cur = std::env::var_os("PATH").unwrap_or_default();
     std::env::join_paths(std::env::split_paths(&cur).chain(extra)).ok()
 }
 

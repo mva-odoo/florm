@@ -9,9 +9,11 @@ pub fn command(program: impl AsRef<std::ffi::OsStr>) -> Command {
     #[allow(unused_mut)]
     let mut c = Command::new(program);
     // what Florm downloaded (Node.js, Python, rust-analyzer…) is found by the programs it runs
+    // and what the login shell's configuration sets (pyenv, nvm…): as in a terminal
     if let Some(path) = crate::runtimes::path_env() {
         c.env("PATH", path);
     }
+    c.envs(crate::shell_env::missing());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;

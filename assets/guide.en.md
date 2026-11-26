@@ -434,7 +434,11 @@ Python, **dlv** for Go, **lldb-dap** or **gdb** (14 or later) for Rust, C and C+
   `DEBUG=1 ./my_program`, the Python of a virtual environment like
   `~/venvs/app/bin/python app.py`) and its **folder**: empty, the project; a relative path starts
   from the project; **📁** opens the system's folder chooser. A folder that does not exist shows in
-  red (hovering says which) and F5 refuses it. Then **Enter** or **F5**. Florm picks the debugger from the command; empty, F5 debugs the open file. Each command run stays in **🕘**, per project; the
+  red (hovering says which) and F5 refuses it. The program runs with the **same Python as in a
+  terminal**: at startup Florm reads the environment of your shell (pyenv, nvm, `~/bin`… of
+  `config.fish`, `.zshrc`, `.bashrc`), even started from the desktop; for a script like `./odoo-bin`,
+  it is the folder's `.venv` if there is one, else the Python of its first line
+  (`#!/usr/bin/env python3`) found in that PATH. Then **Enter** or **F5**. Florm picks the debugger from the command; empty, F5 debugs the open file. Each command run stays in **🕘**, per project; the
   last one comes back when the project opens again. A wrapped command (`make`, `docker`…) cannot be
   debugged directly: start the program with `debugpy --listen` and attach to it (see below).
 - **F5** starts what is chosen in the **Debugger** view (bottom panel): the **command**, the **open file**, the

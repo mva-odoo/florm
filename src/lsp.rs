@@ -162,7 +162,7 @@ fn known_language(name: &str, ext: &str) -> Option<(&'static str, &'static str)>
 /// --user` put them (often missing from the PATH of a program started from the desktop).
 pub fn in_path(name: &str) -> Option<PathBuf> {
     let exts: &[&str] = if cfg!(windows) { &[".exe", ".cmd", ".bat", ""] } else { &[""] };
-    let path: Vec<PathBuf> = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
+    let path: Vec<PathBuf> = crate::shell_env::path().map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
     path.into_iter().chain(tool_dirs()).find_map(|d| exts.iter().map(|e| d.join(format!("{name}{e}"))).find(|p| p.is_file()))
 }
 

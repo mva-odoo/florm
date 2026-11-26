@@ -449,7 +449,11 @@ pour Python, **dlv** pour Go, **lldb-dap** ou **gdb** (14 ou plus) pour Rust, C 
   `DEBUG=1 ./mon_programme`, le Python d'un environnement virtuel comme
   `~/venvs/app/bin/python app.py`) et son **dossier** : vide, le projet ; un chemin relatif part du
   projet ; **📁** ouvre le sélecteur de dossiers du système. Un dossier qui n'existe pas s'affiche en
-  rouge (le survol dit lequel) et F5 le refuse. Puis **Entrée** ou **F5**. Florm choisit le débogueur d'après la commande ; vide, F5 débogue le fichier ouvert. Chaque commande lancée reste dans **🕘**, par projet ;
+  rouge (le survol dit lequel) et F5 le refuse. Le programme tourne avec le **même Python que dans
+  un terminal** : Florm lit au démarrage l'environnement de ton shell (pyenv, nvm, `~/bin`… de
+  `config.fish`, `.zshrc`, `.bashrc`), même lancé depuis le bureau ; pour un script comme `./odoo-bin`,
+  c'est le `.venv` du dossier s'il y en a un, sinon le Python de sa première ligne
+  (`#!/usr/bin/env python3`) trouvé dans ce PATH. Puis **Entrée** ou **F5**. Florm choisit le débogueur d'après la commande ; vide, F5 débogue le fichier ouvert. Chaque commande lancée reste dans **🕘**, par projet ;
   la dernière revient à la réouverture. Une commande enveloppée (`make`, `docker`…) ne se débogue
   pas directement : lance le programme avec `debugpy --listen` et attache-toi (voir plus bas).
 - **F5** lance ce qui est choisi dans la vue **Débogueur** (panneau du bas) : la **commande**, le **fichier

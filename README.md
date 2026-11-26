@@ -126,7 +126,7 @@ Les préférences s'ouvrent avec **Ctrl+,** et sont enregistrées dans `~/.confi
 
 ## Outils et connexions
 
-L'édition, la recherche, la coloration, l'index des symboles (F12, complétion) et le lint XML / JSON marchent **sans rien installer**. Les autres fonctions s'appuient sur des programmes externes, cherchés dans le `PATH`. Aucun n'est obligatoire : sans lui, seule la fonction concernée est indisponible.
+L'édition, la recherche, la coloration, l'index des symboles (F12, complétion) et le lint XML / JSON marchent **sans rien installer**. Les autres fonctions s'appuient sur des programmes externes, cherchés dans le `PATH`, celui de votre shell (Linux, macOS : Florm lit au démarrage l'environnement de votre shell de connexion, avec pyenv, nvm… même lancé depuis le bureau). Aucun n'est obligatoire : sans lui, seule la fonction concernée est indisponible.
 
 | Fonction | Programme | Obligatoire pour |
 |---|---|---|
