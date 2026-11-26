@@ -6,15 +6,42 @@
 
 use std::collections::HashMap;
 use std::ffi::OsString;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::OnceLock;
 
 static ENV: OnceLock<HashMap<String, String>> = OnceLock::new();
+
+/// 0: not asked (the tests), 1: being read, 2: done (read or not).
+static STATE: AtomicU8 = AtomicU8::new(0);
+
+/// The environment of the shell is known (or will never be): what was looked for in the PATH
+/// before can be looked for again.
+pub fn settled() -> bool {
+    STATE.load(Ordering::SeqCst) != 1
+}
+
+/// Waits (at most 6 seconds) for the environment of the shell, before looking for programs whose
+/// answer is kept (the tools of the languages). On a thread, never the UI's.
+pub fn wait() {
+    let t = std::time::Instant::now();
+    while !settled() && t.elapsed() < std::time::Duration::from_secs(6) {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+}
 
 /// What separates the output of the shell's configuration (a greeting) from the environment.
 const MARK: &str = "__FLORM_SHELL_ENV__";
 
 /// Reads the environment of `$SHELL -l -i` (at most 5 seconds). On a thread.
 pub fn load() {
+    STATE.store(1, Ordering::SeqCst);
+    read();
+    STATE.store(2, Ordering::SeqCst);
+    // the linters looked for meanwhile (with Florm's own PATH) are looked for again
+    crate::lint::reset_linter_cache();
+}
+
+fn read() {
     #[cfg(unix)]
     {
         let Some(shell) = std::env::var_os("SHELL") else { return };
@@ -27,23 +54,25 @@ pub fn load() {
         else {
             return;
         };
-        let start = std::time::Instant::now();
-        loop {
-            match child.try_wait() {
-                Ok(Some(_)) => break,
-                Ok(None) if start.elapsed() < std::time::Duration::from_secs(5) => std::thread::sleep(std::time::Duration::from_millis(20)),
-                _ => {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return;
-                }
-            }
-        }
-        let mut out = String::new();
+        // read while it writes (a long environment would fill the pipe and block the shell)
+        let (tx, rx) = std::sync::mpsc::channel();
         if let Some(mut so) = child.stdout.take() {
-            use std::io::Read;
-            let _ = so.read_to_string(&mut out);
+            std::thread::spawn(move || {
+                use std::io::Read;
+                let mut buf = Vec::new();
+                let _ = so.read_to_end(&mut buf);
+                let _ = tx.send(String::from_utf8_lossy(&buf).into_owned());
+            });
         }
+        let out = match rx.recv_timeout(std::time::Duration::from_secs(5)) {
+            Ok(out) => out,
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return;
+            }
+        };
+        let _ = child.wait();
         let env = parse(&out);
         if env.contains_key("PATH") {
             let _ = ENV.set(env);

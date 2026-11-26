@@ -991,11 +991,26 @@ fn text_area(
             let needle = doc.slice(prim_sel.start(), prim_sel.end());
             if !needle.contains('\n') && needle.trim().chars().count() >= 2 {
                 let n = needle.chars().count();
+                // only the visible part of each line, and at most a few hundred: a selection of
+                // `),` in a minified file of 2 MB on one line must not cost a second per frame
+                let mut budget = 400usize;
                 for l in (first..=last).filter(|&l| !rm.is_hidden(l)) {
                     let ls = doc.rope.line_to_char(l);
-                    let line: String = doc.rope.line(l).chars().collect();
-                    for (bi, _) in line.match_indices(needle.as_str()) {
-                        let a = ls + line[..bi].chars().count();
+                    let ll = doc.line_len(l);
+                    let (c0, c1) = if opts.wrap { (0, ll) } else { (doc.col_at_vcol(l, vstart).saturating_sub(n), (doc.col_at_vcol(l, vend) + n).min(ll)) };
+                    if c0 >= c1 {
+                        continue;
+                    }
+                    let part = doc.slice(ls + c0, ls + c1);
+                    let (mut counted, mut chars) = (0usize, 0usize);
+                    for (bi, _) in part.match_indices(needle.as_str()) {
+                        if budget == 0 {
+                            break;
+                        }
+                        budget -= 1;
+                        chars += part[counted..bi].chars().count();
+                        counted = bi;
+                        let a = ls + c0 + chars;
                         if a == prim_sel.start() {
                             continue;
                         }
@@ -1518,7 +1533,9 @@ fn text_area(
             doc.scroll_to_cursor = false;
             let (l, col) = doc.line_col(prim.head);
             let p = at(l, doc.vcol(l, col));
-            let m = opts.scroll_margin.min(20) as f32 * rh;
+            // never more than half the rows shown (else the rect covers the view: no scroll)
+            let rows = (ui.clip_rect().height() / rh).floor().max(1.0) as usize;
+            let m = opts.scroll_margin.min(rows.saturating_sub(1) / 2) as f32 * rh;
             let r = Rect::from_min_max(Pos2::new(p.x - gutter_w - 2.0 * cw, p.y - m), Pos2::new(p.x + 4.0 * cw, p.y + rh + m));
             ui.scroll_to_rect(r, if doc.center_cursor { Some(Align::Center) } else { None });
             doc.center_cursor = false;

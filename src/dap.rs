@@ -429,7 +429,10 @@ fn script_python(p: &Path, dir: &Path) -> Option<String> {
             return Some(bin.display().to_string());
         }
     }
-    let first = std::fs::read_to_string(p).ok()?.lines().next()?.to_string();
+    // the first line only (a script of any size, in any encoding)
+    let mut head = Vec::new();
+    std::io::Read::read_to_end(&mut std::io::Read::take(std::fs::File::open(p).ok()?, 200), &mut head).ok()?;
+    let first = String::from_utf8_lossy(&head).lines().next()?.to_string();
     let mut words = first.strip_prefix("#!")?.split_whitespace();
     let prog = words.next()?;
     let prog = if prog.ends_with("/env") { words.find(|w| !w.starts_with('-'))? } else { prog };

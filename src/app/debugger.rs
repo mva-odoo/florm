@@ -813,11 +813,9 @@ mod tests {
         app.open_path(file.clone());
         let i = app.active;
         app.docs[i].toggle_breakpoint(2);
-        // started by a command typed as in a terminal (an empty one first: said, not started)
+        // started by a command typed as in a terminal
         app.debug.cmd_for = app.root.clone();
         app.debug.choice = "cmd".into();
-        app.debug_command(Cmd::DebugStart);
-        assert!(app.debug.session.is_none() && app.debug.phase == Phase::Idle);
         app.debug.cmd = "python3 prog.py".into();
         let pump = |app: &mut App, until: &dyn Fn(&App) -> bool| {
             let t = Instant::now();

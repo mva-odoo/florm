@@ -1166,9 +1166,16 @@ impl App {
                 self.log(tf!("Préférences non enregistrées : {e}", "Preferences not saved: {e}"));
             }
         }
-        if s.tab_size != before.tab_size || s.languages != before.languages {
+        if s.tab_size != before.tab_size || s.translate_tabs_to_spaces != before.translate_tabs_to_spaces || s.languages != before.languages {
+            // only the documents whose language's value changed (a width chosen by hand stays)
             for d in self.docs.iter_mut() {
-                d.tab_size = s.lang_of(d.path.as_deref()).tab_size;
+                let (now, was) = (s.lang_of(d.path.as_deref()), before.lang_of(d.path.as_deref()));
+                if now.tab_size != was.tab_size {
+                    d.tab_size = now.tab_size;
+                }
+                if now.translate_tabs_to_spaces != was.translate_tabs_to_spaces {
+                    d.use_spaces = now.translate_tabs_to_spaces;
+                }
             }
         }
         if s.languages != before.languages || s.lint_live != before.lint_live {

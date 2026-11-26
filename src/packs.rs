@@ -276,6 +276,8 @@ pub fn installed(t: &Tool) -> bool {
 
 /// For each pack, whether each of its tools is there (on a thread).
 pub fn status(packs: &[Pack]) -> Vec<Vec<bool>> {
+    // a tool of the shell's PATH (pyenv, nvm) must not be seen missing, then installed again
+    crate::shell_env::wait();
     packs.iter().map(|p| p.tools.iter().map(installed).collect()).collect()
 }
 

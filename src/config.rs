@@ -738,13 +738,15 @@ pub fn set_languages(langs: &BTreeMap<String, LangOverride>) -> Result<(), Strin
     let write = |p: &std::path::Path| -> Result<(), String> {
         let text = std::fs::read_to_string(p).unwrap_or_default();
         let mut out: Vec<&str> = Vec::new();
-        let mut skip = false;
+        let (mut skip, mut top) = (false, true);
         for l in text.lines() {
             let t = l.trim_start();
             if t.starts_with('[') {
                 skip = t.starts_with("[languages");
+                top = false;
             }
-            if !skip {
+            // `languages.Go.tab_size = 8` written by hand at the top: replaced too
+            if !skip && !(top && t.starts_with("languages.")) {
                 out.push(l);
             }
         }

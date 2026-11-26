@@ -853,8 +853,11 @@ impl Document {
             self.trim_trailing_whitespace();
         }
         if final_newline && self.rope.len_chars() > 0 && self.rope.char(self.rope.len_chars() - 1) != '\n' {
-            let end = self.rope.len_chars();
+            // the cursors stay where they were (one at the end must not go onto the new line)
+            let (end, sels, primary) = (self.rope.len_chars(), self.sels.clone(), self.primary);
             self.replace_keep(EditKind::Other, vec![(end, end, "\n".to_string())]);
+            self.sels = sels;
+            self.primary = primary;
         }
         let mut text = self.rope.to_string();
         if self.crlf {
@@ -2380,7 +2383,9 @@ impl Document {
         let edits: Vec<(usize, usize, String)> = (0..self.rope.len_lines())
             .filter_map(|l| {
                 let t = self.line_text(l);
-                let trimmed = t.trim_end().chars().count();
+                // only spaces and tabs: ropey also ends lines at a form feed, a lone \r or
+                // U+2028, which must stay
+                let trimmed = t.trim_end_matches([' ', '\t']).chars().count();
                 let full = t.chars().count();
                 let ls = self.rope.line_to_char(l);
                 (trimmed < full).then(|| (ls + trimmed, ls + full, String::new()))
@@ -3153,6 +3158,22 @@ mod tests {
         assert_eq!(Encoding::Windows1252.decode(b"caf\xe9 \x80"), "café €");
         let err = Encoding::Windows1252.encode("a\nb ✓").unwrap_err();
         assert!(err.contains("ligne 2"), "{err}");
+    }
+
+    /// Saving adds the final newline without moving the cursor onto it, and trims only spaces and
+    /// tabs (a form feed, which ropey takes for a line end, stays).
+    #[test]
+    fn saving_keeps_the_cursor_and_the_form_feeds() {
+        let p = std::env::temp_dir().join(format!("florm_save_nl_{}.py", std::process::id()));
+        let mut d = Document::from_text(1, "a = 1  \n\x0c\nb = 2", 4, true);
+        d.path = Some(p.clone());
+        let end = d.len();
+        d.sels = vec![Sel::cursor(end)];
+        d.save(true, true).unwrap();
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), "a = 1\n\x0c\nb = 2\n");
+        // at the end of the text (2 spaces trimmed before it), not after the new \n
+        assert_eq!((end, d.primary_sel().head), (15, d.len() - 1));
+        let _ = std::fs::remove_file(&p);
     }
 
     #[test]

@@ -556,11 +556,19 @@ pub fn tools_dir() -> PathBuf {
 
 pub fn python() -> &'static str {
     static PY: OnceLock<&'static str> = OnceLock::new();
-    // a real Python 3 (not the Microsoft Store's alias), else the one Florm downloaded
-    PY.get_or_init(|| match crate::runtimes::python_ready() {
+    if let Some(p) = PY.get() {
+        return p;
+    }
+    // a real Python 3 (not the Microsoft Store's alias), else the one Florm downloaded; kept
+    // once the shell's PATH is known (before, it may still change)
+    let p: &'static str = match crate::runtimes::python_ready() {
         Some(p) => Box::leak(p.into_boxed_str()),
         None => "python3",
-    })
+    };
+    if crate::shell_env::settled() {
+        let _ = PY.set(p);
+    }
+    p
 }
 
 #[derive(Clone)]

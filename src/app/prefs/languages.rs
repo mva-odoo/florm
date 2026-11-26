@@ -5,6 +5,25 @@
 use super::*;
 use crate::config::LangOverride;
 
+/// The program is in the PATH: looked for again every few seconds, not at every frame (several
+/// file lookups per folder of the PATH, slow on a network disk).
+fn on_path(name: &str) -> bool {
+    thread_local! {
+        static SEEN: std::cell::RefCell<HashMap<String, (Instant, bool)>> = Default::default();
+    }
+    SEEN.with(|m| {
+        let mut m = m.borrow_mut();
+        match m.get(name) {
+            Some((t, v)) if t.elapsed() < Duration::from_secs(5) => *v,
+            _ => {
+                let v = crate::lsp::in_path(name).is_some();
+                m.insert(name.to_string(), (Instant::now(), v));
+                v
+            }
+        }
+    })
+}
+
 /// « oui » / « non ».
 fn yes_no(v: bool) -> &'static str {
     if v {
@@ -94,7 +113,7 @@ impl App {
             let ext: Vec<&str> = c.ext.iter().map(String::as_str).collect();
             let desc = tf!("Déclaré dans settings.toml. Fichiers {} : `{}`.", "Declared in settings.toml. Files {}: `{}`.", files(&ext), c.cmd);
             pref_row(ui, rc, name, &desc, |ui| {
-                install_state(ui, c.cmd.split_whitespace().next().is_some_and(|p| crate::lsp::in_path(p).is_some()));
+                install_state(ui, c.cmd.split_whitespace().next().is_some_and(on_path));
             });
         }
         pref_row(ui, rc, t!("Un autre linter", "Another linter"), t!("Dans settings.toml, [linters.nom] avec cmd (une commande qui écrit fichier:ligne:col: message ; le texte arrive sur son entrée standard, {file} est son chemin) et ext (les extensions). La même clé remplace un linter de Florm, cmd = \"\" le coupe.", "In settings.toml, [linters.name] with cmd (a command writing file:line:col: message; the text comes on its standard input, {file} is its path) and ext (the extensions). The same key replaces a linter of Florm, cmd = \"\" turns it off."), |ui| {
@@ -160,7 +179,7 @@ impl App {
         for (k, (lname, example)) in lint::WITH_CODES.iter().enumerate().filter(|(_, (n, _))| mine.contains(n)) {
             if *lname == "eslint" {
                 pref_row(ui, rc, "ESLint", t!("À l'enregistrement. Celui du projet (node_modules/.bin) d'abord, sinon celui du PATH ; sa configuration est lue.", "On save. The project's one (node_modules/.bin) first, else the one in the PATH; its configuration is read."), |ui| {
-                    install_state(ui, crate::lsp::in_path("eslint").is_some());
+                    install_state(ui, on_path("eslint"));
                 });
             }
             let buf = &mut self.prefs.lint_ignore[k];
@@ -184,7 +203,7 @@ impl App {
                 }
                 _ => {
                     let prog = set.map_or(*cmd, |c| c.cmd.as_str()).split_whitespace().next().unwrap_or("");
-                    install_state(ui, crate::lsp::in_path(prog).is_some());
+                    install_state(ui, on_path(prog));
                 }
             });
         }
