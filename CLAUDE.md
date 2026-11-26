@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Florm : éditeur de texte en Rust (egui/eframe 0.29), inspiré de Sublime Text, un seul binaire.
+Florm : éditeur de texte en Rust (egui/eframe 0.37), inspiré de Sublime Text, un seul binaire.
 Intègre Git, GitHub (pull requests), Claude Code, terminal, LSP, linters, orthographe, tests (pytest,
 jest, cargo, go, dans le terminal), débogueur DAP (`src/dap.rs`, `src/app/debugger.rs` : debugpy, dlv,
 lldb-dap, gdb), packs de langage (`src/packs.rs`, `assets/packs.toml` : installer les outils d'un
