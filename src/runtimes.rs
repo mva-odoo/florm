@@ -203,8 +203,22 @@ fn ensure(r: &Runtime) -> Result<PathBuf, String> {
 /// A real Python 3 of the system (≥ 3.9): it answers « Python 3.x » (the Microsoft Store's
 /// python3 alias does not).
 pub fn system_python() -> Option<String> {
+    // asked often (the tools, the extensions): looked for once the shell's PATH is known
+    static FOUND: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    if let Some(p) = FOUND.get() {
+        return p.clone();
+    }
+    let p = find_system_python();
+    if crate::shell_env::settled() {
+        let _ = FOUND.set(p.clone());
+    }
+    p
+}
+
+fn find_system_python() -> Option<String> {
     for name in ["python3", "python"] {
-        let Some(p) = crate::lsp::in_path(name) else { continue };
+        // the program behind a pyenv shim: a shim costs ~160 ms at each run
+        let Some(p) = crate::lsp::in_path(name).map(crate::shell_env::unshim) else { continue };
         // the Store's aliases live in WindowsApps: they open the Store instead of running
         if p.to_string_lossy().contains("WindowsApps") {
             continue;

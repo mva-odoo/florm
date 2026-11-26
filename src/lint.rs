@@ -602,7 +602,7 @@ fn find_runner(name: &str) -> Option<Runner> {
     let tool_bin = tools_dir().join("bin").join(name);
     // in the PATH, or where Florm installs (its language packs)
     let r = if let Some(p) = crate::lsp::in_path(name) {
-        Some(Runner::Bin(p))
+        Some(Runner::Bin(crate::shell_env::unshim(p)))
     } else if tool_bin.exists() && name == "ruff" {
         Some(Runner::Bin(tool_bin))
     } else {

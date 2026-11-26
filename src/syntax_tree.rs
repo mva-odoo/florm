@@ -16,9 +16,11 @@ use tree_sitter::{InputEdit, Language, Node, Parser, Point, Query, QueryCursor, 
 pub struct Grammar {
     pub name: &'static str,
     pub language: Language,
-    pub query: Query,
-    /// The theme scope of each capture of the query (same order).
-    pub scopes: Vec<Option<&'static str>>,
+    /// Its highlight query, compiled the first time a file of this language is colored (all of
+    /// them at once took 100 ms on the first file opened), with the theme scope of each of its
+    /// captures (same order). None: the grammar refused the query (its files keep the regexes).
+    compiled: OnceLock<Option<(Query, Vec<Option<&'static str>>)>>,
+    src: String,
     /// The extensions of its files (without the dot).
     pub ext: &'static [&'static str],
     /// The syntaxes (as Florm names them) of its files without a known extension (a #! line).
@@ -56,20 +58,46 @@ fn grammars() -> &'static Vec<Grammar> {
     G.get_or_init(|| {
         table()
             .into_iter()
-            .filter_map(|(name, ext, syntaxes, language, src)| {
-                // a query the grammar refuses: that language keeps the regexes (a test checks none does)
-                let query = Query::new(&language, &src).ok()?;
-                let scopes = query.capture_names().iter().map(|n| scope_of(n)).collect();
-                Some(Grammar { name, language, query, scopes, ext, syntaxes })
-            })
+            .map(|(name, ext, syntaxes, language, src)| Grammar { name, language, compiled: OnceLock::new(), src, ext, syntaxes })
             .collect()
     })
+}
+
+impl Grammar {
+    fn compiled(&self) -> Option<&(Query, Vec<Option<&'static str>>)> {
+        self.compiled
+            .get_or_init(|| {
+                // a query the grammar refuses: that language keeps the regexes (a test checks none does)
+                let query = Query::new(&self.language, &self.src).ok()?;
+                let scopes = query.capture_names().iter().map(|n| scope_of(n)).collect();
+                Some((query, scopes))
+            })
+            .as_ref()
+    }
+
+    /// The theme scopes its query uses (their colors are read once per theme).
+    pub fn scopes(&self) -> Vec<&'static str> {
+        let mut v: Vec<&'static str> = self.compiled().map(|(_, s)| s.iter().flatten().copied().collect()).unwrap_or_default();
+        v.sort_unstable();
+        v.dedup();
+        v
+    }
+}
+
+/// The highlight queries compiled ahead, on a thread (at startup): the first file of a language
+/// is colored without waiting for its query.
+pub fn warm_up() {
+    std::thread::spawn(|| {
+        for g in grammars() {
+            let _ = g.compiled();
+        }
+    });
 }
 
 /// The names of the grammars compiled into Florm.
 #[cfg(test)]
 pub fn names() -> Vec<&'static str> {
-    grammars().iter().map(|g| g.name).collect()
+    grammars().iter().filter(|g| g.compiled().is_some()).map(|g| g.name).collect()
 }
 
 /// The theme scope (TextMate) of a capture of a highlight query: the themes of Florm color the
@@ -117,8 +145,9 @@ pub fn scope_of(capture: &str) -> Option<&'static str> {
 }
 
 /// Every scope the grammars use (their colors are read once per theme).
+#[cfg(test)]
 pub fn all_scopes() -> Vec<&'static str> {
-    let mut v: Vec<&'static str> = grammars().iter().flat_map(|g| g.scopes.iter().flatten().copied()).collect();
+    let mut v: Vec<&'static str> = grammars().iter().flat_map(|g| g.scopes()).collect();
     v.sort_unstable();
     v.dedup();
     v
@@ -141,7 +170,7 @@ pub fn grammar_for(name: &str) -> Option<&'static Grammar> {
     if off().read().is_ok_and(|o| o.contains(name)) {
         return None;
     }
-    grammars().iter().find(|g| g.name == name)
+    grammars().iter().find(|g| g.name == name).filter(|g| g.compiled().is_some())
 }
 
 /// The grammar of a file: by its extension, else by its syntax (a file without extension whose
@@ -163,12 +192,28 @@ pub const MAX_BYTES: usize = 1_000_000;
 /// The tree of a document, kept up to date by its edits.
 pub struct SyntaxTree {
     grammar: &'static Grammar,
-    parser: Parser,
+    /// None while the first parse of a long text runs on a thread (it has the parser).
+    parser: Option<Parser>,
+    /// That first parse: its parser and tree come back here.
+    first: Option<std::sync::mpsc::Receiver<(Parser, Option<Tree>)>>,
     tree: Option<Tree>,
     /// Edits since the last parse (applied to the tree before parsing again).
     pending: Vec<InputEdit>,
     /// The lines changed by the last parse, from the first one (their colors read again).
     pub changed_from: Option<usize>,
+}
+
+/// A text longer than this is parsed the first time on a thread (~50 ms for 300 KB of Python):
+/// the file shows at once, its colors a moment later.
+const PARSE_ON_A_THREAD: usize = 64 * 1024;
+
+/// The bytes of `rope` from `byte` on, for the parser.
+fn read_rope(rope: &Rope, byte: usize) -> &[u8] {
+    if byte >= rope.len_bytes() {
+        return &[];
+    }
+    let (chunk, start, _, _) = rope.chunk_at_byte(byte);
+    &chunk.as_bytes()[byte - start..]
 }
 
 /// An edit of the text, for `SyntaxTree::edit`: computed by the document before it changes the rope.
@@ -193,23 +238,65 @@ impl SyntaxTree {
     pub fn new(grammar: &'static Grammar) -> Option<Self> {
         let mut parser = Parser::new();
         parser.set_language(&grammar.language).ok()?;
-        Some(SyntaxTree { grammar, parser, tree: None, pending: Vec::new(), changed_from: None })
+        Some(SyntaxTree { grammar, parser: Some(parser), first: None, tree: None, pending: Vec::new(), changed_from: None })
     }
 
     pub fn name(&self) -> &'static str {
         self.grammar.name
     }
 
+    pub fn grammar(&self) -> &'static Grammar {
+        self.grammar
+    }
+
     /// An edit about to be made to the text (`input_edit`).
     pub fn edit(&mut self, e: InputEdit) {
-        if self.tree.is_some() {
+        // also while the first parse runs: applied to its tree once it is back
+        if self.tree.is_some() || self.first.is_some() {
             self.pending.push(e);
         }
+    }
+
+    /// The first parse of a long text is running on a thread (no tree yet: ask again later).
+    pub fn parsing(&self) -> bool {
+        self.first.is_some()
     }
 
     /// The tree for `rope`: parsed again (incrementally) when the text changed. None: the parse
     /// failed (the text is too long, or the grammar refused it).
     pub fn sync(&mut self, rope: &Rope) -> Option<&Tree> {
+        // the first parse of a long text: on a thread, the text drawn without colors meanwhile
+        if let Some(rx) = &self.first {
+            match rx.try_recv() {
+                Ok((parser, tree)) => {
+                    self.first = None;
+                    self.parser = Some(parser);
+                    self.tree = tree;
+                    // the lines read again from the top; the edits made meanwhile applied below
+                    self.changed_from = Some(0);
+                    if self.tree.is_none() {
+                        self.pending.clear();
+                        return None;
+                    }
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => return None,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.first = None;
+                    return None;
+                }
+            }
+        } else if self.tree.is_none() && rope.len_bytes() > PARSE_ON_A_THREAD {
+            let Some(mut parser) = self.parser.take() else { return None };
+            let text = rope.clone();
+            let (tx, rx) = std::sync::mpsc::channel();
+            self.pending.clear();
+            self.first = Some(rx);
+            std::thread::spawn(move || {
+                let tree = parser.parse_with_options(&mut |byte: usize, _: Point| read_rope(&text, byte), None, None);
+                let _ = tx.send((parser, tree));
+            });
+            return None;
+        }
         let stale = self.tree.as_ref().is_none_or(|t| !self.pending.is_empty() || t.root_node().end_byte() != rope.len_bytes());
         if stale {
             let mut old = self.tree.take();
@@ -223,17 +310,15 @@ impl SyntaxTree {
                 }
             }
             self.pending.clear();
-            let mut read = |byte: usize, _: Point| -> &[u8] {
-                if byte >= rope.len_bytes() {
-                    return &[];
-                }
-                let (chunk, start, _, _) = rope.chunk_at_byte(byte);
-                &chunk.as_bytes()[byte - start..]
-            };
-            let new = self.parser.parse_with_options(&mut read, old.as_ref(), None)?;
-            self.changed_from = match &old {
+            let mut read = |byte: usize, _: Point| -> &[u8] { read_rope(rope, byte) };
+            let new = self.parser.as_mut()?.parse_with_options(&mut read, old.as_ref(), None)?;
+            let changed = match &old {
                 None => Some(0),
                 Some(o) => o.changed_ranges(&new).map(|r| r.start_point.row).min(),
+            };
+            self.changed_from = match (self.changed_from, changed) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (a, b) => a.or(b),
             };
             self.tree = Some(new);
         }
@@ -257,16 +342,16 @@ impl SyntaxTree {
         let end = if lines.end >= rope.len_lines() { rope.len_bytes() } else { rope.line_to_byte(lines.end) };
         // the block's text, for the predicates of the query (#match?) and the colors byte by byte
         let text: Vec<u8> = rope.byte_slice(start..end).bytes().collect();
-        let g = self.grammar;
+        let Some((query, scopes)) = self.grammar.compiled() else { return Vec::new() };
         let mut paint: Vec<(usize, usize, usize, u32)> = Vec::new(); // (size, pattern, capture, start..)
         let mut ranges: Vec<(usize, usize)> = Vec::new();
         let mut cursor = QueryCursor::new();
         cursor.set_byte_range(start..end);
         let provider = RopeText(rope);
-        let mut caps = cursor.captures(&g.query, tree.root_node(), provider);
+        let mut caps = cursor.captures(query, tree.root_node(), provider);
         while let Some((m, i)) = caps.next() {
             let c = m.captures()[*i];
-            if g.scopes.get(c.index as usize).copied().flatten().is_none() {
+            if scopes.get(c.index as usize).copied().flatten().is_none() {
                 continue;
             }
             let (a, b) = (c.node.start_byte().max(start), c.node.end_byte().min(end));
@@ -282,7 +367,7 @@ impl SyntaxTree {
         let mut colors: Vec<Option<Color32>> = vec![None; text.len()];
         for (_, _, cap, k) in paint {
             let (a, b) = ranges[k as usize];
-            let col = color(g.scopes[cap].expect("scoped"));
+            let col = color(scopes[cap].expect("scoped"));
             colors[a..b].iter_mut().for_each(|c| *c = Some(col));
         }
         // runs of one color, cut at the ends of lines

@@ -81,6 +81,10 @@ fn main() -> eframe::Result<()> {
     crash::install();
     // the PATH of the login shell (pyenv, nvm…) for the programs Florm runs, read meanwhile
     std::thread::spawn(shell_env::load);
+    // the highlight queries of the syntax trees compiled meanwhile (100 ms for all of them)
+    syntax_tree::warm_up();
+    // the language packs read meanwhile (packs.toml and the user's), not by the first frame
+    std::thread::spawn(|| drop(packs::all()));
     #[cfg(target_os = "macos")]
     os::macos_path();
     config::make_private();

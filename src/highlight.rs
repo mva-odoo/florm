@@ -741,7 +741,8 @@ impl HlCache {
             self.ts_lines.clear();
         }
         if ts.sync(rope).is_none() {
-            return true;
+            // the first parse of a long file is still running: asked again at the next frame
+            return !ts.parsing();
         }
         let changed = ts.changed_from.take();
         let from = match (changed, self.ts_dirty.take()) {
@@ -760,10 +761,11 @@ impl HlCache {
         let start = self.view_from.min(upto);
         let Some(a) = (start..=upto).find(|&l| self.ts_lines[l].is_none()) else { return true };
         let b = (a..=upto).rev().find(|&l| self.ts_lines[l].is_none()).unwrap_or(a).min(a + 2000);
+        let ts_grammar = self.ts.as_ref().map(|t| t.grammar());
         let colors = &mut self.ts_colors;
         // the colors of the scopes, once per theme
         if colors.is_empty() {
-            for s in crate::syntax_tree::all_scopes() {
+            for s in ts_grammar.map(|g| g.scopes()).unwrap_or_default() {
                 colors.insert(s, hl.code_color(hl.scope_style(s).0));
             }
         }
@@ -1081,6 +1083,40 @@ mod tests {
             for l in from..from + 40 {
                 assert_eq!(cache.spans(l), fresh.spans(l), "line {l}, round {round}");
             }
+        }
+    }
+
+    /// A long file: its first parse runs on a thread (no colors, no wait), the edits made
+    /// meanwhile are applied to its tree once back: the same colors as a parse from scratch.
+    #[test]
+    fn a_long_file_is_parsed_on_a_thread() {
+        let hl = Highlighting::new("Florm", Path::new("/nonexistent"));
+        let text: String = (0..3000).map(|i| format!("def f{i}(x):\n    return x + {i}  # c\n")).collect();
+        assert!(text.len() > 64 * 1024);
+        let mut rope = Rope::from_str(&text);
+        let mut cache = HlCache::default();
+        // its query compiled first (once per language, ahead at startup)
+        assert!(crate::syntax_tree::grammar_for("Python").is_some());
+        let t = std::time::Instant::now();
+        assert!(!cache.ensure(&hl, "Python", &rope, 40, Duration::MAX), "not done: on a thread");
+        assert!(t.elapsed() < Duration::from_millis(20), "the UI does not wait: {:?}", t.elapsed());
+        assert!(cache.spans(0).is_none());
+        // typed while it parses: a string opened on line 0
+        cache.tree_edit(crate::syntax_tree::input_edit(&rope, 0, 0, "s = \"\"\"\n"));
+        rope.insert(0, "s = \"\"\"\n");
+        cache.invalidate(0);
+        let t = std::time::Instant::now();
+        while !cache.ensure(&hl, "Python", &rope, 40, Duration::MAX) {
+            assert!(t.elapsed() < Duration::from_secs(10));
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let mut fresh = HlCache::default();
+        while !fresh.ensure(&hl, "Python", &rope, 40, Duration::MAX) {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        for l in 0..40 {
+            assert!(cache.spans(l).is_some());
+            assert_eq!(cache.spans(l), fresh.spans(l), "line {l}");
         }
     }
 
