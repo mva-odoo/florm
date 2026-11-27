@@ -757,7 +757,9 @@ ses nouveautés marchent tels quels. Les changements de Claude se revoient dans 
   connexion de Claude… sont illisibles, et ton agent SSH ne lui est pas donné. Ce qui en a besoin
   (un `git push`, `ssh`, `gh pr create`…), Claude te le
   confie : **Florm tape la commande dans le terminal du panneau du bas**, sans la lancer ; tu la
-  relis et tu appuies sur **Entrée** (ou tu l'effaces). Linux : paquets
+  relis et tu appuies sur **Entrée** (ou tu l'effaces). Elle est tapée dans le dossier de Claude, et
+  quand elle se termine, Florm dit à Claude si elle a réussi, avec les dernières lignes du terminal :
+  il continue sans que tu aies à le lui écrire. Linux : paquets
   `bubblewrap` et `socat` ; macOS : intégré (Seatbelt) ; Windows : non disponible. Désactivé,
   il n'y a aucun bac à sable, même si tes réglages de Claude Code en activent un. Le changer ne
   demande pas de redémarrer Florm : les conversations ouvertes repartent avec le nouveau réglage

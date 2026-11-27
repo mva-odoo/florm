@@ -12,6 +12,9 @@ use std::path::{Path, PathBuf};
 pub const HOOK_FLAG: &str = "--claude-hook";
 /// `florm --claude-status <file>`: the status line of Claude Code (its session on stdin).
 pub const STATUS_FLAG: &str = "--claude-status";
+/// `florm --claude-ran <file> <code>`: a command Claude handed over to the user ended with `code`
+/// (typed after it in the terminal), for Florm to tell Claude.
+pub const RAN_FLAG: &str = "--claude-ran";
 /// `florm --claude-notify <file> <title> <body> <pid>`: a notification whose click brings Florm
 /// (process `pid`) to the front on the conversation of `file`; it waits for the click.
 const NOTIFY_FLAG: &str = "--claude-notify";
@@ -52,17 +55,66 @@ pub fn runs_of(file: &Path) -> PathBuf {
     file.with_extension("runs")
 }
 
-/// A line of `runs_of`: the command to type, in the folder Claude was in (`cd '<dir>' && …`).
-pub fn typed_command(line: &str, dir: Option<&Path>) -> String {
+/// The codes of the commands handed over that ended, one a line (see `RAN_FLAG`).
+pub fn ran_of(file: &Path) -> PathBuf {
+    file.with_extension("ran")
+}
+
+/// The shell of the terminal, for the line typed: fish writes the code of the last command
+/// `$status` and quotes differently.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Shell {
+    Posix,
+    Fish,
+    /// Windows (cmd, PowerShell): the command alone, its end not told.
+    Other,
+}
+
+impl Shell {
+    /// The shell `shell` (Florm's setting), else the user's ($SHELL).
+    pub fn of(shell: Option<&str>) -> Shell {
+        if cfg!(windows) {
+            return Shell::Other;
+        }
+        let s = shell.map(String::from).or_else(|| std::env::var("SHELL").ok()).unwrap_or_default();
+        let name = s.split_whitespace().next().and_then(|p| Path::new(p).file_name()).and_then(|n| n.to_str()).unwrap_or("");
+        if name == "fish" { Shell::Fish } else { Shell::Posix }
+    }
+
+    fn quote(self, s: &str) -> String {
+        match self {
+            Shell::Fish => format!("'{}'", s.replace('\\', "\\\\").replace('\'', "\\'")),
+            _ => format!("'{}'", s.replace('\'', "'\\''")),
+        }
+    }
+}
+
+/// A line of `runs_of`: (the command as Claude wrote it, the line to type). The line goes to the
+/// folder Claude was in (`cd '<dir>' && …`, else `dir`) and, with `ran` (Florm's program and the
+/// file of the conversation), ends by telling its code to Florm.
+pub fn typed_command(line: &str, dir: Option<&Path>, shell: Shell, ran: Option<(&Path, &Path)>) -> (String, String) {
     let (cmd, cwd) = match serde_json::from_str::<Value>(line) {
         Ok(v) => (v["cmd"].as_str().unwrap_or("").to_string(), v["cwd"].as_str().unwrap_or("").to_string()),
         Err(_) => (line.to_string(), String::new()),
     };
-    let cwd = if cwd.is_empty() { dir.map(|d| d.display().to_string()).unwrap_or_default() } else { cwd };
-    if cwd.is_empty() || cfg!(windows) {
-        return cmd;
+    if shell == Shell::Other {
+        return (cmd.clone(), cmd);
     }
-    format!("cd '{}' && {cmd}", cwd.replace('\'', "'\\''"))
+    let cwd = if cwd.is_empty() { dir.map(|d| d.display().to_string()).unwrap_or_default() } else { cwd };
+    let mut typed = if cwd.is_empty() { cmd.clone() } else { format!("cd {} && {cmd}", shell.quote(&cwd)) };
+    if let Some((exe, file)) = ran {
+        let code = if shell == Shell::Fish { "$status" } else { "$?" };
+        typed = format!("{typed}; {} {RAN_FLAG} {} {code}", shell.quote(&exe.display().to_string()), shell.quote(&file.display().to_string()));
+    }
+    (cmd, typed)
+}
+
+/// `florm --claude-ran <file> <code>`: the code written for Florm.
+fn ran(file: &Path, code: &str) {
+    use std::io::Write;
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(ran_of(file)) {
+        let _ = writeln!(f, "{}", code.trim());
+    }
 }
 
 /// What Claude runs to hand a command to the user (see `florm_terminal_command`).
@@ -385,6 +437,10 @@ pub fn run_flag(args: &[String]) -> bool {
             status(Path::new(file));
             true
         }
+        (Some(RAN_FLAG), Some(file)) => {
+            ran(Path::new(file), args.get(3).map_or("", String::as_str));
+            true
+        }
         (Some(NOTIFY_FLAG), Some(file)) => {
             let arg = |k: usize| args.get(k).map_or("", String::as_str);
             notify_and_wait(Path::new(file), arg(3), arg(4), arg(5), arg(6) == "en");
@@ -432,11 +488,15 @@ mod tests {
         assert_eq!(handed_over("florm-terminalx ls"), None);
         assert_eq!(handed_over("florm-terminal"), None);
         assert_eq!(handed_over("git push"), None);
-        // typed in Claude's folder (a quote in its name kept right)
-        assert_eq!(typed_command(r#"{"cmd":"git push","cwd":"/home/u/src/florm"}"#, None), if cfg!(windows) { "git push".to_string() } else { "cd '/home/u/src/florm' && git push".to_string() });
-        if !cfg!(windows) {
-            assert_eq!(typed_command(r#"{"cmd":"ls","cwd":""}"#, Some(Path::new("/p/l'a"))), "cd '/p/l'\\''a' && ls");
-        }
+        // typed in Claude's folder (a quote in its name kept right), its code told to Florm
+        let line = r#"{"cmd":"git push","cwd":"/home/u/src/florm"}"#;
+        assert_eq!(typed_command(line, None, Shell::Posix, None), ("git push".to_string(), "cd '/home/u/src/florm' && git push".to_string()));
+        assert_eq!(typed_command(r#"{"cmd":"ls","cwd":""}"#, Some(Path::new("/p/l'a")), Shell::Posix, None).1, "cd '/p/l'\\''a' && ls");
+        let ran = Some((Path::new("/usr/bin/florm"), Path::new("/d/c.json")));
+        assert_eq!(typed_command(line, None, Shell::Posix, ran).1, "cd '/home/u/src/florm' && git push; '/usr/bin/florm' --claude-ran '/d/c.json' $?");
+        assert_eq!(typed_command(line, None, Shell::Fish, ran).1, "cd '/home/u/src/florm' && git push; '/usr/bin/florm' --claude-ran '/d/c.json' $status");
+        assert_eq!(typed_command(r#"{"cmd":"ls","cwd":"/p/l'a"}"#, None, Shell::Fish, None).1, "cd '/p/l\\'a' && ls");
+        assert_eq!(typed_command(line, None, Shell::Other, ran).1, "git push");
         let s = Path::new("/s.json");
         assert_eq!(argv(s, &Start { prompt: Some("fais ça"), ..Default::default() }), ["claude", "--settings", "/s.json", "fais ça"]);
         assert_eq!(argv(s, &Start { session_id: "abc", prompt: Some("ignored"), ..Default::default() }), ["claude", "--settings", "/s.json", "--resume", "abc"]);

@@ -75,6 +75,10 @@ pub(super) struct ClaudeUi {
     pub(super) changed_len: u64,
     /// How much of the file of the commands it handed over to the user was read.
     pub(super) runs_len: u64,
+    /// Those commands typed in the terminal, waiting for their end (told to Claude), and how much
+    /// of the file of their codes was read.
+    pub(super) handed: std::collections::VecDeque<String>,
+    pub(super) ran_len: u64,
 }
 
 impl ClaudeUi {
@@ -89,6 +93,8 @@ impl ClaudeUi {
         // its next `claude` lists them in a file of its own
         self.changed_len = 0;
         self.runs_len = 0;
+        self.handed.clear();
+        self.ran_len = 0;
     }
 }
 

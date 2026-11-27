@@ -722,6 +722,11 @@ impl Terminal {
         self.fix_active();
     }
 
+    /// The text on the screen of terminal `id` (its visible rows).
+    pub fn screen_text(&self, id: u64) -> Option<String> {
+        self.sessions.iter().find(|s| s.id == id).map(|s| s.parser.lock().unwrap().screen().contents())
+    }
+
     pub fn title_of(&self, id: u64) -> Option<String> {
         self.sessions.iter().find(|s| s.id == id).map(|s| s.title())
     }

@@ -735,7 +735,8 @@ new in it work as they are. Claude's changes are reviewed in the **Git** view.
   login… are not readable, and your SSH agent is not given to it. What needs them (a `git push`,
   `ssh`, `gh pr create`…), Claude hands over to you: **Florm types
   the command in the terminal of the bottom panel**, without running it; you check it and press
-  **Enter** (or erase it). Linux: `bubblewrap` and `socat` packages;
+  **Enter** (or erase it). It is typed in Claude's folder, and when it ends, Florm tells Claude whether
+  it succeeded, with the last lines of the terminal: it goes on without you having to write it. Linux: `bubblewrap` and `socat` packages;
   macOS: built in (Seatbelt); Windows: not available. Off, there is no sandbox,
   even if your settings of Claude Code turn one on. Changing it needs no restart of Florm: the open
   conversations start again with the new setting (those at work, once they are done). On,

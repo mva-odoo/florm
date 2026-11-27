@@ -50,6 +50,7 @@ impl App {
         let _ = std::fs::remove_file(&file);
         let _ = std::fs::remove_file(claude_term::files_of(&file));
         let _ = std::fs::remove_file(claude_term::runs_of(&file));
+        let _ = std::fs::remove_file(claude_term::ran_of(&file));
         // the logins of the Claude accounts (other folders than the usual one) hidden too
         let hidden: Vec<String> = self.claude_accounts().iter().filter_map(|a| a.dir.as_ref()).map(|d| d.join(".credentials.json").display().to_string()).collect();
         if let Err(e) = std::fs::write(&settings_file, claude_term::settings(&exe, &file, self.settings.claude_sandbox, &hidden).to_string()) {
@@ -180,10 +181,14 @@ impl App {
         claude_term::set_away(!self.egui_ctx.input(|i| i.focused));
         let mut limits: Vec<(String, Vec<(String, f32, i64)>)> = Vec::new();
         let accounts = claude_account::accounts(&self.settings.claude_accounts);
+        let shell = claude_term::Shell::of(self.term_shell().as_deref());
+        let exe = std::env::current_exe().ok();
         let term = &mut self.term;
         // a notification clicked: its conversation shown, Florm in front
         let mut asked: Option<u64> = None;
-        let mut handed: Vec<String> = Vec::new();
+        // (conversation, the command as Claude wrote it, the line typed); (conversation, code)
+        let mut handed: Vec<(u64, String, String)> = Vec::new();
+        let mut ended: Vec<(u64, String)> = Vec::new();
         for (k, c) in std::iter::once(&mut self.claude).chain(self.claude_others.iter_mut()).enumerate() {
             let (Some(id), Some(file)) = (c.term, c.term_file.clone()) else { continue };
             if claude_term::open_asked(&file) {
@@ -202,9 +207,23 @@ impl App {
             if runs_len > c.runs_len {
                 if let Ok(text) = std::fs::read(&runs) {
                     let new = String::from_utf8_lossy(&text[(c.runs_len as usize).min(text.len())..]).into_owned();
-                    handed.extend(new.lines().map(str::trim).filter(|l| !l.is_empty()).map(|l| claude_term::typed_command(l, c.dir.as_deref())));
+                    for l in new.lines().map(str::trim).filter(|l| !l.is_empty()) {
+                        let ran = exe.as_deref().map(|e| (e, file.as_path()));
+                        let (cmd, typed) = claude_term::typed_command(l, c.dir.as_deref(), shell, ran);
+                        handed.push((c.id, cmd, typed));
+                    }
                 }
                 c.runs_len = runs_len;
+            }
+            // their ends: the code of each, told to Claude below
+            let ran = claude_term::ran_of(&file);
+            let ran_len = std::fs::metadata(&ran).map_or(0, |m| m.len());
+            if ran_len > c.ran_len {
+                if let Ok(text) = std::fs::read(&ran) {
+                    let new = String::from_utf8_lossy(&text[(c.ran_len as usize).min(text.len())..]).into_owned();
+                    ended.extend(new.lines().map(str::trim).filter(|l| !l.is_empty()).map(|code| (c.id, code.to_string())));
+                }
+                c.ran_len = ran_len;
             }
             let listed = std::fs::metadata(claude_term::files_of(&file)).map_or(0, |m| m.len());
             // Claude changed files: they are reloaded and Git refreshed
@@ -273,11 +292,34 @@ impl App {
         }
         // a command Claude cannot run in its sandbox: typed (not run) in the terminal of the
         // bottom panel, for the user to check and run with Enter
-        for cmd in handed {
-            self.install_type(&cmd, true);
+        for (id, cmd, typed) in handed {
+            self.install_type(&typed, true);
             self.bottom = Some(BottomTab::Terminal);
             self.term.want_focus = true;
             self.set_status(tf!("Claude te demande de lancer : {cmd} — dans le terminal, Entrée pour lancer", "Claude asks you to run: {cmd} — in the terminal, Enter to run it"));
+            if shell != claude_term::Shell::Other {
+                if let Some(c) = std::iter::once(&mut self.claude).chain(self.claude_others.iter_mut()).find(|c| c.id == id) {
+                    c.handed.push_back(cmd);
+                }
+            }
+        }
+        // a command handed over ended: Claude is told how (its code, the end of the screen) and
+        // goes on without waiting for the user to say it
+        for (id, code) in ended {
+            let screen = self.install_term.and_then(|t| self.term.screen_text(t)).unwrap_or_default();
+            let lines: Vec<&str> = screen.lines().map(str::trim_end).filter(|l| !l.trim().is_empty()).collect();
+            // the last line is the new prompt
+            let tail = lines[lines.len().saturating_sub(16)..lines.len().saturating_sub(1)].join("\n");
+            let Some(c) = std::iter::once(&mut self.claude).chain(self.claude_others.iter_mut()).find(|c| c.id == id) else { continue };
+            let cmd = c.handed.pop_front().unwrap_or_default();
+            let how = if code == "0" { t!("réussie", "succeeded").to_string() } else { tf!("échouée (code {code})", "failed (code {code})") };
+            let msg = tf!(
+                "[Florm] L'utilisateur a lancé dans son terminal la commande que tu lui as confiée : `{cmd}` — {how}. Les dernières lignes de son terminal :\n```\n{tail}\n```",
+                "[Florm] The user ran in their terminal the command you handed over: `{cmd}` — {how}. The last lines of their terminal:\n```\n{tail}\n```"
+            );
+            c.term_pending = if c.term_pending.is_empty() { msg } else { format!("{}\n\n{msg}", c.term_pending) };
+            c.term_submit = true;
+            self.set_status(tf!("{cmd} : {how} — dit à Claude", "{cmd}: {how} — told to Claude"));
         }
         if let Some(id) = asked {
             self.claude_go_to(id);
