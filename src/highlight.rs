@@ -131,7 +131,7 @@ fn col(c: Option<Color>, d: Color32) -> Color32 {
 impl Highlighting {
     pub fn new(theme_name: &str, extra_themes: &Path) -> Self {
         let ss = SyntaxSet::load_defaults_newlines();
-        // only the themes of Florm: its own two, and four after the usual ones of other editors
+        // only the themes of Florm: its own ones, and others after the usual ones of VS Code and Zed
         let mut ts = ThemeSet::new();
         for (name, src) in [
             ("Florm", include_str!("../assets/Florm.tmTheme")),
@@ -142,6 +142,22 @@ impl Highlighting {
             ("Florm One Dark", include_str!("../assets/Florm One Dark.tmTheme")),
             ("Florm Dracula", include_str!("../assets/Florm Dracula.tmTheme")),
             ("Florm GitHub Light", include_str!("../assets/Florm GitHub Light.tmTheme")),
+            // the most installed themes of VS Code and Zed, with their own palettes
+            ("Florm Catppuccin Mocha", include_str!("../assets/Florm Catppuccin Mocha.tmTheme")),
+            ("Florm Catppuccin Latte", include_str!("../assets/Florm Catppuccin Latte.tmTheme")),
+            ("Florm Tokyo Night", include_str!("../assets/Florm Tokyo Night.tmTheme")),
+            ("Florm Gruvbox Dark", include_str!("../assets/Florm Gruvbox Dark.tmTheme")),
+            ("Florm Gruvbox Light", include_str!("../assets/Florm Gruvbox Light.tmTheme")),
+            ("Florm Nord", include_str!("../assets/Florm Nord.tmTheme")),
+            ("Florm Solarized Dark", include_str!("../assets/Florm Solarized Dark.tmTheme")),
+            ("Florm Solarized Light", include_str!("../assets/Florm Solarized Light.tmTheme")),
+            ("Florm GitHub Dark", include_str!("../assets/Florm GitHub Dark.tmTheme")),
+            ("Florm One Light", include_str!("../assets/Florm One Light.tmTheme")),
+            ("Florm Rosé Pine", include_str!("../assets/Florm Rosé Pine.tmTheme")),
+            ("Florm Ayu Dark", include_str!("../assets/Florm Ayu Dark.tmTheme")),
+            ("Florm Night Owl", include_str!("../assets/Florm Night Owl.tmTheme")),
+            ("Florm Everforest Dark", include_str!("../assets/Florm Everforest Dark.tmTheme")),
+            ("Florm Kanagawa", include_str!("../assets/Florm Kanagawa.tmTheme")),
         ] {
             if let Ok(t) = ThemeSet::load_from_reader(&mut std::io::Cursor::new(src)) {
                 ts.themes.insert(name.into(), t);
@@ -928,6 +944,8 @@ impl HlCache {
 fn replacement(old: &str) -> &'static str {
     match old {
         "Light+ (VS Code)" | "InspiredGitHub" => "Florm GitHub Light",
+        _ if old.to_lowercase().contains("solarized") && old.to_lowercase().contains("light") => "Florm Solarized Light",
+        _ if old.to_lowercase().contains("solarized") => "Florm Solarized Dark",
         _ if old.to_lowercase().contains("light") => "Florm Light",
         _ if old.to_lowercase().contains("monokai") => "Florm Monokai",
         _ => "Florm",
@@ -962,14 +980,16 @@ mod tests {
         let hl = Highlighting::new("Florm Monokai", Path::new("/nonexistent"));
         let mut names = hl.theme_names();
         names.sort();
-        assert_eq!(names, ["Florm", "Florm Dracula", "Florm GitHub Light", "Florm Light", "Florm Minimal", "Florm Minimal Light", "Florm Monokai", "Florm One Dark"]);
+        assert_eq!(names.len(), 23);
+        assert!(names.contains(&"Florm Catppuccin Mocha".to_string()) && names.contains(&"Florm Tokyo Night".to_string()));
         assert!(!hl.is_light());
         // the sober ones: the light one light
         let mut min = Highlighting::new("Florm Minimal Light", Path::new("/nonexistent"));
         assert!(min.is_light() && min.set_theme("Florm Minimal") && !min.is_light());
         // the old built-in themes give way to the closest one
         assert_eq!(Highlighting::new("Light+ (VS Code)", Path::new("/nonexistent")).theme_name, "Florm GitHub Light");
-        assert_eq!(Highlighting::new("Solarized (light)", Path::new("/nonexistent")).theme_name, "Florm Light");
+        assert_eq!(Highlighting::new("Solarized (light)", Path::new("/nonexistent")).theme_name, "Florm Solarized Light");
+        assert_eq!(Highlighting::new("Solarized (dark)", Path::new("/nonexistent")).theme_name, "Florm Solarized Dark");
         assert_eq!(Highlighting::new("base16-ocean.dark", Path::new("/nonexistent")).theme_name, "Florm");
     }
 

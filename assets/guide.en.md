@@ -832,7 +832,8 @@ text does not look thinner and greyer than on a Mac's Retina screen.
 
 **Preferences → Appearance**: language (Français / English), theme (clickable previews: Florm and
 Florm Light, Florm Minimal and Florm Minimal Light, more sober (a deep or cream background, a
-soft palette), and Florm Monokai, One Dark, Dracula, GitHub Light after the usual themes of other editors),
+soft palette), and after the most used themes of VS Code and Zed: Florm Monokai, One Dark, Dracula,
+GitHub Light, Catppuccin Mocha and Latte, Tokyo Night, Gruvbox Dark and Light, Nord, Solarized Dark and Light, GitHub Dark, One Light, Rosé Pine, Ayu Dark, Night Owl, Everforest Dark, Kanagawa),
 accent color, **softened text** (less “bold” text, useful on light themes), fonts of the editor
 and of the interface, minimap, breadcrumbs. The menus are under the **F** at the top left (as in Zed,
 without a menu bar), and their commands in the palette, **Ctrl+Shift+P**. The folder icon before the

@@ -859,8 +859,8 @@ le texte ne paraisse pas plus fin et plus gris que sur l'écran Retina d'un Mac.
 
 **Préférences → Apparence** : langue (Français / English), thème (aperçus cliquables : Florm et
 Florm Light, Florm Minimal et Florm Minimal Light, plus sobres (un fond profond ou crème, une
-palette douce), et Florm Monokai, One Dark, Dracula, GitHub Light d'après les thèmes habituels des autres
-éditeurs), couleur d'accentuation,
+palette douce), et d'après les thèmes les plus utilisés de VS Code et Zed : Florm Monokai, One Dark,
+Dracula, GitHub Light, Catppuccin Mocha et Latte, Tokyo Night, Gruvbox Dark et Light, Nord, Solarized Dark et Light, GitHub Dark, One Light, Rosé Pine, Ayu Dark, Night Owl, Everforest Dark, Kanagawa), couleur d'accentuation,
 **texte adouci** (texte moins « gras », utile sur les thèmes clairs), polices de l'éditeur et
 de l'interface, minimap, fil d'Ariane. Les menus sont sous le **F** en haut à gauche (comme dans Zed,
 sans barre de menus), et leurs commandes dans la palette, **Ctrl+Shift+P**. L'icône de dossier devant
