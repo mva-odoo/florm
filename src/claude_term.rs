@@ -106,9 +106,31 @@ fn limits_of(v: &Value) -> Vec<(String, f32, i64)> {
         .collect()
 }
 
+/// Where the usual secrets live (keys, tokens, passwords): hidden from Claude's commands and
+/// from its reading tools when it works in the sandbox.
+pub const SECRETS: &[&str] = &[
+    "~/.ssh",
+    "~/.gnupg",
+    "~/.config/gh",
+    "~/.git-credentials",
+    "~/.config/git/credentials",
+    "~/.netrc",
+    "~/.aws",
+    "~/.azure",
+    "~/.config/gcloud",
+    "~/.kube",
+    "~/.docker/config.json",
+    "~/.pypirc",
+    "~/.password-store",
+    "~/.local/share/keyrings",
+    "~/.claude/.credentials.json",
+];
+
 /// The settings of Florm for `claude`: the hooks and the status line that write in `file`, and
 /// its sandbox for the commands (`sandbox`: on or off, whatever the user's own settings say).
-pub fn settings(exe: &Path, file: &Path, sandbox: bool) -> Value {
+/// In the sandbox, `SECRETS` and `hidden` (the logins of the other Claude accounts) are not
+/// readable.
+pub fn settings(exe: &Path, file: &Path, sandbox: bool, hidden: &[String]) -> Value {
     let exe = exe.to_string_lossy();
     let file = file.to_string_lossy();
     let hook = |what: &str| json!([{ "hooks": [{ "type": "command", "command": format!("\"{exe}\" {HOOK_FLAG} \"{file}\" {what}") }] }]);
@@ -128,10 +150,13 @@ pub fn settings(exe: &Path, file: &Path, sandbox: bool) -> Value {
     });
     // said both ways: off, a sandbox turned on in the user's own settings of Claude Code stays off too;
     // on, no command gets out of it (Claude Code would otherwise ask to run one outside)
-    // on, the SSH keys are not readable either (their agent is not given: see `claude_term_start`)
-    v["sandbox"] = if sandbox { json!({ "enabled": true, "allowUnsandboxedCommands": false, "filesystem": { "denyRead": ["~/.ssh"] } }) } else { json!({ "enabled": false }) };
+    // on, the keys and tokens are not readable either (the SSH agent is not given: see
+    // `claude_term_start`)
+    let secrets: Vec<String> = SECRETS.iter().map(|s| s.to_string()).chain(hidden.iter().cloned()).collect();
+    v["sandbox"] = if sandbox { json!({ "enabled": true, "allowUnsandboxedCommands": false, "filesystem": { "denyRead": secrets } }) } else { json!({ "enabled": false }) };
     if sandbox {
-        v["permissions"] = json!({ "deny": ["Read(~/.ssh/**)", "Edit(~/.ssh/**)"] });
+        let deny: Vec<String> = secrets.iter().flat_map(|p| [format!("Read({p})"), format!("Read({p}/**)"), format!("Edit({p})"), format!("Edit({p}/**)")]).collect();
+        v["permissions"] = json!({ "deny": deny });
     }
     v
 }
@@ -382,10 +407,10 @@ mod tests {
         let f = std::env::temp_dir().join(format!("florm_claude_term_{}.json", std::process::id()));
         let _ = std::fs::remove_file(&f);
         // off is said too: the user's own settings cannot turn it back on
-        assert!(settings(Path::new("/opt/florm"), &f, false).to_string().contains(r#""sandbox":{"enabled":false}"#));
-        let s = settings(Path::new("/opt/florm"), &f, true).to_string();
-        assert!(s.contains(r#"\"/opt/florm\" --claude-hook"#) && s.contains("UserPromptSubmit") && s.contains("SessionStart") && s.contains("SessionEnd") && s.contains(r#""matcher":"Edit|MultiEdit|Write|NotebookEdit""#) && s.contains("statusLine") && s.contains(r#""allowUnsandboxedCommands":false,"enabled":true"#) && s.contains(r#""denyRead":["~/.ssh"]"#) && s.contains("Read(~/.ssh/**)") && s.contains(r#""matcher":"Bash""#), "{s}");
-        assert!(!settings(Path::new("/opt/florm"), &f, false).to_string().contains(".ssh"));
+        assert!(settings(Path::new("/opt/florm"), &f, false, &[]).to_string().contains(r#""sandbox":{"enabled":false}"#));
+        let s = settings(Path::new("/opt/florm"), &f, true, &["/home/u/.claude-perso/.credentials.json".to_string()]).to_string();
+        assert!(s.contains(r#"\"/opt/florm\" --claude-hook"#) && s.contains("UserPromptSubmit") && s.contains("SessionStart") && s.contains("SessionEnd") && s.contains(r#""matcher":"Edit|MultiEdit|Write|NotebookEdit""#) && s.contains("statusLine") && s.contains(r#""allowUnsandboxedCommands":false,"enabled":true"#) && s.contains(r#""denyRead":["~/.ssh","~/.gnupg","~/.config/gh""#) && s.contains("Read(~/.ssh/**)") && s.contains("Read(~/.config/gh/**)") && s.contains("/home/u/.claude-perso/.credentials.json") && s.contains(r#""matcher":"Bash""#), "{s}");
+        assert!(!settings(Path::new("/opt/florm"), &f, false, &[]).to_string().contains(".ssh"));
         // `florm-terminal <command>`: the command handed over, quotes taken off; others: none
         assert_eq!(handed_over("florm-terminal git push origin main"), Some("git push origin main"));
         assert_eq!(handed_over("  florm-terminal 'ssh prod uptime' "), Some("ssh prod uptime"));

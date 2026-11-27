@@ -678,8 +678,10 @@ new in it work as they are. Claude's changes are reviewed in the **Git** view.
   waiting for your answer. The status bar says how many are working or waiting.
 - **Sandbox** (Preferences → Claude, on by default): Claude's commands run isolated, they write
   only in the project and the network is filtered. Claude cannot run **any command out of the
-  sandbox**, even in auto mode, and it has **none of your SSH keys**: neither `~/.ssh` readable nor
-  your SSH agent. What needs them (a `git push`, `ssh`…), Claude hands over to you: **Florm types
+  sandbox**, even in auto mode, and it has **neither your keys nor your tokens**: `~/.ssh`,
+  `~/.gnupg`, the token of `gh`, `~/.aws`, `~/.kube`, `~/.netrc`, `~/.git-credentials`, Claude's
+  login… are not readable, and your SSH agent is not given to it. What needs them (a `git push`,
+  `ssh`, `gh pr create`…), Claude hands over to you: **Florm types
   the command in the terminal of the bottom panel**, without running it; you check it and press
   **Enter** (or erase it). Linux: `bubblewrap` and `socat` packages;
   macOS: built in (Seatbelt); Windows: not available. Off, there is no sandbox,

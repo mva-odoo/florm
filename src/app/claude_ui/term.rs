@@ -50,7 +50,9 @@ impl App {
         let _ = std::fs::remove_file(&file);
         let _ = std::fs::remove_file(claude_term::files_of(&file));
         let _ = std::fs::remove_file(claude_term::runs_of(&file));
-        if let Err(e) = std::fs::write(&settings_file, claude_term::settings(&exe, &file, self.settings.claude_sandbox).to_string()) {
+        // the logins of the Claude accounts (other folders than the usual one) hidden too
+        let hidden: Vec<String> = self.claude_accounts().iter().filter_map(|a| a.dir.as_ref()).map(|d| d.join(".credentials.json").display().to_string()).collect();
+        if let Err(e) = std::fs::write(&settings_file, claude_term::settings(&exe, &file, self.settings.claude_sandbox, &hidden).to_string()) {
             self.claude.term = Some(0);
             self.set_error(tf!("Claude : réglages non écrits ({e})", "Claude: settings not written ({e})"));
             return;

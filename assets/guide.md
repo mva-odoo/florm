@@ -698,8 +698,10 @@ ses nouveautés marchent tels quels. Les changements de Claude se revoient dans 
   réponse. La barre d'état dit combien travaillent ou attendent.
 - **Bac à sable** (Préférences → Claude, activé par défaut) : les commandes de Claude tournent
   isolées, elles n'écrivent que dans le projet et le réseau est filtré. Claude ne peut lancer
-  **aucune commande hors du bac à sable**, même en mode auto, et il n'a **pas tes clés SSH** : ni
-  `~/.ssh` lisible, ni ton agent SSH. Ce qui en a besoin (un `git push`, `ssh`…), Claude te le
+  **aucune commande hors du bac à sable**, même en mode auto, et il n'a **ni tes clés ni tes jetons** :
+  `~/.ssh`, `~/.gnupg`, le jeton de `gh`, `~/.aws`, `~/.kube`, `~/.netrc`, `~/.git-credentials`, la
+  connexion de Claude… sont illisibles, et ton agent SSH ne lui est pas donné. Ce qui en a besoin
+  (un `git push`, `ssh`, `gh pr create`…), Claude te le
   confie : **Florm tape la commande dans le terminal du panneau du bas**, sans la lancer ; tu la
   relis et tu appuies sur **Entrée** (ou tu l'effaces). Linux : paquets
   `bubblewrap` et `socat` ; macOS : intégré (Seatbelt) ; Windows : non disponible. Désactivé,
