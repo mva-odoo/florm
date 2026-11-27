@@ -153,6 +153,12 @@ pub struct Settings {
     pub selection_highlight: bool,
     /// The documentation of the hovered symbol (language server) in its tooltip.
     pub hover_popover: bool,
+    /// The inlay hints of the language server (types, names of the parameters) in the code.
+    pub inlay_hints: bool,
+    /// Tab after an Emmet abbreviation (`ul>li*3`) in HTML, JSX or XML writes its tags.
+    pub emmet: bool,
+    /// The keys of Vim in the editor (normal, insert, visual modes; :w, :q…).
+    pub vim_mode: bool,
     /// The completion list opens by itself while typing (else Ctrl+Space).
     pub show_completions_on_input: bool,
     /// « Après une pause » of auto_save: milliseconds after the last keystroke.
@@ -351,6 +357,9 @@ impl Default for Settings {
             vertical_scroll_margin: 1,
             selection_highlight: true,
             hover_popover: true,
+            inlay_hints: true,
+            emmet: true,
+            vim_mode: false,
             show_completions_on_input: true,
             auto_save_delay_ms: 1000,
             smartcase_search: false,
@@ -486,6 +495,12 @@ vertical_scroll_margin = 1
 selection_highlight = true
 # documentation du serveur de langage au survol d'un nom ; complétion ouverte pendant la frappe
 hover_popover = true
+# types et noms des paramètres donnés par le serveur de langage, en gris dans le code
+inlay_hints = true
+# Tab après une abréviation Emmet (ul>li*3, field[name=partner_id]) en HTML, JSX ou XML : ses balises
+emmet = true
+# les touches de Vim dans l'éditeur (modes normal, insertion, visuel ; :w, :q…)
+vim_mode = false
 show_completions_on_input = true
 # enregistrement automatique « après une pause » : millisecondes après la dernière frappe
 auto_save_delay_ms = 1000

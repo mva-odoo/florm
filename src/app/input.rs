@@ -513,6 +513,21 @@ impl App {
                     self.set_status(t!("Enregistrement de la macro… Ctrl+Alt+Q pour arrêter", "Recording the macro… Ctrl+Alt+Q to stop"));
                 }
             },
+            ClaudeInlineEdit => self.inline_ai_open(String::new()),
+            ToggleVim => {
+                self.settings.vim_mode = !self.settings.vim_mode;
+                self.vim = crate::vim::Vim::new();
+                self.persist("vim_mode", self.settings.vim_mode.to_string());
+                self.set_status(if self.settings.vim_mode { t!("Mode Vim activé (:w, :q, i pour écrire, Échap pour revenir)", "Vim mode on (:w, :q, i to type, Escape to come back)") } else { t!("Mode Vim désactivé", "Vim mode off") });
+            }
+            EmmetExpand => {
+                let ext = self.active_ext();
+                if crate::emmet::flavor(&ext).is_none() {
+                    self.set_status(t!("Emmet : seulement en HTML, JSX et XML", "Emmet: only in HTML, JSX and XML"));
+                } else if !self.expand_emmet(None, &ext) {
+                    self.set_status(t!("Emmet : pas d'abréviation avant le curseur (ex. ul>li*3)", "Emmet: no abbreviation before the cursor (e.g. ul>li*3)"));
+                }
+            }
             MacroPlay => {
                 if self.macros.rec.is_some() {
                     self.set_status(t!("Arrête d'abord l'enregistrement (Ctrl+Alt+Q)", "Stop the recording first (Ctrl+Alt+Q)"));
@@ -595,7 +610,10 @@ impl App {
             // Python: ruff (fast, the project's settings); the other languages: their language server
             FormatDocument => {
                 let python = self.docs.get(self.active).and_then(|d| d.path.as_deref()).and_then(lint::lang_of) == Some("python");
-                if python {
+                let editable = self.docs.get(self.active).is_some_and(|d| !d.read_only);
+                if !python && editable && self.formatter_job(self.active, false) {
+                    // Biome or Prettier of the project
+                } else if python {
                     self.python_rewrite(lint::Rewrite::Format);
                 } else {
                     let ctx = self.egui_ctx.clone();

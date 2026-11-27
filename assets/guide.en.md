@@ -51,6 +51,22 @@ sidebar shown or not.
   closing tag (`</field>`) after the cursor, and `</` completes the one of the element still open.
   Nothing for `<br/>`, `<?xml ?>`, `<!-- -->` nor the HTML tags without a closing one (`<br>`,
   `<img>`…). Follows the “Auto-close brackets” preference (Preferences → Editor).
+- **Emmet** (HTML, JSX, XML): an abbreviation then **Tab** writes its tags. `ul>li.item*3`,
+  `.card>h2+p`, `nav>ul>li^footer`, `a[href=/]`, `{text}`, `!` (an HTML page). In XML (Odoo
+  views), `field[name=partner_id]` gives `<field name="partner_id"/>`, `group>field*2` two fields
+  to fill, `button`, `record`, `xpath` their usual attributes. **Tab** then goes from one empty
+  place to the next. Also “Emmet: expand the abbreviation” (palette); turned off in
+  Preferences → Editor.
+- **Inlay hints**: with a language server that gives them (rust-analyzer, basedpyright,
+  typescript-language-server, gopls, clangd), the inferred types and the names of the parameters
+  are shown in grey in the code (`let x: i32`, `f(a: 1)`). They are not part of the file; turned
+  off in Preferences → Editor.
+- **Vim mode** (Preferences → Editor, or “Vim mode” in the palette): normal, insert (**i**,
+  **a**, **o**…) and visual (**v**, **V**) modes, motions (`w b e 0 ^ $ gg G f t % { }`, with a
+  count: `3w`), the operators `d c y > <` with a motion or a text object (`ciw`, `di"`, `ca(`,
+  `yap`), `dd cc yy x p P u` **Ctrl+R** `.` `J ~ r`, the search `/ n N * #` and the command line
+  `:w :q :wq :42 :%s/a/b/g`. The mode is shown in the status bar. The shortcuts with Ctrl stay
+  Florm's (Ctrl+S, Ctrl+P…).
 
 ## Sidebar
 
@@ -402,9 +418,11 @@ Problems are underlined in the code and listed in **Problems** (bottom panel):
 - **Python**: the first linter installed (`flake8`, else `ruff`, `pyflakes`, `pylint`; Preferences →
   Lint), while typing. **JavaScript**: `eslint`, on save.
 - **Language servers** (Preferences → Languages → Language servers): their errors too, for every
-  language they know (TypeScript, Rust, Go, C…). **Format the file** (palette) goes through `ruff`
-  for Python, through the language server for the others. To format every Python file on save:
-  Preferences → Editor.
+  language they know (TypeScript, Rust, Go, C…). **Format the file** (Ctrl+Alt+F, palette) goes
+  through `ruff` for Python; in a web project that uses **Biome** or **Prettier** (their
+  configuration file, or the tool in `node_modules`), through them, with the project's
+  configuration; else through the language server. Nothing is formatted by a tool the project did
+  not choose. To format on every save: Preferences → Editor (or per language).
 - **XML and JSON**: a badly formed file (unclosed or badly nested tag, missing quote), live.
 - **The other languages**, while typing, with their linter when it is installed: `shellcheck`
   (shell), `yamllint`, `markdownlint`, `hadolint` (Dockerfile), `luacheck`, `rubocop`, `stylelint`
@@ -496,9 +514,17 @@ Python, **dlv** for Go, **lldb-dap** or **gdb** (14 or later) for Rust, C and C+
 ## Templates
 
 **Ctrl+Alt+N** (or Tools → Insert a template): the templates of the type of the current file
-come first. Florm ships two, `ipdb` and `pdb` (Python: type `ipdb` then Tab); add your own (see below).
+come first. Florm ships a few: `ipdb`, `pdb`, `ifmain` (Python), and for Odoo `omodel` (a model),
+`om2o` (a Many2one field), `ocompute` (a computed field and its method), `oform` (a form view, in
+XML): type the word then Tab; add your own (see below).
 
-`$0` marks the place of the cursor.
+The text of a template follows the snippet syntax of VS Code: `$1`, `$2`… are the places to fill,
+in order: **Tab** goes to the next one, **Shift+Tab** back, Escape stops. `${1:text}` puts a text
+already selected there, `${1|a,b|}` the first choice; the same number at several places is typed
+everywhere at once. `$0` marks the place of the cursor at the end. `$TM_FILENAME_BASE` gives the
+name of the file without its extension; `\$` writes a `$` (the other `$NAME` stay as written). The
+suggestions of the language servers that are snippets (the arguments of a function) work the same
+way.
 
 To add yours: **Tools → Templates folder**, one file per template
 (its name = the name of the template, its extension = the type of file). A file with the name
@@ -742,6 +768,16 @@ new in it work as they are. Claude's changes are reviewed in the **Git** view.
 **✨ next to the commit message** (Git view): Claude suggests the message from the staged
 changes (else all of them), in the style of the last commits of the repository and from your
 first request in the Claude tab.
+
+### ✳ Change it here (Ctrl+I)
+
+Select lines (or put the cursor on a line), **Ctrl+I**, write what to change (“add an
+@api.constrains that refuses a negative share”) and **Enter**. Claude rewrites only those lines,
+from the rest of the file; its text takes their place, on a green background: **✓ Keep**
+(Ctrl+Enter), **× Undo** (Escape: the old text comes back), **↻ Ask again** (the old text comes
+back and the request opens again). Hovering **Old** shows the text before. Going on typing keeps the
+change; Ctrl+Z undoes it like the others. For a real task, on several files, the Claude tab stays
+the right place.
 
 ### 🗺 Explaining a change
 

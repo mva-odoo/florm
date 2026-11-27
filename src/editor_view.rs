@@ -254,9 +254,32 @@ fn line_job(doc: &Document, l: usize, font: &FontId, fg: Color32, vstart: usize,
     let (mut v, mut byte, mut si) = (from.1, byte, 0usize);
     let (mut idx, mut bi) = (from.0, 0usize);
     let mut start_v = None;
+    // inlay hints: in grey on a light band, in columns of their own (`Document::vcol`); the tab
+    // stops are those of the text alone
+    let hints = doc.inlays_on(l);
+    let line_start = if hints.is_empty() { 0 } else { doc.rope.line_to_char(l) };
+    let hint_fmt = TextFormat { background: fg.gamma_multiply(0.08), ..TextFormat::simple(font.clone(), fg.gamma_multiply(0.5)) };
+    let mut t = v;
     for ch in line.chars_at(from.0) {
         if ch == '\n' || ch == '\r' {
             break;
+        }
+        if !hints.is_empty() {
+            for (_, h) in hints.iter().filter(|h| h.0 == line_start + idx) {
+                let w = h.chars().count();
+                if v >= vend {
+                    break;
+                }
+                if v + w > vstart {
+                    start_v.get_or_insert(v);
+                    if !buf.is_empty() {
+                        job.append(&buf, 0.0, TextFormat::simple(font.clone(), cur));
+                        buf.clear();
+                    }
+                    job.append(h, 0.0, hint_fmt.clone());
+                }
+                v += w;
+            }
         }
         while bi < brackets.len() && brackets[bi].0 < idx {
             bi += 1;
@@ -272,7 +295,7 @@ fn line_job(doc: &Document, l: usize, font: &FontId, fg: Color32, vstart: usize,
             })
             .unwrap_or(fg);
         let color = bracket.unwrap_or(color);
-        let w = if ch == '\t' { ts - v % ts } else { 1 };
+        let w = if ch == '\t' { ts - t % ts } else { 1 };
         if v >= vend {
             break;
         }
@@ -290,6 +313,7 @@ fn line_job(doc: &Document, l: usize, font: &FontId, fg: Color32, vstart: usize,
             }
         }
         v += w;
+        t += w;
         byte += ch.len_utf8();
     }
     if !buf.is_empty() {
@@ -301,7 +325,7 @@ fn line_job(doc: &Document, l: usize, font: &FontId, fg: Color32, vstart: usize,
 /// (char, visual column) to read line `l` from to draw it from visual column `vstart`: at the
 /// start, unless the view is scrolled far to the right (the end of a long minified line).
 fn line_from(doc: &Document, l: usize, vstart: usize) -> (usize, usize) {
-    if vstart < 512 {
+    if vstart < 512 || !doc.inlays_on(l).is_empty() {
         return (0, 0);
     }
     let c = doc.col_at_vcol(l, vstart);
@@ -1041,6 +1065,31 @@ fn text_area(
             }
         }
 
+        // the text Claude wrote for an inline edit (Ctrl+I) on a green background, and where it (or
+        // the lines being asked) is on the screen, for the bar and the field of the app
+        doc.proposal_screen = None;
+        let band = doc.proposal.as_ref().map(|p| (doc.rope.char_to_line(p.start.min(doc.len())), doc.rope.char_to_line(p.end.min(doc.len())))).or(doc.ai_lines);
+        if let Some((a, b)) = band {
+            let shown: Vec<usize> = (a.max(first)..=b.min(last)).filter(|&l| !rm.is_hidden(l)).collect();
+            if let (Some(&l0), Some(&l1)) = (shown.first(), shown.last()) {
+                let (top, bottom) = (line_y(l0), line_y(l1) + line_h(l1));
+                if doc.proposal.is_some() {
+                    painter.rect_filled(Rect::from_min_max(Pos2::new(text_x - 4.0, top), Pos2::new(origin.x + vp.max.x, bottom)), 0.0, added_bg(hl.is_light()));
+                }
+                doc.proposal_screen = Some((text_x, top, bottom));
+            }
+        }
+
+        // the places of the snippet being filled still to come: framed, where Tab goes next
+        if let Some(sn) = doc.snippet.clone() {
+            for &(a, b) in sn.stops.iter().skip(sn.cur + 1).take(sn.stops.len().saturating_sub(sn.cur + 2)).flatten() {
+                let b = b.max(a + 1).min(doc.len());
+                for r in span_rects(doc, &rm, &wraps, a, b, first, last, text_x, origin.y, rh, cw) {
+                    painter.rect_stroke(r, 2.0, Stroke::new(1.0_f32, c.accent.gamma_multiply(0.6)), egui::StrokeKind::Middle);
+                }
+            }
+        }
+
         if let Some((a, b, pulse)) = flash_rect {
             for r in span_rects(doc, &rm, &wraps, a, b, first, last, text_x, origin.y, rh, cw) {
                 let r = r.expand(1.0 + 3.0 * pulse);
@@ -1151,6 +1200,25 @@ fn text_area(
                         }
                     }
                 }
+            }
+        }
+
+        // inlay hints at the end of a line (rust-analyzer's chained types…), after its text
+        if !doc.inlays.is_empty() {
+            let blame_line = doc.blame.as_ref().map(|b| b.0);
+            let bulb_line = (focused && doc.diagnostics.iter().any(|d| d.line == caret)).then_some(caret);
+            let small = font.clone();
+            for l in (first..=last).filter(|&l| !rm.is_hidden(l) && !folded.contains(&l) && wraps.of(l).is_none() && Some(l) != blame_line) {
+                let text: String = doc.eol_inlays(l).collect::<Vec<_>>().join(" ");
+                if text.trim().is_empty() {
+                    continue;
+                }
+                let end = at(l, doc.vcol(l, doc.line_len(l)));
+                let gap = if Some(l) == bulb_line { 3.0 } else { 1.0 };
+                let g = painter.layout_no_wrap(text.trim().to_string(), small.clone(), c.fg.gamma_multiply(0.5));
+                let r = Rect::from_min_size(Pos2::new(end.x + gap * cw, line_y(l) + pad), g.size());
+                painter.rect_filled(r.expand2(egui::vec2(2.0, 0.0)), 2.0, c.fg.gamma_multiply(0.08));
+                painter.galley(r.min, g, c.fg);
             }
         }
 

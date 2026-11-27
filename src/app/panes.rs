@@ -92,6 +92,7 @@ impl App {
                 let tests = self.test_marks(i);
                 let (debug, exec_line) = self.debug_marks(i);
                 let matches: &[(usize, usize)] = if focused && self.find.open { &self.find.matches } else { &[] };
+                let vim_block = self.settings.vim_mode && self.vim.mode != crate::vim::Mode::Insert;
                 let doc = self.docs.get_mut(i)?;
                 let s = &self.settings;
                 // the settings of the file's language over the general ones
@@ -110,7 +111,7 @@ impl App {
                     debug,
                     exec_line,
                     blame_gutter: self.blame.gutter && doc.path.is_some(),
-                    cursor_shape: &s.cursor_shape,
+                    cursor_shape: if vim_block { "block" } else { &s.cursor_shape },
                     cursor_blink: s.cursor_blink,
                     line_numbers: s.line_numbers,
                     relative_numbers: s.relative_line_numbers,

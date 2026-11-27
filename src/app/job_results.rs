@@ -59,6 +59,7 @@ impl App {
                     }
                 },
                 JobResult::CommitMessage(r) => self.commit_message_ready(r),
+                JobResult::InlineEdit { n, uid, version, start, end, request, result } => self.inline_edit_ready(n, uid, version, (start, end), request, result),
                 JobResult::AiReview(key, r) => self.ai_review_loaded(key, r),
                 JobResult::Spelled { uid, version, list } => self.on_spelled(uid, version, list),
                 JobResult::AiRefined { key, id, result } => self.ai_refined(key, id, result),

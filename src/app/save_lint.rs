@@ -97,6 +97,12 @@ impl App {
         let Some(d) = self.docs.get(idx) else { return };
         let python = d.path.as_deref().and_then(lint::lang_of) == Some("python");
         let format = self.settings.lang_of(d.path.as_deref()).format_on_save;
+        // a web project with Biome or Prettier: formatted by it, then saved
+        let can = !d.read_only && d.disk_change != Some(document::DiskChange::Changed);
+        if format && can && self.formatter_job(idx, true) {
+            return;
+        }
+        let Some(d) = self.docs.get(idx) else { return };
         if !(format && python && !d.read_only && d.disk_change != Some(document::DiskChange::Changed)) {
             if self.save(idx) && format && !python {
                 self.lsp_format_doc(idx, true);
@@ -104,6 +110,21 @@ impl App {
             return;
         }
         self.ruff_job(idx, lint::Rewrite::Format, None, true);
+    }
+
+    /// Biome or Prettier on document `idx` in a job, when its project uses one: `on_rewritten`
+    /// applies the text (then saves when `then_save`). False when the file has none.
+    pub(super) fn formatter_job(&mut self, idx: usize, then_save: bool) -> bool {
+        let Some(d) = self.docs.get(idx) else { return false };
+        let Some(path) = d.path.clone() else { return false };
+        let root = self.repo_for(&path).or_else(|| self.root.clone());
+        let Some(f) = crate::formatter::find(&path, root.as_deref()) else { return false };
+        let (uid, version, text) = (d.uid, d.version, d.rope.to_string());
+        if !then_save {
+            self.set_status(tf!("Formatage avec {}…", "Formatting with {}…", f.name));
+        }
+        self.jobs.spawn(move || JobResult::Rewritten { uid, version, what: lint::Rewrite::Format, lines: None, then_save, result: f.run(&text) });
+        true
     }
 
     /// ruff run on document `idx` in a job: `on_rewritten` applies its text.
@@ -124,7 +145,8 @@ impl App {
             Ok(text) if fresh => self.docs[idx].replace_all(&text),
             Ok(_) => false,
             Err(e) => {
-                self.set_error(if then_save { tf!("Pas formaté : {e}", "Not formatted: {e}") } else { tf!("ruff : {e}", "ruff: {e}") });
+                // the message starts with the name of the tool (ruff, prettier, biome)
+                self.set_error(if then_save { tf!("Pas formaté : {e}", "Not formatted: {e}") } else { e });
                 false
             }
         };

@@ -237,6 +237,21 @@ pub struct Document {
     /// Suggestion of the AI completion shown in grey after the cursor: its place (char) and its
     /// text, not part of the file until Tab takes it.
     pub ghost: Option<(usize, String)>,
+    /// Inlay hints of the language server (types, names of the parameters): (char position,
+    /// text), sorted. Drawn before the char at their position, in columns of their own; moved by
+    /// the edits, dropped from the lines changed until the server sends them again.
+    pub inlays: Vec<(usize, String)>,
+    /// The version of the text the inlay hints were last asked for.
+    pub inlays_asked: Option<u64>,
+    /// The snippet being filled: Tab goes to its next place, Shift+Tab back.
+    pub snippet: Option<SnippetSession>,
+    /// What Claude wrote for an inline edit (Ctrl+I), already in the text: kept or undone.
+    pub proposal: Option<Proposal>,
+    /// Lines of the inline edit being asked (Ctrl+I): the editor says where they are on the screen.
+    pub ai_lines: Option<(usize, usize)>,
+    /// Where the proposal (or the lines asked) is on the screen: x of the text, top and bottom of
+    /// its lines in view; set by the editor.
+    pub proposal_screen: Option<(f32, f32, f32)>,
     /// Alt+Shift+→: the selections before each widening and after it, so that Alt+Shift+← goes back.
     expand_stack: Vec<(Vec<Sel>, Vec<Sel>)>,
     /// Depth of the brackets at the start of each line (for their colors): (version, depths).
@@ -246,6 +261,25 @@ pub struct Document {
 }
 
 pub const NO_PANE: u8 = u8::MAX;
+
+/// An inline edit of Claude put in the text: chars `start..end` replaced `old`; the request
+/// (asked again by ↻). Kept by any other change of the text (`version` is the text with it).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Proposal {
+    pub start: usize,
+    pub end: usize,
+    pub old: String,
+    pub request: String,
+    pub version: u64,
+}
+
+/// A snippet inserted with places to fill (`$1`, `$2`… then `$0`): their char ranges in the text,
+/// moved by the edits (a place grows with what is typed in it), and the one being filled.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SnippetSession {
+    pub stops: Vec<Vec<(usize, usize)>>,
+    pub cur: usize,
+}
 
 /// What a tab shows.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -585,6 +619,21 @@ fn unclosed_tag(text: &str, html: bool) -> Option<String> {
     stack.last().map(|s| s.to_string())
 }
 
+/// `map_pos` where a position at an insertion stays before the text inserted.
+fn map_pos_left(pos: usize, spans: &[(usize, usize, usize)]) -> usize {
+    let mut d: isize = 0;
+    for &(s, e, n) in spans {
+        if pos > e || (pos == e && e > s) {
+            d += n as isize - (e - s) as isize;
+        } else if pos > s {
+            return (s as isize + d) as usize;
+        } else {
+            break;
+        }
+    }
+    (pos as isize + d) as usize
+}
+
 fn map_pos(pos: usize, spans: &[(usize, usize, usize)]) -> usize {
     let mut d: isize = 0;
     for &(s, e, n) in spans {
@@ -778,6 +827,12 @@ impl Document {
             zoom: 0.0,
             caret_screen: None,
             ghost: None,
+            inlays: Vec::new(),
+            inlays_asked: None,
+            snippet: None,
+            proposal: None,
+            ai_lines: None,
+            proposal_screen: None,
             expand_stack: Vec::new(),
             bracket_depths: (String::new(), Vec::new()),
         }
@@ -974,6 +1029,15 @@ impl Document {
 
     /// Visual column (tabs expanded) of `col` in `line`.
     pub fn vcol(&self, line: usize, col: usize) -> usize {
+        let hints = self.inlays_on(line);
+        if !hints.is_empty() {
+            return self.vcol_with(line, col, hints);
+        }
+        self.text_vcol(line, col)
+    }
+
+    /// Visual column of the text alone, without the inlay hints (tab stops).
+    pub fn text_vcol(&self, line: usize, col: usize) -> usize {
         let ts = self.tab_size;
         // on a long line, from the mark before `col`
         let (from, mut v) = if col > VCOL_STEP {
@@ -988,6 +1052,45 @@ impl Document {
             v = if c == '\t' { (v / ts + 1) * ts } else { v + 1 };
         }
         v
+    }
+
+    /// The inlay hints drawn inside line `line` (before one of its chars): none on a line cut by
+    /// the soft wrap, whose rows are measured on the text alone. Those at its end are drawn after it,
+    /// out of the columns (`eol_inlays`).
+    pub fn inlays_on(&self, line: usize) -> &[(usize, String)] {
+        if self.inlays.is_empty() || line >= self.rope.len_lines() || self.wraps.of(line).is_some() {
+            return &[];
+        }
+        let start = self.rope.line_to_char(line);
+        let end = start + self.line_len(line);
+        let a = self.inlays.partition_point(|h| h.0 < start);
+        let b = self.inlays.partition_point(|h| h.0 < end);
+        &self.inlays[a..b]
+    }
+
+    /// The inlay hints at the end of line `line` (after its last char).
+    pub fn eol_inlays(&self, line: usize) -> impl Iterator<Item = &str> {
+        let end = if line < self.rope.len_lines() { Some(self.rope.line_to_char(line) + self.line_len(line)) } else { None };
+        let a = end.map_or(self.inlays.len(), |e| self.inlays.partition_point(|h| h.0 < e));
+        self.inlays[a..].iter().take_while(move |h| Some(h.0) == end).map(|h| h.1.as_str())
+    }
+
+    /// Width in columns of the inlay hints before char `col` of the line (`hints` sorted).
+    fn hints_at(hints: &[(usize, String)], start: usize, col: usize) -> usize {
+        hints.iter().filter(|h| h.0 == start + col).map(|h| h.1.chars().count()).sum()
+    }
+
+    /// `vcol` of a line with inlay hints: each hint takes its columns before the char at its
+    /// position (the tab stops are those of the text alone).
+    fn vcol_with(&self, line: usize, col: usize, hints: &[(usize, String)]) -> usize {
+        let ts = self.tab_size.max(1);
+        let start = self.rope.line_to_char(line);
+        let (mut t, mut extra) = (0, 0);
+        for (i, c) in self.rope.line(line).chars().take(col).enumerate() {
+            extra += Self::hints_at(hints, start, i);
+            t = if c == '\t' { (t / ts + 1) * ts } else { t + 1 };
+        }
+        t + extra + Self::hints_at(hints, start, col)
     }
 
     /// `f` given the visual columns of `line` at chars 0, `VCOL_STEP`, 2 × `VCOL_STEP`… (counted
@@ -1032,6 +1135,24 @@ impl Document {
     pub fn col_at_vcol(&self, line: usize, target: usize) -> usize {
         let ts = self.tab_size;
         let len = self.line_len(line);
+        let hints = self.inlays_on(line);
+        if !hints.is_empty() {
+            // a click on a hint: the char after it
+            let start = self.rope.line_to_char(line);
+            let (mut t, mut extra) = (0, 0);
+            for (i, c) in self.rope.line(line).chars().take(len).enumerate() {
+                extra += Self::hints_at(hints, start, i);
+                if target < t + extra {
+                    return i;
+                }
+                let nt = if c == '\t' { (t / ts.max(1) + 1) * ts.max(1) } else { t + 1 };
+                if nt + extra > target {
+                    return i;
+                }
+                t = nt;
+            }
+            return len;
+        }
         let (from, mut v) = if target > VCOL_STEP && len > VCOL_STEP {
             self.with_vcol_marks(line, |m| {
                 let k = m.partition_point(|&mv| mv <= target).saturating_sub(1);
@@ -1243,6 +1364,27 @@ impl Document {
     /// Applies sorted, non-overlapping replacements. Returns the new start of each one.
     fn apply(&mut self, edits: &mut [(usize, usize, String)]) -> Vec<usize> {
         let len = self.rope.len_chars();
+        // the inlay hints of the lines changed are dropped (asked again after a pause), the others move
+        if !self.inlays.is_empty() {
+            let mut prev = 0;
+            let changed: Vec<(usize, usize)> = edits
+                .iter()
+                .map(|(s, e, _)| {
+                    let s = (*s).max(prev).min(len);
+                    let e = (*e).max(s).min(len);
+                    prev = e;
+                    let (ls, le) = (self.rope.char_to_line(s), self.rope.char_to_line(e));
+                    (self.rope.line_to_char(ls), self.rope.line_to_char(le) + self.line_len(le))
+                })
+                .collect();
+            let spans: Vec<(usize, usize, usize)> = edits.iter().map(|(s, e, t)| (*s, *e, t.chars().count())).collect();
+            let kept: Vec<(usize, String)> = std::mem::take(&mut self.inlays)
+                .into_iter()
+                .filter(|(p, _)| !changed.iter().any(|(a, b)| p >= a && p <= b))
+                .map(|(p, t)| (map_pos(p, &spans), t))
+                .collect();
+            self.inlays = kept;
+        }
         let mut delta: isize = 0;
         let mut prev_end = 0;
         let mut starts = Vec::with_capacity(edits.len());
@@ -1284,6 +1426,14 @@ impl Document {
             f.sort_unstable();
             f.dedup();
             self.folds = f;
+        }
+        if let Some(sn) = self.snippet.as_mut() {
+            let spans: Vec<(usize, usize, usize)> = edits.iter().map(|(s, e, t)| (*s, *e, t.chars().count())).collect();
+            for r in sn.stops.iter_mut().flatten() {
+                // the start stays before what is typed at it, the end goes after
+                let (a, b) = (map_pos_left(r.0, &spans), map_pos(r.1, &spans));
+                *r = (a, b.max(a));
+            }
         }
         for marks in [&mut self.bookmarks, &mut self.breakpoints] {
             if marks.is_empty() {
@@ -1761,7 +1911,7 @@ impl Document {
             .map(|s| {
                 let t = if self.use_spaces {
                     let (l, c) = self.line_col(s.start());
-                    " ".repeat(self.tab_size - self.vcol(l, c) % self.tab_size)
+                    " ".repeat(self.tab_size - self.text_vcol(l, c) % self.tab_size)
                 } else {
                     "\t".to_string()
                 };
@@ -2791,6 +2941,51 @@ impl Document {
     }
 
     /// Selects whole lines `a..=b` (with their line break) and shows them.
+    /// Inserted snippet `e` at `base`: its first place selected (each place of the same number a
+    /// cursor), and Tab goes on to the next ones when it has some.
+    pub fn start_snippet(&mut self, base: usize, e: &crate::templates::Expanded) {
+        let stops: Vec<Vec<(usize, usize)>> = e.stops.iter().map(|s| s.iter().map(|(a, b)| (base + a, base + b)).collect()).collect();
+        self.snippet = Some(SnippetSession { stops, cur: 0 });
+        self.select_snippet_stop();
+        if !e.has_steps() {
+            self.snippet = None;
+        }
+    }
+
+    fn select_snippet_stop(&mut self) {
+        let Some(sn) = &self.snippet else { return };
+        let len = self.rope.len_chars();
+        let sels: Vec<Sel> = sn.stops[sn.cur].iter().map(|&(a, b)| Sel::range(a.min(len), b.min(len))).collect();
+        let last = sn.cur + 1 >= sn.stops.len();
+        if !sels.is_empty() {
+            self.sels = sels;
+            self.primary = 0;
+            self.normalize();
+            self.scroll_to_cursor = true;
+        }
+        if last {
+            // the last place: the snippet is done
+            self.snippet = None;
+        }
+    }
+
+    /// Tab (or Shift+Tab: `back`) while a snippet is filled: its next (previous) place. False when
+    /// there is none, or the cursor left the place being filled (the snippet is then over).
+    pub fn snippet_step(&mut self, back: bool) -> bool {
+        let Some(sn) = &self.snippet else { return false };
+        let head = self.primary_sel().head;
+        if !sn.stops[sn.cur].iter().any(|&(a, b)| head >= a && head <= b) {
+            self.snippet = None;
+            return false;
+        }
+        let cur = if back { sn.cur.saturating_sub(1) } else { sn.cur + 1 };
+        if let Some(sn) = self.snippet.as_mut() {
+            sn.cur = cur.min(sn.stops.len() - 1);
+        }
+        self.select_snippet_stop();
+        true
+    }
+
     pub fn select_lines(&mut self, a: usize, b: usize) {
         let last = self.rope.len_lines().saturating_sub(1);
         let (a, b) = (a.min(last), b.min(last));
@@ -3064,6 +3259,62 @@ fn read_text(path: &Path) -> Result<(String, Encoding), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_snippet_is_filled_place_after_place() {
+        let mut d = Document::from_text(1, "\n", 4, true);
+        let e = crate::templates::expand("class ${1:Name}:\n    _name = '$1'\n    ${2:pass}$0", "", &Default::default());
+        d.edit(EditKind::Other, vec![Edit { start: 0, end: 0, text: e.text.clone(), anchor: 6, head: 10 }]);
+        d.start_snippet(0, &e);
+        // the two places of $1 selected: typing writes in both
+        assert_eq!(d.sels.len(), 2);
+        d.insert_text("Partner", false);
+        assert_eq!(d.rope.to_string(), "class Partner:\n    _name = 'Partner'\n    pass\n");
+        // Tab: $2 selected; Shift+Tab back to $1, its text grown
+        assert!(d.snippet_step(false));
+        assert_eq!(d.sels.len(), 1);
+        assert_eq!(d.slice(d.sels[0].start(), d.sels[0].end()), "pass");
+        assert!(d.snippet_step(true));
+        assert_eq!(d.slice(d.sels[0].start(), d.sels[0].end()), "Partner");
+        // to the end: $0, and the snippet is over (Tab indents again)
+        assert!(d.snippet_step(false) && d.snippet_step(false));
+        assert!(d.snippet.is_none());
+        assert!(!d.snippet_step(false));
+        assert_eq!(d.primary_sel().head, d.len() - 1);
+        // the cursor gone elsewhere: Tab is no longer the snippet's
+        let e = crate::templates::expand("f(${1:a}, ${2:b})", "", &Default::default());
+        let mut d = Document::from_text(1, "x\n", 4, true);
+        d.edit(EditKind::Other, vec![Edit { start: 0, end: 0, text: e.text.clone(), anchor: 2, head: 3 }]);
+        d.start_snippet(0, &e);
+        d.sels = vec![Sel::cursor(d.len())];
+        assert!(!d.snippet_step(false) && d.snippet.is_none());
+    }
+
+    #[test]
+    fn inlay_hints_take_their_columns() {
+        let mut d = Document::from_text(1, "let x = f(1);\nb\tc\n", 4, true);
+        // ": u8" after x, "a: " before 1, one at the end of the first line
+        d.inlays = vec![(5, ": u8".into()), (10, "a: ".into()), (13, " -> ()".into()), (14, "n: ".into())];
+        assert_eq!(d.vcol(0, 5), 9, "a hint before its char");
+        assert_eq!(d.vcol(0, 4), 4);
+        assert_eq!(d.vcol(0, 13), 20, "the hint at the end of the line is drawn after it");
+        assert_eq!(d.eol_inlays(0).collect::<Vec<_>>(), [" -> ()"]);
+        // a click on a hint gives the char after it; the text after it is shifted
+        assert_eq!(d.col_at_vcol(0, 6), 5);
+        assert_eq!(d.col_at_vcol(0, 10), 6);
+        assert_eq!(d.col_at_vcol(0, 16), 10);
+        assert_eq!(d.col_at_vcol(0, 17), 10);
+        assert_eq!(d.col_at_vcol(0, 18), 11);
+        // the tab stops are those of the text alone
+        assert_eq!(d.vcol(1, 1), 3 + 1);
+        assert_eq!(d.vcol(1, 2), 3 + 4);
+        assert_eq!(d.text_vcol(0, 13), 13);
+        // typing on the first line drops its hints, those of the next line move
+        d.sels = vec![Sel::cursor(0)];
+        d.insert_text("z", false);
+        assert_eq!(d.inlays, vec![(15, "n: ".to_string())]);
+        assert_eq!(d.vcol(0, 5), 5);
+    }
 
     /// On long lines `vcol` and `col_at_vcol` start from kept marks: the same answers as counting
     /// from the start of the line, also after an edit.

@@ -276,6 +276,76 @@ pub fn commit_message(dir: &Path, diff: &str, recent: &str, wish: &str) -> Resul
     Ok(finish_message(dir, &msg, &rules, body_width(dir)))
 }
 
+/// Lines of the file kept around the passage of an inline edit (the rest is cut, marked « … »).
+const INLINE_CONTEXT: usize = 300;
+
+/// Inline edit (Ctrl+I): the new text of the passage `lines` (first, last, 0-based, inclusive) of
+/// `text`, file `name`, after `request`. Only the passage comes back, indented like the code.
+pub fn inline_edit(dir: &Path, name: &str, text: &str, lines: (usize, usize), request: &str) -> Result<String, String> {
+    let all: Vec<&str> = text.split('\n').collect();
+    let (a, b) = (lines.0.min(all.len().saturating_sub(1)), lines.1.min(all.len().saturating_sub(1)));
+    let from = a.saturating_sub(INLINE_CONTEXT);
+    let to = (b + INLINE_CONTEXT + 1).min(all.len());
+    let mut input = String::new();
+    if from > 0 {
+        input.push_str("…\n");
+    }
+    for (k, l) in all.iter().enumerate().take(to).skip(from) {
+        if k == a {
+            input.push_str("<<<<<<< PASSAGE\n");
+        }
+        input.push_str(l);
+        input.push('\n');
+        if k == b {
+            input.push_str(">>>>>>> FIN\n");
+        }
+    }
+    if to < all.len() {
+        input.push_str("…\n");
+    }
+    let prompt = tf!(
+        "Tu modifies un passage du fichier {name}. L'entrée standard donne le fichier, le passage entre les lignes « <<<<<<< PASSAGE » \
+         et « >>>>>>> FIN ». Demande du développeur : {request}\n\n\
+         Commence ta réponse par une ligne contenant seulement « @@@ », puis \
+         réponds uniquement par le nouveau texte du passage, qui remplacera tout ce qui est entre les deux marqueurs (sans les marqueurs), \
+         avec l'indentation du code autour, sans bloc de code ni explication. Pour ajouter du code, réponds par le passage avec l'ajout. \
+         Ne réécris rien d'autre que le passage. Garde le style du fichier.",
+        "You change a passage of the file {name}. The standard input gives the file, the passage between the lines « <<<<<<< PASSAGE » \
+         and « >>>>>>> FIN ». Request of the developer: {request}\n\n\
+         Start your answer with a line containing only « @@@ », then \
+         answer only with the new text of the passage, which will replace everything between the two markers (without the markers), \
+         with the indentation of the code around, without code block or explanation. To add code, answer with the passage and the addition. \
+         Do not rewrite anything other than the passage. Keep the style of the file."
+    );
+    let out = run_once(dir, &["-p", &prompt, "--output-format", "text", "--model", "sonnet", "--tools", "", "--strict-mcp-config", "--setting-sources", "user", "--no-session-persistence"], input)?;
+    Ok(clean_passage(&out))
+}
+
+/// The passage of an answer: after the line « @@@ » it starts with (the first line of an answer
+/// loses a space of its indentation, the next ones do not), without a code block around it, nor
+/// the markers if Claude kept them.
+fn clean_passage(t: &str) -> String {
+    let t = t.trim_end_matches(['\n', '\r']);
+    let t = match t.split_once('\n') {
+        Some((first, rest)) if first.trim() == "@@@" => rest,
+        _ if t.trim() == "@@@" => "",
+        _ => t,
+    };
+    let t = match t.trim_start().strip_prefix("```") {
+        Some(r) => {
+            let body = r.split_once('\n').map_or("", |(_, b)| b);
+            body.trim_end().strip_suffix("```").unwrap_or(body).trim_end_matches(['\n', '\r'])
+        }
+        None => t,
+    };
+    t.lines()
+        .filter(|l| !l.starts_with("<<<<<<< PASSAGE") && !l.starts_with(">>>>>>> FIN"))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim_start_matches('\n')
+        .to_string()
+}
+
 /// The description of a pull request (Markdown), from the commits of its branch (`log`) and its
 /// diff: what changes and why, and what the reviewer should check.
 pub fn pr_description(dir: &Path, log: &str, diff: &str) -> Result<String, String> {
@@ -574,6 +644,30 @@ fn clean_message(t: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Asks Claude for real (cargo test -- --ignored inline_edit_live): the passage only, indented.
+    #[test]
+    #[ignore]
+    fn inline_edit_live() {
+        let text = "class Lot(models.Model):\n    _name = \"syndic.lot\"\n\n    quotite = fields.Float()\n    name = fields.Char()\n";
+        let out = inline_edit(&std::env::temp_dir(), "models/lot.py", text, (3, 3), "renomme le champ en share et ajoute string=\"Quote-part\"").unwrap();
+        eprintln!("{out:?}");
+        assert!(out.starts_with("    share = fields.Float("), "{out:?}");
+        assert!(!out.contains("class Lot") && !out.contains("@@@"));
+    }
+
+    #[test]
+    fn the_passage_of_an_inline_answer() {
+        assert_eq!(clean_passage("    x = 1\n    y = 2\n"), "    x = 1\n    y = 2");
+        assert_eq!(clean_passage("```python\n    x = 1\n```\n"), "    x = 1");
+        assert_eq!(clean_passage("<<<<<<< PASSAGE\n    x = 1\n>>>>>>> FIN"), "    x = 1");
+        // the indentation of the first line is kept
+        assert_eq!(clean_passage("\n        return a"), "        return a");
+        // after the line it starts with
+        assert_eq!(clean_passage("@@@\n    x = 1\n    y = 2"), "    x = 1\n    y = 2");
+        assert_eq!(clean_passage("@@@\n```py\n    x = 1\n```"), "    x = 1");
+        assert_eq!(clean_passage("@@@"), "");
+    }
 
     #[test]
     fn length_rules_are_found_and_kept() {

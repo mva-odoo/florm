@@ -236,6 +236,7 @@ impl App {
                 Prompt::OpenFolder => t!("Ouvrir le dossier", "Open the folder").into(),
                 Prompt::OpenFile => t!("Ouvrir le fichier", "Open the file").into(),
                 Prompt::CompareWith => t!("Comparer le fichier avec   (un fichier, ou un dossier pour comparer son dossier ; Tab complète)", "Compare the file with   (a file, or a folder to compare its folder; Tab completes)").into(),
+                Prompt::VimCommand => t!(":   (w enregistrer, q fermer, wq, 42 aller à la ligne, s/a/b/g sur la ligne, %s/a/b/g partout)", ":   (w save, q close, wq, 42 go to line, s/a/b/g on the line, %s/a/b/g everywhere)").into(),
                 Prompt::TestTags(_) => t!("Tests à lancer   (une commande : pytest …, cargo test …, go test …, npx jest … ; Entrée lance)", "Tests to run   (a command: pytest …, cargo test …, go test …, npx jest …; Enter runs)").into(),
                 Prompt::SaveAs => t!("Enregistrer sous", "Save as").into(),
                 Prompt::NewFile(d) => tf!("Nouveau fichier dans {}", "New file in {}", d.display()),
@@ -638,7 +639,8 @@ impl App {
         }
     }
 
-    /// Inserts template `k` at every cursor, indented like the line, with the cursor at its `$0`.
+    /// Inserts template `k` at every cursor, indented like the line, its first place selected (with
+    /// one cursor, Tab then goes to its next places).
     fn insert_template(&mut self, k: usize) {
         let Some(t) = self.templates.get(k).cloned() else { return };
         if self.docs.get(self.active).map_or(true, |d| d.read_only || d.view != document::View::Text) {
@@ -649,7 +651,9 @@ impl App {
                 d.syntax = syntax;
             }
         }
+        let vars = self.snippet_vars();
         let Some(d) = self.docs.get_mut(self.active) else { return };
+        let mut first = None;
         let items: Vec<Edit> = d
             .sels
             .clone()
@@ -658,11 +662,18 @@ impl App {
                 let line = d.rope.char_to_line(s.start());
                 let line_start = d.rope.line_to_char(line);
                 let indent: String = d.line_text(line).chars().take(s.start() - line_start).take_while(|c| *c == ' ' || *c == '\t').collect();
-                let (text, cursor) = crate::templates::expand(&t.body, &indent);
-                Edit { start: s.start(), end: s.end(), text, anchor: cursor, head: cursor }
+                let e = crate::templates::expand(&t.body, &indent, &vars);
+                let (a, b) = e.first();
+                let edit = Edit { start: s.start(), end: s.end(), text: e.text.clone(), anchor: a, head: b };
+                first.get_or_insert((s.start(), e));
+                edit
             })
             .collect();
+        let one = items.len() == 1;
         d.edit(EditKind::Other, items);
+        if let Some((start, e)) = first.filter(|_| one) {
+            d.start_snippet(start, &e);
+        }
         d.scroll_to_cursor = true;
         self.set_status(tf!("Modèle « {} » inséré", "Template “{}” inserted", t.name));
     }
@@ -687,6 +698,7 @@ impl App {
                 self.open_path(path);
             }
             Prompt::TestTags(_) => self.run_tests(text),
+            Prompt::VimCommand => self.vim_command(&text),
             Prompt::CompareWith => {
                 let path = self.resolve(PathBuf::from(&text));
                 self.compare_with(path);

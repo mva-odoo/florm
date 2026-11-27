@@ -28,6 +28,8 @@ mod git_view;
 pub(crate) mod profile;
 mod ai_review;
 mod ai_complete;
+mod inline_ai;
+mod vim_keys;
 mod hints;
 mod mermaid;
 mod repo_init;
@@ -314,6 +316,8 @@ enum Prompt {
     CompareWith,
     /// The test command to run (`pytest …`, `cargo test …`…), as a draft.
     TestTags(String),
+    /// The command line of Vim (`:w`, `:q`, `:%s/a/b/g`…), without its « : ».
+    VimCommand,
 }
 
 use git::BranchPick;
@@ -768,6 +772,8 @@ enum LspReq {
     /// The parameters of the call being typed in document `uid`, on line `line`.
     Signature { uid: u64, line: usize },
     References { word: String },
+    /// The inlay hints of document `uid` at `version`.
+    InlayHints { uid: u64, version: u64 },
     /// Code actions for the corrections of document `uid`.
     CodeActions { uid: u64 },
     /// A code action sent without its edit, completed by the server.
@@ -987,6 +993,10 @@ pub struct App {
     guide: Option<panes::GuideView>,
     /// AI completion while typing (see ai_complete.rs).
     ai: ai_complete::AiComplete,
+    /// Inline edit with Claude (Ctrl+I).
+    inline_ai: inline_ai::InlineAi,
+    /// The keys of Vim (setting vim_mode).
+    vim: crate::vim::Vim,
     /// The letters put on everything clickable (Alt alone), see `hints`.
     hints: hints::Hints,
     /// The window of a new git repository (right click on a folder in the tree).
@@ -1326,6 +1336,8 @@ impl App {
             md_preview: None,
             guide: None,
             ai: Default::default(),
+            inline_ai: Default::default(),
+            vim: Default::default(),
             hints: Default::default(),
             repo_init: None,
             claude_term_read: None,
@@ -1699,6 +1711,8 @@ impl eframe::App for App {
         self.completion_keys(ctx);
         self.ai_complete_keys(ctx);
         self.quick_fix_keys(ctx);
+        self.inline_ai_keys(ctx);
+        self.vim_keys(ctx);
         self.handle_keys(ctx);
         self.editor_input(ctx);
         self.auto_save(ctx);
@@ -1744,6 +1758,7 @@ impl eframe::App for App {
         self.claude_take_picks();
         self.completion_popup(ctx);
         self.signature_popup(ctx);
+        self.inline_ai_ui(ctx);
         self.quick_fix_ui(ctx);
         let (mb, mf) = ctx.input(|i| (i.pointer.button_pressed(egui::PointerButton::Extra1), i.pointer.button_pressed(egui::PointerButton::Extra2)));
         if mb || mf {

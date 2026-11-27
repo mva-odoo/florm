@@ -52,6 +52,22 @@ bas ouvert et la barre latérale affichée ou non.
   sa fermeture (`</field>`) après le curseur, et `</` complète celle de l'élément encore ouvert.
   Rien pour `<br/>`, `<?xml ?>`, `<!-- -->` ni les balises HTML sans fermeture (`<br>`, `<img>`…).
   Suit la préférence « Fermeture automatique » (Préférences → Éditeur).
+- **Emmet** (HTML, JSX, XML) : une abréviation puis **Tab** écrit ses balises. `ul>li.item*3`,
+  `.card>h2+p`, `nav>ul>li^footer`, `a[href=/]`, `{texte}`, `!` (une page HTML). En XML (vues
+  Odoo), `field[name=partner_id]` donne `<field name="partner_id"/>`, `group>field*2` deux champs
+  à remplir, `button`, `record`, `xpath` leurs attributs habituels. **Tab** passe ensuite d'un
+  endroit vide au suivant. Aussi « Emmet : développer l'abréviation » (palette) ; à couper dans
+  Préférences → Éditeur.
+- **Indications dans le code** : avec un serveur de langage qui en donne (rust-analyzer,
+  basedpyright, typescript-language-server, gopls, clangd), les types déduits et les noms des
+  paramètres s'affichent en gris dans le code (`let x: i32`, `f(a: 1)`). Elles ne font pas partie
+  du fichier ; à couper dans Préférences → Éditeur.
+- **Mode Vim** (Préférences → Éditeur, ou « Mode Vim » dans la palette) : modes normal, insertion
+  (**i**, **a**, **o**…), visuel (**v**, **V**), mouvements (`w b e 0 ^ $ gg G f t % { }`, avec un
+  nombre : `3w`), opérateurs `d c y > <` avec un mouvement ou un objet de texte (`ciw`, `di"`,
+  `ca(`, `yap`), `dd cc yy x p P u` **Ctrl+R** `.` `J ~ r`, la recherche `/ n N * #` et la ligne
+  de commande `:w :q :wq :42 :%s/a/b/g`. Le mode est affiché dans la barre d'état. Les raccourcis
+  avec Ctrl restent ceux de Florm (Ctrl+S, Ctrl+P…).
 
 ## Barre latérale
 
@@ -418,9 +434,12 @@ Les problèmes sont soulignés dans le code et listés dans **Problèmes** (pann
 - **Python** : le premier linter installé (`flake8`, sinon `ruff`, `pyflakes`, `pylint` ; Préférences →
   Lint), pendant la frappe. **JavaScript** : `eslint`, à l'enregistrement.
 - **Serveurs de langage** (Préférences → Langages → Serveurs de langage) : leurs erreurs aussi, pour
-  tous les langages qu'ils connaissent (TypeScript, Rust, Go, C…). **Formater le fichier** (palette)
-  passe par `ruff` pour Python, par le serveur de langage pour les autres. Pour formater chaque
-  fichier Python à l'enregistrement : Préférences → Éditeur.
+  tous les langages qu'ils connaissent (TypeScript, Rust, Go, C…). **Formater le fichier**
+  (Ctrl+Alt+F, palette) passe par `ruff` pour Python ; dans un projet web qui utilise **Biome** ou
+  **Prettier** (leur fichier de configuration, ou l'outil dans `node_modules`), par eux, avec la
+  configuration du projet ; sinon par le serveur de langage. Rien n'est formaté par un outil que le
+  projet n'a pas choisi. Pour formater à chaque enregistrement : Préférences → Éditeur (ou par
+  langage).
 - **XML et JSON** : un fichier mal formé (balise non fermée, mal imbriquée, guillemet oublié), en direct.
 - **Les autres langages**, pendant la frappe, avec le linter s'il est installé : `shellcheck` (shell),
   `yamllint`, `markdownlint`, `hadolint` (Dockerfile), `luacheck`, `rubocop`, `stylelint` (CSS).
@@ -513,9 +532,17 @@ pour Python, **dlv** pour Go, **lldb-dap** ou **gdb** (14 ou plus) pour Rust, C 
 ## Modèles
 
 **Ctrl+Alt+N** (ou Outils → Insérer un modèle) : les modèles du type du fichier courant sont
-proposés en premier. Florm en livre deux, `ipdb` et `pdb` (Python : taper `ipdb` puis Tab) ; ajoute les tiens (voir plus bas).
+proposés en premier. Florm en livre quelques-uns : `ipdb`, `pdb`, `ifmain` (Python), et pour
+Odoo `omodel` (un modèle), `om2o` (un champ Many2one), `ocompute` (un champ calculé et sa
+méthode), `oform` (une vue formulaire, en XML) : taper le mot puis Tab ; ajoute les tiens (voir plus bas).
 
-`$0` marque la place du curseur.
+Le texte d'un modèle suit la syntaxe des snippets de VS Code : `$1`, `$2`… sont les endroits à
+remplir, dans l'ordre : **Tab** passe au suivant, **Maj+Tab** revient, Échap arrête. `${1:texte}`
+y met un texte déjà sélectionné, `${1|a,b|}` le premier choix ; le même numéro à plusieurs endroits
+s'écrit partout à la fois. `$0` marque la place du curseur à la fin. `$TM_FILENAME_BASE` donne le nom
+du fichier sans extension ; `\$` écrit un `$` (les autres `$NOM` restent tels quels). Les
+suggestions des serveurs de langage qui sont des snippets (les arguments d'une fonction) marchent
+de la même façon.
 
 Pour ajouter les tiens : **Outils → Dossier des modèles**, un fichier par modèle
 (son nom = le nom du modèle, son extension = le type de fichier). Un fichier qui porte le nom
@@ -764,6 +791,16 @@ ses nouveautés marchent tels quels. Les changements de Claude se revoient dans 
 **✨ à côté du message de commit** (vue Git) : Claude propose le message d'après les changements
 indexés (sinon tous), dans le style des derniers commits du dépôt et d'après ta première demande
 dans l'onglet Claude.
+
+### ✳ Modifier ici (Ctrl+I)
+
+Sélectionne des lignes (ou place le curseur sur une ligne), **Ctrl+I**, écris ce qu'il faut changer
+(« ajoute un @api.constrains qui refuse une quotité négative ») et **Entrée**. Claude réécrit
+seulement ces lignes, d'après le reste du fichier ; son texte prend leur place, sur fond vert :
+**✓ Garder** (Ctrl+Entrée), **× Annuler** (Échap : l'ancien texte revient), **↻ Redemander**
+(l'ancien texte revient et la demande se rouvre). Le survol de **Ancien** montre le texte d'avant.
+Continuer à taper garde le changement ; Ctrl+Z l'annule comme les autres. Pour une vraie tâche, sur
+plusieurs fichiers, l'onglet Claude reste le bon endroit.
 
 ### 🗺 Expliquer un changement
 

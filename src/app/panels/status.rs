@@ -123,6 +123,13 @@ impl App {
                 if let Some(d) = self.docs.get(self.active).filter(|d| d.view == crate::document::View::Text) {
                     let p = d.primary_sel();
                     let (l, c) = d.line_col(p.head);
+                    if self.settings.vim_mode {
+                        let v = &self.vim;
+                        ui.label(RichText::new(format!("-- {} --", v.mode.label())).strong().color(self.hl.colors.accent));
+                        if !v.pending.is_empty() {
+                            ui.label(RichText::new(&v.pending).monospace());
+                        }
+                    }
                     ui.label(tf!("Ligne {}, Colonne {}", "Line {}, Column {}", l + 1, c + 1));
                     if d.sels.len() > 1 {
                         ui.label(tf!("· {} sélections", "· {} selections", d.sels.len()));

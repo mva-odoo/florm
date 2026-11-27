@@ -188,14 +188,29 @@ fn tool_dirs() -> Vec<PathBuf> {
 /// the servers' own: they are asked not to compute them (less CPU and memory, no duplicates).
 pub fn light_settings() -> Value {
     let off = json!({"enabled": false});
-    let analysis = json!({"diagnosticMode": "openFilesOnly", "typeCheckingMode": "off", "autoSearchPaths": true});
+    let analysis = json!({"diagnosticMode": "openFilesOnly", "typeCheckingMode": "off", "autoSearchPaths": true,
+        // the inlay hints of basedpyright (pyright has none)
+        "inlayHints": {"variableTypes": true, "callArgumentNames": true, "functionReturnTypes": true, "genericTypes": false}});
+    // typescript-language-server: the same hints as VS Code's
+    let ts_hints = json!({"inlayHints": {
+        "includeInlayParameterNameHints": "literals", "includeInlayFunctionParameterTypeHints": true,
+        "includeInlayVariableTypeHints": true, "includeInlayVariableTypeHintsWhenTypeMatchesName": false,
+        "includeInlayPropertyDeclarationTypeHints": true, "includeInlayFunctionLikeReturnTypeHints": true,
+        "includeInlayEnumMemberValueHints": true
+    }});
     json!({
         "pylsp": {"plugins": {
             "pycodestyle": off, "pyflakes": off, "mccabe": off, "pylint": off, "flake8": off,
             "pydocstyle": off, "autopep8": off, "yapf": off
         }},
         "python": {"analysis": analysis},
-        "basedpyright": {"analysis": analysis}
+        "basedpyright": {"analysis": analysis},
+        "typescript": ts_hints,
+        "javascript": ts_hints,
+        "gopls": {"hints": {
+            "assignVariableTypes": true, "compositeLiteralFields": true, "constantValues": true,
+            "functionTypeParameters": true, "parameterNames": true, "rangeVariableTypes": true
+        }}
     })
 }
 
@@ -352,6 +367,8 @@ pub struct Client {
     init_id: i64,
     /// Document uid -> (version sent, file).
     pub opened: HashMap<u64, (u64, PathBuf)>,
+    /// The server gives inlay hints (its capabilities, read at the end of `initialize`).
+    pub inlay_hints: bool,
     /// Last request or change sent to it.
     used: Instant,
     child: Child,
@@ -445,6 +462,7 @@ impl Client {
             queue: Vec::new(),
             init_id: 0,
             opened: HashMap::new(),
+            inlay_hints: false,
             used: Instant::now(),
             child,
         };
@@ -463,12 +481,13 @@ impl Client {
                     "publishDiagnostics": { "relatedInformation": false },
                     "formatting": {},
                     "completion": {
-                        "completionItem": { "snippetSupport": false, "documentationFormat": ["plaintext"], "insertReplaceSupport": false },
+                        "completionItem": { "snippetSupport": true, "documentationFormat": ["plaintext"], "insertReplaceSupport": false },
                         "contextSupport": true
                     },
                     "definition": { "linkSupport": true },
                     "signatureHelp": { "signatureInformation": { "documentationFormat": ["plaintext"], "parameterInformation": { "labelOffsetSupport": true }, "activeParameterSupport": true } },
                     "rename": { "prepareSupport": false },
+                    "inlayHint": { "dynamicRegistration": false },
                     "codeAction": {
                         "codeActionLiteralSupport": { "codeActionKind": { "valueSet": ["", "quickfix", "refactor", "refactor.extract", "refactor.inline", "refactor.rewrite", "source", "source.organizeImports", "source.fixAll"] } },
                         "resolveSupport": { "properties": ["edit"] },
@@ -645,10 +664,12 @@ impl Manager {
         let mut out = Vec::new();
         while let Ok((i, msg)) = self.events.try_recv() {
             match &msg {
-                Incoming::Response { id, .. } => {
+                Incoming::Response { id, result } => {
                     if let Some(c) = self.clients.get_mut(i).and_then(|c| c.as_mut()) {
                         if *id == c.init_id {
                             c.ready = true;
+                            let caps = result.as_ref().map(|r| &r["capabilities"]);
+                            c.inlay_hints = caps.is_ok_and(|c| c["inlayHintProvider"].is_object() || c["inlayHintProvider"].as_bool() == Some(true));
                             let _ = c.out.send(json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}).to_string().into());
                             let settings = json!({"jsonrpc": "2.0", "method": "workspace/didChangeConfiguration", "params": {"settings": light_settings()}});
                             let _ = c.out.send(settings.to_string().into());
@@ -733,10 +754,11 @@ pub fn parse_completion(v: &Value) -> (Vec<CompletionItem>, bool) {
                 kind: it["kind"].as_u64().unwrap_or(0),
                 filter: it["filterText"].as_str().unwrap_or(&label).to_string(),
                 sort: it["sortText"].as_str().unwrap_or(&label).to_string(),
+                // a snippet (insertTextFormat 2: the call with its arguments to fill): Tab goes from one to the next
+                template: (it["insertTextFormat"].as_u64() == Some(2) && insert.contains('$')).then(|| insert.clone()),
                 insert,
                 range,
                 label,
-                template: None,
             }
         })
         .collect();
@@ -783,6 +805,33 @@ pub fn parse_hover(v: &Value) -> String {
     }
     let raw = text(&v["contents"]);
     raw.lines().filter(|l| !l.trim_start().starts_with("```")).collect::<Vec<_>>().join("\n").trim().to_string()
+}
+
+/// The inlay hints of a textDocument/inlayHint answer: (char position, text), sorted, the text with
+/// the spaces the server asks for around it (`paddingLeft` / `paddingRight`).
+pub fn parse_inlay_hints(rope: &Rope, v: &Value) -> Vec<(usize, String)> {
+    let mut out: Vec<(usize, String)> = v
+        .as_array()
+        .map(|a| a.as_slice())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|h| {
+            let label = match &h["label"] {
+                Value::String(s) => s.clone(),
+                Value::Array(parts) => parts.iter().filter_map(|p| p["value"].as_str()).collect(),
+                _ => return None,
+            };
+            // one line: a hint never breaks the row it is in
+            let label = label.split_whitespace().collect::<Vec<_>>().join(" ");
+            if label.is_empty() {
+                return None;
+            }
+            let pad = |k: &str| if h[k].as_bool().unwrap_or(false) { " " } else { "" };
+            Some((from_position(rope, &h["position"]), format!("{}{label}{}", pad("paddingLeft"), pad("paddingRight"))))
+        })
+        .collect();
+    out.sort_by_key(|h| h.0);
+    out
 }
 
 /// A signature of a signatureHelp answer: its label ("f(a: int, b: str) -> None"), the char range
@@ -842,6 +891,19 @@ pub fn parse_workspace_edit(v: &Value) -> Vec<(PathBuf, Vec<(Value, String)>)> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn inlay_hints_with_their_padding() {
+        let rope = Rope::from_str("let x = f(1);\nlet é = 2;\n");
+        let v: Value = serde_json::from_str(r#"[
+            {"position": {"line": 1, "character": 5}, "label": ": i32", "kind": 1},
+            {"position": {"line": 0, "character": 10}, "label": [{"value": "a"}, {"value": ":"}], "paddingRight": true, "kind": 2},
+            {"position": {"line": 0, "character": 5}, "label": ": u8"},
+            {"position": {"line": 0, "character": 1}, "label": "  "}
+        ]"#).unwrap();
+        assert_eq!(parse_inlay_hints(&rope, &v), vec![(5, ": u8".to_string()), (10, "a: ".to_string()), (19, ": i32".to_string())]);
+        assert!(parse_inlay_hints(&rope, &Value::Null).is_empty());
+    }
 
     #[test]
     fn the_signature_being_typed() {

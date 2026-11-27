@@ -198,6 +198,13 @@ impl App {
         if self.lsp.completion.is_some() || !ctx.memory(|m| m.has_focus(editor_id())) {
             return;
         }
+        // Vim's normal mode: no suggestion to take (it is dropped)
+        if self.vim_normal() {
+            if let Some(d) = self.docs.get_mut(self.active) {
+                d.ghost = None;
+            }
+            return;
+        }
         let Some(i) = self.docs.get(self.active).filter(|d| d.ghost.as_ref().is_some_and(|(at, _)| *at == d.primary_sel().head)).map(|_| self.active) else { return };
         if ctx.input_mut(|inp| inp.consume_key(egui::Modifiers::NONE, Key::Escape)) {
             self.docs[i].ghost = None;

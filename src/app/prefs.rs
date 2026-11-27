@@ -592,6 +592,15 @@ impl App {
                 pref_row(ui, rc, t!("Documentation au survol", "Documentation on hover"), t!("Survoler un nom montre ce qu'en dit le serveur de langage (signature, documentation) ; les erreurs restent montrées.", "Hovering a name shows what the language server says about it (signature, documentation); the errors are still shown."), |ui| {
                     toggle_switch(ui, &mut s.hover_popover);
                 });
+                pref_row(ui, rc, t!("Indications dans le code", "Inlay hints"), t!("Les types et les noms des paramètres donnés par le serveur de langage, en gris dans le code (rust-analyzer, basedpyright, typescript-language-server, gopls, clangd).", "The types and the names of the parameters given by the language server, in grey in the code (rust-analyzer, basedpyright, typescript-language-server, gopls, clangd)."), |ui| {
+                    toggle_switch(ui, &mut s.inlay_hints);
+                });
+                pref_row(ui, rc, t!("Mode Vim", "Vim mode"), t!("Les touches de Vim dans l'éditeur : modes normal, insertion et visuel, mouvements, opérateurs (d, c, y…), objets de texte (ciw, di\"…), . pour répéter, / et n pour chercher, :w, :q, :%s/a/b/g. Les raccourcis avec Ctrl restent ceux de Florm.", "The keys of Vim in the editor: normal, insert and visual modes, motions, operators (d, c, y…), text objects (ciw, di\"…), . to repeat, / and n to search, :w, :q, :%s/a/b/g. The shortcuts with Ctrl stay Florm's."), |ui| {
+                    toggle_switch(ui, &mut s.vim_mode);
+                });
+                pref_row(ui, rc, t!("Emmet", "Emmet"), t!("En HTML, JSX et XML, Tab après une abréviation écrit ses balises : ul>li.item*3, .card>h2+p, field[name=partner_id]. Tab passe ensuite d'un endroit à remplir au suivant.", "In HTML, JSX and XML, Tab after an abbreviation writes its tags: ul>li.item*3, .card>h2+p, field[name=partner_id]. Tab then goes from one place to fill to the next."), |ui| {
+                    toggle_switch(ui, &mut s.emmet);
+                });
                 pref_row(ui, rc, t!("Casse intelligente", "Smart case"), t!("Une recherche (Ctrl+F, dans les fichiers) qui contient une majuscule respecte la casse ; tout en minuscules, elle l'ignore.", "A search (Ctrl+F, in files) with a capital letter is case sensitive; all in lower case, it ignores the case."), |ui| {
                     toggle_switch(ui, &mut s.smartcase_search);
                 });
@@ -1227,6 +1236,9 @@ impl App {
             ("scroll_beyond_last_line", s.scroll_beyond_last_line, before.scroll_beyond_last_line),
             ("selection_highlight", s.selection_highlight, before.selection_highlight),
             ("hover_popover", s.hover_popover, before.hover_popover),
+            ("inlay_hints", s.inlay_hints, before.inlay_hints),
+            ("emmet", s.emmet, before.emmet),
+            ("vim_mode", s.vim_mode, before.vim_mode),
             ("show_completions_on_input", s.show_completions_on_input, before.show_completions_on_input),
             ("smartcase_search", s.smartcase_search, before.smartcase_search),
             ("git_gutter", s.git_gutter, before.git_gutter),

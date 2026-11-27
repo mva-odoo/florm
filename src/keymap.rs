@@ -85,6 +85,7 @@ fn key_from_name(n: &str) -> Option<Key> {
 
 const DEFAULTS: &[(&str, &str)] = &[
     ("ctrl+shift+p", "command_palette"),
+    ("ctrl+i", "claude_inline_edit"),
     ("f1", "command_palette"),
     ("ctrl+p", "quick_open"),
     ("ctrl+g", "goto_line"),

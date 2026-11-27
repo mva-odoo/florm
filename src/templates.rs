@@ -1,6 +1,8 @@
 //! Templates (snippets): blocks of code inserted at the cursor, e.g. a Python breakpoint.
 //! Built-in ones plus the files of the `templates` folder of the configuration (file name = name
-//! of the template, extension = language). `$0` is where the cursor goes.
+//! of the template, extension = language). The body is a snippet as in VS Code: `$1`, `$2`… (or
+//! `${1:text}`, `${1|a,b|}`) are the places Tab goes to in turn, the same number at several places
+//! typed at once, `$0` where the cursor ends.
 //! A template with a trigger (`ipdb`) is also offered by the completion, and Tab after the
 //! word expands it, like the snippets of Sublime Text.
 
@@ -22,6 +24,27 @@ pub struct Template {
 const BUILTIN: &[(&str, &str, &str, &str)] = &[
     ("Python : ipdb", "py", "ipdb", "import ipdb; ipdb.set_trace()$0"),
     ("Python : pdb", "py", "pdb", "import pdb; pdb.set_trace()$0"),
+    ("Python : main", "py", "ifmain", "if __name__ == \"__main__\":\n    ${1:main()}$0"),
+    // Odoo: Tab goes from one place to fill to the next
+    (
+        "Odoo : modèle",
+        "py",
+        "omodel",
+        "class ${1:Name}(models.Model):\n    _name = \"${2:module.name}\"\n    _description = \"${3:Description}\"\n\n    name = fields.Char(required=True)\n    $0",
+    ),
+    ("Odoo : champ Many2one", "py", "om2o", "${1:partner_id} = fields.Many2one(\"${2:res.partner}\", string=\"${3:Partner}\")$0"),
+    (
+        "Odoo : champ calculé",
+        "py",
+        "ocompute",
+        "${1:total} = fields.${2|Float,Integer,Char,Monetary,Boolean|}(compute=\"_compute_$1\")\n\n@api.depends(\"${3:line_ids}\")\ndef _compute_$1(self):\n    for rec in self:\n        rec.$1 = $0",
+    ),
+    (
+        "Odoo : vue formulaire",
+        "xml",
+        "oform",
+        "<record id=\"${1:model}_view_form\" model=\"ir.ui.view\">\n    <field name=\"name\">${2:model.name}.form</field>\n    <field name=\"model\">$2</field>\n    <field name=\"arch\" type=\"xml\">\n        <form>\n            <sheet>\n                <group>\n                    <field name=\"${3:name}\"/>$0\n                </group>\n            </sheet>\n        </form>\n    </field>\n</record>",
+    ),
 ];
 
 const README: &str = "# Modèles Florm\n\n\
@@ -31,7 +54,11 @@ Un nom d'un seul mot (lettres, chiffres, _) sert aussi de déclencheur : avec «
 `ipdb` dans un fichier .py le propose dans les suggestions, et Tab le développe.\n\n\
 Pour remplacer un modèle intégré, donne au fichier le même nom, avec « · » à la place de « : »\n\
 (interdit dans un nom de fichier sous Windows) : « Python · pdb.py » remplace « Python : pdb ».\n\n\
-`$0` marque la position du curseur après l'insertion.\n";
+`$1`, `$2`… marquent les endroits à remplir, dans l'ordre : Tab passe au suivant, Maj+Tab revient.\n\
+`${1:texte}` y met un texte déjà sélectionné, `${1|a,b|}` le premier choix. Le même numéro à\n\
+plusieurs endroits s'écrit partout à la fois. `$0` marque la position du curseur à la fin.\n\
+`$TM_FILENAME_BASE` donne le nom du fichier sans extension, `$TM_FILENAME` avec ;\n\
+`\\$` écrit un $ (les autres `$NOM` restent tels quels).\n";
 
 /// Where new templates are written: the shared configuration when there is one.
 pub fn dir() -> PathBuf {
@@ -106,22 +133,210 @@ pub fn with_trigger<'a>(all: &'a [Template], ext: &str, prefix: &str) -> impl It
     })
 }
 
-/// The text to insert: every line after the first indented with `indent`. Returns it with the
-/// position of `$0` (in chars), or its end.
-pub fn expand(body: &str, indent: &str) -> (String, usize) {
+/// A snippet ready to insert: its text and its tab stops, in the order Tab visits them (`$1`,
+/// `$2`… then `$0`, or the end, last). Each stop is the char ranges of its number in the text.
+#[derive(Debug, PartialEq, Default)]
+pub struct Expanded {
+    pub text: String,
+    pub stops: Vec<Vec<(usize, usize)>>,
+}
+
+impl Expanded {
+    /// Where the cursor goes first: the first stop (its text selected).
+    pub fn first(&self) -> (usize, usize) {
+        self.stops.first().and_then(|s| s.first()).copied().unwrap_or_else(|| {
+            let n = self.text.chars().count();
+            (n, n)
+        })
+    }
+
+    /// Whether Tab has places to go to after the first one.
+    pub fn has_steps(&self) -> bool {
+        self.stops.len() > 1
+    }
+}
+
+/// What a snippet's variables give: the name of the file (with and without its extension).
+#[derive(Default, Clone)]
+pub struct Vars {
+    pub file_name: String,
+}
+
+/// The text to insert: every line after the first indented with `indent`, the snippet syntax
+/// read (see `Expanded`).
+pub fn expand(body: &str, indent: &str, vars: &Vars) -> Expanded {
     let t = body.replace("\r\n", "\n");
     // inserted on a line that already has its indentation: only the next lines get it
     let t = t.strip_suffix('\n').map(str::to_string).unwrap_or(t);
     let t: String = t.split('\n').enumerate().map(|(i, l)| if i == 0 || l.is_empty() { l.to_string() } else { format!("{indent}{l}") }).collect::<Vec<_>>().join("\n");
-    match t.find("$0") {
-        Some(b) => {
-            let cursor = t[..b].chars().count();
-            (t.replacen("$0", "", 1), cursor)
+    let chars: Vec<char> = t.chars().collect();
+    // the text of each number (its first placeholder with one), copied by its bare mirrors
+    let mut defaults = std::collections::HashMap::new();
+    let mut probe = Parser { chars: &chars, i: 0, out: String::new(), n: 0, marks: Vec::new(), defaults: &std::collections::HashMap::new(), vars };
+    probe.run(None);
+    for (num, a, b) in &probe.marks {
+        if b > a {
+            defaults.entry(*num).or_insert_with(|| probe.out.chars().skip(*a).take(b - a).collect::<String>());
         }
-        None => {
-            let n = t.chars().count();
-            (t, n)
+    }
+    let mut p = Parser { chars: &chars, i: 0, out: String::new(), n: 0, marks: Vec::new(), defaults: &defaults, vars };
+    p.run(None);
+    let mut nums: Vec<u32> = p.marks.iter().map(|m| m.0).filter(|&n| n > 0).collect();
+    nums.sort_unstable();
+    nums.dedup();
+    let mut stops: Vec<Vec<(usize, usize)>> = nums.iter().map(|n| p.marks.iter().filter(|m| m.0 == *n).map(|m| (m.1, m.2)).collect()).collect();
+    let end = p.marks.iter().find(|m| m.0 == 0).map_or((p.n, p.n), |m| (m.1, m.2));
+    stops.push(vec![end]);
+    Expanded { text: p.out, stops }
+}
+
+/// Reads the snippet syntax of VS Code (a subset: tab stops, placeholders, choices, a few variables).
+struct Parser<'a> {
+    chars: &'a [char],
+    i: usize,
+    out: String,
+    /// Chars written to `out`.
+    n: usize,
+    /// (number, start, end) of each tab stop, in chars of `out`.
+    marks: Vec<(u32, usize, usize)>,
+    defaults: &'a std::collections::HashMap<u32, String>,
+    vars: &'a Vars,
+}
+
+impl Parser<'_> {
+    fn push(&mut self, c: char) {
+        self.out.push(c);
+        self.n += 1;
+    }
+
+    fn push_str(&mut self, s: &str) {
+        for c in s.chars() {
+            self.push(c);
         }
+    }
+
+    fn peek(&self, k: usize) -> Option<char> {
+        self.chars.get(self.i + k).copied()
+    }
+
+    /// Up to the end, or to the `}` closing a placeholder (`close`), which it consumes.
+    fn run(&mut self, close: Option<char>) {
+        while let Some(c) = self.peek(0) {
+            if Some(c) == close {
+                self.i += 1;
+                return;
+            }
+            match c {
+                '\\' if matches!(self.peek(1), Some('$' | '}' | '\\')) => {
+                    self.push(self.chars[self.i + 1]);
+                    self.i += 2;
+                }
+                '$' => self.dollar(),
+                _ => {
+                    self.push(c);
+                    self.i += 1;
+                }
+            }
+        }
+    }
+
+    fn digits(&mut self) -> Option<u32> {
+        let start = self.i;
+        while self.peek(0).is_some_and(|c| c.is_ascii_digit()) {
+            self.i += 1;
+        }
+        (self.i > start).then(|| self.chars[start..self.i].iter().collect::<String>().parse().unwrap_or(0))
+    }
+
+    fn name(&mut self) -> String {
+        let start = self.i;
+        while self.peek(0).is_some_and(|c| c.is_ascii_alphanumeric() || c == '_') {
+            self.i += 1;
+        }
+        self.chars[start..self.i].iter().collect()
+    }
+
+    /// The value of a known variable (None: unknown, kept as written).
+    fn var(&self, name: &str) -> Option<String> {
+        let f = &self.vars.file_name;
+        match name {
+            "TM_FILENAME" => Some(f.clone()),
+            "TM_FILENAME_BASE" => Some(f.split('.').next().unwrap_or("").to_string()),
+            "TM_SELECTED_TEXT" | "SELECTION" => Some(String::new()),
+            _ => None,
+        }
+    }
+
+    fn dollar(&mut self) {
+        let at = self.i;
+        self.i += 1;
+        let start = self.n;
+        if let Some(num) = self.digits() {
+            // a bare mirror: the text of its number
+            if let Some(d) = self.defaults.get(&num).cloned() {
+                self.push_str(&d);
+            }
+            self.marks.push((num, start, self.n));
+            return;
+        }
+        if self.peek(0) == Some('{') {
+            self.i += 1;
+            if let Some(num) = self.digits() {
+                match self.peek(0) {
+                    Some('}') => {
+                        self.i += 1;
+                        if let Some(d) = self.defaults.get(&num).cloned() {
+                            self.push_str(&d);
+                        }
+                    }
+                    Some(':') => {
+                        self.i += 1;
+                        self.run(Some('}'));
+                    }
+                    Some('|') => {
+                        // a choice: the first one
+                        self.i += 1;
+                        let rest: String = self.chars[self.i..].iter().collect();
+                        let end = rest.find("|}").map_or(rest.chars().count(), |b| rest[..b].chars().count());
+                        let first: String = self.chars[self.i..self.i + end].iter().collect::<String>().split(',').next().unwrap_or("").to_string();
+                        self.push_str(&first);
+                        self.i = (self.i + end + 2).min(self.chars.len());
+                    }
+                    _ => {}
+                }
+                self.marks.push((num, start, self.n));
+                return;
+            }
+            let name = self.name();
+            if let Some(v) = self.var(&name).filter(|_| !name.is_empty()) {
+                match self.peek(0) {
+                    Some('}') => {
+                        self.i += 1;
+                        self.push_str(&v);
+                    }
+                    Some(':') => {
+                        self.i += 1;
+                        let before = self.n;
+                        let mut sub = Parser { chars: self.chars, i: self.i, out: String::new(), n: 0, marks: Vec::new(), defaults: self.defaults, vars: self.vars };
+                        sub.run(Some('}'));
+                        self.i = sub.i;
+                        self.push_str(if v.is_empty() { &sub.out } else { &v });
+                        let _ = before;
+                    }
+                    _ => {}
+                }
+                return;
+            }
+        } else {
+            let name = self.name();
+            if let Some(v) = self.var(&name).filter(|_| !name.is_empty()) {
+                self.push_str(&v);
+                return;
+            }
+        }
+        // not a snippet thing: the $ and what follows stay as written
+        self.i = at + 1;
+        self.push('$');
     }
 }
 
@@ -131,14 +346,35 @@ mod tests {
 
     #[test]
     fn expands_with_indent_and_cursor() {
-        let (t, c) = expand("<item id=\"a\"\n    parent=\"$0\"/>\n", "    ");
-        assert_eq!(t, "<item id=\"a\"\n        parent=\"\"/>");
-        assert_eq!(&t.chars().take(c).collect::<String>(), "<item id=\"a\"\n        parent=\"");
+        let e = expand("<item id=\"a\"\n    parent=\"$0\"/>\n", "    ", &Vars::default());
+        assert_eq!(e.text, "<item id=\"a\"\n        parent=\"\"/>");
+        let (c, _) = e.first();
+        assert_eq!(&e.text.chars().take(c).collect::<String>(), "<item id=\"a\"\n        parent=\"");
+        assert!(!e.has_steps());
         // the built-in ones all have a cursor
         for tpl in load(Path::new("/nonexistent")) {
-            let (t, _) = expand(&tpl.body, "");
-            assert!(!t.contains("$0"), "{}", tpl.name);
+            let e = expand(&tpl.body, "", &Vars::default());
+            assert!(!e.text.contains("$0"), "{}", tpl.name);
         }
+    }
+
+    #[test]
+    fn snippet_stops_in_order_with_mirrors() {
+        let v = Vars { file_name: "res_partner.py".into() };
+        let e = expand("class ${1:Name}(${2|models.Model,models.TransientModel|}):\n    _name = '$1'\n    $0", "", &v);
+        assert_eq!(e.text, "class Name(models.Model):\n    _name = 'Name'\n    ");
+        // $1 at two places (typed at once), then $2, then $0 at the end
+        assert_eq!(e.stops, vec![vec![(6, 10), (39, 43)], vec![(11, 23)], vec![(49, 49)]]);
+        assert_eq!(e.first(), (6, 10));
+        assert!(e.has_steps());
+        // variables, escapes; an unknown $NAME (shell, PHP) stays as written
+        let e = expand("# $TM_FILENAME_BASE: \\$1 costs $PRICE ${HOME}$", "", &v);
+        assert_eq!(e.text, "# res_partner: $1 costs $PRICE ${HOME}$");
+        assert_eq!(e.stops, vec![vec![(39, 39)]]);
+        // a placeholder inside a placeholder, without $0: the end last
+        let e = expand("f(${1:a, ${2:b}})", "", &v);
+        assert_eq!(e.text, "f(a, b)");
+        assert_eq!(e.stops, vec![vec![(2, 6)], vec![(5, 6)], vec![(7, 7)]]);
     }
 
     #[test]

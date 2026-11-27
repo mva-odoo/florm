@@ -51,6 +51,8 @@ impl App {
                     let Some(req) = self.lsp.requests.remove(&(ci, id)) else { continue };
                     match result {
                         Ok(v) => self.lsp_response(ci, req, v, ctx),
+                        // the hints are asked by themselves: no error shown for them
+                        Err(_) if matches!(req, LspReq::InlayHints { .. }) => {}
                         Err(e) => self.set_error(tf!("Serveur de langage : {e}", "Language server: {e}")),
                     }
                 }
@@ -66,6 +68,7 @@ impl App {
         }
         if self.active < self.docs.len() {
             self.lsp_for(self.active, ctx, false);
+            self.request_inlay_hints(ctx);
         }
         // closed tabs: didClose
         let alive: HashSet<u64> = self.docs.iter().map(|d| d.uid).collect();
@@ -111,6 +114,48 @@ impl App {
         if let Some(c) = self.lsp.manager.client(ci) {
             let id = c.request("textDocument/completion", serde_json::json!({ "textDocument": doc, "position": pos }));
             self.lsp.requests.insert((ci, id), LspReq::Completion { uid, start });
+        }
+    }
+
+    /// Asks the server for the inlay hints of the active document once typing pauses (those of
+    /// the lines not changed stay meanwhile). Turned off: they go away.
+    pub(super) fn request_inlay_hints(&mut self, ctx: &egui::Context) {
+        let i = self.active;
+        if !self.settings.inlay_hints {
+            if let Some(d) = self.docs.get_mut(i).filter(|d| !d.inlays.is_empty() || d.inlays_asked.is_some()) {
+                d.inlays.clear();
+                d.inlays_asked = None;
+            }
+            return;
+        }
+        let Some(d) = self.docs.get(i) else { return };
+        if d.inlays_asked == Some(d.version) {
+            return;
+        }
+        let pause = Duration::from_millis(400);
+        let since = d.last_change.elapsed();
+        if since < pause {
+            ctx.request_repaint_after(pause - since);
+            return;
+        }
+        let Some((ci, _)) = self.lsp_for(i, ctx, true) else { return };
+        // a server still starting: asked once it is ready (its capabilities known)
+        let Some(gives) = self.lsp.manager.client(ci).map(|c| c.ready.then_some(c.inlay_hints)) else { return };
+        let Some(gives) = gives else {
+            ctx.request_repaint_after(Duration::from_millis(300));
+            return;
+        };
+        let d = &mut self.docs[i];
+        d.inlays_asked = Some(d.version);
+        let Some(path) = d.path.as_ref().filter(|_| gives) else { return };
+        let (uid, version) = (d.uid, d.version);
+        let params = serde_json::json!({
+            "textDocument": { "uri": lsp::path_to_uri(path) },
+            "range": { "start": { "line": 0, "character": 0 }, "end": lsp::to_position(&d.rope, d.rope.len_chars()) }
+        });
+        if let Some(c) = self.lsp.manager.client(ci) {
+            let id = c.request("textDocument/inlayHint", params);
+            self.lsp.requests.insert((ci, id), LspReq::InlayHints { uid, version });
         }
     }
 
@@ -467,6 +512,12 @@ impl App {
                 }
             }
             LspReq::Command => {}
+            // an answer for a text changed since is dropped: asked again after the next pause
+            LspReq::InlayHints { uid, version } => {
+                if let Some(d) = self.docs.iter_mut().find(|d| d.uid == uid && d.version == version) {
+                    d.inlays = lsp::parse_inlay_hints(&d.rope, &v);
+                }
+            }
             LspReq::Format { uid, version, then_save } => {
                 let Some(idx) = self.docs.iter().position(|d| d.uid == uid) else { return };
                 let d = &mut self.docs[idx];
@@ -622,8 +673,11 @@ impl App {
         let Some(&item) = c.shown.get(k).as_ref() else { return };
         let it = &c.items[*item];
         if let Some(body) = &it.template {
-            if self.docs.get(self.active).is_some_and(|d| d.uid == c.uid) {
-                self.expand_template_at(c.start, body);
+            if let Some(d) = self.docs.get(self.active).filter(|d| d.uid == c.uid) {
+                // a snippet of the server replaces its range (from the word typed, at most)
+                let start = it.range.as_ref().map_or(c.start, |r| lsp::from_position(&d.rope, &r["start"]).min(c.start));
+                let body = body.clone();
+                self.expand_template_at(start, &body);
             }
             return;
         }
@@ -665,7 +719,7 @@ impl App {
             .collect()
     }
 
-    fn active_ext(&self) -> String {
+    pub(super) fn active_ext(&self) -> String {
         self.docs
             .get(self.active)
             .and_then(|d| d.path.as_deref())
@@ -674,17 +728,42 @@ impl App {
             .unwrap_or_default()
     }
 
-    /// Replaces from `start` to the cursor with a template body, indented like the line, the
-    /// cursor at its `$0`.
-    fn expand_template_at(&mut self, start: usize, body: &str) {
+    /// What the variables of a snippet give in the active document (its file name).
+    pub(super) fn snippet_vars(&self) -> crate::templates::Vars {
+        let file_name = self.docs.get(self.active).and_then(|d| d.path.as_deref()).and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        crate::templates::Vars { file_name }
+    }
+
+    /// Replaces from `start` to the cursor with a snippet (a template, a suggestion of the
+    /// server), indented like the line: its first place selected, Tab goes to the next ones.
+    pub(super) fn expand_template_at(&mut self, start: usize, body: &str) {
+        let vars = self.snippet_vars();
         let Some(d) = self.docs.get_mut(self.active) else { return };
         let head = d.primary_sel().head;
         let line = d.rope.char_to_line(start);
         let line_start = d.rope.line_to_char(line);
         let indent: String = d.line_text(line).chars().take(start - line_start).take_while(|c| *c == ' ' || *c == '\t').collect();
-        let (text, cursor) = crate::templates::expand(body, &indent);
-        d.edit(EditKind::Other, vec![Edit { start, end: head, text, anchor: cursor, head: cursor }]);
+        let e = crate::templates::expand(body, &indent, &vars);
+        let (a, b) = e.first();
+        d.edit(EditKind::Other, vec![Edit { start, end: head, text: e.text.clone(), anchor: a, head: b }]);
+        d.start_snippet(start, &e);
         d.scroll_to_cursor = true;
+    }
+
+    /// Tab / Shift+Tab while a snippet is filled: its next / previous place. Escape ends it.
+    fn snippet_keys(&mut self, ctx: &egui::Context) {
+        let Some(d) = self.docs.get_mut(self.active).filter(|d| d.snippet.is_some()) else { return };
+        if ctx.input(|i| i.key_pressed(Key::Escape)) {
+            d.snippet = None;
+            return;
+        }
+        for back in [false, true] {
+            let mods = if back { egui::Modifiers::SHIFT } else { egui::Modifiers::NONE };
+            if ctx.input(|i| i.events.iter().any(|e| matches!(e, Event::Key { key: Key::Tab, pressed: true, modifiers, .. } if *modifiers == mods))) && d.snippet_step(back) {
+                ctx.input_mut(|i| i.consume_key(mods, Key::Tab));
+                return;
+            }
+        }
     }
 
     /// Tab right after the trigger of a template (`ipdb`) expands it, list open or not.
@@ -695,25 +774,57 @@ impl App {
         let Some(d) = self.docs.get(self.active).filter(|d| !d.read_only && d.view == document::View::Text && d.sels.len() == 1 && d.primary_sel().is_empty()) else { return };
         let start = Self::word_start(d);
         let word = d.slice(start, d.primary_sel().head);
-        if word.is_empty() {
-            return;
-        }
         let ext = self.active_ext();
-        let Some(t) = crate::templates::with_trigger(self.loaded_templates(), &ext, &word).find(|t| t.trigger == word) else { return };
-        let body = t.body.clone();
+        let template = if word.is_empty() { None } else { crate::templates::with_trigger(self.loaded_templates(), &ext, &word).find(|t| t.trigger == word).map(|t| t.body.clone()) };
+        let Some(body) = template else {
+            self.tab_expands_emmet(ctx, &ext);
+            return;
+        };
         ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Tab));
         self.lsp.completion = None;
         self.lsp.complete_at = None;
         self.expand_template_at(start, &body);
     }
 
+    /// Tab after an Emmet abbreviation (`ul>li*3`, `field[name=x]`) in HTML, JSX or XML: its tags.
+    /// With the suggestions open, only an abbreviation with an operator (a plain `div` takes the
+    /// suggestion).
+    fn tab_expands_emmet(&mut self, ctx: &egui::Context, ext: &str) {
+        if self.settings.emmet {
+            let _ = self.expand_emmet(Some(ctx), ext);
+        }
+    }
+
+    /// Expands the Emmet abbreviation before the cursor (Tab, or the command): false when there is none.
+    pub(super) fn expand_emmet(&mut self, ctx: Option<&egui::Context>, ext: &str) -> bool {
+        let Some(flavor) = crate::emmet::flavor(ext) else { return false };
+        let Some(d) = self.docs.get(self.active).filter(|d| !d.read_only && d.sels.len() == 1 && d.primary_sel().is_empty()) else { return false };
+        let head = d.primary_sel().head;
+        let (l, col) = d.line_col(head);
+        let Some((at, abbr)) = crate::emmet::abbreviation_before(&d.line_text(l), col) else { return false };
+        let operator = abbr.chars().any(|c| ".#>+*^[{(!".contains(c));
+        if ctx.is_some() && self.lsp.completion.is_some() && !operator {
+            return false;
+        }
+        let Some(body) = crate::emmet::expand(&abbr, flavor, &d.indent_unit()) else { return false };
+        let start = d.rope.line_to_char(l) + at;
+        if let Some(ctx) = ctx {
+            ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Tab));
+        }
+        self.lsp.completion = None;
+        self.lsp.complete_at = None;
+        self.expand_template_at(start, &body);
+        true
+    }
+
     /// Up / Down / Enter / Tab / Escape go to the suggestion list while it is open.
     pub(super) fn completion_keys(&mut self, ctx: &egui::Context) {
-        if !ctx.memory(|m| m.has_focus(editor_id())) {
+        if !ctx.memory(|m| m.has_focus(editor_id())) || self.vim_normal() {
             return;
         }
         self.tab_expands_trigger(ctx);
         if self.lsp.completion.is_none() {
+            self.snippet_keys(ctx);
             return;
         }
         let events = ctx.input(|i| i.events.clone());

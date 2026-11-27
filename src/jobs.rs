@@ -47,6 +47,8 @@ pub enum JobResult {
     PrCommitFetched(std::path::PathBuf, String, Result<String, String>),
     /// Commit message written by Claude.
     CommitMessage(Result<String, String>),
+    /// Inline edit (Ctrl+I): the new text of chars `start..end` of document `uid` at `version`.
+    InlineEdit { n: u64, uid: u64, version: u64, start: usize, end: usize, request: String, result: Result<String, String> },
     /// Commit after a task of the queue of conversation (id): the first line of its message.
     /// Remarks of an AI review (key of what was reviewed: a pull request, the changes not committed).
     AiReview(String, Result<Vec<crate::claude::ReviewNote>, String>),
