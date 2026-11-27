@@ -387,6 +387,33 @@ pub fn paint_upgrade(painter: &Painter, rect: Rect, ready: bool, hovered: bool) 
     }
 }
 
+/// A shield (the sandbox of Claude), about `size` high around `center`, filled in `color`, a
+/// check mark inside in `mark`.
+pub fn paint_shield(painter: &Painter, center: Pos2, size: f32, color: Color32, mark: Color32) {
+    let (w, h) = (size * 0.8, size);
+    let top = center.y - h / 2.0;
+    let mut pts = vec![Pos2::new(center.x, top), Pos2::new(center.x + w / 2.0, top + h * 0.16), Pos2::new(center.x + w / 2.0, top + h * 0.5)];
+    // the rounded point at the bottom
+    for k in 1..=6 {
+        let t = k as f32 / 6.0;
+        let x = center.x + w / 2.0 * (1.0 - t);
+        let y = top + h * 0.5 + h * 0.5 * (t * (2.0 - t));
+        pts.push(Pos2::new(x, y));
+    }
+    for k in (0..6).rev() {
+        let t = k as f32 / 6.0;
+        let x = center.x - w / 2.0 * (1.0 - t);
+        let y = top + h * 0.5 + h * 0.5 * (t * (2.0 - t));
+        pts.push(Pos2::new(x, y));
+    }
+    pts.push(Pos2::new(center.x - w / 2.0, top + h * 0.16));
+    painter.add(Shape::convex_polygon(pts, color, Stroke::NONE));
+    let st = Stroke::new((size * 0.12).max(1.2), mark);
+    let c = center + Vec2::new(0.0, h * 0.04);
+    painter.line_segment([c + Vec2::new(-w * 0.22, 0.0), c + Vec2::new(-w * 0.04, h * 0.16)], st);
+    painter.line_segment([c + Vec2::new(-w * 0.04, h * 0.16), c + Vec2::new(w * 0.24, -h * 0.16)], st);
+}
+
 /// Small chevron (▸ / ▾) for expandable rows.
 pub fn paint_chevron(painter: &Painter, center: Pos2, open: bool, color: Color32) {
     let s = 3.5;

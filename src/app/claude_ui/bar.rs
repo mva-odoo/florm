@@ -10,6 +10,34 @@ pub(super) struct BarData<'a> {
     pub(super) history: &'a [(u64, String, String)],
     pub(super) accounts: &'a [claude_account::Account],
     pub(super) account_name: &'a str,
+    /// Its commands run in the sandbox.
+    pub(super) sandbox: bool,
+}
+
+/// The state of the sandbox in the bar of a conversation: a green shield « Bac à sable », or an
+/// orange « sans bac à sable » (its commands with all the user's access). A click: its setting.
+fn sandbox_chip(ui: &mut egui::Ui, on: bool) -> egui::Response {
+    let (color, label) = if on { (crate::highlight::green(), t!("Bac à sable", "Sandbox")) } else { (crate::highlight::yellow(), t!("Sans bac à sable", "No sandbox")) };
+    let font = egui::FontId::proportional(12.5);
+    let galley = ui.painter().layout_no_wrap(label.to_string(), font, color);
+    let (rect, r) = ui.allocate_exact_size(egui::vec2(galley.size().x + 26.0, 22.0), Sense::click());
+    if r.hovered() {
+        ui.painter().rect_filled(rect, 4.0, ui.visuals().widgets.hovered.weak_bg_fill);
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    let at = egui::pos2(rect.left() + 10.0, rect.center().y);
+    if on {
+        crate::icons::paint_shield(ui.painter(), at, 14.0, color, Color32::WHITE);
+    } else {
+        ui.painter().text(at, egui::Align2::CENTER_CENTER, "⚠", egui::FontId::proportional(12.5), color);
+    }
+    ui.painter().galley(egui::pos2(rect.left() + 20.0, rect.center().y - galley.size().y / 2.0), galley, color);
+    let tip = if on {
+        t!("Ses commandes tournent isolées : elles n'écrivent que dans le projet, le réseau est filtré, tes clés SSH et tes jetons restent hors de portée ; ce qui en a besoin, Florm le tape pour toi dans le terminal. Clic : le réglage.", "Its commands run isolated: they write only in the project, the network is filtered, your SSH keys and tokens stay out of reach; what needs them, Florm types it for you in the terminal. Click: the setting.")
+    } else {
+        t!("Ses commandes tournent avec tous tes accès (clés SSH, jetons, tout le disque). Clic : activer le bac à sable.", "Its commands run with all your access (SSH keys, tokens, the whole disk). Click: turn the sandbox on.")
+    };
+    r.on_hover_text(tip)
 }
 
 /// The keys of the system that copy a screen capture to the clipboard.
@@ -94,7 +122,7 @@ fn context_menu(ui: &mut egui::Ui, c: &mut ClaudeUi, a: &mut Acts) {
 
 /// The bar above the conversation.
 pub(super) fn bar(ui: &mut egui::Ui, c: &mut ClaudeUi, accent: Color32, d: BarData<'_>) -> Acts {
-    let BarData { dirs, dir_name, history, accounts, account_name } = d;
+    let BarData { dirs, dir_name, history, accounts, account_name, sandbox } = d;
     let mut a = Acts::default();
     // as the breadcrumb of a file: `✳ Claude › ● florm`, on the editor's background
     crate::view_bar::header(egui::Id::unique("claude_bar").with(c.id), ui)
@@ -138,6 +166,10 @@ pub(super) fn bar(ui: &mut egui::Ui, c: &mut ClaudeUi, accent: Color32, d: BarDa
                 })
                 .response
                 .on_hover_text(t!("Le compte Claude de cette conversation (son abonnement et ses quotas) ; changé, Claude redémarre avec lui, la conversation continue", "The Claude account of this conversation (its subscription and quotas); changed, Claude starts again with it, the conversation goes on"));
+                // the sandbox, at a glance: a green shield, or « sans bac à sable » in orange
+                if sandbox_chip(ui, sandbox).clicked() {
+                    a.manage_accounts = true;
+                }
                 ui.menu_button(tf!("Historique ({})", "History ({})", history.len()), |ui| {
                     ui.set_min_width(420.0);
                     if history.is_empty() {

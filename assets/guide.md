@@ -748,7 +748,9 @@ ses nouveautés marchent tels quels. Les changements de Claude se revoient dans 
   copie de sa session, pour essayer autre chose), **⇱ Ouvrir dans son propre onglet**, **× Fermer**
   (Claude s'arrête, elle reste dans l'historique). **Ctrl+Alt+W** : la suivante qui attend ta
   réponse. La barre d'état dit combien travaillent ou attendent.
-- **Bac à sable** (Préférences → Claude, activé par défaut) : les commandes de Claude tournent
+- **Bac à sable** (Préférences → Claude, activé par défaut ; un **bouclier vert** dans la barre de
+  la conversation et sur l'icône de Claude le dit, « ⚠ Sans bac à sable » en orange sinon ; un clic :
+  le réglage) : les commandes de Claude tournent
   isolées, elles n'écrivent que dans le projet et le réseau est filtré. Claude ne peut lancer
   **aucune commande hors du bac à sable**, même en mode auto, et il n'a **ni tes clés ni tes jetons** :
   `~/.ssh`, `~/.gnupg`, le jeton de `gh`, `~/.aws`, `~/.kube`, `~/.netrc`, `~/.git-credentials`, la

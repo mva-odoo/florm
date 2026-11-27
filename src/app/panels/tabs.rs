@@ -67,6 +67,12 @@ impl App {
                         }
                         for (k, t) in icon_tabs.iter().enumerate() {
                             let r = crate::app::icon_tab(ui, t.icon, t.shown, k == 0, t.color, &tc).on_hover_text(&t.tip);
+                            // Claude in the sandbox: a small green shield on its icon
+                            if t.view == Some(crate::document::View::Claude) && self.settings.claude_sandbox {
+                                let at = r.rect.center() + egui::vec2(8.0, 6.0);
+                                ui.painter().circle_filled(at, 5.5, if t.shown { tc.active } else { tc.bar });
+                                crate::icons::paint_shield(ui.painter(), at, 9.0, crate::highlight::green(), Color32::WHITE);
+                            }
                             if t.shown && t.view.is_some() {
                                 shown_rect = Some(r.rect);
                             }
@@ -337,6 +343,9 @@ impl App {
             // Claude at work or done (not seen yet): its color, as its tab had
             let tint = (view == View::Claude).then(|| self.docs.iter().find(|d| d.view == View::Claude).and_then(|d| self.claude_tab_tint(d.uid))).flatten();
             let mut tip = tip(label, cmd);
+            if view == View::Claude {
+                tip.push_str(if self.settings.claude_sandbox { t!(" — bac à sable", " — sandbox") } else { t!(" — sans bac à sable", " — no sandbox") });
+            }
             if view == View::Settings {
                 tip.push_str(t!("\nClic droit : Langages (outils, tree-sitter), Extensions", "\nRight click: Languages (tools, tree-sitter), Extensions"));
             }

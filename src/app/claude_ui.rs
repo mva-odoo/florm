@@ -449,7 +449,7 @@ impl App {
         let accent = self.hl.colors.accent;
         let (term, colors, light) = (&mut self.term, self.hl.colors, self.hl.is_light());
         let c = &mut self.claude;
-        let d = bar::BarData { dirs: &dirs, dir_name: &dir_name, history: &history, accounts: &accounts, account_name: &account_name };
+        let d = bar::BarData { dirs: &dirs, dir_name: &dir_name, history: &history, accounts: &accounts, account_name: &account_name, sandbox: self.settings.claude_sandbox };
         let a = bar::bar(ui, c, accent, d);
         let mut paste_image = false;
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(colors.bg)).show(ui, |ui| match c.term {
