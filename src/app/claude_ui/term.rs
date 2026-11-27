@@ -202,7 +202,7 @@ impl App {
             if runs_len > c.runs_len {
                 if let Ok(text) = std::fs::read(&runs) {
                     let new = String::from_utf8_lossy(&text[(c.runs_len as usize).min(text.len())..]).into_owned();
-                    handed.extend(new.lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from));
+                    handed.extend(new.lines().map(str::trim).filter(|l| !l.is_empty()).map(|l| claude_term::typed_command(l, c.dir.as_deref())));
                 }
                 c.runs_len = runs_len;
             }

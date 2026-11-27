@@ -52,6 +52,19 @@ pub fn runs_of(file: &Path) -> PathBuf {
     file.with_extension("runs")
 }
 
+/// A line of `runs_of`: the command to type, in the folder Claude was in (`cd '<dir>' && …`).
+pub fn typed_command(line: &str, dir: Option<&Path>) -> String {
+    let (cmd, cwd) = match serde_json::from_str::<Value>(line) {
+        Ok(v) => (v["cmd"].as_str().unwrap_or("").to_string(), v["cwd"].as_str().unwrap_or("").to_string()),
+        Err(_) => (line.to_string(), String::new()),
+    };
+    let cwd = if cwd.is_empty() { dir.map(|d| d.display().to_string()).unwrap_or_default() } else { cwd };
+    if cwd.is_empty() || cfg!(windows) {
+        return cmd;
+    }
+    format!("cd '{}' && {cmd}", cwd.replace('\'', "'\\''"))
+}
+
 /// What Claude runs to hand a command to the user (see `florm_terminal_command`).
 pub const HAND_OVER: &str = "florm-terminal";
 
@@ -209,8 +222,10 @@ pub fn hook(file: &Path, what: &str) {
         // in the user's terminal, and the call is stopped (exit 2: its reason goes to Claude)
         if let Some(cmd) = handed_over(event["tool_input"]["command"].as_str().unwrap_or("")) {
             use std::io::Write;
+            // with the folder Claude is in: the command is typed there, not wherever the terminal is
+            let line = json!({ "cmd": cmd.replace('\n', " "), "cwd": event["cwd"].as_str().unwrap_or("") });
             if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(runs_of(file)) {
-                let _ = writeln!(f, "{}", cmd.replace('\n', " "));
+                let _ = writeln!(f, "{line}");
             }
             eprintln!("Florm typed this command in the user's own terminal (outside the sandbox), without running it: the user checks it and presses Enter. Do not run it yourself; wait for the user to tell you how it went.");
             std::process::exit(2);
@@ -417,6 +432,11 @@ mod tests {
         assert_eq!(handed_over("florm-terminalx ls"), None);
         assert_eq!(handed_over("florm-terminal"), None);
         assert_eq!(handed_over("git push"), None);
+        // typed in Claude's folder (a quote in its name kept right)
+        assert_eq!(typed_command(r#"{"cmd":"git push","cwd":"/home/u/src/florm"}"#, None), if cfg!(windows) { "git push".to_string() } else { "cd '/home/u/src/florm' && git push".to_string() });
+        if !cfg!(windows) {
+            assert_eq!(typed_command(r#"{"cmd":"ls","cwd":""}"#, Some(Path::new("/p/l'a"))), "cd '/p/l'\\''a' && ls");
+        }
         let s = Path::new("/s.json");
         assert_eq!(argv(s, &Start { prompt: Some("fais ça"), ..Default::default() }), ["claude", "--settings", "/s.json", "fais ça"]);
         assert_eq!(argv(s, &Start { session_id: "abc", prompt: Some("ignored"), ..Default::default() }), ["claude", "--settings", "/s.json", "--resume", "abc"]);
