@@ -117,6 +117,10 @@ impl App {
     }
 
     pub(super) fn search_ui(&mut self, ui: &mut egui::Ui) {
+        if std::mem::take(&mut self.search.edit_request) {
+            self.open_multibuffer();
+            return;
+        }
         let (mut go, mut act) = (false, None);
         let accent = self.hl.colors.accent;
         // the results at the size of the code, as excerpts of the editor (Zed)
@@ -286,6 +290,13 @@ impl App {
                         if ui.small_button(t!("Tout déplier", "Unfold all")).clicked() {
                             s.collapsed.clear();
                             s.rebuild_rows();
+                        }
+                        if ui
+                            .small_button(t!("✏ Modifier les résultats", "✏ Change the results"))
+                            .on_hover_text(t!("Les lignes trouvées dans un onglet, à modifier comme du code : Ctrl+S les écrit dans leurs fichiers", "The lines found in a tab, to change as code: Ctrl+S writes them into their files"))
+                            .clicked()
+                        {
+                            s.edit_request = true;
                         }
                     }
                 }

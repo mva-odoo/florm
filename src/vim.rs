@@ -21,6 +21,8 @@ pub enum Mode {
     Insert,
     Visual,
     VisualLine,
+    /// Ctrl+V: a rectangle (a cursor on each line).
+    VisualBlock,
 }
 
 impl Mode {
@@ -30,6 +32,7 @@ impl Mode {
             Mode::Insert => t!("INSERTION", "INSERT"),
             Mode::Visual => t!("VISUEL", "VISUAL"),
             Mode::VisualLine => t!("VISUEL LIGNE", "VISUAL LINE"),
+            Mode::VisualBlock => t!("VISUEL BLOC", "VISUAL BLOCK"),
         }
     }
 }
@@ -47,6 +50,9 @@ pub enum Out {
     CommandLine,
     /// Yanked or deleted: also in the clipboard (linewise or not).
     Clipboard(String, bool),
+    /// `"+p` / `"+P`: the clipboard of the system put after (true) / before the cursor, `n` times
+    /// (read by the app, given back by `put_text`).
+    PasteClipboard(bool, usize),
     /// `ZZ`: save and close; `ZQ`: close.
     SaveClose,
     Close,
@@ -57,8 +63,18 @@ pub struct Vim {
     pub mode: Mode,
     /// The keys of the command being typed (`2d`, `ci`…), shown in the status bar.
     pub pending: String,
-    /// The unnamed register: its text and whether it is whole lines.
-    register: (String, bool),
+    /// The registers: `"` the unnamed one, `0` the last yank, `a`–`z` named (their text and whether
+    /// it is whole lines). The macros are kept there too.
+    registers: std::collections::HashMap<char, (String, bool)>,
+    /// The register of the command being typed (`"a`).
+    target: Option<char>,
+    /// A macro being recorded (`qa`): its register and its keys.
+    recording: Option<(char, Vec<char>)>,
+    last_macro: Option<char>,
+    /// How deep macros are being played (one calling another).
+    depth: usize,
+    /// Marks: (document, letter) → char position.
+    marks: std::collections::HashMap<(u64, char), usize>,
     /// The keys of the last change, replayed by `.`.
     last_change: Vec<char>,
     /// The change being recorded (its command, then what is typed in insert mode).
@@ -389,8 +405,85 @@ impl Vim {
         Self::default()
     }
 
+    pub fn visual(&self) -> bool {
+        matches!(self.mode, Mode::Visual | Mode::VisualLine | Mode::VisualBlock)
+    }
+
+    /// The register a macro is recorded into, for the status bar.
+    pub fn recording(&self) -> Option<char> {
+        self.recording.as_ref().map(|r| r.0)
+    }
+
+    fn register(&self, c: char) -> (String, bool) {
+        self.registers.get(&c).cloned().unwrap_or_default()
+    }
+
+    /// Yanked or deleted text into its registers (`"a`, `"A` appends, `"_` none), the unnamed one,
+    /// `0` for a yank; in the clipboard unless a named register was chosen.
+    fn store(&mut self, text: String, lines: bool, yank: bool, out: &mut Vec<Out>) {
+        let target = self.target;
+        if target == Some('_') {
+            return;
+        }
+        match target {
+            Some(c) if c.is_ascii_uppercase() => {
+                let k = c.to_ascii_lowercase();
+                let (mut t, lw) = self.register(k);
+                t.push_str(&text);
+                self.registers.insert(k, (t, lw || lines));
+            }
+            Some(c) if c.is_ascii_lowercase() || c.is_ascii_digit() => {
+                self.registers.insert(c, (text.clone(), lines));
+            }
+            _ => {}
+        }
+        self.registers.insert('"', (text.clone(), lines));
+        if yank {
+            self.registers.insert('0', (text.clone(), lines));
+        }
+        if !target.is_some_and(|c| c.is_ascii_alphanumeric()) {
+            out.push(Out::Clipboard(text, lines));
+        }
+    }
+
+    /// The text of the clipboard put (after `Out::PasteClipboard`).
+    pub fn put_text(&mut self, d: &mut Document, text: &str, after: bool, n: usize) {
+        let lines = text.ends_with('\n');
+        let saved = self.registers.insert('\u{0}', (text.to_string(), lines));
+        self.target = Some('\u{0}');
+        self.put(d, after, n, &mut Vec::new());
+        self.target = None;
+        match saved {
+            Some(s) => self.registers.insert('\u{0}', s),
+            None => self.registers.remove(&'\u{0}'),
+        };
+    }
+
+    /// The selections of the visual block: on each line, the columns between the anchor and the head.
+    fn block_sels(&self, d: &Document) -> Vec<Sel> {
+        let (a, h) = (self.anchor.min(d.len()), self.head.min(d.len()));
+        let (la, lh) = (line_of(d, a), line_of(d, h));
+        let (ca, ch_) = (a - line_start(d, la), h - line_start(d, lh));
+        let (c0, c1) = (ca.min(ch_), ca.max(ch_));
+        (la.min(lh)..=la.max(lh))
+            .map(|l| {
+                let (s, n) = (line_start(d, l), d.line_len(l));
+                Sel::range(s + c0.min(n), s + (c1 + 1).min(n))
+            })
+            .collect()
+    }
+
     /// The selection shown in visual mode.
     fn show_visual(&self, d: &mut Document) {
+        if self.mode == Mode::VisualBlock {
+            let sels = self.block_sels(d);
+            let lh = line_of(d, self.head.min(d.len()));
+            let first = line_of(d, self.anchor.min(self.head).min(d.len())).min(lh);
+            d.primary = (lh - first.min(lh)).min(sels.len().saturating_sub(1));
+            d.sels = sels;
+            d.scroll_to_cursor = true;
+            return;
+        }
         let (a, h) = (self.anchor.min(d.len()), self.head.min(d.len()));
         let sel = match self.mode {
             Mode::VisualLine => {
@@ -425,6 +518,8 @@ impl Vim {
                     set_cursor(d, clamp_normal(d, s.head));
                 }
             }
+            // the cursors of the block are its own
+            Mode::VisualBlock => {}
             Mode::Visual | Mode::VisualLine => {
                 let s = d.primary_sel();
                 if s.is_empty() {
@@ -438,14 +533,23 @@ impl Vim {
 
     /// What is typed in insert mode (live, by the editor), recorded for `.`.
     pub fn typed(&mut self, t: &str) {
+        let keys = t.chars().map(|c| if c == '\n' { ENTER } else { c });
         if let Some(r) = self.rec.as_mut() {
-            r.extend(t.chars().map(|c| if c == '\n' { ENTER } else { c }));
+            r.extend(keys.clone());
+        }
+        if let Some((_, r)) = self.recording.as_mut() {
+            r.extend(keys);
         }
     }
 
     /// A key of the user. In insert mode only Escape is the mode's (the editor types the rest).
     pub fn key(&mut self, d: &mut Document, c: char) -> Vec<Out> {
         let mut out = Vec::new();
+        if !self.replaying {
+            if let Some((_, r)) = self.recording.as_mut() {
+                r.push(c);
+            }
+        }
         self.feed(d, c, &mut out);
         out
     }
@@ -467,7 +571,7 @@ impl Vim {
             return;
         }
         if c == ESC && self.pending.is_empty() {
-            if matches!(self.mode, Mode::Visual | Mode::VisualLine) {
+            if self.visual() {
                 self.mode = Mode::Normal;
                 set_cursor(d, clamp_normal(d, self.head));
             } else {
@@ -482,7 +586,11 @@ impl Vim {
         self.pending.push(c);
         let keys: Vec<char> = self.pending.chars().collect();
         let before = self.mode;
-        match self.run(d, &keys, out) {
+        let result = self.run(d, &keys, out);
+        if !matches!(result, P::More) {
+            self.target = None;
+        }
+        match result {
             P::More => {}
             P::Bad => self.pending.clear(),
             P::Ok(change) => {
@@ -631,6 +739,17 @@ impl Vim {
                 Some((a, b)) => (if from == a { b } else { a }, Kind::Inclusive),
                 None => return P::Bad,
             },
+            '\'' | '`' => {
+                let Some(&k) = keys.get(*i) else { return P::More };
+                *i += 1;
+                let Some(&p) = self.marks.get(&(d.uid, k)) else { return P::Bad };
+                let p = p.min(d.len());
+                if c == '`' {
+                    (p, Kind::Exclusive)
+                } else {
+                    (first_non_blank(d, line_of(d, p)), Kind::Linewise)
+                }
+            }
             '}' => (paragraph(d, from, false, n), Kind::Exclusive),
             '{' => (paragraph(d, from, true, n), Kind::Exclusive),
             _ => return P::Bad,
@@ -670,14 +789,23 @@ impl Vim {
 
     /// Runs the command in `keys`: More while incomplete; Ok(it changed the text).
     fn run(&mut self, d: &mut Document, keys: &[char], out: &mut Vec<Out>) -> P<bool> {
-        let visual = matches!(self.mode, Mode::Visual | Mode::VisualLine);
+        // "a: the register of the command
+        if keys.first() == Some(&'"') {
+            let Some(&r) = keys.get(1) else { return P::More };
+            if !(r.is_ascii_alphanumeric() || matches!(r, '"' | '+' | '*' | '_' | '-')) {
+                return P::Bad;
+            }
+            self.target = Some(if r == '*' { '+' } else { r });
+            return self.run(d, &keys[2..], out);
+        }
+        let visual = self.visual();
         let mut i = 0;
         let count = read_count(keys, &mut i);
         let Some(&c) = keys.get(i) else { return P::More };
         let from = if visual { self.head } else { head(d) };
         let n = count.unwrap_or(1);
         // a motion: the cursor (or the end of the visual selection) goes there
-        let command = matches!(c, 'd' | 'c' | 'y' | '>' | '<' | 'x' | 'X' | 's' | 'S' | 'D' | 'C' | 'Y' | 'p' | 'P' | 'u' | 'J' | '~' | 'r' | 'i' | 'a' | 'I' | 'A' | 'o' | 'O' | 'v' | 'V' | 'n' | 'N' | '*' | '#' | '/' | '?' | ':' | 'z' | 'Z' | '.' | '\u{12}')
+        let command = matches!(c, 'd' | 'c' | 'y' | '>' | '<' | 'x' | 'X' | 's' | 'S' | 'D' | 'C' | 'Y' | 'p' | 'P' | 'u' | 'J' | '~' | 'r' | 'i' | 'a' | 'I' | 'A' | 'o' | 'O' | 'v' | 'V' | 'n' | 'N' | '*' | '#' | '/' | '?' | ':' | 'z' | 'Z' | '.' | 'm' | 'q' | '@' | '\u{12}' | '\u{16}')
             || (c == 'g' && keys.get(i + 1) == Some(&'J'));
         if !command {
             let mut j = i;
@@ -703,6 +831,55 @@ impl Vim {
         }
         let l = line_of(d, from);
         match c {
+            '\u{16}' => {
+                self.mode = Mode::VisualBlock;
+                (self.anchor, self.head) = (from, from);
+                self.show_visual(d);
+                return P::Ok(false);
+            }
+            'm' => {
+                let Some(&k) = keys.get(i + 1) else { return P::More };
+                if !k.is_ascii_alphabetic() {
+                    return P::Bad;
+                }
+                self.marks.insert((d.uid, k), from);
+                return P::Ok(false);
+            }
+            'q' => {
+                // q again: the macro recorded (without this q)
+                if let Some((r, mut k)) = self.recording.take() {
+                    k.pop();
+                    self.registers.insert(r, (k.into_iter().collect(), false));
+                    return P::Ok(false);
+                }
+                let Some(&r) = keys.get(i + 1) else { return P::More };
+                if !r.is_ascii_alphanumeric() {
+                    return P::Bad;
+                }
+                self.recording = Some((r.to_ascii_lowercase(), Vec::new()));
+                return P::Ok(false);
+            }
+            '@' => {
+                let Some(&r) = keys.get(i + 1) else { return P::More };
+                let r = if r == '@' { match self.last_macro { Some(m) => m, None => return P::Bad } } else { r.to_ascii_lowercase() };
+                let (text, _) = self.register(r);
+                if text.is_empty() || self.depth > 20 {
+                    return P::Bad;
+                }
+                self.last_macro = Some(r);
+                let (was, saved) = (self.replaying, std::mem::take(&mut self.pending));
+                self.replaying = true;
+                self.depth += 1;
+                for _ in 0..n {
+                    for k in text.chars() {
+                        self.feed(d, k, out);
+                    }
+                }
+                self.depth -= 1;
+                self.replaying = was;
+                self.pending = saved;
+                return P::Ok(false);
+            }
             'i' => self.enter_insert(d, from),
             'a' => {
                 let e = line_end(d, l);
@@ -828,7 +1005,7 @@ impl Vim {
                 return P::Ok(false);
             }
             'p' | 'P' => {
-                self.put(d, c == 'p', n);
+                self.put(d, c == 'p', n, out);
             }
             'r' => {
                 let Some(&k) = keys.get(i + 1) else { return P::More };
@@ -932,6 +1109,9 @@ impl Vim {
     /// An operator, an x, a ~… on the visual selection.
     fn visual_command(&mut self, d: &mut Document, keys: &[char], i: usize, out: &mut Vec<Out>) -> P<bool> {
         let c = keys[i];
+        if self.mode == Mode::VisualBlock {
+            return self.block_command(d, keys, i, out);
+        }
         let lines = self.mode == Mode::VisualLine;
         let (a, h) = (self.anchor.min(self.head), self.anchor.max(self.head));
         let (start, end) = if lines { (line_start(d, line_of(d, a)), d.line_end_incl(line_of(d, h))) } else { (a, (h + 1).min(d.len())) };
@@ -1002,11 +1182,98 @@ impl Vim {
                 P::Ok(true)
             }
             'p' | 'P' => {
-                let (text, lw) = self.register.clone();
+                let (text, lw) = self.register(self.target.unwrap_or('"'));
                 let text = if lw && !lines { text.trim_end_matches('\n').to_string() } else { text };
                 d.edit(EditKind::Other, vec![Edit { start, end, text: text.clone(), anchor: 0, head: 0 }]);
                 self.mode = Mode::Normal;
                 set_cursor(d, clamp_normal(d, start + text.chars().count().saturating_sub(1)));
+                P::Ok(true)
+            }
+            _ => P::Bad,
+        }
+    }
+
+    /// A command on the visual block: each line of the rectangle at once (Florm's cursors).
+    fn block_command(&mut self, d: &mut Document, keys: &[char], i: usize, out: &mut Vec<Out>) -> P<bool> {
+        let c = keys[i];
+        let sels = self.block_sels(d);
+        let top = sels.first().map_or(0, |s| s.start());
+        let text = || sels.iter().map(|s| d.slice(s.start(), s.end())).collect::<Vec<_>>().join("\n");
+        let each = |d: &mut Document, f: &dyn Fn(&str) -> String| {
+            let items: Vec<Edit> = sels.iter().map(|s| Edit { start: s.start(), end: s.end(), text: f(&d.slice(s.start(), s.end())), anchor: 0, head: 0 }).collect();
+            d.sels = sels.clone();
+            d.edit(EditKind::Other, items);
+        };
+        match c {
+            ESC | '\u{16}' => {
+                self.mode = Mode::Normal;
+                set_cursor(d, clamp_normal(d, self.head));
+                P::Ok(false)
+            }
+            'v' | 'V' => {
+                self.mode = if c == 'v' { Mode::Visual } else { Mode::VisualLine };
+                self.show_visual(d);
+                P::Ok(false)
+            }
+            'o' => {
+                std::mem::swap(&mut self.anchor, &mut self.head);
+                self.show_visual(d);
+                P::Ok(false)
+            }
+            'y' => {
+                let t = text();
+                self.store(t, false, true, out);
+                self.mode = Mode::Normal;
+                set_cursor(d, top);
+                P::Ok(false)
+            }
+            'd' | 'x' | 'c' | 's' => {
+                let t = text();
+                self.store(t, false, false, out);
+                each(d, &|_| String::new());
+                if matches!(c, 'c' | 's') {
+                    // a cursor on each line: what is typed goes on all of them
+                    self.mode = Mode::Insert;
+                    let cursors: Vec<Sel> = d.sels.iter().map(|s| Sel::cursor(s.head)).collect();
+                    d.sels = cursors;
+                    d.primary = 0;
+                } else {
+                    self.mode = Mode::Normal;
+                    set_cursor(d, clamp_normal(d, top));
+                }
+                P::Ok(true)
+            }
+            'I' | 'A' => {
+                self.mode = Mode::Insert;
+                d.sels = sels.iter().map(|s| Sel::cursor(if c == 'I' { s.start() } else { s.end() })).collect();
+                d.primary = 0;
+                d.scroll_to_cursor = true;
+                P::Ok(true)
+            }
+            'r' => {
+                let Some(&k) = keys.get(i + 1) else { return P::More };
+                if k == ESC {
+                    return P::Bad;
+                }
+                each(d, &|t| std::iter::repeat_n(k, t.chars().count()).collect());
+                self.mode = Mode::Normal;
+                set_cursor(d, clamp_normal(d, top));
+                P::Ok(true)
+            }
+            '~' | 'u' | 'U' => {
+                each(d, &|t| t.chars().map(|ch| match c {
+                    'u' => ch.to_lowercase().next().unwrap_or(ch),
+                    'U' => ch.to_uppercase().next().unwrap_or(ch),
+                    _ => swap_case(ch),
+                }).collect());
+                self.mode = Mode::Normal;
+                set_cursor(d, clamp_normal(d, top));
+                P::Ok(true)
+            }
+            '>' | '<' => {
+                let (a, b) = (sels.first().map_or(0, |s| s.start()), sels.last().map_or(0, |s| s.end()));
+                self.mode = Mode::Normal;
+                self.apply(d, c, a, b.max(a + 1), true, out);
                 P::Ok(true)
             }
             _ => P::Bad,
@@ -1028,8 +1295,7 @@ impl Vim {
         if lines && !text.ends_with('\n') {
             text.push('\n');
         }
-        self.register = (text.clone(), lines);
-        out.push(Out::Clipboard(text, lines));
+        self.store(text, lines, op == 'y', out);
         match op {
             'y' => set_cursor(d, a),
             'd' if lines => {
@@ -1059,8 +1325,12 @@ impl Vim {
     }
 
     /// p / P: the register after / before the cursor (whole lines: under / above its line).
-    fn put(&mut self, d: &mut Document, after: bool, n: usize) {
-        let (text, lines) = self.register.clone();
+    fn put(&mut self, d: &mut Document, after: bool, n: usize, out: &mut Vec<Out>) {
+        if self.target == Some('+') {
+            out.push(Out::PasteClipboard(after, n));
+            return;
+        }
+        let (text, lines) = self.register(self.target.unwrap_or('"'));
         if text.is_empty() {
             return;
         }
@@ -1281,7 +1551,7 @@ mod tests {
         assert_eq!(v.mode, Mode::Normal);
         let mut d = doc("a\nb\nc\n", 0);
         keys(&mut v, &mut d, "Vjy");
-        assert_eq!(v.register, ("a\nb\n".to_string(), true));
+        assert_eq!(v.register('"'), ("a\nb\n".to_string(), true));
         keys(&mut v, &mut d, "Gp");
         assert_eq!(d.rope.to_string(), "a\nb\nc\na\nb\n");
         let mut d = doc("f(abc)\n", 3);
@@ -1296,6 +1566,66 @@ mod tests {
         assert_eq!(v.mode, Mode::Visual);
         keys(&mut v, &mut d, "d");
         assert_eq!(d.rope.to_string(), "aef\n");
+    }
+
+    #[test]
+    fn registers_macros_and_marks() {
+        let mut v = Vim::new();
+        // "ayy then "Ayy: two lines in a; "ap puts them; the unnamed register has the last yank
+        let mut d = doc("one\ntwo\nthree\n", 0);
+        let out = keys(&mut v, &mut d, "\"ayy");
+        assert!(out.is_empty(), "a named register stays out of the clipboard");
+        keys(&mut v, &mut d, "j\"Ayy");
+        assert_eq!(v.register('a'), ("one\ntwo\n".to_string(), true));
+        keys(&mut v, &mut d, "G\"ap");
+        assert_eq!(d.rope.to_string(), "one\ntwo\nthree\none\ntwo\n");
+        // "_dd: deleted without touching the registers
+        keys(&mut v, &mut d, "gg\"_dd");
+        assert_eq!(v.register('"'), ("two\n".to_string(), true));
+        // "+p: the clipboard, read by the app
+        assert_eq!(keys(&mut v, &mut d, "\"+p"), vec![Out::PasteClipboard(true, 1)]);
+        v.put_text(&mut d, "X", true, 1);
+        assert_eq!(d.rope.to_string(), "tXwo\nthree\none\ntwo\n");
+        // a macro: qa A; <Esc> j q, then @a and @@
+        let mut v = Vim::new();
+        let mut d = doc("a\nb\nc\nd\n", 0);
+        keys(&mut v, &mut d, "qaA");
+        typed(&mut v, &mut d, ";");
+        keys(&mut v, &mut d, &format!("{ESC}jq"));
+        assert_eq!(v.recording(), None);
+        keys(&mut v, &mut d, "@a");
+        keys(&mut v, &mut d, "@@");
+        assert_eq!(d.rope.to_string(), "a;\nb;\nc;\nd\n");
+        // marks: ma, elsewhere, 'a back to its line, d'a deletes up to it
+        let mut v = Vim::new();
+        let mut d = doc("l0\n  l1\nl2\nl3\n", 0);
+        keys(&mut v, &mut d, "jmaG'a");
+        assert_eq!(head(&d), 5, "'a: the first non-blank of its line");
+        keys(&mut v, &mut d, "Gd'a");
+        assert_eq!(d.rope.to_string(), "l0\n");
+    }
+
+    #[test]
+    fn visual_block() {
+        let mut v = Vim::new();
+        let mut d = doc("abc\ndef\nghi\n", 0);
+        keys(&mut v, &mut d, &format!("{}jl", ctrl('v')));
+        assert_eq!(v.mode, Mode::VisualBlock);
+        assert_eq!(d.sels.len(), 2);
+        keys(&mut v, &mut d, "d");
+        assert_eq!(d.rope.to_string(), "c\nf\nghi\n");
+        assert_eq!(v.register('"'), ("ab\nde".to_string(), false));
+        // I: a cursor on each line, what is typed goes on all of them
+        let mut d = doc("x = 1\ny = 2\n", 0);
+        keys(&mut v, &mut d, &format!("{}jI", ctrl('v')));
+        assert_eq!((v.mode, d.sels.len()), (Mode::Insert, 2));
+        d.insert_text("# ", false);
+        keys(&mut v, &mut d, &ESC.to_string());
+        assert_eq!(d.rope.to_string(), "# x = 1\n# y = 2\n");
+        assert_eq!(d.sels.len(), 1);
+        let mut d = doc("ab\ncd\n", 0);
+        keys(&mut v, &mut d, &format!("{}jlrz", ctrl('v')));
+        assert_eq!(d.rope.to_string(), "zz\nzz\n");
     }
 
     #[test]

@@ -48,6 +48,8 @@ impl App {
             }
             self.vim.sync(d);
             let version = d.version;
+            // Ctrl+V arrives as a key and as a paste: one visual block for both
+            let mut ctrl_v = false;
             for (k, ev) in events.iter().enumerate() {
                 let key = match ev {
                     Event::Text(t) => {
@@ -57,11 +59,29 @@ impl App {
                         }
                         continue;
                     }
+                    // Ctrl+V comes as a paste: in normal mode, the visual block
+                    Event::Paste(_) => {
+                        consumed[k] = true;
+                        if !ctrl_v {
+                            ctrl_v = true;
+                            Some(vim::ctrl('v'))
+                        } else {
+                            None
+                        }
+                    }
                     Event::Key { key, pressed: true, modifiers, .. } => {
                         let ctrl = modifiers.ctrl || modifiers.command;
                         match key {
                             _ if ctrl && !modifiers.alt && !modifiers.shift => match key {
                                 Key::R | Key::D | Key::U | Key::F | Key::B => Some(vim::ctrl(key.name().chars().next().unwrap_or('r'))),
+                                Key::V if !ctrl_v => {
+                                    ctrl_v = true;
+                                    Some(vim::ctrl('v'))
+                                }
+                                Key::V => {
+                                    consumed[k] = true;
+                                    None
+                                }
                                 Key::OpenBracket => Some(vim::ESC),
                                 _ => None,
                             },
@@ -139,6 +159,14 @@ impl App {
                 }
             }
             Out::Close => self.close_tab(self.active, false),
+            Out::PasteClipboard(after, n) => match arboard::Clipboard::new().and_then(|mut c| c.get_text()) {
+                Ok(text) => {
+                    if let Some(d) = self.docs.get_mut(self.active) {
+                        self.vim.put_text(d, &text.replace("\r\n", "\n"), after, n);
+                    }
+                }
+                Err(e) => self.set_error(tf!("Presse-papiers illisible : {e}", "Cannot read the clipboard: {e}")),
+            },
         }
     }
 
@@ -318,6 +346,28 @@ mod tests {
         frame(&mut app, esc());
         assert_eq!(text(&app), "def f():\n    return 42\n", "Escape undoes the proposal");
         assert!(app.docs[app.active].proposal.is_none());
+
+        // ---- the results of a search changed in a tab, written back by Ctrl+S
+        let (m1, m2) = (dir.join("m1.py"), dir.join("m2.py"));
+        std::fs::write(&m1, "a = 1\nfoo = 2\nb = 3\nc = 4\n").unwrap();
+        std::fs::write(&m2, "foo()\n").unwrap();
+        let hit = |line: usize| crate::search::Hit { line, col: 0, len: 3, preview: String::new(), start: 0, end: 3 };
+        app.search.done.pattern = "foo".into();
+        app.search.files = vec![
+            crate::search::FileHits { path: m1.clone(), rel: "m1.py".into(), hits: vec![hit(1)], partial: false },
+            crate::search::FileHits { path: m2.clone(), rel: "m2.py".into(), hits: vec![hit(0)], partial: false },
+        ];
+        app.open_multibuffer();
+        assert_eq!(text(&app), "▌ m1.py:1\na = 1\nfoo = 2\nb = 3\n\n▌ m2.py:1\nfoo()\n");
+        let edited = text(&app).replace("foo = 2", "bar = 2\nbaz = 9").replace("foo()", "bar()");
+        app.docs[app.active].set_text(&edited);
+        // m2 changed meanwhile: left as it is
+        std::fs::write(&m2, "other()\n").unwrap();
+        assert!(app.save(app.active));
+        assert_eq!(std::fs::read_to_string(&m1).unwrap(), "a = 1\nbar = 2\nbaz = 9\nb = 3\nc = 4\n");
+        assert_eq!(std::fs::read_to_string(&m2).unwrap(), "other()\n");
+        assert!(!app.docs[app.active].is_dirty());
+        assert!(app.docs.iter().all(|d| d.path.as_ref() != Some(&m1)), "the file opened for it is closed again");
 
         // ---- inlay hints drawn while typing
         let d = &mut app.docs[app.active];

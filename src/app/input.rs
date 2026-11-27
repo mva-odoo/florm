@@ -589,6 +589,8 @@ impl App {
                 }
             }
             FindReferences => self.find_references(ctx),
+            CallsIncoming => self.call_hierarchy(ctx, true),
+            CallsOutgoing => self.call_hierarchy(ctx, false),
             ToggleBookmark | NextBookmark | PrevBookmark | ClearBookmarks => {
                 if let Some(d) = self.docs.get_mut(self.active).filter(|d| d.view == document::View::Text) {
                     let msg = match cmd {
@@ -631,7 +633,7 @@ impl App {
                 }
             }
             DebugStart | DebugStop | DebugRestart | DebugPause | DebugStepOver | DebugStepInto | DebugStepOut | DebugToggleBreakpoint | DebugClearBreakpoints | DebugTest | DebugShow | DebugConfigs
-            | DebugInstallDebugpy => self.debug_command(cmd),
+            | DebugInstallDebugpy | DebugBreakpointCondition | DebugWatchSelection => self.debug_command(cmd),
             InstallFlake8 => {
                 self.set_status(t!("Installation de flake8 (pip)…", "Installing flake8 (pip)…"));
                 self.log(format!("pip install --target {} flake8", lint::tools_dir().display()));

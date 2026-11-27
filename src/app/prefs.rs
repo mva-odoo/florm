@@ -598,6 +598,12 @@ impl App {
                 pref_row(ui, rc, t!("Mode Vim", "Vim mode"), t!("Les touches de Vim dans l'éditeur : modes normal, insertion et visuel, mouvements, opérateurs (d, c, y…), objets de texte (ciw, di\"…), . pour répéter, / et n pour chercher, :w, :q, :%s/a/b/g. Les raccourcis avec Ctrl restent ceux de Florm.", "The keys of Vim in the editor: normal, insert and visual modes, motions, operators (d, c, y…), text objects (ciw, di\"…), . to repeat, / and n to search, :w, :q, :%s/a/b/g. The shortcuts with Ctrl stay Florm's."), |ui| {
                     toggle_switch(ui, &mut s.vim_mode);
                 });
+                pref_row(ui, rc, t!("Coloration sémantique", "Semantic highlighting"), t!("Le serveur de langage colore ce que la syntaxe seule ne distingue pas : paramètres, propriétés, types, constantes, self (couleurs du thème).", "The language server colors what the syntax alone cannot tell apart: parameters, properties, types, constants, self (colors of the theme)."), |ui| {
+                    toggle_switch(ui, &mut s.semantic_highlighting);
+                });
+                pref_row(ui, rc, t!("Actions en bout de ligne (CodeLens)", "Code lenses"), t!("Ce que le serveur de langage propose sur une ligne (« ▶ Run », « 3 implémentations »…), en bout de ligne, cliquable.", "What the language server offers on a line (“▶ Run”, “3 implementations”…), at the end of the line, clickable."), |ui| {
+                    toggle_switch(ui, &mut s.code_lens);
+                });
                 pref_row(ui, rc, t!("Emmet", "Emmet"), t!("En HTML, JSX et XML, Tab après une abréviation écrit ses balises : ul>li.item*3, .card>h2+p, field[name=partner_id]. Tab passe ensuite d'un endroit à remplir au suivant.", "In HTML, JSX and XML, Tab after an abbreviation writes its tags: ul>li.item*3, .card>h2+p, field[name=partner_id]. Tab then goes from one place to fill to the next."), |ui| {
                     toggle_switch(ui, &mut s.emmet);
                 });
@@ -1237,6 +1243,8 @@ impl App {
             ("selection_highlight", s.selection_highlight, before.selection_highlight),
             ("hover_popover", s.hover_popover, before.hover_popover),
             ("inlay_hints", s.inlay_hints, before.inlay_hints),
+            ("semantic_highlighting", s.semantic_highlighting, before.semantic_highlighting),
+            ("code_lens", s.code_lens, before.code_lens),
             ("emmet", s.emmet, before.emmet),
             ("vim_mode", s.vim_mode, before.vim_mode),
             ("show_completions_on_input", s.show_completions_on_input, before.show_completions_on_input),

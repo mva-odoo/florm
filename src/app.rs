@@ -29,6 +29,7 @@ pub(crate) mod profile;
 mod ai_review;
 mod ai_complete;
 mod inline_ai;
+mod multibuffer;
 mod vim_keys;
 mod hints;
 mod mermaid;
@@ -318,6 +319,8 @@ enum Prompt {
     TestTags(String),
     /// The command line of Vim (`:w`, `:q`, `:%s/a/b/g`…), without its « : ».
     VimCommand,
+    /// The condition of the breakpoint of line `1` of document `0` (empty: a plain breakpoint).
+    BreakpointCondition(u64, usize),
 }
 
 use git::BranchPick;
@@ -338,6 +341,8 @@ enum Mode {
     Definitions(String),
     /// Where a symbol is used (language server).
     References(String),
+    /// The calls of a function (its title: who calls it, or what it calls).
+    Calls(String),
     Bookmarks,
     Prompt(Prompt),
     /// A list shown for an extension (its title).
@@ -621,6 +626,8 @@ struct SearchUi {
     colors: HashMap<(usize, usize), Vec<(Color32, std::ops::Range<usize>)>>,
     /// Syntax of each result file.
     syntaxes: HashMap<usize, String>,
+    /// « ✏ Modifier les résultats » clicked: the app opens them in a tab.
+    edit_request: bool,
 }
 
 /// Appends `text[a..b]` to `job` with the syntax colors of `spans` (byte ranges of `text`).
@@ -774,6 +781,18 @@ enum LspReq {
     References { word: String },
     /// The inlay hints of document `uid` at `version`.
     InlayHints { uid: u64, version: u64 },
+    /// The semantic tokens of document `uid` at `version`.
+    SemanticTokens { uid: u64, version: u64 },
+    /// The code lenses of document `uid` at `version`.
+    CodeLens { uid: u64, version: u64 },
+    /// One of them completed (codeLens/resolve): the lens at char `pos`.
+    LensResolve { uid: u64, version: u64, pos: usize },
+    /// The function under the cursor for its calls (`incoming`: who calls it), `word` its name.
+    CallPrepare { word: String, incoming: bool },
+    /// The calls of it.
+    Calls { word: String, incoming: bool },
+    /// The edits of the imports for the renaming `token` (workspace/willRenameFiles).
+    WillRename { token: u64 },
     /// Code actions for the corrections of document `uid`.
     CodeActions { uid: u64 },
     /// A code action sent without its edit, completed by the server.
@@ -906,6 +925,20 @@ struct LspUi {
     /// The words of each document (uid) for the suggestions without a server: (version, when
     /// read, words).
     words: HashMap<u64, (u64, Instant, Vec<String>)>,
+    /// Files being renamed (or moved), waiting for the servers to say which imports change.
+    renames: Vec<RenameOp>,
+    next_rename: u64,
+}
+
+/// A renaming waiting for the edits of the language servers (at most `RENAME_WAIT`).
+struct RenameOp {
+    token: u64,
+    old: PathBuf,
+    new: PathBuf,
+    /// Servers that have not answered yet.
+    waiting: usize,
+    edits: Vec<serde_json::Value>,
+    at: Instant,
 }
 
 pub struct App {

@@ -39,6 +39,8 @@ enum Pending {
     Scopes,
     Variables(i64),
     Evaluate,
+    /// The value of the watched expression `k`.
+    Watch(usize),
     Disconnect,
     Other,
 }
@@ -103,6 +105,12 @@ pub(super) struct DebugUi {
     configs_err: Option<String>,
     /// The breakpoints of the files closed (given back when they open again).
     saved: HashMap<PathBuf, Vec<usize>>,
+    /// Their conditions (line → condition).
+    saved_conds: HashMap<PathBuf, HashMap<usize, String>>,
+    /// The watched expressions and their value at the last stop (Err: the adapter's error).
+    pub(super) watches: Vec<(String, Option<Result<String, String>>)>,
+    /// The field of a new watched expression.
+    pub(super) watch_input: String,
     /// Started again once the session ends (⟳).
     restart: bool,
 }
@@ -138,6 +146,9 @@ impl Default for DebugUi {
             configs: Vec::new(),
             configs_err: None,
             saved: HashMap::new(),
+            saved_conds: HashMap::new(),
+            watches: Vec::new(),
+            watch_input: String::new(),
             restart: false,
         }
     }
@@ -202,20 +213,22 @@ impl App {
         (can, exec)
     }
 
-    /// The breakpoints of the files, open or not: (file, lines from 0).
-    fn all_breakpoints(&self) -> Vec<(PathBuf, Vec<usize>)> {
-        let mut out: Vec<(PathBuf, Vec<usize>)> = self.docs.iter().filter_map(|d| Some((d.path.clone()?, d.breakpoint_lines()))).filter(|(_, l)| !l.is_empty()).collect();
+    /// The breakpoints of the files, open or not: (file, lines from 0, their conditions).
+    fn all_breakpoints(&self) -> Vec<(PathBuf, Vec<usize>, HashMap<usize, String>)> {
+        let mut out: Vec<(PathBuf, Vec<usize>, HashMap<usize, String>)> =
+            self.docs.iter().filter_map(|d| Some((d.path.clone()?, d.breakpoint_lines(), d.breakpoint_conditions()))).filter(|(_, l, _)| !l.is_empty()).collect();
         for (p, lines) in &self.debug.saved {
             if !self.docs.iter().any(|d| d.path.as_ref() == Some(p)) && !lines.is_empty() {
-                out.push((p.clone(), lines.clone()));
+                out.push((p.clone(), lines.clone(), self.debug.saved_conds.get(p).cloned().unwrap_or_default()));
             }
         }
         out
     }
 
-    /// Tells the adapter the breakpoints of `path` (all of them for the file: the protocol replaces them).
-    fn send_breakpoints(&mut self, path: &Path, lines: &[usize]) {
-        let bps: Vec<Value> = lines.iter().map(|l| json!({"line": l + 1})).collect();
+    /// Tells the adapter the breakpoints of `path` (all of them for the file: the protocol replaces
+    /// them), with their condition (`log: …` a logpoint: the text written, `{x}` replaced).
+    fn send_breakpoints(&mut self, path: &Path, lines: &[usize], conds: &HashMap<usize, String>) {
+        let bps: Vec<Value> = lines.iter().map(|l| breakpoint_json(*l, conds.get(l).map(String::as_str))).collect();
         self.debug.request("setBreakpoints", json!({"source": {"path": path, "name": path.file_name().map(|n| n.to_string_lossy().into_owned())}, "breakpoints": bps}), Pending::Other);
     }
 
@@ -225,8 +238,10 @@ impl App {
             let lines = d.breakpoint_lines();
             if lines.is_empty() {
                 self.debug.saved.remove(&p);
+                self.debug.saved_conds.remove(&p);
             } else {
-                self.debug.saved.insert(p, lines);
+                self.debug.saved.insert(p.clone(), lines);
+                self.debug.saved_conds.insert(p, d.breakpoint_conditions());
             }
         }
     }
@@ -234,6 +249,10 @@ impl App {
     /// Each frame: the breakpoints given back or changed, the messages of the adapter.
     pub(super) fn debug_frame(&mut self, _ctx: &egui::Context) {
         let live = self.debug.session.is_some() && matches!(self.debug.phase, Phase::Running | Phase::Stopped);
+        // right click in the column of the breakpoints: the field of its condition
+        if let Some((uid, line)) = self.docs.iter_mut().find_map(|d| d.bp_condition_request.take().map(|l| (d.uid, l))) {
+            self.open_prompt(Prompt::BreakpointCondition(uid, line));
+        }
         let mut changed = Vec::new();
         for d in self.docs.iter_mut() {
             if !d.breakpoints_loaded {
@@ -241,21 +260,26 @@ impl App {
                 if let Some(lines) = d.path.as_ref().and_then(|p| self.debug.saved.get(p)) {
                     d.set_breakpoint_lines(lines);
                 }
+                if let Some(conds) = d.path.as_ref().and_then(|p| self.debug.saved_conds.get(p)) {
+                    d.set_breakpoint_conditions(conds);
+                }
             }
             if std::mem::take(&mut d.breakpoints_changed) {
                 if let Some(p) = d.path.clone() {
-                    changed.push((p, d.breakpoint_lines()));
+                    changed.push((p, d.breakpoint_lines(), d.breakpoint_conditions()));
                 }
             }
         }
-        for (p, lines) in changed {
+        for (p, lines, conds) in changed {
             if lines.is_empty() {
                 self.debug.saved.remove(&p);
+                self.debug.saved_conds.remove(&p);
             } else {
                 self.debug.saved.insert(p.clone(), lines.clone());
+                self.debug.saved_conds.insert(p.clone(), conds.clone());
             }
             if live {
-                self.send_breakpoints(&p, &lines);
+                self.send_breakpoints(&p, &lines, &conds);
             }
         }
         while let Ok(m) = self.debug.rx.try_recv() {
@@ -271,6 +295,11 @@ impl App {
                     let msg = if message.is_empty() { body["error"]["format"].as_str().unwrap_or("").to_string() } else { message };
                     match what {
                         Pending::Evaluate => self.debug.log(Line::Err, msg),
+                        Pending::Watch(k) => {
+                            if let Some(w) = self.debug.watches.get_mut(k) {
+                                w.1 = Some(Err(msg));
+                            }
+                        }
                         Pending::Launch | Pending::Initialize => {
                             self.debug.log(Line::Err, tf!("Le programme n'a pas démarré : {msg}", "The program did not start: {msg}"));
                             self.set_error(tf!("Débogueur : {msg}", "Debugger: {msg}"));
@@ -322,14 +351,19 @@ impl App {
                         let r = body["result"].as_str().unwrap_or("").to_string();
                         self.debug.log(Line::Out, r);
                     }
+                    Pending::Watch(k) => {
+                        if let Some(w) = self.debug.watches.get_mut(k) {
+                            w.1 = Some(Ok(body["result"].as_str().unwrap_or("").to_string()));
+                        }
+                    }
                     Pending::Disconnect => self.debug.ended(),
                     Pending::Other => {}
                 }
             }
             Msg::Event { event, body } => match event.as_str() {
                 "initialized" => {
-                    for (p, lines) in self.all_breakpoints() {
-                        self.send_breakpoints(&p, &lines);
+                    for (p, lines, conds) in self.all_breakpoints() {
+                        self.send_breakpoints(&p, &lines, &conds);
                     }
                     if self.debug.caps["supportsConfigurationDoneRequest"].as_bool().unwrap_or(false) {
                         self.debug.request("configurationDone", json!({}), Pending::Other);
@@ -425,6 +459,32 @@ impl App {
             }
         }
         self.debug.request("scopes", json!({"frameId": f.id}), Pending::Scopes);
+        self.debug_eval_watches();
+    }
+
+    /// The watched expressions evaluated in the frame shown (at each stop, or a frame chosen).
+    pub(super) fn debug_eval_watches(&mut self) {
+        if self.debug.phase != Phase::Stopped {
+            return;
+        }
+        let frame = self.debug.selected().map(|f| f.id);
+        for k in 0..self.debug.watches.len() {
+            let mut args = json!({"expression": self.debug.watches[k].0, "context": "watch"});
+            if let Some(f) = frame {
+                args["frameId"] = json!(f);
+            }
+            self.debug.request("evaluate", args, Pending::Watch(k));
+        }
+    }
+
+    /// A watched expression added (the selection, the panel), evaluated at once when stopped.
+    pub(super) fn debug_add_watch(&mut self, expr: String) {
+        let expr = expr.trim().to_string();
+        if expr.is_empty() || self.debug.watches.iter().any(|w| w.0 == expr) {
+            return;
+        }
+        self.debug.watches.push((expr, None));
+        self.debug_eval_watches();
     }
 
     /// The configurations of the project read again (`.florm/debug.toml`, in a trusted folder).
@@ -738,6 +798,24 @@ impl App {
                     self.set_status(if on { tf!("● Point d'arrêt ligne {}", "● Breakpoint line {}", line + 1) } else { tf!("Point d'arrêt enlevé ligne {}", "Breakpoint taken away line {}", line + 1) });
                 }
             }
+            Cmd::DebugBreakpointCondition => {
+                if let Some(d) = self.docs.get(self.active).filter(|d| d.path.is_some() && d.view == document::View::Text) {
+                    let line = d.rope.char_to_line(d.primary_sel().head);
+                    let uid = d.uid;
+                    self.open_prompt(Prompt::BreakpointCondition(uid, line));
+                }
+            }
+            Cmd::DebugWatchSelection => {
+                let Some(d) = self.docs.get(self.active) else { return };
+                let s = d.primary_sel();
+                let expr = if s.is_empty() { d.symbol_at(s.head).map(|(a, b)| d.slice(a, b)).unwrap_or_default() } else { d.slice(s.start(), s.end()) };
+                if expr.trim().is_empty() {
+                    self.set_status(t!("Rien à surveiller : sélectionne une expression", "Nothing to watch: select an expression"));
+                } else {
+                    self.set_status(tf!("Surveillée : {}", "Watched: {}", expr.trim()));
+                    self.debug_add_watch(expr);
+                }
+            }
             Cmd::DebugClearBreakpoints => {
                 for d in self.docs.iter_mut().filter(|d| !d.breakpoints.is_empty()) {
                     d.breakpoints.clear();
@@ -745,9 +823,10 @@ impl App {
                 }
                 let saved: Vec<PathBuf> = self.debug.saved.keys().cloned().collect();
                 self.debug.saved.clear();
+                self.debug.saved_conds.clear();
                 if self.debug.session.is_some() {
                     for p in saved {
-                        self.send_breakpoints(&p, &[]);
+                        self.send_breakpoints(&p, &[], &HashMap::new());
                     }
                 }
             }
@@ -874,5 +953,31 @@ mod tests {
         assert_eq!((app.debug.cmd.as_str(), app.debug.choice.as_str()), ("./odoo-bin -d test -u stock", "cmd"));
         assert_eq!(app.debug_history().len(), 2);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// A breakpoint for the adapter: its line (from 1), its condition, or the text of a logpoint
+/// (`log: total = {total}`).
+fn breakpoint_json(line: usize, cond: Option<&str>) -> Value {
+    let mut bp = json!({"line": line + 1});
+    match cond.map(str::trim).filter(|c| !c.is_empty()) {
+        Some(c) => match c.strip_prefix("log:") {
+            Some(text) => bp["logMessage"] = json!(text.trim()),
+            None => bp["condition"] = json!(c),
+        },
+        None => {}
+    }
+    bp
+}
+
+#[cfg(test)]
+mod breakpoint_tests {
+    use super::*;
+
+    #[test]
+    fn conditions_and_logpoints() {
+        assert_eq!(breakpoint_json(4, None), json!({"line": 5}));
+        assert_eq!(breakpoint_json(4, Some(" x > 3 ")), json!({"line": 5, "condition": "x > 3"}));
+        assert_eq!(breakpoint_json(0, Some("log: total = {total}")), json!({"line": 1, "logMessage": "total = {total}"}));
     }
 }

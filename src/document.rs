@@ -220,6 +220,11 @@ pub struct Document {
     pub bookmarks: Vec<usize>,
     /// Breakpoints of the debugger, kept like the bookmarks (char position of their line start).
     pub breakpoints: Vec<usize>,
+    /// The conditions of breakpoints (`x > 3`, or `log: text {x}` for a logpoint): (start of their
+    /// line, text), moved by the edits like the breakpoints.
+    pub bp_conds: Vec<(usize, String)>,
+    /// Right click in the column of the breakpoints: the app asks the condition of this line.
+    pub bp_condition_request: Option<usize>,
     /// A breakpoint was put or taken away in the gutter: the debugger tells its adapter.
     pub breakpoints_changed: bool,
     /// The breakpoints kept for this file (closed and opened again) were given back.
@@ -243,6 +248,18 @@ pub struct Document {
     pub inlays: Vec<(usize, String)>,
     /// The version of the text the inlay hints were last asked for.
     pub inlays_asked: Option<u64>,
+    /// Semantic tokens of the language server: (start char, end char, kind of
+    /// `lsp::semantic_kind`), sorted; moved and dropped by the edits like the inlay hints.
+    pub semantic: Vec<(usize, usize, u8)>,
+    pub semantic_asked: Option<u64>,
+    /// Code lenses of the language server (« ▶ Run », « 3 implementations »): (char position, the
+    /// lens as the server sent it, its title and command once known), moved like the inlay hints.
+    pub lenses: Vec<(usize, serde_json::Value, Option<(String, serde_json::Value)>)>,
+    pub lenses_asked: Option<u64>,
+    /// A lens clicked (its index in `lenses`): the app runs it.
+    pub lens_click: Option<usize>,
+    /// A tab of excerpts of several files (the results of a search) whose changes go back to them on Ctrl+S.
+    pub multi: Option<Vec<Excerpt>>,
     /// The snippet being filled: Tab goes to its next place, Shift+Tab back.
     pub snippet: Option<SnippetSession>,
     /// What Claude wrote for an inline edit (Ctrl+I), already in the text: kept or undone.
@@ -261,6 +278,62 @@ pub struct Document {
 }
 
 pub const NO_PANE: u8 = u8::MAX;
+
+/// An excerpt of a file in a tab of excerpts: its first line (from 0) and its lines as they were.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Excerpt {
+    pub path: PathBuf,
+    pub rel: String,
+    pub start: usize,
+    pub lines: Vec<String>,
+}
+
+impl Excerpt {
+    /// The line that starts it in the tab (not to be changed).
+    pub fn header(&self) -> String {
+        format!("▌ {}:{}", self.rel, self.start + 1)
+    }
+}
+
+/// The new lines of each excerpt in the text of a tab of excerpts. Err: a header was changed or removed.
+pub fn split_excerpts(text: &str, excerpts: &[Excerpt]) -> Result<Vec<Vec<String>>, String> {
+    let lines: Vec<&str> = text.strip_suffix('\n').unwrap_or(text).split('\n').collect();
+    let heads: Vec<usize> = lines.iter().enumerate().filter(|(_, l)| l.starts_with("▌ ")).map(|(k, _)| k).collect();
+    if heads.len() != excerpts.len() || heads.first() != Some(&0) && !excerpts.is_empty() {
+        return Err(crate::t!("une ligne « ▌ fichier:ligne » a été changée ou enlevée", "a line “▌ file:line” was changed or removed").into());
+    }
+    let mut out = Vec::new();
+    for (k, e) in excerpts.iter().enumerate() {
+        if lines[heads[k]] != e.header() {
+            return Err(crate::tf!("l'en-tête « {} » a été changé", "the header “{}” was changed", e.header()));
+        }
+        let end = heads.get(k + 1).copied().unwrap_or(lines.len());
+        // the empty line kept between two excerpts is not theirs
+        let mut body: Vec<String> = lines[heads[k] + 1..end].iter().map(|s| s.to_string()).collect();
+        if k + 1 < excerpts.len() && body.last().is_some_and(|l| l.is_empty()) {
+            body.pop();
+        }
+        out.push(body);
+    }
+    Ok(out)
+}
+
+/// The text of a tab of excerpts.
+pub fn join_excerpts(excerpts: &[Excerpt]) -> String {
+    let mut t = String::new();
+    for (k, e) in excerpts.iter().enumerate() {
+        if k > 0 {
+            t.push('\n');
+        }
+        t.push_str(&e.header());
+        t.push('\n');
+        for l in &e.lines {
+            t.push_str(l);
+            t.push('\n');
+        }
+    }
+    t
+}
 
 /// An inline edit of Claude put in the text: chars `start..end` replaced `old`; the request
 /// (asked again by ↻). Kept by any other change of the text (`version` is the text with it).
@@ -818,6 +891,8 @@ impl Document {
             hidden_cache: Default::default(),
             bookmarks: Vec::new(),
             breakpoints: Vec::new(),
+            bp_conds: Vec::new(),
+            bp_condition_request: None,
             breakpoints_changed: false,
             breakpoints_loaded: false,
             find_scope: None,
@@ -829,6 +904,12 @@ impl Document {
             ghost: None,
             inlays: Vec::new(),
             inlays_asked: None,
+            semantic: Vec::new(),
+            semantic_asked: None,
+            lenses: Vec::new(),
+            lenses_asked: None,
+            lens_click: None,
+            multi: None,
             snippet: None,
             proposal: None,
             ai_lines: None,
@@ -891,6 +972,11 @@ impl Document {
             .and_then(|p| p.file_name())
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| t!("sans titre", "untitled").into())
+    }
+
+    /// The text as it is now counts as saved (a tab of excerpts written back to its files).
+    pub fn mark_saved(&mut self) {
+        self.saved_content = self.content_id;
     }
 
     pub fn is_dirty(&self) -> bool {
@@ -1066,6 +1152,17 @@ impl Document {
         let a = self.inlays.partition_point(|h| h.0 < start);
         let b = self.inlays.partition_point(|h| h.0 < end);
         &self.inlays[a..b]
+    }
+
+    /// The semantic tokens of line `line`, as (start column, end column, kind).
+    pub fn semantic_on(&self, line: usize) -> Vec<(usize, usize, u8)> {
+        if self.semantic.is_empty() || line >= self.rope.len_lines() {
+            return Vec::new();
+        }
+        let start = self.rope.line_to_char(line);
+        let end = start + self.line_len(line);
+        let a = self.semantic.partition_point(|t| t.0 < start);
+        self.semantic[a..].iter().take_while(|t| t.0 < end).map(|&(s, e, k)| (s - start, e.min(end) - start, k)).collect()
     }
 
     /// The inlay hints at the end of line `line` (after its last char).
@@ -1364,8 +1461,9 @@ impl Document {
     /// Applies sorted, non-overlapping replacements. Returns the new start of each one.
     fn apply(&mut self, edits: &mut [(usize, usize, String)]) -> Vec<usize> {
         let len = self.rope.len_chars();
-        // the inlay hints of the lines changed are dropped (asked again after a pause), the others move
-        if !self.inlays.is_empty() {
+        // the inlay hints and semantic tokens of the lines changed are dropped (asked again after a
+        // pause), the others move
+        if !self.inlays.is_empty() || !self.semantic.is_empty() || !self.lenses.is_empty() {
             let mut prev = 0;
             let changed: Vec<(usize, usize)> = edits
                 .iter()
@@ -1378,12 +1476,14 @@ impl Document {
                 })
                 .collect();
             let spans: Vec<(usize, usize, usize)> = edits.iter().map(|(s, e, t)| (*s, *e, t.chars().count())).collect();
-            let kept: Vec<(usize, String)> = std::mem::take(&mut self.inlays)
-                .into_iter()
-                .filter(|(p, _)| !changed.iter().any(|(a, b)| p >= a && p <= b))
-                .map(|(p, t)| (map_pos(p, &spans), t))
-                .collect();
+            let hit = |p: usize| changed.iter().any(|(a, b)| p >= *a && p <= *b);
+            let kept: Vec<(usize, String)> = std::mem::take(&mut self.inlays).into_iter().filter(|(p, _)| !hit(*p)).map(|(p, t)| (map_pos(p, &spans), t)).collect();
             self.inlays = kept;
+            let sem: Vec<(usize, usize, u8)> =
+                std::mem::take(&mut self.semantic).into_iter().filter(|(a, b, _)| !hit(*a) && !hit(*b)).map(|(a, b, k)| (map_pos(a, &spans), map_pos(b, &spans), k)).collect();
+            self.semantic = sem;
+            let lenses: Vec<_> = std::mem::take(&mut self.lenses).into_iter().filter(|l| !hit(l.0)).map(|(p, v, c)| (map_pos(p, &spans), v, c)).collect();
+            self.lenses = lenses;
         }
         let mut delta: isize = 0;
         let mut prev_end = 0;
@@ -1434,6 +1534,17 @@ impl Document {
                 let (a, b) = (map_pos_left(r.0, &spans), map_pos(r.1, &spans));
                 *r = (a, b.max(a));
             }
+        }
+        if !self.bp_conds.is_empty() {
+            let spans: Vec<(usize, usize, usize)> = edits.iter().map(|(s, e, t)| (*s, *e, t.chars().count())).collect();
+            let len = self.rope.len_chars();
+            let mut c: Vec<(usize, String)> = std::mem::take(&mut self.bp_conds)
+                .into_iter()
+                .map(|(p, t)| (self.rope.line_to_char(self.rope.char_to_line(map_pos(p, &spans).min(len))), t))
+                .collect();
+            c.sort_by_key(|x| x.0);
+            c.dedup_by_key(|x| x.0);
+            self.bp_conds = c;
         }
         for marks in [&mut self.bookmarks, &mut self.breakpoints] {
             if marks.is_empty() {
@@ -2735,12 +2846,49 @@ impl Document {
         self.breakpoints.dedup();
     }
 
+    /// The conditions of the breakpoints: line → condition (only lines with a breakpoint).
+    pub fn breakpoint_conditions(&self) -> std::collections::HashMap<usize, String> {
+        let lines = self.breakpoint_lines();
+        let len = self.len();
+        self.bp_conds.iter().map(|(p, c)| (self.rope.char_to_line((*p).min(len)), c.clone())).filter(|(l, _)| lines.contains(l)).collect()
+    }
+
+    /// The condition of the breakpoint of `line` (one is put there if needed); empty: a plain breakpoint.
+    pub fn set_breakpoint_condition(&mut self, line: usize, cond: &str) {
+        if line >= self.rope.len_lines() {
+            return;
+        }
+        let at = self.rope.line_to_char(line);
+        self.bp_conds.retain(|(p, _)| *p != at);
+        if !cond.trim().is_empty() {
+            self.bp_conds.push((at, cond.trim().to_string()));
+            self.bp_conds.sort_by_key(|x| x.0);
+        }
+        if !self.breakpoint_lines().contains(&line) {
+            let mut lines = self.breakpoint_lines();
+            lines.push(line);
+            lines.sort_unstable();
+            self.set_breakpoint_lines(&lines);
+        }
+        self.breakpoints_changed = true;
+    }
+
+    /// Conditions given back (a file opened again).
+    pub fn set_breakpoint_conditions(&mut self, conds: &std::collections::HashMap<usize, String>) {
+        let n = self.rope.len_lines();
+        self.bp_conds = conds.iter().filter(|(l, _)| **l < n).map(|(l, c)| (self.rope.line_to_char(*l), c.clone())).collect();
+        self.bp_conds.sort_by_key(|x| x.0);
+    }
+
     /// Puts or takes away the breakpoint of `line`; true when there is one now.
     pub fn toggle_breakpoint(&mut self, line: usize) -> bool {
         let mut lines = self.breakpoint_lines();
         let on = match lines.iter().position(|&l| l == line) {
             Some(i) => {
                 lines.remove(i);
+                // its condition goes with it
+                let at = self.rope.line_to_char(line);
+                self.bp_conds.retain(|(p, _)| *p != at);
                 false
             }
             None => {
@@ -3259,6 +3407,26 @@ fn read_text(path: &Path) -> Result<(String, Encoding), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn breakpoint_conditions_follow_the_lines() {
+        let mut d = Document::from_text(1, "a\nb\nc\n", 4, true);
+        d.set_breakpoint_condition(2, "x > 3");
+        assert_eq!(d.breakpoint_lines(), vec![2], "a breakpoint put with its condition");
+        assert!(std::mem::take(&mut d.breakpoints_changed));
+        // a line inserted above: the breakpoint and its condition go down
+        d.sels = vec![Sel::cursor(0)];
+        d.insert_text("new\n", false);
+        assert_eq!(d.breakpoint_conditions().get(&3).map(String::as_str), Some("x > 3"));
+        // empty: a plain breakpoint; taken away: its condition goes with it
+        d.set_breakpoint_condition(3, "log: {x}");
+        d.set_breakpoint_condition(3, " ");
+        assert!(d.breakpoint_conditions().is_empty() && d.breakpoint_lines() == vec![3]);
+        d.set_breakpoint_condition(3, "y");
+        d.toggle_breakpoint(3);
+        d.toggle_breakpoint(3);
+        assert!(d.breakpoint_conditions().is_empty());
+    }
 
     #[test]
     fn a_snippet_is_filled_place_after_place() {

@@ -183,6 +183,7 @@ impl App {
             Prompt::OpenFolder => with_sep(&root),
             Prompt::OpenFile | Prompt::CompareWith => with_sep(&root),
             Prompt::TestTags(draft) => draft.clone(),
+            Prompt::BreakpointCondition(uid, line) => self.docs.iter().find(|d| d.uid == *uid).and_then(|d| d.breakpoint_conditions().get(line).cloned()).unwrap_or_default(),
             Prompt::SaveAs => match self.docs.get(self.active).and_then(|d| d.path.clone()) {
                 Some(path) => path.display().to_string(),
                 None => with_sep(&root),
@@ -230,12 +231,14 @@ impl App {
             Mode::Symbols => t!("Aller au symbole   (classe, fonction, méthode, record XML, titre…)", "Go to symbol   (class, function, method, XML record, heading…)").into(),
             Mode::Definitions(w) => tf!("Définitions de « {w} »", "Definitions of “{w}”"),
             Mode::References(w) => tf!("Usages de « {w} »", "Usages of “{w}”"),
+            Mode::Calls(title) => title.clone(),
             Mode::Bookmarks => t!("Signets", "Bookmarks").into(),
             Mode::ExtPick(title) => title.clone(),
             Mode::Prompt(p) => match p {
                 Prompt::OpenFolder => t!("Ouvrir le dossier", "Open the folder").into(),
                 Prompt::OpenFile => t!("Ouvrir le fichier", "Open the file").into(),
                 Prompt::CompareWith => t!("Comparer le fichier avec   (un fichier, ou un dossier pour comparer son dossier ; Tab complète)", "Compare the file with   (a file, or a folder to compare its folder; Tab completes)").into(),
+                Prompt::BreakpointCondition(_, l) => tf!("Condition du point d'arrêt ligne {}   (ex. partner.id == 42 ; « log: total = {{total}} » écrit sans s'arrêter ; vide : toujours)", "Condition of the breakpoint line {}   (e.g. partner.id == 42; “log: total = {{total}}” writes without stopping; empty: always)", l + 1),
                 Prompt::VimCommand => t!(":   (w enregistrer, q fermer, wq, 42 aller à la ligne, s/a/b/g sur la ligne, %s/a/b/g partout)", ":   (w save, q close, wq, 42 go to line, s/a/b/g on the line, %s/a/b/g everywhere)").into(),
                 Prompt::TestTags(_) => t!("Tests à lancer   (une commande : pytest …, cargo test …, go test …, npx jest … ; Entrée lance)", "Tests to run   (a command: pytest …, cargo test …, go test …, npx jest …; Enter runs)").into(),
                 Prompt::SaveAs => t!("Enregistrer sous", "Save as").into(),
@@ -680,7 +683,8 @@ impl App {
 
     pub(super) fn submit_prompt(&mut self, p: Prompt, text: String) {
         let text = text.trim().to_string();
-        if text.is_empty() {
+        // an empty condition makes the breakpoint a plain one again
+        if text.is_empty() && !matches!(p, Prompt::BreakpointCondition(..)) {
             return;
         }
         match p {
@@ -699,6 +703,11 @@ impl App {
             }
             Prompt::TestTags(_) => self.run_tests(text),
             Prompt::VimCommand => self.vim_command(&text),
+            Prompt::BreakpointCondition(uid, line) => {
+                if let Some(d) = self.docs.iter_mut().find(|d| d.uid == uid) {
+                    d.set_breakpoint_condition(line, &text);
+                }
+            }
             Prompt::CompareWith => {
                 let path = self.resolve(PathBuf::from(&text));
                 self.compare_with(path);
@@ -763,13 +772,8 @@ impl App {
                     self.open_overlay_with(Mode::Prompt(Prompt::Rename(old)), Vec::new(), text);
                     return;
                 }
-                match std::fs::rename(&old, &new) {
-                    Ok(()) => {
-                        self.relocate_docs(&old, &new);
-                        self.exec_refresh_tree();
-                    }
-                    Err(e) => self.set_error(tf!("Renommage de {} impossible : {e}", "Cannot rename {}: {e}", old.display())),
-                }
+                // the imports that name it changed first by the language server
+                self.rename_entry(old, new);
             }
             Prompt::NewBranch if !ref_name_ok(&text) => self.set_error(t!("Nom de branche refusé : il ne doit pas commencer par « - »", "Branch name refused: it must not start with “-”")),
             Prompt::NewBranch => self.git_job("checkout -b", &["checkout", "-b", &text]),

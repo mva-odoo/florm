@@ -12,6 +12,8 @@ enum Act {
     Frame(usize),
     Toggle(i64),
     Evaluate(String),
+    AddWatch(String),
+    RemoveWatch(usize),
     Clear,
     /// The folder of the command chosen in the dialog of the system.
     PickDir,
@@ -39,6 +41,7 @@ impl App {
         let mut input = std::mem::take(&mut self.debug.input);
         let mut cmd = std::mem::take(&mut self.debug.cmd);
         let mut cmd_dir = std::mem::take(&mut self.debug.cmd_dir);
+        let mut watch_input = std::mem::take(&mut self.debug.watch_input);
         let root = self.root.clone();
         let d = &self.debug;
         // --- the bar: what to run, the buttons, where it is
@@ -217,6 +220,27 @@ impl App {
             });
         });
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(fill).inner_margin(egui::Margin::same(8))).show(ui, |ui| {
+            // the watched expressions, evaluated at each stop
+            ui.label(RichText::new(t!("SURVEILLÉES", "WATCH")).small().strong().color(ui.visuals().weak_text_color()));
+            for (k, (expr, value)) in d.watches.iter().enumerate() {
+                ui.horizontal(|ui| {
+                    if ui.small_button("×").on_hover_text(t!("Ne plus la surveiller", "Stop watching it")).clicked() {
+                        act = Some(Act::RemoveWatch(k));
+                    }
+                    ui.label(RichText::new(expr).monospace().color(accent));
+                    let v = match value {
+                        Some(Ok(v)) => RichText::new(format!("= {v}")).monospace(),
+                        Some(Err(e)) => RichText::new(format!("⚠ {e}")).monospace().color(err()),
+                        None => RichText::new(t!("(à l'arrêt suivant)", "(at the next stop)")).weak(),
+                    };
+                    ui.add(egui::Label::new(v).truncate());
+                });
+            }
+            let r = ui.add(egui::TextEdit::singleline(&mut watch_input).frame(field_frame).hint_text(t!("+ Expression à surveiller (Entrée)", "+ Expression to watch (Enter)")).font(egui::TextStyle::Monospace).desired_width(f32::INFINITY));
+            if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !watch_input.trim().is_empty() {
+                act = Some(Act::AddWatch(std::mem::take(&mut watch_input)));
+            }
+            ui.add_space(6.0);
             ui.label(RichText::new(t!("VARIABLES", "VARIABLES")).small().strong().color(ui.visuals().weak_text_color()));
             egui::ScrollArea::both().id_salt("debug_vars_scroll").auto_shrink([false, false]).show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 1.0;
@@ -238,6 +262,7 @@ impl App {
         self.debug.input = input;
         self.debug.cmd = cmd;
         self.debug.cmd_dir = cmd_dir;
+        self.debug.watch_input = watch_input;
         let Some(a) = act else { return };
         match a {
             Act::Recall(c, dir) => {
@@ -256,6 +281,12 @@ impl App {
                 }
             }
             Act::Evaluate(e) => self.debug_evaluate(e),
+            Act::AddWatch(e) => self.debug_add_watch(e),
+            Act::RemoveWatch(k) => {
+                if k < self.debug.watches.len() {
+                    self.debug.watches.remove(k);
+                }
+            }
             Act::Clear => self.debug.console.clear(),
             Act::PickDir => self.file_dialog(crate::os::Pick::DebugDir),
         }

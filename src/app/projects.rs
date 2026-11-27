@@ -356,15 +356,9 @@ impl App {
             self.set_error(tf!("Déplacement impossible : {} existe déjà", "Cannot move: {} already exists", dest.display()));
             return;
         }
-        match std::fs::rename(&src, &dest) {
-            Ok(()) => {
-                self.relocate_docs(&src, &dest);
-                self.log(tf!("Déplacé : {} → {}", "Moved: {} → {}", src.display(), dest.display()));
-                self.set_status(tf!("Déplacé vers {}", "Moved to {}", dir.display()));
-                self.exec_refresh_tree();
-            }
-            Err(e) => self.set_error(tf!("Déplacement impossible : {e}", "Cannot move: {e}")),
-        }
+        self.log(tf!("Déplacé : {} → {}", "Moved: {} → {}", src.display(), dest.display()));
+        // the imports that name it changed first by the language server
+        self.rename_entry(src, dest);
     }
 
     /// Put a file or folder of the tree on the system clipboard (as the file manager does).

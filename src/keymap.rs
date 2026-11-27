@@ -86,6 +86,7 @@ fn key_from_name(n: &str) -> Option<Key> {
 const DEFAULTS: &[(&str, &str)] = &[
     ("ctrl+shift+p", "command_palette"),
     ("ctrl+i", "claude_inline_edit"),
+    ("shift+alt+h", "calls_incoming"),
     ("f1", "command_palette"),
     ("ctrl+p", "quick_open"),
     ("ctrl+g", "goto_line"),
@@ -192,6 +193,7 @@ const DEFAULTS: &[(&str, &str)] = &[
     ("shift+f5", "debug_stop"),
     ("ctrl+shift+f5", "debug_restart"),
     ("f9", "debug_toggle_breakpoint"),
+    ("shift+f9", "debug_breakpoint_condition"),
     ("f10", "debug_step_over"),
     ("f11", "debug_step_into"),
     ("shift+f11", "debug_step_out"),

@@ -243,9 +243,12 @@ fn bracket_color(level: u32, light: bool) -> Color32 {
 /// `from`: (char of the line, its visual column) to start reading at, before `vstart` (a row of a
 /// wrapped line: not the whole line before it).
 #[allow(clippy::too_many_arguments)]
-fn line_job(doc: &Document, l: usize, font: &FontId, fg: Color32, vstart: usize, vend: usize, brackets: &[(usize, Color32)], from: (usize, usize)) -> (Option<usize>, LayoutJob) {
+fn line_job(doc: &Document, l: usize, font: &FontId, fg: Color32, vstart: usize, vend: usize, brackets: &[(usize, Color32)], from: (usize, usize), sem_colors: &[Option<Color32>]) -> (Option<usize>, LayoutJob) {
     let ts = doc.tab_size;
     let spans = doc.highlight.spans(l);
+    // semantic tokens of the language server over the colors of the syntax
+    let sem = doc.semantic_on(l);
+    let mut si_sem = 0usize;
     let mut job = LayoutJob::default();
     let mut buf = String::new();
     let mut cur = fg;
@@ -294,6 +297,11 @@ fn line_job(doc: &Document, l: usize, font: &FontId, fg: Color32, vstart: usize,
                 sp.get(si).map(|s| s.0)
             })
             .unwrap_or(fg);
+        let col = idx - 1;
+        while si_sem < sem.len() && sem[si_sem].1 <= col {
+            si_sem += 1;
+        }
+        let color = sem.get(si_sem).filter(|t| t.0 <= col).and_then(|t| sem_colors.get(t.2 as usize).copied().flatten()).unwrap_or(color);
         let color = bracket.unwrap_or(color);
         let w = if ch == '\t' { ts - t % ts } else { 1 };
         if v >= vend {
@@ -527,6 +535,12 @@ fn text_area(
         });
         // a click on a pinned line goes to it (not to the line hidden under it)
         let on_sticky = ptr.is_some_and(|p| !sticky.is_empty() && p.y >= sticky_top && p.y < sticky_top + sticky_h);
+        // right click in the column of the breakpoints: its condition (the app asks it)
+        if opts.debug && resp.secondary_clicked() {
+            if let Some(p) = resp.interact_pointer_pos().filter(|p| p.x >= gx + bp_x && p.x < gx + bp_x + bp_w) {
+                doc.bp_condition_request = Some(rm.line_at_row(((p.y - origin.y) / rh).floor().max(0.0) as usize, nlines));
+            }
+        }
         if on_sticky && pressed && resp.hovered() {
             let k = ((ptr.unwrap().y - sticky_top) / rh) as usize;
             if let Some(&l) = sticky.get(k) {
@@ -728,7 +742,10 @@ fn text_area(
                         msgs.push(t!("✳ Clic : ajouter cette ligne (ou les lignes sélectionnées) au contexte de Claude", "✳ Click: add this line (or the selected lines) to Claude's context").into());
                     } else if opts.debug && p.x >= gx + bp_x && p.x < gx + bp_x + bp_w {
                         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
-                        msgs.push(t!("● Clic : mettre ou enlever un point d'arrêt (F9) ; F5 lance le débogueur", "● Click: put or take away a breakpoint (F9); F5 starts the debugger").into());
+                        if let Some(c) = doc.breakpoint_conditions().get(&l) {
+                            msgs.push(tf!("Condition : {c}", "Condition: {c}"));
+                        }
+                        msgs.push(t!("● Clic : mettre ou enlever un point d'arrêt (F9) ; clic droit : sa condition ; F5 lance le débogueur", "● Click: put or take away a breakpoint (F9); right click: its condition; F5 starts the debugger").into());
                     } else if let Some(tags) = test_at(l).filter(|_| p.x >= gx + test_x && p.x < gx + test_x + test_w) {
                         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
                         msgs.push(tf!("▶ Clic : lancer « {tags} » (Ctrl+F6 : relancer)", "▶ Click: run “{tags}” (Ctrl+F6: run again)"));
@@ -1178,7 +1195,7 @@ fn text_area(
             }
             match wraps.of(l) {
                 None => {
-                    let (start_v, job) = line_job(doc, l, font, c.fg, vstart, vend, &brackets, line_from(doc, l, vstart));
+                    let (start_v, job) = line_job(doc, l, font, c.fg, vstart, vend, &brackets, line_from(doc, l, vstart), &hl.semantic);
                     if let Some(sv) = start_v {
                         let galley = ui.fonts_mut(|f| f.layout_job(job));
                         painter.galley(Pos2::new(text_x + sv as f32 * cw, line_y(l) + pad), galley, c.fg);
@@ -1192,7 +1209,7 @@ fn text_area(
                     let k1 = ((vp.max.y / rh - top).ceil().max(0.0) as usize).min(w.starts.len());
                     for k in k0..=k1 {
                         let (a, b) = w.row_span(k);
-                        let (start_v, job) = line_job(doc, l, font, c.fg, a, b, &brackets, w.row_start(k));
+                        let (start_v, job) = line_job(doc, l, font, c.fg, a, b, &brackets, w.row_start(k), &hl.semantic);
                         if let Some(sv) = start_v {
                             let galley = ui.fonts_mut(|f| f.layout_job(job));
                             let x = (sv.saturating_sub(a) + if k > 0 { w.indent } else { 0 }) as f32 * cw;
@@ -1203,22 +1220,59 @@ fn text_area(
             }
         }
 
-        // inlay hints at the end of a line (rust-analyzer's chained types…), after its text
-        if !doc.inlays.is_empty() {
+        // at the end of a line: the inlay hints there (rust-analyzer's chained types…), then the code
+        // lenses (« ▶ Run · 3 implementations »), each one clickable
+        if !doc.inlays.is_empty() || !doc.lenses.is_empty() {
             let blame_line = doc.blame.as_ref().map(|b| b.0);
             let bulb_line = (focused && doc.diagnostics.iter().any(|d| d.line == caret)).then_some(caret);
             let small = font.clone();
+            let lens_font = FontId::proportional(font.size * 0.85);
+            let mut clicked = None;
             for l in (first..=last).filter(|&l| !rm.is_hidden(l) && !folded.contains(&l) && wraps.of(l).is_none() && Some(l) != blame_line) {
                 let text: String = doc.eol_inlays(l).collect::<Vec<_>>().join(" ");
-                if text.trim().is_empty() {
+                let lenses: Vec<(usize, &str)> = doc
+                    .lenses
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, x)| doc.rope.char_to_line(x.0.min(doc.len())) == l)
+                    .filter_map(|(k, x)| x.2.as_ref().map(|(t, _)| (k, t.as_str())))
+                    .collect();
+                if text.trim().is_empty() && lenses.is_empty() {
                     continue;
                 }
                 let end = at(l, doc.vcol(l, doc.line_len(l)));
                 let gap = if Some(l) == bulb_line { 3.0 } else { 1.0 };
-                let g = painter.layout_no_wrap(text.trim().to_string(), small.clone(), c.fg.gamma_multiply(0.5));
-                let r = Rect::from_min_size(Pos2::new(end.x + gap * cw, line_y(l) + pad), g.size());
-                painter.rect_filled(r.expand2(egui::vec2(2.0, 0.0)), 2.0, c.fg.gamma_multiply(0.08));
-                painter.galley(r.min, g, c.fg);
+                let mut x = end.x + gap * cw;
+                if !text.trim().is_empty() {
+                    let g = painter.layout_no_wrap(text.trim().to_string(), small.clone(), c.fg.gamma_multiply(0.5));
+                    let r = Rect::from_min_size(Pos2::new(x, line_y(l) + pad), g.size());
+                    painter.rect_filled(r.expand2(egui::vec2(2.0, 0.0)), 2.0, c.fg.gamma_multiply(0.08));
+                    x = r.right() + 2.0 * cw;
+                    painter.galley(r.min, g, c.fg);
+                }
+                for (n, (k, title)) in lenses.iter().enumerate() {
+                    if n > 0 {
+                        let g = painter.layout_no_wrap("·".into(), lens_font.clone(), c.gutter_fg);
+                        let w = g.size().x;
+                        painter.galley(Pos2::new(x, line_y(l) + (rh - g.size().y) / 2.0), g, c.gutter_fg);
+                        x += w + cw * 0.6;
+                    }
+                    let g = painter.layout_no_wrap(title.to_string(), lens_font.clone(), c.gutter_fg);
+                    let r = Rect::from_min_size(Pos2::new(x, line_y(l) + (rh - g.size().y) / 2.0), g.size());
+                    let resp = ui.interact(r, id.with(("lens", *k)), Sense::click());
+                    let color = if resp.hovered() { c.accent } else { c.gutter_fg };
+                    painter.galley(r.min, g, color);
+                    if resp.hovered() {
+                        ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+                    }
+                    if resp.clicked() {
+                        clicked = Some(*k);
+                    }
+                    x = r.right() + cw * 0.6;
+                }
+            }
+            if clicked.is_some() {
+                doc.lens_click = clicked;
             }
         }
 
@@ -1429,6 +1483,7 @@ fn text_area(
         let cursor_lines: HashSet<usize> = doc.sels.iter().map(|s| doc.rope.char_to_line(s.head)).collect();
         let bookmarks: HashSet<usize> = doc.bookmark_lines().into_iter().collect();
         let breakpoints: HashSet<usize> = if opts.debug { doc.breakpoint_lines().into_iter().collect() } else { HashSet::new() };
+        let conditional: HashSet<usize> = if opts.debug && !doc.bp_conds.is_empty() { doc.breakpoint_conditions().into_keys().collect() } else { HashSet::new() };
         let bp_hover = ui.ctx().pointer_hover_pos().filter(|p| p.x >= gx + bp_x && p.x < gx + bp_x + bp_w);
         let mut problems: HashMap<usize, Severity> = HashMap::new();
         for d in &doc.diagnostics {
@@ -1492,7 +1547,11 @@ fn text_area(
                 // breakpoint: a red dot; on the hovered line, a faint one (where to click)
                 let m = Pos2::new(gx + bp_x + BP_W / 2.0, line_y(l) + rh * 0.5);
                 let rad = (rh * 0.28).min(5.0);
-                if breakpoints.contains(&l) {
+                if conditional.contains(&l) {
+                    // with a condition (or a logpoint): orange, a dot in its middle
+                    painter.circle_filled(m, rad, mix(highlight::red(), highlight::yellow(), 0.5));
+                    painter.circle_filled(m, rad * 0.35, c.bg);
+                } else if breakpoints.contains(&l) {
                     painter.circle_filled(m, rad, highlight::red());
                 } else if bp_hover.is_some() && hover_line == Some(l) {
                     painter.circle_filled(m, rad, highlight::red().gamma_multiply(0.35));
@@ -1556,7 +1615,7 @@ fn text_area(
             painter.rect_filled(band, 0.0, c.bg);
             for (k, &l) in sticky.iter().enumerate() {
                 let y = sticky_top + k as f32 * rh;
-                let (start_v, job) = line_job(doc, l, font, c.fg, vstart, vend, &[], (0, 0));
+                let (start_v, job) = line_job(doc, l, font, c.fg, vstart, vend, &[], (0, 0), &hl.semantic);
                 if let Some(sv) = start_v {
                     let galley = ui.fonts_mut(|f| f.layout_job(job));
                     painter.galley(Pos2::new(text_x + sv as f32 * cw, y + pad), galley, c.fg);

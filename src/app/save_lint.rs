@@ -44,6 +44,10 @@ impl App {
     pub(super) fn save_opts(&mut self, idx: usize, format: bool, trim: bool) -> bool {
         let lang = self.settings.lang_of(self.docs.get(idx).and_then(|d| d.path.as_deref()));
         let (format, trim, final_newline) = (format && lang.format_on_save, trim && lang.trim_trailing_whitespace_on_save, lang.ensure_final_newline_on_save);
+        // a tab of excerpts: written back into its files
+        if self.docs.get(idx).is_some_and(|d| d.multi.is_some()) {
+            return self.multibuffer_save(idx);
+        }
         let Some(doc) = self.docs.get_mut(idx) else { return false };
         if doc.read_only {
             return false;

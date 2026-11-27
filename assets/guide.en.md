@@ -65,8 +65,21 @@ sidebar shown or not.
   **a**, **o**…) and visual (**v**, **V**) modes, motions (`w b e 0 ^ $ gg G f t % { }`, with a
   count: `3w`), the operators `d c y > <` with a motion or a text object (`ciw`, `di"`, `ca(`,
   `yap`), `dd cc yy x p P u` **Ctrl+R** `.` `J ~ r`, the search `/ n N * #` and the command line
-  `:w :q :wq :42 :%s/a/b/g`. The mode is shown in the status bar. The shortcuts with Ctrl stay
-  Florm's (Ctrl+S, Ctrl+P…).
+  `:w :q :wq :42 :%s/a/b/g`. Also the registers (`"ayy`, `"Ayy` appends, `"ap`, `"0p` the last
+  yank, `"+p` the clipboard, `"_d` keeping nothing), macros (`qa` … `q`, `@a`, `@@`), marks (`ma`,
+  `'a`, `` `a ``, also with an operator: `d'a`) and the visual block (**Ctrl+V**, then `I` / `A` to
+  type on all the lines, `c`, `d`, `y`, `r`, `~`, `>`). The mode is shown in the status bar. The
+  shortcuts with Ctrl stay Florm's (Ctrl+S, Ctrl+P…).
+- **Semantic highlighting**: the language server colors what the syntax alone cannot tell apart
+  (parameters, properties, types, constants, `self`), with the colors of the theme.
+- **Code lenses**: what the server offers on a line (“▶ Run”, “3 implementations”…), in grey at the
+  end of the line; a click runs it.
+- **Call hierarchy**: **Shift+Alt+H** (or “Who calls this function…”) lists the functions calling
+  the one under the cursor, Enter goes to the call; “What this function calls…” the other way.
+  Without a server that gives it, the usages.
+- **Renaming or moving a file** (tree): the language server first updates the imports that name
+  it (TypeScript, Rust, Python with basedpyright…); the files that were not open are saved, the
+  open ones are still to save.
 
 ## Sidebar
 
@@ -166,6 +179,10 @@ The `.gitignore` is respected.
   find `\\n`, replace with `\n`. Also in Ctrl+H.
 - **Keep case**: cat → dog, Cat → Dog, CAT → DOG.
 - **×** on a result (or a file) drops it: it will not be replaced.
+- **✏ Change the results** (like Zed's multibuffer): the lines found, with one line around, in a
+  tab where they are changed as code (several cursors, Vim, Claude…), under a header
+  `▌ file:line` not to touch. **Ctrl+S** writes each excerpt into its file; a file changed since the
+  search is left as it is (the message says which).
 
 ### Compare, local history
 
@@ -477,6 +494,13 @@ Python, **dlv** for Go, **lldb-dap** or **gdb** (14 or later) for Rust, C and C+
 
 - **Breakpoint**: a click in the column on the left of the line numbers (a faint red dot shows it
   on hover), or **F9** on the line. They follow the lines when the text changes.
+- **Conditional breakpoint**: **right click** on the dot (or **Shift+F9**): a condition
+  (`partner.id == 42`, `len(lines) > 3`) stops only when it is true; `log: total = {total}` makes
+  it a *logpoint*, which writes the text in the console without stopping. The dot turns orange, its
+  condition shows on hover; empty, it is a plain breakpoint again.
+- **Watched expressions**: the **WATCH** section, above the variables, evaluates its expressions
+  again at each stop (field “+ Expression to watch”, × to take one away). Also “Debugger: watch the
+  selection” in the palette.
 - **A command, as in a terminal**: the **Debugger** view (🐞 in the status bar) opens on **Command**
   (the list at the top left); type the line that starts your program (`python app.py --port 8000`, `python -m flask run`,
   `pytest tests/test_a.py`, `go run .`, `./my_program --verbose`, variables in front like

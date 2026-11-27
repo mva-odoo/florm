@@ -2,6 +2,9 @@
 
 use super::*;
 
+/// How long a renaming waits for the language servers to give the edits of the imports.
+const RENAME_WAIT: Duration = Duration::from_secs(3);
+
 impl App {
     /// Server for document `i` (started if needed) and its language id; sends the latest text.
     pub(super) fn lsp_for(&mut self, i: usize, ctx: &egui::Context, force_sync: bool) -> Option<(usize, &'static str)> {
@@ -52,7 +55,17 @@ impl App {
                     match result {
                         Ok(v) => self.lsp_response(ci, req, v, ctx),
                         // the hints are asked by themselves: no error shown for them
-                        Err(_) if matches!(req, LspReq::InlayHints { .. }) => {}
+                        Err(_) if matches!(req, LspReq::InlayHints { .. } | LspReq::SemanticTokens { .. } | LspReq::CodeLens { .. } | LspReq::LensResolve { .. }) => {}
+                        // a server without call hierarchy: the usages
+                        Err(_) if matches!(req, LspReq::CallPrepare { .. }) => {
+                            self.set_status(t!("Le serveur de langage ne donne pas les appels : les usages à la place", "The language server does not give the calls: the usages instead"));
+                            self.find_references(ctx);
+                        }
+                        Err(_) if matches!(req, LspReq::WillRename { .. }) => {
+                            if let LspReq::WillRename { token } = req {
+                                self.rename_answered(token, None);
+                            }
+                        }
                         Err(e) => self.set_error(tf!("Serveur de langage : {e}", "Language server: {e}")),
                     }
                 }
@@ -69,6 +82,19 @@ impl App {
         if self.active < self.docs.len() {
             self.lsp_for(self.active, ctx, false);
             self.request_inlay_hints(ctx);
+            self.request_semantic_tokens(ctx);
+            self.request_code_lenses(ctx);
+            if let Some(k) = self.docs.get_mut(self.active).and_then(|d| d.lens_click.take()) {
+                self.run_lens(ctx, k);
+            }
+        }
+        // renamings whose servers take too long: done with the edits received
+        let late: Vec<u64> = self.lsp.renames.iter().filter(|r| r.at.elapsed() >= RENAME_WAIT).map(|r| r.token).collect();
+        for t in late {
+            self.rename_finish(t);
+        }
+        if !self.lsp.renames.is_empty() {
+            ctx.request_repaint_after(Duration::from_millis(100));
         }
         // closed tabs: didClose
         let alive: HashSet<u64> = self.docs.iter().map(|d| d.uid).collect();
@@ -117,6 +143,85 @@ impl App {
         }
     }
 
+    /// Renames (or moves) `old` to `new`: the language servers that know how say first which imports
+    /// change (applied, the files not open saved), then the file is renamed and they are told.
+    pub(super) fn rename_entry(&mut self, old: PathBuf, new: PathBuf) {
+        self.lsp.next_rename += 1;
+        let token = self.lsp.next_rename;
+        let params = serde_json::json!({ "files": [{ "oldUri": lsp::path_to_uri(&old), "newUri": lsp::path_to_uri(&new) }] });
+        let mut waiting = 0;
+        let mut sent = Vec::new();
+        for (ci, c) in self.lsp.manager.clients.iter_mut().enumerate() {
+            let Some(c) = c.as_mut().filter(|c| c.ready && c.will_rename && old.starts_with(&c.root)) else { continue };
+            let id = c.request("workspace/willRenameFiles", params.clone());
+            sent.push((ci, id));
+            waiting += 1;
+        }
+        for (ci, id) in sent {
+            self.lsp.requests.insert((ci, id), LspReq::WillRename { token });
+        }
+        self.lsp.renames.push(RenameOp { token, old, new, waiting, edits: Vec::new(), at: Instant::now() });
+        if waiting == 0 {
+            self.rename_finish(token);
+        } else {
+            self.set_status(t!("Renommage : le serveur de langage met à jour les imports…", "Renaming: the language server updates the imports…"));
+        }
+    }
+
+    fn rename_answered(&mut self, token: u64, edit: Option<serde_json::Value>) {
+        let Some(r) = self.lsp.renames.iter_mut().find(|r| r.token == token) else { return };
+        r.waiting = r.waiting.saturating_sub(1);
+        if let Some(e) = edit.filter(|e| !e.is_null()) {
+            r.edits.push(e);
+        }
+        if r.waiting == 0 {
+            self.rename_finish(token);
+        }
+    }
+
+    /// The edits of the imports applied (with the old paths), then the file renamed.
+    fn rename_finish(&mut self, token: u64) {
+        let Some(k) = self.lsp.renames.iter().position(|r| r.token == token) else { return };
+        let r = self.lsp.renames.remove(k);
+        let open_before: HashSet<u64> = self.docs.iter().map(|d| d.uid).collect();
+        let (mut n, mut files) = (0, 0);
+        for e in &r.edits {
+            let (a, b) = self.apply_workspace_edit(e);
+            n += a;
+            files += b;
+        }
+        // the files opened only to change their imports: saved and closed again
+        let opened: Vec<u64> = self.docs.iter().map(|d| d.uid).filter(|u| !open_before.contains(u)).collect();
+        for uid in opened {
+            if let Some(i) = self.docs.iter().position(|d| d.uid == uid) {
+                if self.save_opts(i, false, false) {
+                    if let Some(i) = self.docs.iter().position(|d| d.uid == uid) {
+                        self.close_tab(i, true);
+                    }
+                }
+            }
+        }
+        if let Err(e) = std::fs::rename(&r.old, &r.new) {
+            self.set_error(tf!("Renommage de {} impossible : {e}", "Cannot rename {}: {e}", r.old.display()));
+            return;
+        }
+        self.relocate_docs(&r.old, &r.new);
+        let params = serde_json::json!({ "files": [{ "oldUri": lsp::path_to_uri(&r.old), "newUri": lsp::path_to_uri(&r.new) }] });
+        for c in self.lsp.manager.clients.iter_mut().flatten().filter(|c| c.ready && r.old.starts_with(&c.root)) {
+            c.notify("workspace/didRenameFiles", params.clone());
+        }
+        self.exec_refresh_tree();
+        if n > 0 {
+            self.set_status(tf!(
+                "Renommé : {} ; {n} import(s) mis à jour dans {files} fichier(s)",
+                "Renamed: {}; {n} import(s) updated in {files} file(s)",
+                r.new.display()
+            ));
+        } else {
+            self.set_status(tf!("Renommé : {}", "Renamed: {}", r.new.display()));
+        }
+    }
+
     /// Asks the server for the inlay hints of the active document once typing pauses (those of
     /// the lines not changed stay meanwhile). Turned off: they go away.
     pub(super) fn request_inlay_hints(&mut self, ctx: &egui::Context) {
@@ -157,6 +262,126 @@ impl App {
             let id = c.request("textDocument/inlayHint", params);
             self.lsp.requests.insert((ci, id), LspReq::InlayHints { uid, version });
         }
+    }
+
+    /// Asks the server for the semantic tokens of the active document once typing pauses (like the
+    /// inlay hints). Turned off: they go away.
+    pub(super) fn request_semantic_tokens(&mut self, ctx: &egui::Context) {
+        let i = self.active;
+        if !self.settings.semantic_highlighting {
+            if let Some(d) = self.docs.get_mut(i).filter(|d| !d.semantic.is_empty() || d.semantic_asked.is_some()) {
+                d.semantic.clear();
+                d.semantic_asked = None;
+            }
+            return;
+        }
+        let Some(d) = self.docs.get(i) else { return };
+        if d.semantic_asked == Some(d.version) {
+            return;
+        }
+        let pause = Duration::from_millis(300);
+        let since = d.last_change.elapsed();
+        if since < pause {
+            ctx.request_repaint_after(pause - since);
+            return;
+        }
+        let Some((ci, _)) = self.lsp_for(i, ctx, true) else { return };
+        let Some(gives) = self.lsp.manager.client(ci).map(|c| c.ready.then_some(c.semantic_legend.is_some())) else { return };
+        let Some(gives) = gives else {
+            ctx.request_repaint_after(Duration::from_millis(300));
+            return;
+        };
+        let d = &mut self.docs[i];
+        d.semantic_asked = Some(d.version);
+        let Some(path) = d.path.as_ref().filter(|_| gives) else { return };
+        let (uid, version) = (d.uid, d.version);
+        let params = serde_json::json!({ "textDocument": { "uri": lsp::path_to_uri(path) } });
+        if let Some(c) = self.lsp.manager.client(ci) {
+            let id = c.request("textDocument/semanticTokens/full", params);
+            self.lsp.requests.insert((ci, id), LspReq::SemanticTokens { uid, version });
+        }
+    }
+
+    /// Asks the server for the code lenses of the active document once typing pauses.
+    pub(super) fn request_code_lenses(&mut self, ctx: &egui::Context) {
+        let i = self.active;
+        if !self.settings.code_lens {
+            if let Some(d) = self.docs.get_mut(i).filter(|d| !d.lenses.is_empty() || d.lenses_asked.is_some()) {
+                d.lenses.clear();
+                d.lenses_asked = None;
+            }
+            return;
+        }
+        let Some(d) = self.docs.get(i) else { return };
+        if d.lenses_asked == Some(d.version) {
+            return;
+        }
+        let pause = Duration::from_millis(500);
+        let since = d.last_change.elapsed();
+        if since < pause {
+            ctx.request_repaint_after(pause - since);
+            return;
+        }
+        let Some((ci, _)) = self.lsp_for(i, ctx, true) else { return };
+        let Some(gives) = self.lsp.manager.client(ci).map(|c| c.ready.then_some(c.code_lens.is_some())) else { return };
+        let Some(gives) = gives else {
+            ctx.request_repaint_after(Duration::from_millis(300));
+            return;
+        };
+        let d = &mut self.docs[i];
+        d.lenses_asked = Some(d.version);
+        let Some(path) = d.path.as_ref().filter(|_| gives) else { return };
+        let (uid, version) = (d.uid, d.version);
+        let params = serde_json::json!({ "textDocument": { "uri": lsp::path_to_uri(path) } });
+        if let Some(c) = self.lsp.manager.client(ci) {
+            let id = c.request("textDocument/codeLens", params);
+            self.lsp.requests.insert((ci, id), LspReq::CodeLens { uid, version });
+        }
+    }
+
+    /// A code lens clicked. The commands meant for the editor (show the references, run a test of
+    /// rust-analyzer) are done here; the others are run by the server.
+    fn run_lens(&mut self, ctx: &egui::Context, k: usize) {
+        let Some(d) = self.docs.get(self.active) else { return };
+        let Some((title, cmd)) = d.lenses.get(k).and_then(|l| l.2.clone()) else { return };
+        let name = cmd["command"].as_str().unwrap_or("").to_string();
+        let args = cmd["arguments"].clone();
+        if name.ends_with("showReferences") || name.ends_with("showImplementations") || name.ends_with("peekLocations") {
+            let found = lsp::parse_locations(&args[2]);
+            let root = self.root.clone();
+            let items: Vec<Item> = found
+                .into_iter()
+                .map(|(p, pos)| {
+                    let line = pos["line"].as_u64().unwrap_or(0) as usize;
+                    let rel = root.as_ref().and_then(|r| p.strip_prefix(r).ok()).unwrap_or(&p).display().to_string();
+                    Item { label: format!("{rel}:{}", line + 1), detail: String::new(), action: Action::Location(p, line) }
+                })
+                .collect();
+            if items.is_empty() {
+                self.set_status(tf!("{title} : rien à montrer", "{title}: nothing to show"));
+            } else {
+                self.open_overlay_with(Mode::Calls(title), items, String::new());
+            }
+            return;
+        }
+        if name == "rust-analyzer.runSingle" || name == "rust-analyzer.debugSingle" {
+            let r = &args[0]["args"];
+            let words = |k: &str| r[k].as_array().map(|a| a.iter().filter_map(|w| w.as_str()).map(shell_word).collect::<Vec<_>>().join(" ")).unwrap_or_default();
+            let (cargo, exe) = (words("cargoArgs"), words("executableArgs"));
+            let dir = r["cwd"].as_str().or(r["workspaceRoot"].as_str()).unwrap_or(".");
+            let line = if exe.is_empty() { format!("cd {} && cargo {cargo}", shell_word(dir)) } else { format!("cd {} && cargo {cargo} -- {exe}", shell_word(dir)) };
+            self.install_type(&line, false);
+            if let Some(t) = self.install_term {
+                self.term.type_text(t, "\r");
+            }
+            return;
+        }
+        let Some((ci, _)) = self.lsp_for(self.active, ctx, true) else { return };
+        if let Some(c) = self.lsp.manager.client(ci) {
+            let id = c.request("workspace/executeCommand", serde_json::json!({ "command": name, "arguments": args }));
+            self.lsp.requests.insert((ci, id), LspReq::Command);
+        }
+        self.set_status(tf!("Serveur de langage : {title}", "Language server: {title}"));
     }
 
     /// Asks the server for the signature of the call around the cursor (after « ( » or « , »).
@@ -277,6 +502,26 @@ impl App {
             })
             .collect();
         (defs, found.len().saturating_sub(SHOWN))
+    }
+
+    /// Who calls the function under the cursor (`incoming`), or what it calls: the call hierarchy of
+    /// the language server; without one, its usages.
+    pub(super) fn call_hierarchy(&mut self, ctx: &egui::Context, incoming: bool) {
+        let i = self.active;
+        let Some(d) = self.docs.get(i) else { return };
+        let word = Self::definition_word(d);
+        if word.trim().is_empty() {
+            return;
+        }
+        if let Some((ci, _)) = self.lsp_for(i, ctx, true) {
+            if let (Some((doc, pos)), Some(cl)) = (self.lsp_text_position(i), self.lsp.manager.client(ci)) {
+                let id = cl.request("textDocument/prepareCallHierarchy", serde_json::json!({ "textDocument": doc, "position": pos }));
+                self.lsp.requests.insert((ci, id), LspReq::CallPrepare { word, incoming });
+                return;
+            }
+        }
+        self.set_status(t!("Pas de serveur de langage ici : les usages à la place", "No language server here: the usages instead"));
+        self.search_word_everywhere(word);
     }
 
     /// Where the symbol under the cursor is used: the language server's list, else a whole word
@@ -512,6 +757,61 @@ impl App {
                 }
             }
             LspReq::Command => {}
+            LspReq::WillRename { token } => self.rename_answered(token, Some(v)),
+            LspReq::CallPrepare { word, incoming } => {
+                let Some(item) = v.as_array().and_then(|a| a.first()).cloned() else {
+                    self.set_status(tf!("« {word} » n'est pas une fonction connue du serveur", "“{word}” is not a function the server knows"));
+                    return;
+                };
+                let method = if incoming { "callHierarchy/incomingCalls" } else { "callHierarchy/outgoingCalls" };
+                if let Some(c) = self.lsp.manager.client(ci) {
+                    let id = c.request(method, serde_json::json!({ "item": item }));
+                    self.lsp.requests.insert((ci, id), LspReq::Calls { word, incoming });
+                }
+            }
+            LspReq::Calls { word, incoming } => {
+                let calls = lsp::parse_calls(&v, incoming);
+                if calls.is_empty() {
+                    self.set_status(if incoming { tf!("Personne n'appelle « {word} »", "Nobody calls “{word}”") } else { tf!("« {word} » n'appelle rien de connu", "“{word}” calls nothing known") });
+                    return;
+                }
+                let root = self.root.clone();
+                let items: Vec<Item> = calls
+                    .into_iter()
+                    .map(|(name, p, line)| {
+                        let rel = root.as_ref().and_then(|r| p.strip_prefix(r).ok()).unwrap_or(&p).display().to_string();
+                        Item { label: name, detail: format!("{rel}:{}", line + 1), action: Action::Location(p, line) }
+                    })
+                    .collect();
+                let title = if incoming { tf!("Qui appelle « {word} »  (Entrée : aller à l'appel)", "Who calls “{word}”  (Enter: go to the call)") } else { tf!("Ce qu'appelle « {word} »", "What “{word}” calls") };
+                self.open_overlay_with(Mode::Calls(title), items, String::new());
+            }
+            LspReq::CodeLens { uid, version } => {
+                let resolve = self.lsp.manager.client(ci).and_then(|c| c.code_lens) == Some(true);
+                let Some(d) = self.docs.iter_mut().find(|d| d.uid == uid && d.version == version) else { return };
+                d.lenses = lsp::parse_code_lenses(&d.rope, &v);
+                // those without a command yet: completed by the server
+                let todo: Vec<(usize, serde_json::Value)> = if resolve { d.lenses.iter().filter(|l| l.2.is_none()).map(|l| (l.0, l.1.clone())).collect() } else { Vec::new() };
+                if let Some(c) = self.lsp.manager.client(ci) {
+                    for (pos, lens) in todo {
+                        let id = c.request("codeLens/resolve", lens);
+                        self.lsp.requests.insert((ci, id), LspReq::LensResolve { uid, version, pos });
+                    }
+                }
+            }
+            LspReq::LensResolve { uid, version, pos } => {
+                if let Some(d) = self.docs.iter_mut().find(|d| d.uid == uid && d.version == version) {
+                    if let Some(l) = d.lenses.iter_mut().find(|l| l.0 == pos && l.2.is_none()) {
+                        l.2 = lsp::lens_command(&v);
+                    }
+                }
+            }
+            LspReq::SemanticTokens { uid, version } => {
+                let legend = self.lsp.manager.client(ci).and_then(|c| c.semantic_legend.clone());
+                if let (Some(legend), Some(d)) = (legend, self.docs.iter_mut().find(|d| d.uid == uid && d.version == version)) {
+                    d.semantic = lsp::parse_semantic_tokens(&d.rope, &v, &legend);
+                }
+            }
             // an answer for a text changed since is dropped: asked again after the next pause
             LspReq::InlayHints { uid, version } => {
                 if let Some(d) = self.docs.iter_mut().find(|d| d.uid == uid && d.version == version) {
@@ -980,4 +1280,13 @@ fn doc_words<'a>(cache: &'a mut HashMap<u64, (u64, Instant, Vec<String>)>, doc: 
         cache.insert(doc.uid, (doc.version, Instant::now(), words));
     }
     &cache[&doc.uid].2
+}
+
+/// A word for a shell command line, quoted when it has to be.
+fn shell_word(w: &str) -> String {
+    if !w.is_empty() && w.chars().all(|c| c.is_alphanumeric() || "-_./=:@+,".contains(c)) {
+        w.to_string()
+    } else {
+        format!("'{}'", w.replace('\'', "'\\''"))
+    }
 }

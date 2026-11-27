@@ -126,6 +126,9 @@ impl App {
                     if self.settings.vim_mode {
                         let v = &self.vim;
                         ui.label(RichText::new(format!("-- {} --", v.mode.label())).strong().color(self.hl.colors.accent));
+                        if let Some(r) = v.recording() {
+                            ui.label(RichText::new(tf!("enregistre @{r}", "recording @{r}")).color(highlight::red()));
+                        }
                         if !v.pending.is_empty() {
                             ui.label(RichText::new(&v.pending).monospace());
                         }

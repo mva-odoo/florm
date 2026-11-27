@@ -69,6 +69,8 @@ pub struct Highlighting {
     pub theme: Theme,
     pub theme_name: String,
     pub colors: Colors,
+    /// The color of each kind of semantic token in the theme (None: the syntax's color is kept).
+    pub semantic: [Option<Color32>; crate::lsp::SEMANTIC_KINDS],
     /// Bumped when the theme changes so cached spans get recomputed.
     pub generation: u64,
     /// Accent chosen in the preferences instead of the theme's.
@@ -189,6 +191,7 @@ impl Highlighting {
             generation: 0,
             accent_override: None,
             softness: 0.0,
+            semantic: [None; crate::lsp::SEMANTIC_KINDS],
         };
         if !h.set_theme(theme_name) {
             h.set_theme(replacement(theme_name));
@@ -295,6 +298,23 @@ impl Highlighting {
         }
         self.theme = theme;
         self.theme_name = name.to_string();
+        // the semantic tokens take the colors the theme gives these scopes (as VS Code maps them)
+        const SCOPES: [&[&str]; crate::lsp::SEMANTIC_KINDS] = [
+            &["variable.parameter"],
+            &["variable.other.property", "support.type.property-name", "variable.other.member"],
+            &["entity.name.function", "support.function"],
+            &["entity.name.type", "entity.name.class", "support.class"],
+            &["entity.name.namespace", "entity.name.type.module", "entity.name.type"],
+            &["variable.other.constant", "constant.other", "constant.language"],
+            &["entity.name.function.macro", "support.function"],
+            &["entity.name.function.decorator", "meta.decorator", "entity.name.function"],
+            &["variable.language"],
+        ];
+        // the theme's own text color (before the softness): a scope with no rule of its own gets it
+        let fg = self.scope_style("florm.no.rule").0;
+        for (k, scopes) in SCOPES.iter().enumerate() {
+            self.semantic[k] = scopes.iter().map(|s| self.scope_style(s).0).find(|c| *c != fg).map(|c| self.code_color(c));
+        }
         self.generation += 1;
         true
     }

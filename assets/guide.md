@@ -66,8 +66,22 @@ bas ouvert et la barre latérale affichée ou non.
   (**i**, **a**, **o**…), visuel (**v**, **V**), mouvements (`w b e 0 ^ $ gg G f t % { }`, avec un
   nombre : `3w`), opérateurs `d c y > <` avec un mouvement ou un objet de texte (`ciw`, `di"`,
   `ca(`, `yap`), `dd cc yy x p P u` **Ctrl+R** `.` `J ~ r`, la recherche `/ n N * #` et la ligne
-  de commande `:w :q :wq :42 :%s/a/b/g`. Le mode est affiché dans la barre d'état. Les raccourcis
+  de commande `:w :q :wq :42 :%s/a/b/g`. Aussi les registres (`"ayy`, `"Ayy` ajoute, `"ap`, `"0p`
+  le dernier copié, `"+p` le presse-papiers, `"_d` sans rien garder), les macros (`qa` … `q`, `@a`,
+  `@@`), les marques (`ma`, `'a`, `` `a ``, aussi avec un opérateur : `d'a`) et le bloc visuel
+  (**Ctrl+V**, puis `I` / `A` pour écrire sur toutes les lignes, `c`, `d`, `y`, `r`, `~`, `>`).
+  Le mode est affiché dans la barre d'état. Les raccourcis
   avec Ctrl restent ceux de Florm (Ctrl+S, Ctrl+P…).
+- **Coloration sémantique** : le serveur de langage colore ce que la syntaxe seule ne distingue pas
+  (paramètres, propriétés, types, constantes, `self`), avec les couleurs du thème.
+- **Actions en bout de ligne (CodeLens)** : ce que le serveur propose sur une ligne (« ▶ Run »,
+  « 3 implementations »…), en gris au bout de la ligne ; un clic le lance.
+- **Hiérarchie des appels** : **Maj+Alt+H** (ou « Qui appelle cette fonction… ») liste les
+  fonctions qui appellent celle du curseur, Entrée va à l'appel ; « Ce qu'appelle cette
+  fonction… » l'inverse. Sans serveur qui la donne, les usages.
+- **Renommer ou déplacer un fichier** (arborescence) : le serveur de langage met d'abord à jour les
+  imports qui le nomment (TypeScript, Rust, Python avec basedpyright…) ; les fichiers qui n'étaient
+  pas ouverts sont enregistrés, ceux ouverts restent à enregistrer.
 
 ## Barre latérale
 
@@ -169,6 +183,10 @@ Le `.gitignore` est respecté.
   vrais retours à la ligne : regex, chercher `\\n`, remplacer par `\n`. Aussi dans Ctrl+H.
 - **Garder la casse** : chat → chien, Chat → Chien, CHAT → CHIEN.
 - **×** sur un résultat (ou un fichier) l'écarte : il ne sera pas remplacé.
+- **✏ Modifier les résultats** (comme le multibuffer de Zed) : les lignes trouvées, avec une ligne
+  autour, dans un onglet où elles se modifient comme du code (plusieurs curseurs, Vim, Claude…),
+  sous un en-tête `▌ fichier:ligne` à ne pas toucher. **Ctrl+S** écrit chaque extrait dans son
+  fichier ; un fichier changé depuis la recherche est laissé tel quel (le message dit lequel).
 
 ### Comparer, historique local
 
@@ -494,6 +512,13 @@ pour Python, **dlv** pour Go, **lldb-dap** ou **gdb** (14 ou plus) pour Rust, C 
 
 - **Point d'arrêt** : un clic dans la colonne à gauche des numéros de ligne (un point rouge pâle
   la montre au survol), ou **F9** sur la ligne. Ils suivent les lignes quand le texte change.
+- **Point d'arrêt conditionnel** : **clic droit** sur le point (ou **Maj+F9**) : une condition
+  (`partner.id == 42`, `len(lines) > 3`) arrête seulement quand elle est vraie ; `log: total = {total}`
+  en fait un *logpoint*, qui écrit le texte dans la console sans s'arrêter. Le point devient orange,
+  sa condition s'affiche au survol ; vide, il redevient un point simple.
+- **Expressions surveillées** : la section **SURVEILLÉES**, au-dessus des variables, réévalue ses
+  expressions à chaque arrêt (champ « + Expression à surveiller », × pour en retirer une). Aussi
+  « Débogueur : surveiller la sélection » dans la palette.
 - **Une commande, comme dans un terminal** : la vue **Débogueur** (🐞 dans la barre d'état) s'ouvre
   sur **Commande** (la liste en haut à gauche) ; tape
   la ligne qui lance ton programme (`python app.py --port 8000`, `python -m flask run`,

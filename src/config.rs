@@ -155,6 +155,10 @@ pub struct Settings {
     pub hover_popover: bool,
     /// The inlay hints of the language server (types, names of the parameters) in the code.
     pub inlay_hints: bool,
+    /// The colors of the language server (parameters, properties, types…) over those of the syntax.
+    pub semantic_highlighting: bool,
+    /// The code lenses of the language server (« ▶ Run », « 3 implementations ») at the end of their line.
+    pub code_lens: bool,
     /// Tab after an Emmet abbreviation (`ul>li*3`) in HTML, JSX or XML writes its tags.
     pub emmet: bool,
     /// The keys of Vim in the editor (normal, insert, visual modes; :w, :q…).
@@ -358,6 +362,8 @@ impl Default for Settings {
             selection_highlight: true,
             hover_popover: true,
             inlay_hints: true,
+            semantic_highlighting: true,
+            code_lens: true,
             emmet: true,
             vim_mode: false,
             show_completions_on_input: true,
@@ -497,6 +503,10 @@ selection_highlight = true
 hover_popover = true
 # types et noms des paramètres donnés par le serveur de langage, en gris dans le code
 inlay_hints = true
+# couleurs du serveur de langage (paramètres, propriétés, types, constantes…) par-dessus celles de la syntaxe
+semantic_highlighting = true
+# actions du serveur de langage en bout de ligne (« ▶ Run », « 3 implémentations »), cliquables
+code_lens = true
 # Tab après une abréviation Emmet (ul>li*3, field[name=partner_id]) en HTML, JSX ou XML : ses balises
 emmet = true
 # les touches de Vim dans l'éditeur (modes normal, insertion, visuel ; :w, :q…)

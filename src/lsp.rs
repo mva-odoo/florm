@@ -369,6 +369,12 @@ pub struct Client {
     pub opened: HashMap<u64, (u64, PathBuf)>,
     /// The server gives inlay hints (its capabilities, read at the end of `initialize`).
     pub inlay_hints: bool,
+    /// The server changes the imports when a file is renamed (workspace/willRenameFiles).
+    pub will_rename: bool,
+    /// The names of its semantic token types and modifiers (none: it gives no semantic tokens).
+    pub semantic_legend: Option<(Vec<String>, Vec<String>)>,
+    /// It gives code lenses (Some), and completes them afterwards (true: codeLens/resolve).
+    pub code_lens: Option<bool>,
     /// Last request or change sent to it.
     used: Instant,
     child: Child,
@@ -463,6 +469,9 @@ impl Client {
             init_id: 0,
             opened: HashMap::new(),
             inlay_hints: false,
+            will_rename: false,
+            semantic_legend: None,
+            code_lens: None,
             used: Instant::now(),
             child,
         };
@@ -475,7 +484,8 @@ impl Client {
             "clientInfo": { "name": "florm" },
             "capabilities": {
                 "general": { "positionEncodings": ["utf-16"] },
-                "workspace": { "workspaceEdit": { "documentChanges": true }, "configuration": true, "workspaceFolders": true, "applyEdit": true, "executeCommand": {} },
+                "workspace": { "workspaceEdit": { "documentChanges": true }, "configuration": true, "workspaceFolders": true, "applyEdit": true, "executeCommand": {},
+                    "fileOperations": { "willRename": true, "didRename": true } },
                 "textDocument": {
                     "synchronization": { "didSave": true },
                     "publishDiagnostics": { "relatedInformation": false },
@@ -488,6 +498,14 @@ impl Client {
                     "signatureHelp": { "signatureInformation": { "documentationFormat": ["plaintext"], "parameterInformation": { "labelOffsetSupport": true }, "activeParameterSupport": true } },
                     "rename": { "prepareSupport": false },
                     "inlayHint": { "dynamicRegistration": false },
+                    "callHierarchy": { "dynamicRegistration": false },
+                    "codeLens": { "dynamicRegistration": false },
+                    "semanticTokens": {
+                        "requests": { "full": true },
+                        "tokenTypes": ["namespace", "type", "class", "enum", "interface", "struct", "typeParameter", "parameter", "variable", "property", "enumMember", "event", "function", "method", "macro", "keyword", "modifier", "comment", "string", "number", "regexp", "operator", "decorator", "selfParameter", "clsParameter", "module"],
+                        "tokenModifiers": ["declaration", "definition", "readonly", "static", "deprecated", "abstract", "async", "modification", "documentation", "defaultLibrary"],
+                        "formats": ["relative"]
+                    },
                     "codeAction": {
                         "codeActionLiteralSupport": { "codeActionKind": { "valueSet": ["", "quickfix", "refactor", "refactor.extract", "refactor.inline", "refactor.rewrite", "source", "source.organizeImports", "source.fixAll"] } },
                         "resolveSupport": { "properties": ["edit"] },
@@ -670,6 +688,12 @@ impl Manager {
                             c.ready = true;
                             let caps = result.as_ref().map(|r| &r["capabilities"]);
                             c.inlay_hints = caps.is_ok_and(|c| c["inlayHintProvider"].is_object() || c["inlayHintProvider"].as_bool() == Some(true));
+                            c.will_rename = caps.is_ok_and(|c| c["workspace"]["fileOperations"]["willRename"].is_object());
+                            c.code_lens = caps.as_ref().ok().map(|c| &c["codeLensProvider"]).filter(|l| l.is_object()).map(|l| l["resolveProvider"].as_bool().unwrap_or(false));
+                            c.semantic_legend = caps.ok().map(|c| &c["semanticTokensProvider"]).filter(|s| s.is_object() && !s["full"].is_null() && s["full"] != json!(false)).map(|s| {
+                                let names = |k: &str| s["legend"][k].as_array().map(|a| a.iter().filter_map(|t| t.as_str().map(String::from)).collect()).unwrap_or_default();
+                                (names("tokenTypes"), names("tokenModifiers"))
+                            });
                             let _ = c.out.send(json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}).to_string().into());
                             let settings = json!({"jsonrpc": "2.0", "method": "workspace/didChangeConfiguration", "params": {"settings": light_settings()}});
                             let _ = c.out.send(settings.to_string().into());
@@ -792,6 +816,50 @@ pub fn parse_locations(v: &Value) -> Vec<(PathBuf, Value)> {
         .unwrap_or_default()
 }
 
+/// The calls of a callHierarchy/incomingCalls (`from`) or outgoingCalls (`to`) answer: (the
+/// function's name, its file, the line of the call (incoming) or of the function (outgoing)).
+pub fn parse_calls(v: &Value, incoming: bool) -> Vec<(String, PathBuf, usize)> {
+    let key = if incoming { "from" } else { "to" };
+    v.as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|c| {
+                    let item = &c[key];
+                    let path = uri_to_path(item["uri"].as_str()?)?;
+                    // incoming: where it is called from (the first call), else where the function is
+                    let line = if incoming { c["fromRanges"][0]["start"]["line"].as_u64() } else { None }.or_else(|| item["selectionRange"]["start"]["line"].as_u64())?;
+                    let name = match item["detail"].as_str().filter(|d| !d.is_empty()) {
+                        Some(d) => format!("{} — {d}", item["name"].as_str().unwrap_or("")),
+                        None => item["name"].as_str().unwrap_or("").to_string(),
+                    };
+                    Some((name, path, line as usize))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// A code lens: (char position of its line, its range as the server gave it, its command if it has
+/// one yet: title and the command itself).
+pub fn parse_code_lenses(rope: &Rope, v: &Value) -> Vec<(usize, Value, Option<(String, Value)>)> {
+    let mut out: Vec<(usize, Value, Option<(String, Value)>)> = v
+        .as_array()
+        .map(|a| a.as_slice())
+        .unwrap_or_default()
+        .iter()
+        .map(|l| (from_position(rope, &l["range"]["start"]), l.clone(), lens_command(l)))
+        .collect();
+    out.sort_by_key(|l| l.0);
+    out
+}
+
+/// The title and command of a code lens (None: to resolve, or without a title).
+pub fn lens_command(l: &Value) -> Option<(String, Value)> {
+    let c = l.get("command").filter(|c| c.is_object())?;
+    let title = c["title"].as_str().map(|t| t.split_whitespace().collect::<Vec<_>>().join(" ")).filter(|t| !t.is_empty())?;
+    Some((title, c.clone()))
+}
+
 /// Text of a hover answer (markdown, plain text or the older "marked strings"), without the
 /// code fences.
 pub fn parse_hover(v: &Value) -> String {
@@ -831,6 +899,65 @@ pub fn parse_inlay_hints(rope: &Rope, v: &Value) -> Vec<(usize, String)> {
         })
         .collect();
     out.sort_by_key(|h| h.0);
+    out
+}
+
+/// The kinds of semantic tokens Florm colors (the others keep the color of the syntax): what
+/// `Highlighting::semantic_color` gives a color to.
+pub const SEMANTIC_KINDS: usize = 9;
+
+/// The kind (index < SEMANTIC_KINDS) of a token type and its modifiers, None: left to the syntax.
+pub fn semantic_kind(kind: &str, modifiers: &[&str]) -> Option<u8> {
+    let readonly = modifiers.contains(&"readonly");
+    Some(match kind {
+        "parameter" | "clsParameter" => 0,
+        "property" => {
+            if readonly && modifiers.contains(&"static") {
+                5
+            } else {
+                1
+            }
+        }
+        "function" | "method" => 2,
+        "class" | "type" | "struct" | "enum" | "interface" | "typeParameter" | "builtinType" => 3,
+        "namespace" | "module" => 4,
+        "enumMember" => 5,
+        "variable" if readonly => 5,
+        "macro" => 6,
+        "decorator" => 7,
+        "selfParameter" | "selfKeyword" => 8,
+        _ => return None,
+    })
+}
+
+/// A textDocument/semanticTokens/full answer: (start char, end char, kind) sorted, those Florm colors.
+pub fn parse_semantic_tokens(rope: &Rope, v: &Value, legend: &(Vec<String>, Vec<String>)) -> Vec<(usize, usize, u8)> {
+    let Some(data) = v["data"].as_array() else { return Vec::new() };
+    let nums: Vec<u64> = data.iter().filter_map(Value::as_u64).collect();
+    let (mut line, mut col) = (0usize, 0usize);
+    let mut out = Vec::new();
+    for t in nums.chunks_exact(5) {
+        let (dl, dc, len, ty, mods) = (t[0] as usize, t[1] as usize, t[2] as usize, t[3] as usize, t[4]);
+        if dl > 0 {
+            line += dl;
+            col = dc;
+        } else {
+            col += dc;
+        }
+        let Some(name) = legend.0.get(ty) else { continue };
+        let m: Vec<&str> = legend.1.iter().enumerate().filter(|(k, _)| mods & (1 << k) != 0).map(|(_, n)| n.as_str()).collect();
+        let Some(kind) = semantic_kind(name, &m) else { continue };
+        if line >= rope.len_lines() {
+            break;
+        }
+        // UTF-16 columns to chars
+        let a = from_position(rope, &json!({"line": line, "character": col}));
+        let b = from_position(rope, &json!({"line": line, "character": col + len}));
+        if b > a {
+            out.push((a, b, kind));
+        }
+    }
+    out.sort_by_key(|t| t.0);
     out
 }
 
@@ -891,6 +1018,27 @@ pub fn parse_workspace_edit(v: &Value) -> Vec<(PathBuf, Vec<(Value, String)>)> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn calls_of_a_hierarchy() {
+        let v = json!([{"from": {"name": "caller", "detail": "mod.py", "uri": "file:///p/a.py", "selectionRange": {"start": {"line": 3, "character": 4}}},
+                        "fromRanges": [{"start": {"line": 9, "character": 8}}]}]);
+        assert_eq!(parse_calls(&v, true), vec![("caller — mod.py".to_string(), PathBuf::from("/p/a.py"), 9)]);
+        let v = json!([{"to": {"name": "callee", "uri": "file:///p/b.py", "selectionRange": {"start": {"line": 1, "character": 0}}}, "fromRanges": []}]);
+        assert_eq!(parse_calls(&v, false), vec![("callee".to_string(), PathBuf::from("/p/b.py"), 1)]);
+    }
+
+    #[test]
+    fn semantic_tokens_decoded() {
+        let rope = Rope::from_str("def f(self, x):\n    return é.y\n");
+        let legend = (vec!["function".into(), "parameter".into(), "selfParameter".into(), "variable".into(), "property".into()], vec!["readonly".into()]);
+        // f (function), self (selfParameter), x (parameter), next line: é (variable, ignored), y (property)
+        let v = json!({"data": [0, 4, 1, 0, 0, 0, 2, 4, 2, 0, 0, 6, 1, 1, 0, 1, 11, 1, 3, 0, 0, 2, 1, 4, 0]});
+        assert_eq!(parse_semantic_tokens(&rope, &v, &legend), vec![(4, 5, 2), (6, 10, 8), (12, 13, 0), (29, 30, 1)]);
+        // a readonly variable: a constant
+        let v = json!({"data": [1, 11, 1, 3, 1]});
+        assert_eq!(parse_semantic_tokens(&rope, &v, &legend), vec![(27, 28, 5)]);
+    }
 
     #[test]
     fn inlay_hints_with_their_padding() {
