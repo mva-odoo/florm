@@ -678,8 +678,10 @@ new in it work as they are. Claude's changes are reviewed in the **Git** view.
   waiting for your answer. The status bar says how many are working or waiting.
 - **Sandbox** (Preferences → Claude, on by default): Claude's commands run isolated, they write
   only in the project and the network is filtered. Claude cannot run **any command out of the
-  sandbox**, even in auto mode: what needs it (a `git push` with your SSH key…), you run yourself
-  (`! git push` in Claude, or a terminal). Linux: `bubblewrap` and `socat` packages;
+  sandbox**, even in auto mode, and it has **none of your SSH keys**: neither `~/.ssh` readable nor
+  your SSH agent. What needs them (a `git push`, `ssh`…), Claude hands over to you: **Florm types
+  the command in the terminal of the bottom panel**, without running it; you check it and press
+  **Enter** (or erase it). Linux: `bubblewrap` and `socat` packages;
   macOS: built in (Seatbelt); Windows: not available. Off, there is no sandbox,
   even if your settings of Claude Code turn one on. Changing it needs no restart of Florm: the open
   conversations start again with the new setting (those at work, once they are done). On,

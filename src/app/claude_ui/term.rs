@@ -31,7 +31,7 @@ impl App {
     fn florm_context(&self, dir: &Path) -> String {
         let repo = self.repo_for(dir).unwrap_or_else(|| dir.to_path_buf());
         let branch = git::head_branch(dir).map(|b| (self.repo_label(&repo), b));
-        claude::florm_context(&claude::FlormContext { commit_rules: claude::commit_rules(dir), repo: branch })
+        claude::florm_context(&claude::FlormContext { commit_rules: claude::commit_rules(dir), repo: branch, sandbox: self.settings.claude_sandbox })
     }
 
     /// The terminal of the conversation shown, started if it has none yet: `claude` with the
@@ -49,6 +49,7 @@ impl App {
         let _ = std::fs::create_dir_all(claude_term::dir());
         let _ = std::fs::remove_file(&file);
         let _ = std::fs::remove_file(claude_term::files_of(&file));
+        let _ = std::fs::remove_file(claude_term::runs_of(&file));
         if let Err(e) = std::fs::write(&settings_file, claude_term::settings(&exe, &file, self.settings.claude_sandbox).to_string()) {
             self.claude.term = Some(0);
             self.set_error(tf!("Claude : réglages non écrits ({e})", "Claude: settings not written ({e})"));
@@ -79,6 +80,11 @@ impl App {
         // the conversation in the terminal's history, not in a full screen of its own: the wheel,
         // the scrollbar, Maj+↑ and the search (Ctrl+Maj+F) go through all of it
         env.push(("CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN".to_string(), "1".to_string()));
+        // in the sandbox, no SSH agent: Claude cannot sign with the user's keys (its commands
+        // that need them are handed over to the user: `florm-terminal`)
+        if self.settings.claude_sandbox {
+            env.push(("SSH_AUTH_SOCK".to_string(), String::new()));
+        }
         let ctx = self.egui_ctx.clone();
         match self.term.open_embedded(&ctx, &argv, dir.clone(), &env) {
             Ok(id) => {
@@ -175,6 +181,7 @@ impl App {
         let term = &mut self.term;
         // a notification clicked: its conversation shown, Florm in front
         let mut asked: Option<u64> = None;
+        let mut handed: Vec<String> = Vec::new();
         for (k, c) in std::iter::once(&mut self.claude).chain(self.claude_others.iter_mut()).enumerate() {
             let (Some(id), Some(file)) = (c.term, c.term_file.clone()) else { continue };
             if claude_term::open_asked(&file) {
@@ -186,6 +193,16 @@ impl App {
                 if std::mem::take(&mut c.term_submit) {
                     term.type_text(id, "\r");
                 }
+            }
+            // commands Claude hands over (`florm-terminal`): typed in the user's terminal
+            let runs = claude_term::runs_of(&file);
+            let runs_len = std::fs::metadata(&runs).map_or(0, |m| m.len());
+            if runs_len > c.runs_len {
+                if let Ok(text) = std::fs::read(&runs) {
+                    let new = String::from_utf8_lossy(&text[(c.runs_len as usize).min(text.len())..]).into_owned();
+                    handed.extend(new.lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from));
+                }
+                c.runs_len = runs_len;
             }
             let listed = std::fs::metadata(claude_term::files_of(&file)).map_or(0, |m| m.len());
             // Claude changed files: they are reloaded and Git refreshed
@@ -251,6 +268,14 @@ impl App {
             if st.context > 0 {
                 c.context = (st.context, if st.context > 200_000 { 1_000_000 } else { 200_000 });
             }
+        }
+        // a command Claude cannot run in its sandbox: typed (not run) in the terminal of the
+        // bottom panel, for the user to check and run with Enter
+        for cmd in handed {
+            self.install_type(&cmd, true);
+            self.bottom = Some(BottomTab::Terminal);
+            self.term.want_focus = true;
+            self.set_status(tf!("Claude te demande de lancer : {cmd} — dans le terminal, Entrée pour lancer", "Claude asks you to run: {cmd} — in the terminal, Enter to run it"));
         }
         if let Some(id) = asked {
             self.claude_go_to(id);

@@ -73,6 +73,8 @@ pub(super) struct ClaudeUi {
     /// How much of the file listing the files Claude changed was read (it grows: they are
     /// reloaded, Git refreshed).
     pub(super) changed_len: u64,
+    /// How much of the file of the commands it handed over to the user was read.
+    pub(super) runs_len: u64,
 }
 
 impl ClaudeUi {
@@ -86,6 +88,7 @@ impl ClaudeUi {
         self.term_restart = false;
         // its next `claude` lists them in a file of its own
         self.changed_len = 0;
+        self.runs_len = 0;
     }
 }
 

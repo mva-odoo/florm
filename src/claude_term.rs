@@ -46,6 +46,26 @@ pub fn files_of(file: &Path) -> PathBuf {
     file.with_extension("files")
 }
 
+/// The commands Claude hands to the user (`florm-terminal <command>`, which cannot run in its
+/// sandbox), one a line, appended by its hook: Florm types them in its terminal.
+pub fn runs_of(file: &Path) -> PathBuf {
+    file.with_extension("runs")
+}
+
+/// What Claude runs to hand a command to the user (see `florm_terminal_command`).
+pub const HAND_OVER: &str = "florm-terminal";
+
+/// The command of `florm-terminal <command>` (a Bash call of Claude), if it is one.
+pub fn handed_over(command: &str) -> Option<&str> {
+    let c = command.trim();
+    let rest = c.strip_prefix(HAND_OVER)?;
+    (rest.is_empty() || rest.starts_with(char::is_whitespace)).then(|| rest.trim()).filter(|r| !r.is_empty()).map(|r| {
+        // quoted whole: the quotes are not part of it
+        let q = r.len() >= 2 && ((r.starts_with('\'') && r.ends_with('\'')) || (r.starts_with('"') && r.ends_with('"')));
+        if q { &r[1..r.len() - 1] } else { r }
+    })
+}
+
 /// The file of conversation `key` (its state), and the settings given to its `claude`.
 pub fn files(key: u64) -> (PathBuf, PathBuf) {
     let d = dir();
@@ -101,12 +121,18 @@ pub fn settings(exe: &Path, file: &Path, sandbox: bool) -> Value {
             "Stop": hook("done"),
             // the files it changes: reloaded at once in Florm, listed beside the conversation
             "PostToolUse": [{ "matcher": "Edit|MultiEdit|Write|NotebookEdit", "hooks": [{ "type": "command", "command": format!("\"{exe}\" {HOOK_FLAG} \"{file}\" edit") }] }],
+            // `florm-terminal <command>`: given to the user in Florm's terminal, not run here
+            "PreToolUse": [{ "matcher": "Bash", "hooks": [{ "type": "command", "command": format!("\"{exe}\" {HOOK_FLAG} \"{file}\" run") }] }],
         },
         "statusLine": { "type": "command", "command": format!("\"{exe}\" {STATUS_FLAG} \"{file}\"") },
     });
     // said both ways: off, a sandbox turned on in the user's own settings of Claude Code stays off too;
     // on, no command gets out of it (Claude Code would otherwise ask to run one outside)
-    v["sandbox"] = if sandbox { json!({ "enabled": true, "allowUnsandboxedCommands": false }) } else { json!({ "enabled": false }) };
+    // on, the SSH keys are not readable either (their agent is not given: see `claude_term_start`)
+    v["sandbox"] = if sandbox { json!({ "enabled": true, "allowUnsandboxedCommands": false, "filesystem": { "denyRead": ["~/.ssh"] } }) } else { json!({ "enabled": false }) };
+    if sandbox {
+        v["permissions"] = json!({ "deny": ["Read(~/.ssh/**)", "Edit(~/.ssh/**)"] });
+    }
     v
 }
 
@@ -152,7 +178,21 @@ fn stdin_json() -> Value {
 /// start, after /clear); `edit`: a file changed, appended to `files_of`; the others its state,
 /// what it waits for, and its first message kept as the title.
 pub fn hook(file: &Path, what: &str) {
-    on_event(file, what, &stdin_json());
+    let event = stdin_json();
+    if what == "run" {
+        // a Bash call of Claude: `florm-terminal <command>` is written for Florm, which types it
+        // in the user's terminal, and the call is stopped (exit 2: its reason goes to Claude)
+        if let Some(cmd) = handed_over(event["tool_input"]["command"].as_str().unwrap_or("")) {
+            use std::io::Write;
+            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(runs_of(file)) {
+                let _ = writeln!(f, "{}", cmd.replace('\n', " "));
+            }
+            eprintln!("Florm typed this command in the user's own terminal (outside the sandbox), without running it: the user checks it and presses Enter. Do not run it yourself; wait for the user to tell you how it went.");
+            std::process::exit(2);
+        }
+        return;
+    }
+    on_event(file, what, &event);
 }
 
 fn on_event(file: &Path, what: &str, event: &Value) {
@@ -344,7 +384,14 @@ mod tests {
         // off is said too: the user's own settings cannot turn it back on
         assert!(settings(Path::new("/opt/florm"), &f, false).to_string().contains(r#""sandbox":{"enabled":false}"#));
         let s = settings(Path::new("/opt/florm"), &f, true).to_string();
-        assert!(s.contains(r#"\"/opt/florm\" --claude-hook"#) && s.contains("UserPromptSubmit") && s.contains("SessionStart") && s.contains("SessionEnd") && s.contains(r#""matcher":"Edit|MultiEdit|Write|NotebookEdit""#) && s.contains("statusLine") && s.contains(r#""sandbox":{"allowUnsandboxedCommands":false,"enabled":true}"#), "{s}");
+        assert!(s.contains(r#"\"/opt/florm\" --claude-hook"#) && s.contains("UserPromptSubmit") && s.contains("SessionStart") && s.contains("SessionEnd") && s.contains(r#""matcher":"Edit|MultiEdit|Write|NotebookEdit""#) && s.contains("statusLine") && s.contains(r#""allowUnsandboxedCommands":false,"enabled":true"#) && s.contains(r#""denyRead":["~/.ssh"]"#) && s.contains("Read(~/.ssh/**)") && s.contains(r#""matcher":"Bash""#), "{s}");
+        assert!(!settings(Path::new("/opt/florm"), &f, false).to_string().contains(".ssh"));
+        // `florm-terminal <command>`: the command handed over, quotes taken off; others: none
+        assert_eq!(handed_over("florm-terminal git push origin main"), Some("git push origin main"));
+        assert_eq!(handed_over("  florm-terminal 'ssh prod uptime' "), Some("ssh prod uptime"));
+        assert_eq!(handed_over("florm-terminalx ls"), None);
+        assert_eq!(handed_over("florm-terminal"), None);
+        assert_eq!(handed_over("git push"), None);
         let s = Path::new("/s.json");
         assert_eq!(argv(s, &Start { prompt: Some("fais ça"), ..Default::default() }), ["claude", "--settings", "/s.json", "fais ça"]);
         assert_eq!(argv(s, &Start { session_id: "abc", prompt: Some("ignored"), ..Default::default() }), ["claude", "--settings", "/s.json", "--resume", "abc"]);

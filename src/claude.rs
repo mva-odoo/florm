@@ -24,6 +24,8 @@ pub struct FlormContext {
     pub commit_rules: String,
     /// The repository of the file shown and its branch.
     pub repo: Option<(String, String)>,
+    /// Its commands run in the sandbox (without the user's SSH keys).
+    pub sandbox: bool,
 }
 
 /// The text added to Claude's system prompt (`--append-system-prompt`) from `ctx`, in the
@@ -43,6 +45,12 @@ pub fn florm_context(ctx: &FlormContext) -> String {
     }
     if !here.is_empty() {
         parts.push(tf!("## Où en est l'utilisateur\n{}", "## Where the user is\n{}", here.join(" ; ")));
+    }
+    if ctx.sandbox {
+        parts.push(t!(
+            "## Commandes hors du bac à sable\nTes commandes tournent dans un bac à sable, sans les clés SSH ni les accès de l'utilisateur. Une commande qui en a besoin, ou qui doit sortir du bac à sable (git push / pull / fetch par SSH, ssh, scp, un déploiement…), ne marchera pas ici : ne l'essaie pas et ne demande pas de la taper avec `!`. Lance-la sous la forme `florm-terminal <commande>` (par exemple `florm-terminal git push origin ma-branche`) : Florm la tape dans le terminal de l'utilisateur, qui la relit et la lance lui-même. Puis attends qu'il te dise comment ça s'est passé.",
+            "## Commands outside the sandbox\nYour commands run in a sandbox, without the user's SSH keys nor access. A command that needs them, or has to leave the sandbox (git push / pull / fetch over SSH, ssh, scp, a deployment…), will not work here: do not try it and do not ask to type it with `!`. Run it as `florm-terminal <command>` (for example `florm-terminal git push origin my-branch`): Florm types it in the user's terminal, who checks it and runs it. Then wait for the user to tell you how it went."
+        ).to_string());
     }
     if parts.is_empty() {
         return String::new();
@@ -624,9 +632,13 @@ mod tests {
         let ctx = FlormContext {
             commit_rules: "[TAG] Zone : quoi".into(),
             repo: Some(("shop".into(), "2.0-fix".into())),
+            sandbox: false,
         };
         let t = florm_context(&ctx);
-        assert!(t.contains("[TAG] Zone : quoi") && t.contains("2.0-fix"), "{t}");
+        assert!(t.contains("[TAG] Zone : quoi") && t.contains("2.0-fix") && !t.contains("florm-terminal"), "{t}");
+        // in the sandbox: how to hand a command over to the user
+        let t = florm_context(&FlormContext { sandbox: true, ..Default::default() });
+        assert!(t.contains("florm-terminal <"), "{t}");
     }
 
     #[test]
